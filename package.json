@@ -1,0 +1,32 @@
+{
+  "name": "nuru-place-pathway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Nuru Place Discipleship Pathway — offline-first discipleship platform (mobile + admin web + backend), per the v1.0 Technical Architecture & Build Specification.",
+  "packageManager": "pnpm@9.7.0",
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yaml,yml}\"",
+    "openapi:lint": "pnpm --filter @nuru/shared run openapi:lint",
+    "db:migrate": "pnpm --filter @nuru/backend run migrate:up",
+    "db:migrate:down": "pnpm --filter @nuru/backend run migrate:down",
+    "db:seed": "pnpm --filter @nuru/backend run seed"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "eslint": "^9.7.0",
+    "prettier": "^3.3.3",
+    "turbo": "^2.0.9",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.0.0"
+  }
+}

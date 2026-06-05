@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm --version)",
+      "Bash(corepack --version)",
+      "Bash([ -s \"$HOME/.nvm/nvm.sh\" ])",
+      "Bash(docker info *)",
+      "Bash(lsof -nP -iTCP -sTCP:LISTEN)",
+      "Bash(tail -20 /tmp/pg16.log)",
+      "Bash(sed -n '1,60p' src/config/env.ts)",
+      "Bash(sed -n '1,40p' scripts/seed.mjs)",
+      "Bash(lsof -nP -iTCP:8080 -sTCP:LISTEN)",
+      "Bash(curl -s -m 3 -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:8080/)",
+      "Bash(curl -s -m 3 -o /dev/null -w '%{http_code}' http://localhost:8080__TRACKED_VAR__)",
+      "Bash(cp ~/.zshrc ~/.zshrc.bak.nuru && echo \"backed up -> ~/.zshrc.bak.nuru\")"
+    ]
+  }
+}

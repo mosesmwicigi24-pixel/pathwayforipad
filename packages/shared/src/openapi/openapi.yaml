@@ -1,0 +1,389 @@
+openapi: 3.1.0
+info:
+  title: Nuru Place Pathway API
+  version: "1.0.0"
+  description: >
+    Versioned REST surface over the §2 schema. Every endpoint is stateless,
+    authenticated at the gateway, and idempotent wherever it creates state from a
+    flaky client (spec §3). This document is the versioned contract validated in
+    CI (§1.11, §3.7). The endpoint catalog below is the full v1 surface from §3.3;
+    request/response schemas are filled in incrementally as features land — only
+    the QuizSubmission/QuizResult slice from §3.7 is fleshed out so far.
+servers:
+  - url: https://api.nuruplace.org/v1
+    description: Production (major version in path; additive-only within a major)
+
+tags:
+  - name: auth
+  - name: curriculum
+  - name: progress
+  - name: assessment
+  - name: portal
+  - name: giving
+  - name: certificates
+  - name: system
+
+security:
+  - bearerAuth: []
+
+paths:
+  # --- Authentication & identity (§3.3) ---
+  /auth/oauth/{provider}:
+    post:
+      tags: [auth]
+      summary: Exchange an IdP authorization code for our tokens; provisions on first login.
+      security: []
+      parameters:
+        - { name: provider, in: path, required: true, schema: { type: string, enum: [kingschat, google, apple] } }
+      responses:
+        "200": { description: Token pair issued }
+  /auth/token/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate refresh token; reuse detection revokes the family.
+      security: []
+      responses:
+        "200": { description: New access + refresh pair }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the current refresh-token family.
+      responses:
+        "204": { description: Logged out }
+  /me:
+    get:
+      tags: [auth]
+      summary: Current user profile + enrollment summary + active level.
+      responses:
+        "200": { description: Profile }
+    patch:
+      tags: [auth]
+      summary: Update mutable profile fields with row_version check.
+      responses:
+        "200": { description: Updated }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /me/onboarding:
+    post:
+      tags: [auth]
+      summary: Submit baseline intake + literacy quiz; instantiates enrollment at L1·M1.
+      responses:
+        "201": { description: Enrolled }
+  /me/devices:
+    post:
+      tags: [auth]
+      summary: Register a device + push token; returns a device_id for sync cursors.
+      responses:
+        "201": { description: Device registered }
+
+  # --- Curriculum & content (§3.3) ---
+  /levels:
+    get:
+      tags: [curriculum]
+      summary: The five levels with themes and pass marks.
+      responses:
+        "200": { description: Levels }
+  /levels/{n}/modules:
+    get:
+      tags: [curriculum]
+      summary: Modules for a level; locked ones return metadata + locked:true.
+      parameters:
+        - { name: n, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 5 } }
+      responses:
+        "200": { description: Modules }
+  /modules/{id}:
+    get:
+      tags: [curriculum]
+      summary: Full lesson content + signed media URL.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Module body }
+        "409": { $ref: "#/components/responses/GateLocked" }
+  /scripture:
+    get:
+      tags: [curriculum]
+      summary: Sanitised YouVersion passage by ref + version + language.
+      responses:
+        "200": { description: Passage }
+  /admin/modules/{id}:
+    put:
+      tags: [curriculum]
+      summary: Admin. Edit lesson content/pass mark; writes a new module_versions row.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Updated }
+  /admin/modules/{id}/questions:
+    post:
+      tags: [curriculum]
+      summary: Admin. Add/replace question-bank items.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Saved }
+
+  # --- Progress, assessment & reflections (§3.3) ---
+  /modules/{id}/complete:
+    post:
+      tags: [progress]
+      summary: Mark module complete (idempotent via client_mutation_id); re-evaluates gating.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Completed }
+        "409": { $ref: "#/components/responses/GateLocked" }
+  /modules/{id}/quiz:
+    get:
+      tags: [assessment]
+      summary: Assemble a randomised quiz from the module bank.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Served question set }
+  /modules/{id}/quiz/attempts:
+    post:
+      tags: [assessment]
+      summary: Submit a quiz attempt
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QuizSubmission" }
+      responses:
+        "200":
+          description: Scored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuizResult" }
+        "409": { $ref: "#/components/responses/GateLocked" }
+  /levels/{n}/exam/attempts:
+    post:
+      tags: [assessment]
+      summary: Submit the level exit exam; ≥ pass mark required to proceed.
+      parameters:
+        - { name: n, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Scored }
+  /levels/{n}/reflection:
+    post:
+      tags: [assessment]
+      summary: Submit the descriptive reflection; enqueues to the review queue.
+      parameters:
+        - { name: n, in: path, required: true, schema: { type: integer } }
+      responses:
+        "201": { description: Enqueued }
+  /events/{id}/attendance:
+    post:
+      tags: [progress]
+      summary: Record a QR check-in (idempotent via client_scan_id); validates the scan token.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "201": { description: Checked in }
+
+  # --- Multiplier / admin portal (§3.3) ---
+  /cohorts/{cell_id}/members:
+    get:
+      tags: [portal]
+      summary: Cohort members sorted by e_score asc; scoped to caller's leader_assignments.
+      parameters:
+        - { name: cell_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: sort, in: query, schema: { type: string, enum: [e_score] } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc] } }
+        - { name: band, in: query, schema: { type: string, enum: [thriving, steady, watch, at_risk] } }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { description: Cohort page }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /members/{id}/engagement:
+    get:
+      tags: [portal]
+      summary: A member's Hᵢ/Cᵢ/Aᵢ breakdown + recent signal history.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Breakdown }
+  /reviews:
+    get:
+      tags: [portal]
+      summary: The reflection-review queue for the caller's scope.
+      parameters:
+        - { name: state, in: query, schema: { type: string, enum: [pending, approved, rejected] } }
+      responses:
+        "200": { description: Queue }
+  /reviews/{id}/decision:
+    post:
+      tags: [portal]
+      summary: Approve/reject a reflection; approval flips the level and triggers certificate issuance.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Decision recorded }
+  /relationships:
+    post:
+      tags: [portal]
+      summary: Log a multiplier→disciple edge in the relationship tree.
+      responses:
+        "201": { description: Edge created }
+  /members/{id}/milestones:
+    patch:
+      tags: [portal]
+      summary: Record external milestones (water baptism verified, etc.).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Updated }
+
+  # --- Giving, products & certificates (§3.3) ---
+  /giving/intents:
+    post:
+      tags: [giving]
+      summary: Create a Stripe PaymentIntent (idempotent); returns client secret.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GivingIntentRequest" }
+      responses:
+        "201": { description: Intent created }
+  /giving/history:
+    get:
+      tags: [giving]
+      summary: The caller's own giving/purchase ledger.
+      responses:
+        "200": { description: Ledger }
+  /products:
+    get:
+      tags: [giving]
+      summary: Purchasable media catalogue.
+      responses:
+        "200": { description: Products }
+  /products/{id}/purchase:
+    post:
+      tags: [giving]
+      summary: Buy media; on success grants access via purchases.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Granted }
+  /certificates:
+    get:
+      tags: [certificates]
+      summary: The caller's issued certificates with download URLs.
+      responses:
+        "200": { description: Certificates }
+  /verify/{code}:
+    get:
+      tags: [certificates]
+      summary: Public. Verify a certificate by its printed code.
+      security: []
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Issuance facts + validity }
+
+  # --- Webhooks & sync (system) (§3.3) ---
+  /webhooks/stripe:
+    post:
+      tags: [system]
+      summary: Stripe event receiver; HMAC-verified + idempotent.
+      security: []
+      responses:
+        "200": { description: Acknowledged }
+  /sync/pull:
+    post:
+      tags: [system]
+      summary: Delta pull — cursors in, changed rows + tombstones + new cursors out.
+      responses:
+        "200": { description: Delta }
+  /sync/push:
+    post:
+      tags: [system]
+      summary: Replay the offline mutation queue; per-mutation results.
+      responses:
+        "200": { description: Per-mutation results }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 50, maximum: 200 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+
+  responses:
+    Conflict:
+      description: Optimistic-concurrency clash; current value returned.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    GateLocked:
+      description: Content or action blocked by the gating engine.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ForbiddenScope:
+      description: Authenticated but not authorised for this resource.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            request_id: { type: string }
+            details: { type: object, additionalProperties: true }
+
+    GivingIntentRequest:
+      type: object
+      required: [fund, amount_minor, currency]
+      properties:
+        fund: { type: string, enum: [tithe, offering, general, media] }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+
+    QuizSubmission:
+      type: object
+      required: [client_mutation_id, answers]
+      properties:
+        client_mutation_id: { type: string, format: uuid }
+        answers:
+          type: array
+          items:
+            type: object
+            required: [question_id, given_answer]
+            properties:
+              question_id: { type: string, format: uuid }
+              given_answer: { type: string }
+
+    QuizResult:
+      type: object
+      required: [attempt_id, score_achieved, is_passed, pass_mark]
+      properties:
+        attempt_id: { type: string }
+        score_achieved: { type: number }
+        is_passed: { type: boolean }
+        pass_mark: { type: number }
+        unlocked_next_module_id: { type: [string, "null"] }

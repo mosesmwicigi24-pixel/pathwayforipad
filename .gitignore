@@ -1,0 +1,28 @@
+# deps
+node_modules/
+.pnp.*
+.yarn/*
+
+# build outputs
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# turbo
+.turbo/
+
+# env & secrets (never commit — §5.10)
+.env
+.env.*
+!.env.example
+
+# mobile / expo
+.expo/
+*.keystore
+ios/Pods/
+
+# editor / os
+.DS_Store
+.idea/
+*.log

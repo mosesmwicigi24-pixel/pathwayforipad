@@ -1,0 +1,18 @@
+-- Seed · 45 modules (spec §2.6) — PLACEHOLDER, intentionally NOT loaded.
+--
+-- The spec requires seeding all 45 modules "from the PRD curriculum appendix"
+-- and a CI reference-integrity check asserting exactly 5 levels and 45 modules
+-- with contiguous sequence numbers (§2.6) — the gating engine depends on that
+-- contiguity. The actual lesson content / sequence per level is NOT in this
+-- engineering spec; it lives in the PRD curriculum appendix, which has not been
+-- provided.
+--
+-- ACTION REQUIRED (flagged in README): supply the PRD curriculum appendix, then
+-- replace this file with the real 45-module seed. Until then the contiguity
+-- check (test/reference-integrity.test.ts) is written but skipped so CI stays
+-- green without fabricating curriculum content.
+--
+-- Expected shape once content is available:
+-- INSERT INTO modules (level_number, module_sequence_number, title, lesson_content,
+--                      quiz_pass_mark, is_published)
+-- VALUES (1, 1, '<title>', '<content>', 70.00, TRUE), ... ;

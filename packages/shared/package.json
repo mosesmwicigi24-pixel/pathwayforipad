@@ -1,0 +1,28 @@
+{
+  "name": "@nuru/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./openapi.yaml": "./src/openapi/openapi.yaml"
+  },
+  "files": ["dist", "src/openapi"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "openapi:lint": "redocly lint src/openapi/openapi.yaml"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^1.18.0",
+    "vitest": "^2.0.4"
+  }
+}

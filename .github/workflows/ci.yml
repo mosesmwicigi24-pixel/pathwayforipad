@@ -1,0 +1,79 @@
+name: CI
+
+# Commit stage of the §4.6 pipeline: lint, type-check, unit tests, OpenAPI &
+# migration validation against an ephemeral Postgres. Build/scan/deploy stages
+# (container images, SBOM, canary) are added when a deploy target exists.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nuru
+          POSTGRES_PASSWORD: nuru
+          POSTGRES_DB: nuru_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nuru"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://nuru:nuru@localhost:5432/nuru_test
+      JWT_SIGNING_KEY: ci-test-only
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (shared first, via turbo graph)
+        run: pnpm build
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: OpenAPI contract lint (§1.11, §3.7)
+        run: pnpm openapi:lint
+
+      - name: Migrations apply cleanly on ephemeral Postgres (§2.6)
+        run: pnpm db:migrate
+
+      - name: Migrations are fully reversible (down all → up all)
+        run: |
+          pnpm --filter @nuru/backend exec node-pg-migrate down 0 -m migrations -j sql
+          pnpm db:migrate
+
+      - name: Seed loads (5 levels, 4 funds) (§2.6)
+        run: pnpm db:seed
+
+      - name: Unit + integration tests
+        run: pnpm test
