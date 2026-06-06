@@ -38,26 +38,28 @@ The Figma **remote** MCP server is configured in `.mcp.json`. In a session:
    `get_variable_defs`. (Cursor uses the same server: Settings → MCP →
    `https://mcp.figma.com/mcp`.)
 
-## Running on a simulator (needs the macOS native toolchain)
-The app currently ships JS/TS only — the native `ios/`/`android/` projects are not
-committed. To run on a simulator:
+## Navigation & icons (DONE)
+- **`@react-navigation`** is wired: a native-stack (`Login` · `Tabs` · `Module` ·
+  `Quiz` · `LevelComplete`) hosting a bottom-tab navigator (`Home` · `Giving` ·
+  `Profile`) that renders our Figma-styled custom tab bar. Typed param lists in
+  `navigation/types.ts`; screens use `useNavigation`/`useRoute`.
+- **Icons** are `lucide-react-native` (+ `react-native-svg`): module status
+  (Check/Lock/PlayCircle), back chevrons, tab icons (Home/Heart/User).
+
+## Running on a simulator (the one remaining step — needs the macOS toolchain)
+The JS/RN layer is complete; only the native `ios/`/`android/` host projects are
+not committed (they require Xcode/CocoaPods to build, which can't run in CI here).
+Generate them once on a Mac:
 
 ```bash
-# 1) Generate native projects matching the RN version in packages/mobile/package.json
-npx @react-native-community/cli@latest init NuruPathway --version <rn-version>
-#    then move/merge the generated ios/ + android/ into packages/mobile, or use Expo prebuild.
+# 1) Generate native projects matching the RN version in packages/mobile/package.json (0.74.x)
+npx @react-native-community/cli@latest init NuruPathway --version 0.74.7
+#    Copy the generated ios/ + android/ + index.js + app.json + metro.config.js +
+#    babel.config.js into packages/mobile (set the component name to the App export),
+#    or run `expo prebuild` if you prefer the Expo flow. react-native-screens +
+#    safe-area-context + svg autolink; on iOS run `pod install`.
 
-# 2) Navigation (currently a dependency-free typed navigator in navigation/RootNavigator.tsx,
-#    the documented seam): add the libraries and swap the seam.
-pnpm --filter @nuru/mobile add @react-navigation/native @react-navigation/native-stack \
-  @react-navigation/bottom-tabs react-native-screens react-native-safe-area-context
-#    Bottom tabs map to: Pathway (Home) · Give · Profile; a native-stack hosts Lesson → Quiz.
-
-# 3) Icons (currently glyph placeholders): 
-pnpm --filter @nuru/mobile add lucide-react-native react-native-svg
-#    then replace the glyphs in screens/* with lucide icons.
-
-# 4) Run
+# 2) Run (scripts are already in packages/mobile/package.json)
 cd packages/mobile/ios && pod install && cd -
 pnpm --filter @nuru/mobile ios       # iOS simulator → http://localhost:8080/v1
 pnpm --filter @nuru/mobile android   # Android emulator → use http://10.0.2.2:8080/v1
@@ -69,8 +71,8 @@ pnpm --filter @nuru/mobile android   # Android emulator → use http://10.0.2.2:
   stubbed until provider SDKs land.
 
 ## Deferred (follow-ups)
-- Generate native projects + wire `@react-navigation` (steps above).
-- Swap glyph placeholders for `lucide-react-native` icons.
-- Point screens at the app-wide Redux store / sync provider (Home currently uses a
-  local `InMemoryLocalStore` instance for standalone rendering).
+- Generate the native `ios/`/`android/` host projects (the one step above) to run
+  on a simulator.
 - Subtle motion (RN `Animated`/Reanimated) — current screens are static for clarity.
+- Drive the screens from the live sync engine (currently render from the shared
+  cache; a background reconcile loop can be bootstrapped in `App.tsx`).

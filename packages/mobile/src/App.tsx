@@ -4,6 +4,7 @@
 // before installAuth — kept in-memory by default so this stays import-safe in tests.
 import { useEffect, type ReactElement } from "react";
 import { Provider } from "react-redux";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { store } from "./store/store";
 import { RootNavigator } from "./navigation/RootNavigator";
 import { installAuth } from "./api/client";
@@ -16,7 +17,9 @@ export function App(): ReactElement {
 
   return (
     <Provider store={store}>
-      <RootNavigator initial={{ name: "Login" }} />
+      <SafeAreaProvider>
+        <RootNavigator />
+      </SafeAreaProvider>
     </Provider>
   );
 }

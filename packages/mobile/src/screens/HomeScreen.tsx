@@ -4,12 +4,14 @@
 // (completed / next / locked) on the design system.
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { Pressable, View } from "react-native";
-import { useNavigation } from "../navigation/RootNavigator";
+import { Check, Lock, PlayCircle } from "lucide-react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/types";
 import { getLocalStore } from "../db/localStoreProvider";
 import type { SyncRow } from "../db/localStore";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { Pill, ProgressBar, Screen, T } from "../theme/components";
-import { BottomTabBar } from "../navigation/BottomTabBar";
 
 type Status = "completed" | "next" | "locked";
 
@@ -41,7 +43,7 @@ function toVM(rows: SyncRow[]): ModuleVM[] {
 }
 
 export function HomeScreen(): ReactElement {
-  const nav = useNavigation();
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [modules, setModules] = useState<ModuleVM[]>([]);
   const [syncing, setSyncing] = useState(true);
 
@@ -62,8 +64,7 @@ export function HomeScreen(): ReactElement {
   );
 
   return (
-    <View style={{ flex: 1 }}>
-      <Screen padded={false}>
+    <Screen padded={false}>
       {/* Navy hero */}
       <View style={hero.wrap}>
         <View style={hero.row}>
@@ -115,21 +116,19 @@ export function HomeScreen(): ReactElement {
 
         <View style={{ gap: spacing.md }}>
           {modules.map((m) => (
-            <ModuleCard key={m.id} m={m} onPress={() => nav.navigate({ name: "Module", moduleId: m.id })} />
+            <ModuleCard key={m.id} m={m} onPress={() => nav.navigate("Module", { moduleId: m.id })} />
           ))}
         </View>
 
         <Pressable
           accessibilityRole="button"
-          onPress={() => nav.navigate({ name: "Giving" })}
+          onPress={() => nav.navigate("Tabs", { screen: "Giving" })}
           style={{ marginTop: spacing.lg, alignSelf: "center" }}
         >
           <T tone="secondary" variant="caption">Give →</T>
         </Pressable>
       </View>
-      </Screen>
-      <BottomTabBar active="Home" />
-    </View>
+    </Screen>
   );
 }
 
@@ -156,7 +155,13 @@ function ModuleCard({ m, onPress }: { m: ModuleVM; onPress: () => void }): React
       ]}
     >
       <View style={[card.icon, { backgroundColor: iconBg }]}>
-        <T variant="heading" style={{ color: iconFg }}>{completed ? "✓" : locked ? "•" : "▸"}</T>
+        {completed ? (
+          <Check size={20} color={iconFg} strokeWidth={2.4} />
+        ) : locked ? (
+          <Lock size={18} color={iconFg} strokeWidth={2} />
+        ) : (
+          <PlayCircle size={21} color={iconFg} strokeWidth={2} />
+        )}
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={card.metaRow}>

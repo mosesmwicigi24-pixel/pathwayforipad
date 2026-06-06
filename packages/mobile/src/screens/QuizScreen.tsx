@@ -4,7 +4,10 @@
 // preview, confirmed on sync.
 import { useState, type ReactElement } from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { useNavigation } from "../navigation/RootNavigator";
+import { ChevronLeft } from "lucide-react-native";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 
@@ -15,8 +18,9 @@ const QUESTIONS = [
 ];
 const PASS = 70;
 
-export function QuizScreen({ moduleId }: { moduleId: string }): ReactElement {
-  const nav = useNavigation();
+export function QuizScreen(): ReactElement {
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { moduleId } = useRoute<RouteProp<RootStackParamList, "Quiz">>().params;
   const [q, setQ] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const [answers, setAnswers] = useState<(number | null)[]>(Array(QUESTIONS.length).fill(null));
@@ -63,7 +67,7 @@ export function QuizScreen({ moduleId }: { moduleId: string }): ReactElement {
             Excellent work. Final result is confirmed on sync.
           </T>
           <View style={{ width: "100%", maxWidth: 320, marginTop: spacing.xl }}>
-            <PButton variant="gold" onPress={() => nav.navigate({ name: "Home" })}>Continue pathway</PButton>
+            <PButton variant="gold" onPress={() => nav.navigate("Tabs", { screen: "Home" })}>Continue pathway</PButton>
           </View>
         </View>
       </View>
@@ -82,7 +86,7 @@ export function QuizScreen({ moduleId }: { moduleId: string }): ReactElement {
             You need {PASS}% to pass. Take a moment to review the lesson — you've got this.
           </T>
           <View style={{ width: "100%", maxWidth: 320, marginTop: spacing.xl, gap: spacing.md }}>
-            <PButton variant="primary" onPress={() => nav.navigate({ name: "Module", moduleId })}>Review lesson</PButton>
+            <PButton variant="primary" onPress={() => nav.navigate("Module", { moduleId })}>Review lesson</PButton>
             <PButton variant="ghost" onPress={retry}>Retry quiz</PButton>
           </View>
         </View>
@@ -95,7 +99,7 @@ export function QuizScreen({ moduleId }: { moduleId: string }): ReactElement {
       <View style={{ backgroundColor: palette.navy, paddingTop: 52, paddingHorizontal: spacing.base, paddingBottom: spacing.lg }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
           <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={res.iconBtn}>
-            <T tone="onNavy" variant="heading">‹</T>
+            <ChevronLeft size={20} color={palette.onNavy} />
           </Pressable>
           <View style={{ flex: 1 }}>
             <T variant="micro" tone="onNavyDim" style={{ letterSpacing: 1.2 }}>MODULE QUIZ</T>

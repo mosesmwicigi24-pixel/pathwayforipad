@@ -4,19 +4,23 @@
 // then advances to the quiz.
 import { useState, type ReactElement } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
-import { useNavigation } from "../navigation/RootNavigator";
+import { ChevronLeft } from "lucide-react-native";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 
-export function ModuleScreen({ moduleId }: { moduleId: string }): ReactElement {
-  const nav = useNavigation();
+export function ModuleScreen(): ReactElement {
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { moduleId } = useRoute<RouteProp<RootStackParamList, "Module">>().params;
   const [marked, setMarked] = useState(false);
   const [reflection, setReflection] = useState("");
 
   function complete(): void {
     // engine.enqueue("module_progress", "complete", { module_id, reflection_text, completed_at })
     setMarked(true);
-    setTimeout(() => nav.navigate({ name: "Quiz", moduleId }), 350);
+    setTimeout(() => nav.navigate("Quiz", { moduleId }), 350);
   }
 
   return (
@@ -25,7 +29,7 @@ export function ModuleScreen({ moduleId }: { moduleId: string }): ReactElement {
       <View style={st.header}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
           <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={st.iconBtn}>
-            <T tone="onNavy" variant="heading">‹</T>
+            <ChevronLeft size={20} color={palette.onNavy} />
           </Pressable>
           <View style={{ flex: 1, minWidth: 0 }}>
             <T variant="micro" tone="onNavyDim" style={{ letterSpacing: 1.4 }}>LESSON · MODULE {moduleId.slice(0, 4)}</T>

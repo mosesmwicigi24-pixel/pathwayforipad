@@ -2,8 +2,9 @@
 // certificates + settings, sign out (clears the secure vault → Login).
 import { type ReactElement } from "react";
 import { Pressable, View } from "react-native";
-import { useNavigation } from "../navigation/RootNavigator";
-import { BottomTabBar } from "../navigation/BottomTabBar";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/types";
 import { getVault } from "../auth/vault";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
@@ -16,11 +17,11 @@ const STATS = [
 const SETTINGS = ["Notifications", "Help & Support", "Privacy Policy"];
 
 export function ProfileScreen(): ReactElement {
-  const nav = useNavigation();
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   async function signOut(): Promise<void> {
     await getVault().clear();
-    nav.navigate({ name: "Login" });
+    nav.navigate("Login");
   }
 
   return (
@@ -63,7 +64,7 @@ export function ProfileScreen(): ReactElement {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="View Foundations of Faith certificate"
-                onPress={() => nav.navigate({ name: "LevelComplete" })}
+                onPress={() => nav.navigate("LevelComplete")}
                 style={st.certRow}
               >
                 <View style={st.certIcon}><T style={{ color: palette.gold, fontSize: 18 }}>✦</T></View>
@@ -93,8 +94,6 @@ export function ProfileScreen(): ReactElement {
           <PButton variant="ghost" size="md" onPress={() => void signOut()}>Sign out</PButton>
         </View>
       </View>
-
-      <BottomTabBar active="Profile" />
     </View>
   );
 }

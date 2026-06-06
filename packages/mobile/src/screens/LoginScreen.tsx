@@ -6,14 +6,16 @@ import { useState, type ReactElement } from "react";
 import { View } from "react-native";
 import { NuruApi } from "../api/client";
 import { getVault } from "../auth/vault";
-import { useNavigation } from "../navigation/RootNavigator";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/types";
 import { palette, spacing } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 
 const DEV_STUDENT = "student1@dev.local";
 
 export function LoginScreen(): ReactElement {
-  const nav = useNavigation();
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,7 +25,7 @@ export function LoginScreen(): ReactElement {
     try {
       const tokens = await NuruApi.devLogin(DEV_STUDENT);
       await getVault().setTokens(tokens.access_token, tokens.refresh_token);
-      nav.navigate({ name: "Home" });
+      nav.reset({ index: 0, routes: [{ name: "Tabs" }] });
     } catch {
       setError("Sign-in failed — is the backend running and seeded (pnpm db:seed:dev)?");
     } finally {

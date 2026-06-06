@@ -4,12 +4,14 @@
 // viewing an earned certificate.
 import { type ReactElement } from "react";
 import { View } from "react-native";
-import { useNavigation } from "../navigation/RootNavigator";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 
 export function LevelCompleteScreen(): ReactElement {
-  const nav = useNavigation();
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   return (
     <View style={st.root}>
       <View style={st.center}>
@@ -46,7 +48,7 @@ export function LevelCompleteScreen(): ReactElement {
         <T variant="caption" tone="onNavyFaint" style={{ marginTop: 2 }}>9 modules · approx. 2 hrs</T>
       </View>
 
-      <PButton variant="gold" onPress={() => nav.navigate({ name: "Home" })}>Begin Level 2</PButton>
+      <PButton variant="gold" onPress={() => nav.navigate("Tabs", { screen: "Home" })}>Begin Level 2</PButton>
     </View>
   );
 }

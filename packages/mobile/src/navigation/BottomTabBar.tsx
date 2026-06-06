@@ -1,39 +1,44 @@
-// Bottom tab bar (Figma "BottomTabBar"). Navy bar, gold active icon + label + dot,
-// dim inactive. The three primary destinations map to real screens; deeper tabs
-// (Levels/Calendar) land with @react-navigation in a follow-up.
+// Bottom tab bar (Figma "BottomTabBar") as a custom @react-navigation tabBar.
+// Navy bar, gold active icon + label + indicator dot, dim inactive. Pathway ·
+// Give · Profile.
 import type { ReactElement } from "react";
 import { Pressable, View } from "react-native";
-import { useNavigation, type Route } from "./RootNavigator";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import { Home, Heart, User, type LucideIcon } from "lucide-react-native";
 import { palette, spacing } from "../theme/tokens";
 import { T } from "../theme/components";
 
-type TabId = "Home" | "Giving" | "Profile";
-const TABS: Array<{ id: TabId; label: string; glyph: string }> = [
-  { id: "Home", label: "Pathway", glyph: "◆" },
-  { id: "Giving", label: "Give", glyph: "♥" },
-  { id: "Profile", label: "Profile", glyph: "◐" },
-];
+const META: Record<string, { label: string; Icon: LucideIcon }> = {
+  Home: { label: "Pathway", Icon: Home },
+  Giving: { label: "Give", Icon: Heart },
+  Profile: { label: "Profile", Icon: User },
+};
 
-export function BottomTabBar({ active }: { active: TabId }): ReactElement {
-  const nav = useNavigation();
+export function BottomTabBar({ state, navigation }: BottomTabBarProps): ReactElement {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={st.bar}>
-      {TABS.map((t) => {
-        const on = t.id === active;
+    <View style={[st.bar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+      {state.routes.map((route, i) => {
+        const focused = state.index === i;
+        const meta = META[route.name] ?? { label: route.name, Icon: Home };
+        const color = focused ? palette.gold : palette.onNavyFaint;
+        const onPress = (): void => {
+          const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
+          if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
+        };
         return (
           <Pressable
-            key={t.id}
+            key={route.key}
             accessibilityRole="tab"
-            accessibilityState={{ selected: on }}
-            accessibilityLabel={t.label}
-            onPress={() => {
-              if (!on) nav.navigate({ name: t.id } as Route);
-            }}
+            accessibilityState={{ selected: focused }}
+            accessibilityLabel={meta.label}
+            onPress={onPress}
             style={st.tab}
           >
-            {on ? <View style={st.dot} /> : null}
-            <T style={{ fontSize: 18, color: on ? palette.gold : palette.onNavyFaint }}>{t.glyph}</T>
-            <T variant="micro" style={{ color: on ? palette.gold : palette.onNavyFaint }}>{t.label}</T>
+            {focused ? <View style={st.dot} /> : null}
+            <meta.Icon size={22} color={color} strokeWidth={focused ? 2.2 : 1.8} />
+            <T variant="micro" style={{ color }}>{meta.label}</T>
           </Pressable>
         );
       })}
@@ -50,8 +55,7 @@ const st = {
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.10)",
     paddingTop: spacing.sm,
-    paddingBottom: spacing.lg,
   },
-  tab: { alignItems: "center", justifyContent: "center", gap: 2, paddingHorizontal: spacing.base, height: 48 },
+  tab: { alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: spacing.base, height: 48 },
   dot: { position: "absolute", top: -2, width: 28, height: 3, borderRadius: 2, backgroundColor: palette.gold },
 } as const;

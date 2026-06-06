@@ -4,20 +4,17 @@
 // Elements (later), never by us.
 import { useState, type ReactElement } from "react";
 import { Pressable, View } from "react-native";
-import { useNavigation } from "../navigation/RootNavigator";
 import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { assertOnlineForGiving, getConnectivity } from "../net/connectivity";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
-import { BottomTabBar } from "../navigation/BottomTabBar";
 
 const FUNDS = ["tithe", "offering", "general", "media"] as const;
 const PRESETS = [500, 1000, 2500, 5000];
 const CURRENCY = "KES";
 
 export function GivingScreen(): ReactElement {
-  const nav = useNavigation();
   const [fund, setFund] = useState<(typeof FUNDS)[number]>("tithe");
   const [amount, setAmount] = useState(0); // major units
   const [status, setStatus] = useState<string | null>(null);
@@ -41,15 +38,8 @@ export function GivingScreen(): ReactElement {
     <View style={{ flex: 1, backgroundColor: palette.paper }}>
       {/* Header */}
       <View style={st.header}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={st.iconBtn}>
-            <T tone="onNavy" variant="heading">‹</T>
-          </Pressable>
-          <View>
-            <T variant="title" tone="onNavy">Give</T>
-            <T variant="body" tone="onNavyDim">Sow into the Kingdom</T>
-          </View>
-        </View>
+        <T variant="title" tone="onNavy">Give</T>
+        <T variant="body" tone="onNavyDim">Sow into the Kingdom</T>
       </View>
 
       <View style={{ flex: 1, padding: spacing.screen, gap: spacing.base }}>
@@ -111,7 +101,6 @@ export function GivingScreen(): ReactElement {
           Card details are handled securely by Stripe — never stored by Nuru.
         </T>
       </View>
-      <BottomTabBar active="Giving" />
     </View>
   );
 }
