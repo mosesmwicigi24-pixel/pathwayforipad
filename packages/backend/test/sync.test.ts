@@ -8,18 +8,20 @@ import {
   createEnrollment,
   createModule,
   addQuestion,
+  createEvent,
 } from "./helpers/factories.js";
 import { SyncService } from "../src/modules/sync/service.js";
+import { eventScanToken } from "../src/modules/progress/attendance.js";
 
 const sync = () => new SyncService(testPool());
 const uuid = (n: number) => `00000000-0000-4000-8000-0000000000${String(n).padStart(2, "0")}`;
 
 describe("sync engine (§3.6)", () => {
-  let student: string, l1m1: string, l1m2: string, q: string;
+  let student: string, l1m1: string, l1m2: string, q: string, cong: string;
 
   beforeEach(async () => {
     await resetDb();
-    const cong = await createCongregation();
+    cong = await createCongregation();
     const cell = await createCellGroup(cong);
     student = (await createUser({ congregationId: cong, cellGroupId: cell })).user_id;
     await createEnrollment(student, 1);
@@ -39,6 +41,27 @@ describe("sync engine (§3.6)", () => {
 
     const push2 = await sync().push(student, {
       mutations: [{ mutation_id: uuid(1), seq: 1, domain: "module_progress", op: "complete", payload: { module_id: l1m1 } }],
+    });
+    expect(push2.results[0]).toMatchObject({ status: "duplicate" });
+  });
+
+  it("replays an offline attendance scan, and a re-push is a duplicate (§1.7, §3.6)", async () => {
+    const { event_id, qr_secret } = await createEvent(cong);
+    const token = eventScanToken(qr_secret, event_id);
+
+    const push1 = await sync().push(student, {
+      mutations: [
+        { mutation_id: uuid(20), seq: 1, domain: "attendance", op: "scan", payload: { event_id, scan_token: token } },
+      ],
+    });
+    expect(push1.results[0]).toMatchObject({ status: "applied" });
+    const logged = await testPool().query("SELECT count(*)::int n FROM attendance_logs WHERE user_id=$1", [student]);
+    expect(logged.rows[0].n).toBe(1);
+
+    const push2 = await sync().push(student, {
+      mutations: [
+        { mutation_id: uuid(20), seq: 1, domain: "attendance", op: "scan", payload: { event_id, scan_token: token } },
+      ],
     });
     expect(push2.results[0]).toMatchObject({ status: "duplicate" });
   });

@@ -14,6 +14,7 @@ import { ApiError } from "../../http/errors.js";
 import { ProgressService } from "../progress/service.js";
 import { AssessmentService } from "../assessment/service.js";
 import { ExamService } from "../assessment/exam.js";
+import { AttendanceService } from "../progress/attendance.js";
 
 interface DomainSpec {
   table: string;
@@ -60,11 +61,13 @@ export class SyncService {
   private readonly progress: ProgressService;
   private readonly assessment: AssessmentService;
   private readonly exams: ExamService;
+  private readonly attendance: AttendanceService;
 
   constructor(private readonly pool: Pool) {
     this.progress = new ProgressService(pool);
     this.assessment = new AssessmentService(pool);
     this.exams = new ExamService(pool);
+    this.attendance = new AttendanceService(pool);
   }
 
   /** Delta pull: changed rows + tombstones + new cursors since the client's cursors. */
@@ -178,6 +181,15 @@ export class SyncService {
       }
       case "interaction_events:record":
         return this.recordInteraction(userId, m.mutation_id, p);
+      case "attendance:scan": {
+        // Offline-tolerant QR check-in replay (§1.7, §3.6). Idempotent on the
+        // (user,event) row; the captured scan_token is re-validated server-side.
+        const r = await this.attendance.checkIn(userId, String(p.event_id ?? ""), {
+          client_scan_id: m.mutation_id,
+          scan_token: String(p.scan_token ?? ""),
+        });
+        return r.duplicate;
+      }
       default:
         // Money is never queued offline (§3.6); everything unknown is rejected loudly.
         if (m.domain === "transactions" || m.domain === "giving" || m.domain === "financial") {
