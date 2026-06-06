@@ -790,6 +790,249 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
+  # --- Video pipeline (Features v2 §V) ---
+  /media/{id}/manifest:
+    get:
+      tags: [system]
+      summary: Signed, expiring HLS master-manifest URL (gated like lesson content).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Signed manifest URL }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/GateLocked" }
+  /admin/media/uploads:
+    post:
+      tags: [system]
+      summary: Admin. Create a direct-to-storage upload session (signed PUT URL).
+      responses:
+        "201": { description: Upload session }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/media/uploads/{id}/complete:
+    post:
+      tags: [system]
+      summary: Admin. Mark upload complete; enqueues transcode. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Transcoding }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/media/{id}:
+    get:
+      tags: [system]
+      summary: Admin. Asset status, ladder, duration, error_detail.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Asset }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [system]
+      summary: Admin. Archive an asset (refused if a published module references it).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Archived }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  # --- Calendar (Features v2 §C) ---
+  /calendar:
+    get:
+      tags: [system]
+      summary: Projected occurrences in a bounded window (≤ 92 days), visibility-scoped.
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        "200": { description: Occurrences }
+        "400": { description: Invalid range }
+  /calendar/parse:
+    post:
+      tags: [system]
+      summary: Leader+. NLP quick-add → suggested title/start/end (never auto-creates).
+      responses:
+        "200": { description: Parsed suggestion }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /events/{id}:
+    get:
+      tags: [system]
+      summary: One occurrence — details, RSVP counts, my RSVP.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Event }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /events/{id}/rsvp:
+    post:
+      tags: [system]
+      summary: Set RSVP (idempotent via client_mutation_id; offline-queueable).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: RSVP recorded }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/events/series:
+    post:
+      tags: [system]
+      summary: Leader+/Admin. Create an event series (validated RRULE).
+      responses:
+        "201": { description: Series created }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /admin/events/series/{id}:
+    put:
+      tags: [system]
+      summary: Leader+/Admin. Edit a series (future occurrences).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Updated }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    delete:
+      tags: [system]
+      summary: Leader+/Admin. Soft-delete a series (past occurrences preserved).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Deleted }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/events/series/{id}/exceptions:
+    post:
+      tags: [system]
+      summary: Leader+/Admin. Cancel or reschedule one occurrence.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "201": { description: Exception recorded }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+
+  # --- Onboarding (Features v2 §O) ---
+  /onboarding:
+    get:
+      tags: [auth]
+      summary: Resumable onboarding session state (current step, completed, next required).
+      responses:
+        "200": { description: Session state }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /onboarding/steps/profile:
+    put:
+      tags: [auth]
+      summary: Save profile step (DOB, phone, salvation year, baptism).
+      responses:
+        "200": { description: Saved }
+  /onboarding/steps/cell_selection:
+    put:
+      tags: [auth]
+      summary: Select a cell; derives the congregation.
+      responses:
+        "200": { description: Saved }
+  /onboarding/steps/guardian_consent:
+    put:
+      tags: [auth]
+      summary: Minors only. Record guardian consent (immutable once granted; encrypted contact).
+      responses:
+        "200": { description: Recorded }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /onboarding/literacy-quiz:
+    get:
+      tags: [auth]
+      summary: Serve the literacy assessment items.
+      responses:
+        "200": { description: Items }
+  /onboarding/steps/literacy_quiz:
+    put:
+      tags: [auth]
+      summary: Submit literacy answers (server-scored; idempotent).
+      responses:
+        "200": { description: Scored }
+  /onboarding/steps/notifications:
+    put:
+      tags: [auth]
+      summary: Set quiet hours / opt-in preferences.
+      responses:
+        "200": { description: Saved }
+  /onboarding/finalize:
+    post:
+      tags: [auth]
+      summary: Validate all required steps (consent REQUIRED for minors) → enroll at L1.
+      responses:
+        "201": { description: Enrolled }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /directory/cell-groups:
+    get:
+      tags: [auth]
+      summary: Minimal-field cell directory for selection (auth + rate-limited).
+      parameters:
+        - { name: congregation, in: query, schema: { type: string, format: uuid } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Cells }
+
+  # --- Gamification (Features v2 §G) ---
+  /me/achievements:
+    get:
+      tags: [system]
+      summary: My badges + streak + aggregate stats.
+      responses:
+        "200": { description: Achievements }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /badges:
+    get:
+      tags: [system]
+      summary: Active badge catalog (what's possible).
+      responses:
+        "200": { description: Catalog }
+  /cells/{id}/milestones:
+    get:
+      tags: [system]
+      summary: Aggregate-only cell encouragement (k-anonymity floor; never per-member ranks).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Aggregates }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /members/{id}/achievements:
+    get:
+      tags: [system]
+      summary: Leader-scoped pastoral view of a member's achievements.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Achievements }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/badges:
+    post:
+      tags: [system]
+      summary: Admin. Create a badge (criteria validated against the registered rule schema).
+      responses:
+        "201": { description: Created }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /admin/badges/{code}:
+    delete:
+      tags: [system]
+      summary: Admin. Deactivate a badge (never revokes earned badges).
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Deactivated }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/members/{id}/badges/{code}/revoke:
+    post:
+      tags: [system]
+      summary: Admin. Data-correction revocation (audited, reason required).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Revoked }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # --- Webhooks & sync (system) (§3.3) ---
   /webhooks/stripe:
     post:

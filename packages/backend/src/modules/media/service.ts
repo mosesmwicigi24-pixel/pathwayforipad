@@ -43,4 +43,19 @@ export class MediaService {
       expires_at: new Date(expires * 1000).toISOString(),
     };
   }
+
+  /** A signed, expiring direct-upload (PUT) URL — the server never proxies bytes (§4.5). */
+  signedUploadUrl(objectKey: string, ttlSeconds = 900): { url: string; expires_at: string } {
+    if (!this.cfg) throw new ApiError("UPSTREAM_UNAVAILABLE", "Media delivery is not configured");
+    if (!objectKey) throw new ApiError("VALIDATION_FAILED", "objectKey is required");
+    const expires = Math.floor(this.now() / 1000) + ttlSeconds;
+    const sig = createHmac("sha256", this.cfg.apiSecret)
+      .update(`PUT:${objectKey}:${expires}`)
+      .digest("hex")
+      .slice(0, 32);
+    return {
+      url: `https://upload.cloudinary.com/${this.cfg.cloud}/${objectKey}?expires=${expires}&sig=${sig}&method=put`,
+      expires_at: new Date(expires * 1000).toISOString(),
+    };
+  }
 }

@@ -15,6 +15,10 @@ import { ProgressService } from "../progress/service.js";
 import { AssessmentService } from "../assessment/service.js";
 import { ExamService } from "../assessment/exam.js";
 import { AttendanceService } from "../progress/attendance.js";
+import { VideoService } from "../media/video.js";
+import { MediaService } from "../media/service.js";
+import { CloudinaryProvider } from "../media/pipeline.js";
+import { CalendarService } from "../calendar/service.js";
 
 interface DomainSpec {
   table: string;
@@ -30,6 +34,9 @@ const PULL_DOMAINS: Record<string, DomainSpec> = {
   quiz_attempts: { table: "quiz_attempts", idCol: "attempt_id", scope: "row" },
   level_exam_attempts: { table: "level_exam_attempts", idCol: "exam_attempt_id", scope: "row" },
   enrollments: { table: "enrollments", idCol: "enrollment_id", scope: "user" },
+  video_progress: { table: "video_progress", idCol: "media_asset_id", scope: "user" },
+  event_rsvps: { table: "event_rsvps", idCol: "rsvp_id", scope: "user" },
+  achievements: { table: "user_badges", idCol: "user_badge_id", scope: "user" },
 };
 
 const PAGE = 1000;
@@ -62,12 +69,17 @@ export class SyncService {
   private readonly assessment: AssessmentService;
   private readonly exams: ExamService;
   private readonly attendance: AttendanceService;
+  private readonly video: VideoService;
+  private readonly calendar: CalendarService;
 
   constructor(private readonly pool: Pool) {
     this.progress = new ProgressService(pool);
     this.assessment = new AssessmentService(pool);
     this.exams = new ExamService(pool);
     this.attendance = new AttendanceService(pool);
+    // Progress upsert only needs the pool; media/pipeline deps are unused on this path.
+    this.video = new VideoService(pool, new MediaService(undefined), new CloudinaryProvider());
+    this.calendar = new CalendarService(pool);
   }
 
   /** Delta pull: changed rows + tombstones + new cursors since the client's cursors. */
@@ -181,6 +193,24 @@ export class SyncService {
       }
       case "interaction_events:record":
         return this.recordInteraction(userId, m.mutation_id, p);
+      case "video_progress:update": {
+        // Cross-device resume (§V.2). LWW; idempotent on client_mutation_id.
+        const r = await this.video.upsertProgress(userId, {
+          media_asset_id: String(p.media_asset_id ?? ""),
+          position_sec: Number(p.position_sec ?? 0),
+          completed_pct: Number(p.completed_pct ?? 0),
+          ...(typeof p.client_mutation_id === "string" ? { client_mutation_id: p.client_mutation_id } : {}),
+        });
+        return r.duplicate;
+      }
+      case "event_rsvps:set": {
+        // Offline-queueable RSVP (§C.2). Idempotent on client_mutation_id.
+        const r = await this.calendar.setRsvp(userId, String(p.event_id ?? ""), {
+          status: String(p.status ?? "going") as "going" | "maybe" | "declined",
+          ...(typeof p.client_mutation_id === "string" ? { client_mutation_id: p.client_mutation_id } : {}),
+        });
+        return r.duplicate;
+      }
       case "attendance:scan": {
         // Offline-tolerant QR check-in replay (§1.7, §3.6). Idempotent on the
         // (user,event) row; the captured scan_token is re-validated server-side.
@@ -196,6 +226,10 @@ export class SyncService {
           throw new ApiError("VALIDATION_FAILED", "Financial actions cannot be queued offline", {
             code: "OFFLINE_FORBIDDEN",
           });
+        }
+        // Achievements are server-derived only — no client push path (§G.2).
+        if (m.domain === "achievements") {
+          throw new ApiError("FORBIDDEN_SCOPE", "Achievements cannot be originated by the client");
         }
         throw new ApiError("VALIDATION_FAILED", `Unsupported mutation ${key}`);
     }

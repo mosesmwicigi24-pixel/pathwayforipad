@@ -61,6 +61,7 @@ export class AttendanceService {
       }
 
       await enqueueOutbox(c, "engagement.recompute", { user_id: userId });
+      await enqueueOutbox(c, "gamification.evaluate", { user_id: userId });
       await audit(c, userId, "attendance.checked_in", "events", eventId, {});
       return { attendance_id: row.attendance_id, duplicate: false };
     });

@@ -18,6 +18,7 @@ import { NudgeScanner } from "./workers/nudgeScanner.js";
 import { NotificationService } from "./modules/notifications/service.js";
 import { EngagementService } from "./modules/engagement/service.js";
 import { PartitionMaintenance, refreshMinorFlags } from "./jobs/maintenance.js";
+import { GamificationService } from "./modules/gamification/service.js";
 
 function main(): void {
   const env = loadEnv();
@@ -36,6 +37,7 @@ function main(): void {
   // Daily jobs on cron (server local time). Each guards its own errors.
   const engagement = new EngagementService(db.primary, db.replica);
   const partitions = new PartitionMaintenance(db.primary);
+  const gamification = new GamificationService(db.primary);
   const safe = (label: string, fn: () => Promise<unknown>) => () =>
     void fn().catch((err) => log.error({ err }, `${label} failed`));
 
@@ -43,6 +45,7 @@ function main(): void {
     cron.schedule("0 2 * * *", safe("engagement recompute", () => engagement.runRecompute())),
     cron.schedule("0 3 * * *", safe("partition maintenance", () => partitions.run())),
     cron.schedule("0 4 * * *", safe("is_minor refresh", () => refreshMinorFlags(db.primary))),
+    cron.schedule("0 4 * * *", safe("streak recompute", () => gamification.recomputeActiveStreaks())),
   ];
 
   log.info({ region: env.AWS_REGION, env: env.NODE_ENV }, "nuru worker up");

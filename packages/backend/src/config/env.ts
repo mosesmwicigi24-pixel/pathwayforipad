@@ -41,6 +41,14 @@ const EnvSchema = z.object({
 
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
+
+  // --- Features v2 (App. B additions) ---
+  VIDEO_PROVIDER: z.enum(["cloudinary", "hls"]).default("cloudinary"),
+  VIDEO_MAX_HEIGHT: z.coerce.number().int().positive().default(720),
+  STORAGE_BUCKET_MEDIA: z.string().optional(),
+  CDN_BASE_URL: z.string().optional(),
+  CAL_MATERIALIZE_HORIZON_DAYS: z.coerce.number().int().positive().default(35),
+  CAL_MAX_INSTANCES: z.coerce.number().int().positive().default(500),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
