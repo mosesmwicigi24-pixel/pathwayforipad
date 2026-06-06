@@ -5,15 +5,11 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { Pressable, View } from "react-native";
 import { useNavigation } from "../navigation/RootNavigator";
-import { InMemoryLocalStore } from "../db/inMemoryLocalStore";
+import { getLocalStore } from "../db/localStoreProvider";
 import type { SyncRow } from "../db/localStore";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { Pill, ProgressBar, Screen, T } from "../theme/components";
 import { BottomTabBar } from "../navigation/BottomTabBar";
-
-// In a full build this comes from the app-wide store/sync provider; kept local
-// here so the screen renders standalone.
-const store = new InMemoryLocalStore();
 
 type Status = "completed" | "next" | "locked";
 
@@ -50,10 +46,12 @@ export function HomeScreen(): ReactElement {
   const [syncing, setSyncing] = useState(true);
 
   useEffect(() => {
-    void store.cacheList("modules").then((rows) => {
-      setModules(toVM(rows));
-      setSyncing(false);
-    });
+    void getLocalStore()
+      .cacheList("modules")
+      .then((rows) => {
+        setModules(toVM(rows));
+        setSyncing(false);
+      });
   }, []);
 
   const done = modules.filter((m) => m.status === "completed").length;
