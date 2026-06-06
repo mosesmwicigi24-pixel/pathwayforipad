@@ -14,6 +14,8 @@ import {
   type AccessClaims,
 } from "./tokens.js";
 import type { OAuthProfile } from "./oauth.js";
+import { generateTotpSecret, otpauthUri, verifyTotp } from "./totp.js";
+import { sealSecret, openSecret } from "./secretbox.js";
 
 export interface SessionTokens {
   access_token: string;
@@ -40,7 +42,12 @@ export class IdentityService {
       role: user.role,
       cong: user.congregation_id ?? "",
     });
-    const refresh = await issueRefreshToken(this.pool, user.user_id, this.env, { deviceId });
+    const refresh = await issueRefreshToken(
+      this.pool,
+      user.user_id,
+      this.env,
+      deviceId == null ? {} : { deviceId },
+    );
     return {
       access_token: access,
       refresh_token: refresh.token,
@@ -103,6 +110,90 @@ export class IdentityService {
 
   async logout(rawToken: string): Promise<void> {
     await revokeFamily(this.pool, rawToken);
+  }
+
+  /**
+   * DEV ONLY. Mint a real session for an already-seeded user, bypassing OAuth so
+   * the portal can authenticate locally. Uses the SAME token path as production
+   * (issueSession → signAccessToken + issueRefreshToken) — no parallel logic. The
+   * route is hard-gated to NODE_ENV !== 'production' and never mounted there.
+   */
+  async devLogin(input: { email?: string | undefined; user_id?: string | undefined }): Promise<SessionTokens> {
+    const byId = Boolean(input.user_id);
+    const key = input.user_id ?? input.email;
+    if (!key) throw new ApiError("VALIDATION_FAILED", "email or user_id is required");
+    const user = await maybeOne<UserAuthRow>(
+      this.pool,
+      `SELECT user_id, role, congregation_id FROM users
+        WHERE ${byId ? "user_id = $1" : "email = $1"} AND deleted_at IS NULL`,
+      [key],
+    );
+    if (!user) throw new ApiError("NOT_FOUND", "No such user");
+    return this.issueSession(user);
+  }
+
+  /**
+   * Begin TOTP enrollment (§5.3): generate a secret, seal it at rest, and return
+   * the otpauth:// URI for the authenticator app. The factor is not yet enabled —
+   * it activates only when the first code is verified (verifyMfa), so a dropped
+   * enrollment can never lock the user out of step-up.
+   */
+  async enrollMfa(userId: string): Promise<{ otpauth_uri: string; secret: string }> {
+    const user = await one<{ email: string | null }>(
+      this.pool,
+      `SELECT email FROM users WHERE user_id = $1 AND deleted_at IS NULL`,
+      [userId],
+    );
+    const secret = generateTotpSecret();
+    await this.pool.query(
+      `UPDATE users SET mfa_secret = $1, mfa_enabled = FALSE, mfa_enrolled_at = NULL WHERE user_id = $2`,
+      [sealSecret(secret, this.env.JWT_SIGNING_KEY), userId],
+    );
+    await audit(this.pool, userId, "mfa.enroll_started", "users", userId, {});
+    return { otpauth_uri: otpauthUri(secret, user.email ?? userId), secret };
+  }
+
+  /**
+   * Verify a TOTP code and return an MFA-elevated access token (carries the
+   * mfa/mfa_at claim the requireStepUp guard checks). Confirms enrollment on the
+   * first valid code. The refresh token is unchanged — this elevates the session,
+   * it does not replace it; elevation expires with the short access token.
+   */
+  async verifyMfa(
+    userId: string,
+    code: string,
+  ): Promise<{ access_token: string; token_type: "Bearer"; expires_in: number; mfa_enabled: boolean }> {
+    const row = await one<{
+      role: AccessClaims["role"];
+      congregation_id: string | null;
+      mfa_secret: string | null;
+      mfa_enabled: boolean;
+    }>(
+      this.pool,
+      `SELECT role, congregation_id, mfa_secret, mfa_enabled
+         FROM users WHERE user_id = $1 AND deleted_at IS NULL`,
+      [userId],
+    );
+    if (!row.mfa_secret) throw new ApiError("VALIDATION_FAILED", "MFA is not enrolled");
+    const secret = openSecret(row.mfa_secret, this.env.JWT_SIGNING_KEY);
+    if (!verifyTotp(secret, code)) throw new ApiError("AUTH_REQUIRED", "Invalid MFA code");
+
+    if (!row.mfa_enabled) {
+      await this.pool.query(
+        `UPDATE users SET mfa_enabled = TRUE, mfa_enrolled_at = now() WHERE user_id = $1`,
+        [userId],
+      );
+      await audit(this.pool, userId, "mfa.enabled", "users", userId, {});
+    }
+
+    const access = signAccessToken(this.env, {
+      sub: userId,
+      role: row.role,
+      cong: row.congregation_id ?? "",
+      mfa: true,
+      mfa_at: Math.floor(Date.now() / 1000),
+    });
+    return { access_token: access, token_type: "Bearer", expires_in: this.env.JWT_ACCESS_TTL, mfa_enabled: true };
   }
 
   async getMe(userId: string): Promise<unknown> {
@@ -236,7 +327,7 @@ export class IdentityService {
 
   async registerDevice(
     userId: string,
-    input: { platform: string; app_version?: string; push_token?: string },
+    input: { platform: string; app_version?: string | undefined; push_token?: string | undefined },
   ): Promise<{ device_id: string }> {
     return tx(this.pool, async (c) => {
       const device = await one<{ device_id: string }>(

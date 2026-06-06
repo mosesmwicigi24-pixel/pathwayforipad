@@ -6,6 +6,7 @@
 // forwards. Per-request correlation echoes X-Request-Id (§3.1, §4.7).
 import express, { type Express } from "express";
 import { randomUUID } from "node:crypto";
+import { pinoHttp } from "pino-http";
 import { ApiError } from "./errors.js";
 import type { AppContext } from "./context.js";
 
@@ -23,7 +24,34 @@ import { registerMedia } from "../modules/media/index.js";
 export function createApp(ctx: AppContext): Express {
   const app = express();
   app.disable("x-powered-by");
-  app.use(express.json({ limit: "256kb" })); // payload cap mirrors §5.8 hardening
+
+  // Dev-only CORS so the local portal (:5173) can call the API (:8080). In
+  // production the API gateway terminates CORS (§1.4), so this is never enabled.
+  if (ctx.env.NODE_ENV !== "production") {
+    app.use((req, res, next) => {
+      const origin = req.header("Origin");
+      if (origin) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+        res.setHeader("Vary", "Origin");
+        res.setHeader("Access-Control-Allow-Credentials", "true");
+        res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,PUT,DELETE,OPTIONS");
+        res.setHeader("Access-Control-Allow-Headers", "Authorization,Content-Type,X-Request-Id");
+      }
+      if (req.method === "OPTIONS") {
+        res.sendStatus(204);
+        return;
+      }
+      next();
+    });
+  }
+  // Parse JSON for everything EXCEPT the Stripe webhook, which needs the raw body
+  // bytes for HMAC signature verification (§3.5). That route installs its own
+  // express.raw() parser. Payload cap mirrors §5.8 hardening.
+  const json = express.json({ limit: "256kb" });
+  app.use((req, res, next) => {
+    if (req.path === "/v1/webhooks/stripe") return next();
+    json(req, res, next);
+  });
 
   // Correlation id (§3.1 / §4.7): reuse the gateway's header or mint one.
   app.use((req, res, next) => {
@@ -33,7 +61,22 @@ export function createApp(ctx: AppContext): Express {
     next();
   });
 
+  // Structured per-request logging (§4.7), correlated to the request id.
+  app.use(
+    pinoHttp({
+      logger: ctx.log,
+      genReqId: (_req, res) => String(res.getHeader("X-Request-Id") ?? ""),
+    }),
+  );
+
+  // Liveness: the process is up. Readiness: dependencies (DB) are reachable.
   app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
+  app.get("/readyz", (_req, res) => {
+    ctx.db.primary
+      .query("SELECT 1")
+      .then(() => res.json({ status: "ready" }))
+      .catch(() => res.status(503).json({ status: "degraded" }));
+  });
 
   // Mount the ten logical modules under the versioned base path (§3.1).
   const v1 = express.Router();

@@ -1,0 +1,117 @@
+import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { resetDb, testPool, closeTestPool } from "./helpers/db.js";
+import { testEnv, agent, bearer } from "./helpers/app.js";
+import { createCongregation, createCellGroup, createUser } from "./helpers/factories.js";
+import { IdentityService } from "../src/modules/identity/service.js";
+import {
+  issueRefreshToken,
+  rotateRefreshToken,
+} from "../src/modules/identity/tokens.js";
+
+const env = testEnv();
+const svc = () => new IdentityService(testPool(), env);
+
+describe("identity / auth", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+  afterAll(async () => {
+    await closeTestPool();
+  });
+
+  it("provisions a user on first OAuth login and reuses it on the second", async () => {
+    const profile = { provider: "kingschat", sub: "kc-1", fullName: "Ada", email: "ada@example.com" };
+    const first = await svc().loginWithOAuth(profile);
+    expect(first.access_token).toBeTruthy();
+    expect(first.refresh_token).toBeTruthy();
+
+    const { rows: after1 } = await testPool().query("SELECT count(*)::int n FROM users");
+    expect(after1[0].n).toBe(1);
+
+    await svc().loginWithOAuth(profile); // same sub
+    const { rows: after2 } = await testPool().query("SELECT count(*)::int n FROM users");
+    expect(after2[0].n).toBe(1); // no duplicate
+  });
+
+  it("rotates refresh tokens and detects reuse by revoking the family (§5.3)", async () => {
+    const cong = await createCongregation();
+    const user = await createUser({ congregationId: cong });
+    const issued = await issueRefreshToken(testPool(), user.user_id, env);
+
+    // First rotation succeeds and yields a new token.
+    const r1 = await rotateRefreshToken(testPool(), issued.token, env);
+    expect(r1.userId).toBe(user.user_id);
+    expect(r1.refresh.token).not.toBe(issued.token);
+
+    // Reusing the ORIGINAL (now revoked) token is theft → throws and revokes family.
+    await expect(rotateRefreshToken(testPool(), issued.token, env)).rejects.toThrow();
+
+    // The previously-valid rotated token is now revoked too (family killed).
+    await expect(rotateRefreshToken(testPool(), r1.refresh.token, env)).rejects.toThrow();
+  });
+
+  it("onboarding sets intake fields, derives congregation from the cell, and enrolls at L1", async () => {
+    const cong = await createCongregation();
+    const cell = await createCellGroup(cong, "Cell Z");
+    // provision a bare SSO user (no cong yet)
+    await svc().loginWithOAuth({ provider: "google", sub: "g-1", fullName: "Joon" });
+    const { rows } = await testPool().query("SELECT user_id FROM users LIMIT 1");
+    const userId = rows[0].user_id as string;
+
+    const result = (await svc().onboard(userId, {
+      date_of_birth: "2000-05-01",
+      phone_number: "+254711111111",
+      cell_group_id: cell,
+      is_baptized: true,
+    })) as { current_level: number; already_onboarded: boolean };
+
+    expect(result.current_level).toBe(1);
+    expect(result.already_onboarded).toBe(false);
+
+    const { rows: u } = await testPool().query(
+      "SELECT congregation_id, cell_group_id, is_minor FROM users WHERE user_id=$1",
+      [userId],
+    );
+    expect(u[0].congregation_id).toBe(cong);
+    expect(u[0].cell_group_id).toBe(cell);
+    expect(u[0].is_minor).toBe(false);
+
+    // Idempotent: a second onboarding returns the existing enrollment.
+    const again = (await svc().onboard(userId, {
+      date_of_birth: "2000-05-01",
+      phone_number: "+254711111111",
+      cell_group_id: cell,
+      is_baptized: true,
+    })) as { already_onboarded: boolean };
+    expect(again.already_onboarded).toBe(true);
+  });
+
+  it("updateMe enforces optimistic concurrency (row_version)", async () => {
+    const cong = await createCongregation();
+    const user = await createUser({ congregationId: cong });
+
+    const ok = (await svc().updateMe(user.user_id, {
+      phone_number: "+254799999999",
+      row_version: 1,
+    })) as { row_version: number };
+    expect(ok.row_version).toBe(2);
+
+    // Stale version now fails.
+    await expect(
+      svc().updateMe(user.user_id, { timezone: "Africa/Lagos", row_version: 1 }),
+    ).rejects.toMatchObject({ code: "VERSION_STALE" });
+  });
+
+  it("GET /me requires a token and returns the profile with a valid one", async () => {
+    const cong = await createCongregation();
+    const user = await createUser({ congregationId: cong, fullName: "Mara" });
+
+    await agent().get("/v1/me").expect(401);
+
+    const res = await agent()
+      .get("/v1/me")
+      .set("Authorization", bearer({ sub: user.user_id, role: "Student", cong }))
+      .expect(200);
+    expect(res.body.profile.full_name).toBe("Mara");
+  });
+});

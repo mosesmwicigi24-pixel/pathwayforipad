@@ -4,12 +4,12 @@
 // client-asserted identity.
 //
 // Each provider is an adapter behind this interface so the rest of the system is
-// provider-agnostic and tests can inject a fake. The real KingsChat/Google/Apple
-// adapters (token exchange + signature/issuer validation) are wired here as the
-// IdP credentials are provisioned; until then they throw a clear "not configured"
-// error rather than a silent stub.
+// provider-agnostic and tests can inject a fake. Providers with configured
+// credentials get the generic OIDC adapter (oidc.ts); the rest resolve to a
+// verifier that fails closed with a clear "not configured" error.
 import { ApiError } from "../../http/errors.js";
 import type { Env } from "../../config/env.js";
+import { OidcVerifier } from "./oidc.js";
 
 export interface OAuthProfile {
   provider: string;
@@ -18,9 +18,16 @@ export interface OAuthProfile {
   fullName?: string;
 }
 
+/** Inputs to the server-side authorization-code exchange (§5.3). */
+export interface VerifyParams {
+  code: string;
+  redirectUri?: string; // the client's registered redirect URI
+  codeVerifier?: string; // PKCE verifier, when the client uses PKCE
+}
+
 export interface OAuthVerifier {
   /** Exchange an authorization code for a verified profile. */
-  verify(code: string): Promise<OAuthProfile>;
+  verify(params: VerifyParams): Promise<OAuthProfile>;
 }
 
 export type OAuthRegistry = Map<string, OAuthVerifier>;
@@ -35,14 +42,54 @@ class NotConfiguredVerifier implements OAuthVerifier {
   }
 }
 
-/** Build the provider registry. Real adapters slot in here keyed by provider. */
-export function buildOAuthRegistry(_env: Env): OAuthRegistry {
+interface ProviderCreds {
+  issuer: string | undefined;
+  clientId: string | undefined;
+  clientSecret: string | undefined;
+}
+
+/** Build a generic OIDC adapter when fully configured, else fail-closed. */
+function adapterFor(provider: string, creds: ProviderCreds): OAuthVerifier {
+  if (creds.issuer && creds.clientId && creds.clientSecret) {
+    return new OidcVerifier({
+      provider,
+      issuer: creds.issuer,
+      clientId: creds.clientId,
+      clientSecret: creds.clientSecret,
+    });
+  }
+  return new NotConfiguredVerifier(provider);
+}
+
+/**
+ * Build the provider registry. Google and Apple use their well-known issuers;
+ * KingsChat's issuer is configured (it is assumed OIDC-compatible — §0.3, C.1).
+ */
+export function buildOAuthRegistry(env: Env): OAuthRegistry {
   const reg: OAuthRegistry = new Map();
-  // TODO: replace with real adapters as IdP credentials land. Each validates the
-  // code → token exchange and the token's signature/issuer/audience before
-  // returning an OAuthProfile.
-  reg.set("kingschat", new NotConfiguredVerifier("kingschat"));
-  reg.set("google", new NotConfiguredVerifier("google"));
-  reg.set("apple", new NotConfiguredVerifier("apple"));
+  reg.set(
+    "kingschat",
+    adapterFor("kingschat", {
+      issuer: env.KINGSCHAT_OIDC_ISSUER,
+      clientId: env.KINGSCHAT_OIDC_CLIENT_ID,
+      clientSecret: env.KINGSCHAT_OIDC_SECRET,
+    }),
+  );
+  reg.set(
+    "google",
+    adapterFor("google", {
+      issuer: "https://accounts.google.com",
+      clientId: env.OAUTH_GOOGLE_CLIENT_ID,
+      clientSecret: env.OAUTH_GOOGLE_SECRET,
+    }),
+  );
+  reg.set(
+    "apple",
+    adapterFor("apple", {
+      issuer: "https://appleid.apple.com",
+      clientId: env.OAUTH_APPLE_CLIENT_ID,
+      clientSecret: env.OAUTH_APPLE_SECRET,
+    }),
+  );
   return reg;
 }

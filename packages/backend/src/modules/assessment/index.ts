@@ -1,16 +1,93 @@
 // Module: assessment (spec §1.5)
-// Owns: Randomised quiz assembly, automated scoring, attempt logs, reflection submission & review queue.
-//
-// Logical service boundary in the modular monolith. These seams can later be
-// split into separate deployables without touching the schema, API, or security
-// model (§1.5 deployment note). No feature code yet — only the registration hook.
+// Owns: Randomised quiz assembly, server-side scoring, attempt logs, reflection
+// submission & review queue. Endpoints per §3.3 (assessment).
 import { Router } from "express";
+import { z } from "zod";
 import type { AppContext } from "../../http/context.js";
+import { authenticate, requireRole } from "../../http/auth.js";
+import { handler, parseBody, requirePrincipal } from "../../http/http.js";
+import { AssessmentService } from "./service.js";
+import { ReflectionService } from "./reflection.js";
+import { ExamService } from "./exam.js";
 
 export const assessmentRouter: Router = Router();
 
-/** Mount this module's routes onto the app. Implemented as features land. */
-export function registerAssessment(_ctx: AppContext): Router {
-  // TODO: attach route handlers for the assessment bounded context.
-  return assessmentRouter;
+export function registerAssessment(ctx: AppContext): Router {
+  const svc = new AssessmentService(ctx.db.primary);
+  const reflections = new ReflectionService(ctx.db.primary);
+  const exams = new ExamService(ctx.db.primary);
+  const auth = authenticate(ctx.env);
+  const r = assessmentRouter;
+
+  // Assemble a randomized quiz for an unlocked module (no answers leaked).
+  r.get(
+    "/modules/:id/quiz",
+    auth,
+    handler(async (req, res) => {
+      res.json(await svc.assembleQuiz(requirePrincipal(req).userId, req.params.id ?? ""));
+    }),
+  );
+
+  // Submit answers; scored server-side, returns the result + any unlock.
+  r.post(
+    "/modules/:id/quiz/attempts",
+    auth,
+    handler(async (req, res) => {
+      const sub = parseBody(AssessmentService.QuizSubmission, req.body);
+      res.json(await svc.submitQuiz(requirePrincipal(req).userId, req.params.id ?? "", sub));
+    }),
+  );
+
+  // --- Level exam (§1.9 rule 2) ---
+  r.get(
+    "/levels/:n/exam",
+    auth,
+    handler(async (req, res) => {
+      const n = parseBody(z.coerce.number().int().min(1).max(5), req.params.n);
+      res.json(await exams.assemble(requirePrincipal(req).userId, n));
+    }),
+  );
+
+  r.post(
+    "/levels/:n/exam/attempts",
+    auth,
+    handler(async (req, res) => {
+      const n = parseBody(z.coerce.number().int().min(1).max(5), req.params.n);
+      const sub = parseBody(ExamService.ExamSubmission, req.body);
+      res.json(await exams.submit(requirePrincipal(req).userId, n, sub));
+    }),
+  );
+
+  // --- Reflection submission + review queue (§1.9 rule 3) ---
+  r.post(
+    "/levels/:n/reflection",
+    auth,
+    handler(async (req, res) => {
+      const n = parseBody(z.coerce.number().int().min(1).max(5), req.params.n);
+      const body = parseBody(ReflectionService.SubmitSchema, req.body);
+      res.status(201).json(await reflections.submit(requirePrincipal(req).userId, n, body.reflection_text));
+    }),
+  );
+
+  // Review queue — Instructor+ only, scoped to assigned cohorts (§5.4).
+  r.get(
+    "/reviews",
+    auth,
+    requireRole("Instructor"),
+    handler(async (req, res) => {
+      res.json({ data: await reflections.listPending(requirePrincipal(req)) });
+    }),
+  );
+
+  r.post(
+    "/reviews/:id/decision",
+    auth,
+    requireRole("Instructor"),
+    handler(async (req, res) => {
+      const body = parseBody(ReflectionService.DecisionSchema, req.body);
+      res.json(await reflections.decide(requirePrincipal(req), req.params.id ?? "", body));
+    }),
+  );
+
+  return r;
 }

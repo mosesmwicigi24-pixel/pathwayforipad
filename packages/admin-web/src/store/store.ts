@@ -3,10 +3,14 @@
 // context and server-cache slices are added here as features land.
 import { configureStore } from "@reduxjs/toolkit";
 import { userReducer } from "./userSlice";
+import { authReducer } from "./authSlice";
+import { cohortReducer } from "./cohortSlice";
 
 export const store = configureStore({
   reducer: {
     user: userReducer,
+    auth: authReducer,
+    cohort: cohortReducer,
   },
 });
 

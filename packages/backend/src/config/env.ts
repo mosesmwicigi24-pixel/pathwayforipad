@@ -20,6 +20,15 @@ const EnvSchema = z.object({
   KINGSCHAT_OIDC_CLIENT_ID: z.string().optional(),
   KINGSCHAT_OIDC_SECRET: z.string().optional(),
 
+  // Secondary OAuth/OIDC providers (Appendix B.1). Issuers are well-known
+  // (Google: accounts.google.com, Apple: appleid.apple.com), so only the client
+  // credentials are configured here. Apple's secret is the operator-generated,
+  // periodically-rotated ES256 client-secret JWT (stored by name, never built here).
+  OAUTH_GOOGLE_CLIENT_ID: z.string().optional(),
+  OAUTH_GOOGLE_SECRET: z.string().optional(),
+  OAUTH_APPLE_CLIENT_ID: z.string().optional(),
+  OAUTH_APPLE_SECRET: z.string().optional(),
+
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
 

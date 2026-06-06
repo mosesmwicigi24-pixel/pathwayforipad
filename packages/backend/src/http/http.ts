@@ -2,7 +2,7 @@
 // not catch async throws), Zod body validation → 400 VALIDATION_FAILED, and typed
 // access to the authenticated principal.
 import type { NextFunction, Request, Response } from "express";
-import type { ZodSchema } from "zod";
+import type { ZodTypeAny, output } from "zod";
 import { ApiError } from "./errors.js";
 import type { AccessClaims } from "../modules/identity/tokens.js";
 
@@ -10,6 +10,8 @@ export interface Principal {
   userId: string;
   role: AccessClaims["role"];
   congregationId: string;
+  mfa?: boolean; // a second factor was verified for the presenting token (§5.3)
+  mfaAt?: number; // unix seconds of that verification
 }
 
 // Augment Express Request with our principal.
@@ -36,7 +38,7 @@ export function requirePrincipal(req: Request): Principal {
   return req.principal;
 }
 
-export function parseBody<T>(schema: ZodSchema<T>, body: unknown): T {
+export function parseBody<S extends ZodTypeAny>(schema: S, body: unknown): output<S> {
   const result = schema.safeParse(body);
   if (!result.success) {
     throw new ApiError("VALIDATION_FAILED", "Request body failed validation", {

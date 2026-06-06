@@ -71,6 +71,39 @@ export async function createModule(
   return rows[0]!.module_id;
 }
 
+/** Insert `days` interaction events on distinct recent days (drives the Hᵢ signal). */
+export async function addInteractionDays(userId: string, days: number): Promise<void> {
+  for (let i = 1; i <= days; i++) {
+    await testPool().query(
+      `INSERT INTO interaction_events (user_id, kind, occurred_at, client_event_id)
+       VALUES ($1, 'lesson_open', (CURRENT_DATE - ($2 || ' days')::interval), gen_random_uuid())`,
+      [userId, i],
+    );
+  }
+}
+
+export async function createLeaderAssignment(leaderUserId: string, cellGroupId: string): Promise<string> {
+  const { rows } = await testPool().query<{ assignment_id: string }>(
+    `INSERT INTO leader_assignments (leader_user_id, cell_group_id) VALUES ($1,$2) RETURNING assignment_id`,
+    [leaderUserId, cellGroupId],
+  );
+  return rows[0]!.assignment_id;
+}
+
+export async function createEvent(
+  congregationId: string,
+  opts: { eventId?: string; qrSecret?: string; cellGroupId?: string } = {},
+): Promise<{ event_id: string; qr_secret: string }> {
+  const eventId = opts.eventId ?? "sunday-service";
+  const qrSecret = opts.qrSecret ?? "qr-secret-123";
+  await testPool().query(
+    `INSERT INTO events (event_id, congregation_id, cell_group_id, title, occurs_at, qr_secret)
+     VALUES ($1, $2, $3, 'Service', now(), $4)`,
+    [eventId, congregationId, opts.cellGroupId ?? null, qrSecret],
+  );
+  return { event_id: eventId, qr_secret: qrSecret };
+}
+
 export async function addQuestion(
   moduleId: string,
   correct: string,

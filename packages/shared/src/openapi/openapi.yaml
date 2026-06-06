@@ -27,6 +27,23 @@ security:
   - bearerAuth: []
 
 paths:
+  # --- Health (§4.7) ---
+  /healthz:
+    get:
+      tags: [system]
+      summary: Liveness probe.
+      security: []
+      responses:
+        "200": { description: Process is up }
+  /readyz:
+    get:
+      tags: [system]
+      summary: Readiness probe (checks database reachability).
+      security: []
+      responses:
+        "200": { description: Ready }
+        "503": { description: A dependency is unavailable }
+
   # --- Authentication & identity (§3.3) ---
   /auth/oauth/{provider}:
     post:
@@ -35,45 +52,148 @@ paths:
       security: []
       parameters:
         - { name: provider, in: path, required: true, schema: { type: string, enum: [kingschat, google, apple] } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OAuthExchange" }
       responses:
-        "200": { description: Token pair issued }
+        "200":
+          description: Token pair issued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
   /auth/token/refresh:
     post:
       tags: [auth]
       summary: Rotate refresh token; reuse detection revokes the family.
       security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
       responses:
-        "200": { description: New access + refresh pair }
+        "200":
+          description: New access + refresh pair
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /auth/logout:
     post:
       tags: [auth]
       summary: Revoke the current refresh-token family.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
       responses:
         "204": { description: Logged out }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /auth/dev-login:
+    post:
+      tags: [auth]
+      summary: DEV ONLY. Mint a session for a seeded user by email/user_id. 404 in production (never mounted).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+                user_id: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Token pair issued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /auth/mfa/enroll:
+    post:
+      tags: [auth]
+      summary: Begin TOTP enrollment; returns an otpauth URI for an authenticator app (§5.3).
+      responses:
+        "201":
+          description: Enrollment started (activates on first verify)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MfaEnroll" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /auth/mfa/verify:
+    post:
+      tags: [auth]
+      summary: Verify a TOTP code; returns an MFA-elevated access token for step-up (§5.3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MfaVerify" }
+      responses:
+        "200":
+          description: MFA-elevated access token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MfaElevation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /me:
     get:
       tags: [auth]
       summary: Current user profile + enrollment summary + active level.
       responses:
-        "200": { description: Profile }
+        "200":
+          description: Profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeProfile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
     patch:
       tags: [auth]
       summary: Update mutable profile fields with row_version check.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileUpdate" }
       responses:
-        "200": { description: Updated }
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeProfile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "409": { $ref: "#/components/responses/Conflict" }
   /me/onboarding:
     post:
       tags: [auth]
       summary: Submit baseline intake + literacy quiz; instantiates enrollment at L1·M1.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OnboardingIntake" }
       responses:
         "201": { description: Enrolled }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
   /me/devices:
     post:
       tags: [auth]
       summary: Register a device + push token; returns a device_id for sync cursors.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceRegister" }
       responses:
         "201": { description: Device registered }
+        "401": { $ref: "#/components/responses/Unauthorized" }
 
   # --- Curriculum & content (§3.3) ---
   /levels:
@@ -103,8 +223,26 @@ paths:
     get:
       tags: [curriculum]
       summary: Sanitised YouVersion passage by ref + version + language.
+      parameters:
+        - { name: ref, in: query, required: true, schema: { type: string } }
+        - { name: version, in: query, schema: { type: string } }
+        - { name: language, in: query, schema: { type: string } }
       responses:
-        "200": { description: Passage }
+        "200":
+          description: Passage
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reference, text]
+                properties:
+                  reference: { type: string }
+                  version: { type: string }
+                  language: { type: string }
+                  text: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
   /admin/modules/{id}:
     put:
       tags: [curriculum]
@@ -135,11 +273,18 @@ paths:
   /modules/{id}/quiz:
     get:
       tags: [assessment]
-      summary: Assemble a randomised quiz from the module bank.
+      summary: Assemble a randomised quiz from the module bank (no answers returned).
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
-        "200": { description: Served question set }
+        "200":
+          description: Served question set
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuizAssembly" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/GateLocked" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
   /modules/{id}/quiz/attempts:
     post:
       tags: [assessment]
@@ -157,31 +302,92 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/QuizResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "409": { $ref: "#/components/responses/GateLocked" }
+  /levels/{n}/exam:
+    get:
+      tags: [assessment]
+      summary: Assemble the level exit exam from the level's active question pool.
+      parameters:
+        - { name: n, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Served exam question set
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExamAssembly" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/GateLocked" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
   /levels/{n}/exam/attempts:
     post:
       tags: [assessment]
       summary: Submit the level exit exam; ≥ pass mark required to proceed.
       parameters:
         - { name: n, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QuizSubmission" }
       responses:
-        "200": { description: Scored }
+        "200":
+          description: Scored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExamResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/GateLocked" }
   /levels/{n}/reflection:
     post:
       tags: [assessment]
       summary: Submit the descriptive reflection; enqueues to the review queue.
       parameters:
         - { name: n, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReflectionSubmit" }
       responses:
-        "201": { description: Enqueued }
+        "201":
+          description: Enqueued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReflectionReview" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/GateLocked" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
   /events/{id}/attendance:
     post:
       tags: [progress]
       summary: Record a QR check-in (idempotent via client_scan_id); validates the scan token.
       parameters:
-        - $ref: "#/components/parameters/IdPath"
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client_scan_id, scan_token]
+              properties:
+                client_scan_id: { type: string, format: uuid }
+                scan_token: { type: string }
       responses:
-        "201": { description: Checked in }
+        "201":
+          description: Checked in
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [attendance_id, duplicate]
+                properties:
+                  attendance_id: { type: string, format: uuid }
+                  duplicate: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
 
   # --- Multiplier / admin portal (§3.3) ---
   /cohorts/{cell_id}/members:
@@ -190,13 +396,21 @@ paths:
       summary: Cohort members sorted by e_score asc; scoped to caller's leader_assignments.
       parameters:
         - { name: cell_id, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: sort, in: query, schema: { type: string, enum: [e_score] } }
-        - { name: order, in: query, schema: { type: string, enum: [asc, desc] } }
         - { name: band, in: query, schema: { type: string, enum: [thriving, steady, watch, at_risk] } }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       responses:
-        "200": { description: Cohort page }
+        "200":
+          description: Cohort page (ascending by e_score)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/EngagementBreakdown" } }
+                  next_cursor: { type: [string, "null"] }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
   /members/{id}/engagement:
     get:
@@ -205,7 +419,14 @@ paths:
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
-        "200": { description: Breakdown }
+        "200":
+          description: Breakdown
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EngagementBreakdown" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /reviews:
     get:
       tags: [portal]
@@ -213,29 +434,79 @@ paths:
       parameters:
         - { name: state, in: query, schema: { type: string, enum: [pending, approved, rejected] } }
       responses:
-        "200": { description: Queue }
+        "200":
+          description: Queue
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/ReviewQueueItem" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
   /reviews/{id}/decision:
     post:
       tags: [portal]
       summary: Approve/reject a reflection; approval flips the level and triggers certificate issuance.
       parameters:
         - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReviewDecision" }
       responses:
-        "200": { description: Decision recorded }
+        "200":
+          description: Decision recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReviewDecisionResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
   /relationships:
     post:
       tags: [portal]
       summary: Log a multiplier→disciple edge in the relationship tree.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [disciple_id]
+              properties:
+                disciple_id: { type: string, format: uuid }
+                multiplier_id: { type: string, format: uuid, description: Admin-only; defaults to the caller }
       responses:
-        "201": { description: Edge created }
+        "201":
+          description: Edge created
+          content:
+            application/json:
+              schema: { type: object, required: [tree_id], properties: { tree_id: { type: string, format: uuid } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
   /members/{id}/milestones:
     patch:
       tags: [portal]
       summary: Record external milestones (water baptism verified, etc.).
       parameters:
         - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_baptized: { type: boolean }
+                year_of_salvation: { type: [integer, "null"] }
       responses:
         "200": { description: Updated }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
 
   # --- Giving, products & certificates (§3.3) ---
   /giving/intents:
@@ -248,19 +519,53 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/GivingIntentRequest" }
       responses:
-        "201": { description: Intent created }
+        "201":
+          description: Intent created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GivingIntentResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
   /giving/history:
     get:
       tags: [giving]
       summary: The caller's own giving/purchase ledger.
       responses:
-        "200": { description: Ledger }
+        "200":
+          description: Ledger
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/GivingRecord" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /products:
     get:
       tags: [giving]
       summary: Purchasable media catalogue.
       responses:
-        "200": { description: Products }
+        "200":
+          description: Products
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [product_id, title, price_minor, currency]
+                      properties:
+                        product_id: { type: string, format: uuid }
+                        title: { type: string }
+                        price_minor: { type: integer, format: int64 }
+                        currency: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /products/{id}/purchase:
     post:
       tags: [giving]
@@ -268,13 +573,29 @@ paths:
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
-        "200": { description: Granted }
+        "201":
+          description: Purchase started (access granted on the webhook)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GivingIntentResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
   /certificates:
     get:
       tags: [certificates]
       summary: The caller's issued certificates with download URLs.
       responses:
-        "200": { description: Certificates }
+        "200":
+          description: Certificates
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Certificate" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /verify/{code}:
     get:
       tags: [certificates]
@@ -283,7 +604,33 @@ paths:
       parameters:
         - { name: code, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: Issuance facts + validity }
+        "200":
+          description: Issuance facts + validity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateVerification" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- Media (§4.5) ---
+  /media/url:
+    get:
+      tags: [system]
+      summary: Broker a short-lived signed delivery URL for an object key.
+      parameters:
+        - { name: key, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Signed URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, expires_at]
+                properties:
+                  url: { type: string, format: uri }
+                  expires_at: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
   # --- Webhooks & sync (system) (§3.3) ---
   /webhooks/stripe:
@@ -297,14 +644,34 @@ paths:
     post:
       tags: [system]
       summary: Delta pull — cursors in, changed rows + tombstones + new cursors out.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SyncPullRequest" }
       responses:
-        "200": { description: Delta }
+        "200":
+          description: Delta
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncPullResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /sync/push:
     post:
       tags: [system]
       summary: Replay the offline mutation queue; per-mutation results.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SyncPushRequest" }
       responses:
-        "200": { description: Per-mutation results }
+        "200":
+          description: Per-mutation results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncPushResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
 
 components:
   securitySchemes:
@@ -341,6 +708,26 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing, invalid, or expired credentials.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unprocessable:
+      description: Well-formed but semantically invalid (e.g. unknown cell group).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    UpstreamUnavailable:
+      description: A required dependency (e.g. the IdP) is unreachable or not configured.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: The requested resource does not exist.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
     Error:
@@ -356,13 +743,132 @@ components:
             request_id: { type: string }
             details: { type: object, additionalProperties: true }
 
+    # --- Auth & identity (§3.3, §5.3) ---
+    OAuthExchange:
+      type: object
+      required: [code]
+      description: Server-side authorization-code exchange inputs (§5.3).
+      properties:
+        code: { type: string, minLength: 1 }
+        redirect_uri: { type: string, format: uri }
+        code_verifier: { type: string, minLength: 1, description: PKCE verifier }
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in]
+      properties:
+        access_token: { type: string, description: Short-lived (15-min) access JWT }
+        refresh_token: { type: string, description: Rotating refresh token (returned once) }
+        token_type: { type: string, enum: [Bearer] }
+        expires_in: { type: integer, description: Access-token lifetime in seconds }
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string, minLength: 1 }
+    MeProfile:
+      type: object
+      required: [profile]
+      properties:
+        profile:
+          type: object
+          required: [user_id, full_name, role, congregation_id, row_version]
+          properties:
+            user_id: { type: string, format: uuid }
+            email: { type: [string, "null"] }
+            full_name: { type: string }
+            phone_number: { type: [string, "null"] }
+            date_of_birth: { type: [string, "null"], format: date }
+            year_of_salvation: { type: [integer, "null"] }
+            is_baptized: { type: boolean }
+            cell_group_id: { type: [string, "null"], format: uuid }
+            congregation_id: { type: [string, "null"], format: uuid }
+            role: { type: string, enum: [Student, Instructor, Admin, SuperAdmin] }
+            timezone: { type: string }
+            locale: { type: string }
+            is_minor: { type: boolean }
+            row_version: { type: integer }
+        enrollment:
+          type: [object, "null"]
+          properties:
+            enrollment_id: { type: string, format: uuid }
+            current_level: { type: integer }
+            state: { type: string, enum: [active, paused, completed, withdrawn] }
+            started_at: { type: string, format: date-time }
+    ProfileUpdate:
+      type: object
+      required: [row_version]
+      description: Mutable fields only; role/congregation are not self-writable (§5.4, §5.8).
+      properties:
+        phone_number: { type: string, minLength: 3, maxLength: 32 }
+        cell_group_id: { type: [string, "null"], format: uuid }
+        timezone: { type: string, maxLength: 64 }
+        locale: { type: string, maxLength: 12 }
+        row_version: { type: integer, description: Expected version for optimistic concurrency }
+    OnboardingIntake:
+      type: object
+      required: [date_of_birth, phone_number, cell_group_id]
+      properties:
+        date_of_birth: { type: string, format: date }
+        phone_number: { type: string, minLength: 3, maxLength: 32 }
+        cell_group_id: { type: string, format: uuid }
+        year_of_salvation: { type: integer, minimum: 1900, maximum: 2100 }
+        is_baptized: { type: boolean, default: false }
+        timezone: { type: string, maxLength: 64 }
+    DeviceRegister:
+      type: object
+      required: [platform]
+      properties:
+        platform: { type: string, enum: [ios, android] }
+        app_version: { type: string, maxLength: 20 }
+        push_token: { type: string, maxLength: 512 }
+    MfaEnroll:
+      type: object
+      required: [otpauth_uri, secret]
+      properties:
+        otpauth_uri: { type: string, description: otpauth:// URI for QR provisioning }
+        secret: { type: string, description: base32 TOTP secret (shown once for manual entry) }
+    MfaVerify:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, pattern: "^[0-9]{6,10}$" }
+    MfaElevation:
+      type: object
+      required: [access_token, token_type, expires_in, mfa_enabled]
+      properties:
+        access_token: { type: string, description: Access token carrying the verified mfa claim }
+        token_type: { type: string, enum: [Bearer] }
+        expires_in: { type: integer }
+        mfa_enabled: { type: boolean }
+
     GivingIntentRequest:
       type: object
       required: [fund, amount_minor, currency]
       properties:
         fund: { type: string, enum: [tithe, offering, general, media] }
-        amount_minor: { type: integer, format: int64 }
+        amount_minor: { type: integer, format: int64, description: "Minor units, never floats" }
         currency: { type: string, minLength: 3, maxLength: 3 }
+        idempotency_key: { type: string, minLength: 8, maxLength: 255, description: Client-supplied; replays return the same transaction }
+    GivingIntentResult:
+      type: object
+      required: [transaction_id, status, idempotency_key, reused]
+      properties:
+        transaction_id: { type: string, format: uuid }
+        client_secret: { type: string, description: Stripe PaymentIntent client secret (absent on a reused intent) }
+        status: { type: string, enum: [processing, succeeded, failed, requires_action, refunded] }
+        idempotency_key: { type: string }
+        reused: { type: boolean }
+    GivingRecord:
+      type: object
+      required: [transaction_id, amount_minor, currency, status]
+      properties:
+        transaction_id: { type: string, format: uuid }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string }
+        status: { type: string }
+        fund: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        settled_at: { type: [string, "null"], format: date-time }
 
     QuizSubmission:
       type: object
@@ -387,3 +893,178 @@ components:
         is_passed: { type: boolean }
         pass_mark: { type: number }
         unlocked_next_module_id: { type: [string, "null"] }
+        duplicate: { type: boolean, description: True when a replayed client_mutation_id returned the prior attempt }
+    QuizAssembly:
+      type: object
+      required: [module_id, question_count, questions]
+      properties:
+        module_id: { type: string, format: uuid }
+        question_count: { type: integer }
+        questions:
+          type: array
+          items:
+            type: object
+            required: [question_id, q_type, question_text]
+            properties:
+              question_id: { type: string, format: uuid }
+              q_type: { type: string, enum: [MultipleChoice, TrueFalse, FillInTheBlank] }
+              question_text: { type: string }
+              answer_options: { type: [array, "null"], items: { type: string } }
+    ExamAssembly:
+      type: object
+      required: [level_number, question_count, questions]
+      properties:
+        level_number: { type: integer }
+        question_count: { type: integer }
+        questions:
+          type: array
+          items:
+            type: object
+            required: [question_id, q_type, question_text]
+            properties:
+              question_id: { type: string, format: uuid }
+              q_type: { type: string, enum: [MultipleChoice, TrueFalse, FillInTheBlank] }
+              question_text: { type: string }
+              answer_options: { type: [array, "null"], items: { type: string } }
+    ExamResult:
+      type: object
+      required: [exam_attempt_id, score_achieved, is_passed, pass_mark]
+      properties:
+        exam_attempt_id: { type: string, format: uuid }
+        score_achieved: { type: number }
+        is_passed: { type: boolean }
+        pass_mark: { type: number }
+        duplicate: { type: boolean }
+    ReflectionSubmit:
+      type: object
+      required: [reflection_text]
+      properties:
+        reflection_text: { type: string, minLength: 20, maxLength: 5000 }
+    ReflectionReview:
+      type: object
+      required: [review_id, state, level_number]
+      properties:
+        review_id: { type: string, format: uuid }
+        state: { type: string, enum: [pending, approved, rejected] }
+        level_number: { type: integer }
+    ReviewQueueItem:
+      type: object
+      required: [review_id, user_id, level_number, reflection_text, submitted_at]
+      properties:
+        review_id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        full_name: { type: string }
+        level_number: { type: integer }
+        reflection_text: { type: string }
+        cell_group_id: { type: [string, "null"], format: uuid }
+        submitted_at: { type: string, format: date-time }
+    ReviewDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [approve, reject] }
+        feedback_notes: { type: string, maxLength: 2000 }
+    ReviewDecisionResult:
+      type: object
+      required: [review_id, state, leveled_up]
+      properties:
+        review_id: { type: string, format: uuid }
+        state: { type: string, enum: [approved, rejected] }
+        leveled_up: { type: boolean }
+
+    # --- Offline sync (§3.6) ---
+    SyncPullRequest:
+      type: object
+      properties:
+        device_id: { type: string, format: uuid }
+        cursors:
+          type: object
+          additionalProperties: { type: integer }
+          description: Per-domain last-seen change_id
+    SyncPullResponse:
+      type: object
+      required: [changes, tombstones, cursors]
+      properties:
+        changes:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              required: [op, row]
+              properties:
+                op: { type: string, enum: [upsert] }
+                row: { type: object, additionalProperties: true }
+        tombstones:
+          type: object
+          additionalProperties: { type: array, items: { type: string, format: uuid } }
+        cursors:
+          type: object
+          additionalProperties: { type: integer }
+    SyncPushRequest:
+      type: object
+      required: [mutations]
+      properties:
+        device_id: { type: string, format: uuid }
+        mutations:
+          type: array
+          maxItems: 500
+          items:
+            type: object
+            required: [mutation_id, seq, domain, op]
+            properties:
+              mutation_id: { type: string, format: uuid }
+              seq: { type: integer }
+              domain: { type: string }
+              op: { type: string }
+              payload: { type: object, additionalProperties: true }
+    SyncPushResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            required: [mutation_id, status]
+            properties:
+              mutation_id: { type: string, format: uuid }
+              status: { type: string, enum: [applied, duplicate, rejected] }
+              code: { type: string }
+              detail: { type: string }
+
+    # --- Engagement (§1.8) ---
+    EngagementBreakdown:
+      type: object
+      required: [user_id, h_score, c_score, a_score, e_score, band]
+      properties:
+        user_id: { type: string, format: uuid }
+        full_name: { type: string }
+        h_score: { type: number, description: Habits (0–1) }
+        c_score: { type: number, description: Curriculum (0–1) }
+        a_score: { type: number, description: Attendance (0–1) }
+        e_score: { type: number, description: Composite Eᵢ (0–1) }
+        band: { type: string, enum: [thriving, steady, watch, at_risk] }
+        last_active_days_ago: { type: [integer, "null"] }
+        window_end: { type: string, format: date }
+        computed_at: { type: string, format: date-time }
+
+    # --- Certificates (§5.5) ---
+    Certificate:
+      type: object
+      required: [certificate_id, verification_code, issued_at]
+      properties:
+        certificate_id: { type: string, format: uuid }
+        level_number: { type: [integer, "null"] }
+        verification_code: { type: string }
+        pdf_object_key: { type: string }
+        issued_at: { type: string, format: date-time }
+        download_url: { type: string }
+    CertificateVerification:
+      type: object
+      required: [valid]
+      properties:
+        valid: { type: boolean }
+        recipient_name: { type: string }
+        level_number: { type: [integer, "null"] }
+        issued_at: { type: string, format: date-time }

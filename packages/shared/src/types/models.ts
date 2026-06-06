@@ -44,16 +44,18 @@ export interface User {
   user_id: UUID;
   email: string | null;
   full_name: string;
-  phone_number: string;
-  date_of_birth: ISODate;
+  // nullable during the SSO provisioned-but-not-yet-onboarded window (migration 11)
+  phone_number: string | null;
+  date_of_birth: ISODate | null;
   year_of_salvation: number | null;
   is_baptized: boolean;
   cell_group_id: UUID | null;
-  congregation_id: UUID;
+  congregation_id: UUID | null;
   role: UserRole;
   timezone: string;
   locale: string;
   is_minor: boolean; // derived from date_of_birth (§5.9)
+  row_version: number; // optimistic-concurrency token for profile edits (§1.7)
   created_at: ISODateTime;
   updated_at: ISODateTime;
   deleted_at: ISODateTime | null;

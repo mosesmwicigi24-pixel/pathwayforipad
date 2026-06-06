@@ -19,7 +19,8 @@
     "openapi:lint": "pnpm --filter @nuru/shared run openapi:lint",
     "db:migrate": "pnpm --filter @nuru/backend run migrate:up",
     "db:migrate:down": "pnpm --filter @nuru/backend run migrate:down",
-    "db:seed": "pnpm --filter @nuru/backend run seed"
+    "db:seed": "pnpm --filter @nuru/backend run seed",
+    "db:seed:dev": "pnpm --filter @nuru/backend run seed:dev"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
