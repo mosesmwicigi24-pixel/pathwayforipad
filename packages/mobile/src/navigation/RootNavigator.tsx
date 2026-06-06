@@ -8,13 +8,15 @@ import { HomeScreen } from "../screens/HomeScreen";
 import { ModuleScreen } from "../screens/ModuleScreen";
 import { QuizScreen } from "../screens/QuizScreen";
 import { GivingScreen } from "../screens/GivingScreen";
+import { ProfileScreen } from "../screens/ProfileScreen";
 
 export type Route =
   | { name: "Login" }
   | { name: "Home" }
   | { name: "Module"; moduleId: string }
   | { name: "Quiz"; moduleId: string }
-  | { name: "Giving" };
+  | { name: "Giving" }
+  | { name: "Profile" };
 
 interface Navigation {
   route: Route;
@@ -42,6 +44,8 @@ function renderRoute(route: Route): ReactElement {
       return <QuizScreen moduleId={route.moduleId} />;
     case "Giving":
       return <GivingScreen />;
+    case "Profile":
+      return <ProfileScreen />;
   }
 }
 
