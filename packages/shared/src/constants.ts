@@ -14,7 +14,11 @@ export const ENGAGEMENT = {
   WINDOW_DAYS: 30,
   /** active-day target that saturates Hᵢ (§1.8) */
   HABIT_ACTIVE_DAY_TARGET: 20,
-  /** Cᵢ denominator — total modules in the framework (§1.8) */
+  /**
+   * Cᵢ denominator FALLBACK only. The live denominator is the count of PUBLISHED
+   * modules, computed in the recompute query; this constant is used only when
+   * that count is 0 (e.g. a minimal test DB). (§1.8)
+   */
   CURRICULUM_MODULE_COUNT: 45,
 } as const;
 
@@ -27,12 +31,18 @@ export const ENGAGEMENT_BAND_THRESHOLDS = {
 } as const;
 
 export const CURRICULUM = {
-  LEVEL_COUNT: 5,
-  MODULE_COUNT: 45,
+  /** PRD curriculum shape — informational. Levels/modules are author-driven and
+   *  data-driven at runtime; these are NOT enforced caps. */
+  LEVEL_COUNT: 6,
+  MODULE_COUNT: 51,
   /** default module quiz pass mark, % (§2.2) */
   DEFAULT_QUIZ_PASS_MARK: 70,
   /** default level exam pass mark, % (§1.9) */
   DEFAULT_EXAM_PASS_MARK: 80,
+  /** allowed module gating kinds (§1.9, Phase C) */
+  EVALUATION_KINDS: ["none", "reflection", "quiz", "exit_exam"] as const,
+  /** module lifecycle states */
+  MODULE_STATUSES: ["draft", "published", "archived"] as const,
 } as const;
 
 export const MEDIA = {

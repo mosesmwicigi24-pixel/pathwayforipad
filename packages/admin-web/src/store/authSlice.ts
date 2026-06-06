@@ -4,28 +4,31 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { PortalApi, setAccessToken } from "../api/client";
 import { errorMessage } from "../util/error";
+import { decodeRole } from "../util/jwt";
 
-export const devLogin = createAsyncThunk<{ accessToken: string; email: string }, string, { rejectValue: string }>(
-  "auth/devLogin",
-  async (email, { rejectWithValue }) => {
-    try {
-      const session = await PortalApi.devLogin(email);
-      setAccessToken(session.access_token); // axios sends it on every call
-      return { accessToken: session.access_token, email };
-    } catch (e) {
-      return rejectWithValue(errorMessage(e, "Login failed — check the email is seeded (pnpm db:seed:dev)."));
-    }
-  },
-);
+export const devLogin = createAsyncThunk<
+  { accessToken: string; email: string; role: string | null },
+  string,
+  { rejectValue: string }
+>("auth/devLogin", async (email, { rejectWithValue }) => {
+  try {
+    const session = await PortalApi.devLogin(email);
+    setAccessToken(session.access_token); // axios sends it on every call
+    return { accessToken: session.access_token, email, role: decodeRole(session.access_token) };
+  } catch (e) {
+    return rejectWithValue(errorMessage(e, "Login failed — check the email is seeded (pnpm db:seed:dev)."));
+  }
+});
 
 export interface AuthState {
   accessToken: string | null;
   email: string | null;
+  role: string | null;
   status: "idle" | "loading" | "error";
   error: string | null;
 }
 
-const initialState: AuthState = { accessToken: null, email: null, status: "idle", error: null };
+const initialState: AuthState = { accessToken: null, email: null, role: null, status: "idle", error: null };
 
 const authSlice = createSlice({
   name: "auth",
@@ -34,6 +37,7 @@ const authSlice = createSlice({
     logout(state) {
       state.accessToken = null;
       state.email = null;
+      state.role = null;
       setAccessToken(null);
     },
   },
@@ -46,6 +50,7 @@ const authSlice = createSlice({
         s.status = "idle";
         s.accessToken = a.payload.accessToken;
         s.email = a.payload.email;
+        s.role = a.payload.role;
       })
       .addCase(devLogin.rejected, (s, a) => {
         s.status = "error";

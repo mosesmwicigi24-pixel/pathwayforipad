@@ -367,3 +367,49 @@ The login + offline-sync loop is wired and **proven in Node** (no simulator need
 3. Backend host: iOS simulator uses `http://localhost:8080/v1`; **Android emulator must use `http://10.0.2.2:8080/v1`** — call `configureApiBase("http://10.0.2.2:8080/v1")` on Android.
 4. On device, swap the keychain vault in before `installAuth`: `setVault(new KeychainTokenVault())` (in `App.tsx`).
 5. Dev login uses `student1@dev.local` (from `pnpm db:seed:dev`); the real OAuth buttons are stubbed/disabled until the provider SDKs land.
+
+## Prompt 5 — Curriculum CMS (done — runbook)
+
+Admins now author the **entire** pathway in the portal — no file seeding. The
+source of truth is the database; `seeds/01_levels.sql` only ships the six empty
+levels. Curriculum size is data-driven (the engagement Cᵢ denominator uses the
+live count of *published* modules).
+
+**Author curriculum as an Admin (local):**
+
+1. `pnpm db:migrate && pnpm db:seed:dev` (creates `admin@dev.local`, an Admin).
+2. Start the backend (`pnpm --filter @nuru/backend dev`) and portal
+   (`pnpm --filter @nuru/admin-web dev`); sign in at http://localhost:5173 with
+   `admin@dev.local`. The **Curriculum** tab appears only for Admin/SuperAdmin.
+3. **New level** → title (created as the next contiguous level number).
+4. Expand a level → **New module** → title + evaluation kind
+   (`none` / `reflection` / `quiz` / `exit_exam`). The kind drives gating:
+   - `none`/`exit_exam` → completion unlocks the next module
+   - `reflection` → completion + a submitted reflection
+   - `quiz` → completion + a passing quiz attempt
+5. **Write the lesson** in the split-pane Markdown editor (live sanitized preview).
+6. For a `quiz` module, add questions in the quiz panel (per-type validation;
+   MultipleChoice needs ≥2 options incl. the correct one, etc.).
+7. **Save draft**, then **Publish**. Publish is blocked (with a tooltip) until the
+   module is saved, a quiz module has ≥1 question, and earlier modules in the
+   level are already published (published sequence stays contiguous).
+   Use **History** to view/restore prior versions; **Preview as student** to see
+   exactly what a learner sees. **Unpublish** hides it from students instantly;
+   **delete** archives (soft — never orphans learner progress).
+
+Everything is server-authoritative: the `/v1/admin/*` routes are Admin-only
+(`403 FORBIDDEN_SCOPE` otherwise) and validate server-side; the UI is just an
+affordance.
+
+**Optional importer** (pre-load existing lessons as drafts):
+
+```bash
+# Levels 1–2 import full lesson bodies; Levels 3–6 import titles only.
+# Accepts a .pdf (needs the optional `pdf-parse` dep) or a .txt/.md dump.
+DATABASE_URL=postgres://nuru:nuru@localhost:6432/nuru \
+  pnpm --filter @nuru/backend import:curriculum "./DISCIPLESHIP CLASSES - FULL COURSE.pdf"
+```
+
+Idempotent (upserts by level+sequence), imports everything as **draft**, and
+fabricates **no** quizzes — an Admin reviews and publishes via the CMS. If the
+source file is absent it prints guidance and exits 0.

@@ -7,7 +7,7 @@ import type { Pool } from "pg";
 import { z } from "zod";
 import { many, maybeOne, one, tx, recordChange, audit, type Queryable } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
-import { loadEnrollment, type EnrollmentRef } from "../progress/gating.js";
+import { loadEnrollment, modulePassedPredicate, type EnrollmentRef } from "../progress/gating.js";
 
 const normalize = (s: string): string => s.trim().toLowerCase();
 
@@ -47,10 +47,7 @@ export class ExamService {
             SELECT 1 FROM module_progress mp
               JOIN enrollments e ON e.enrollment_id = mp.enrollment_id
              WHERE e.user_id = $2 AND mp.module_id = m.module_id AND mp.is_completed
-               AND (
-                 NOT EXISTS (SELECT 1 FROM question_bank q WHERE q.module_id = m.module_id AND q.is_active)
-                 OR EXISTS (SELECT 1 FROM quiz_attempts qa WHERE qa.progress_id = mp.progress_id AND qa.is_passed)
-               )
+               AND ${modulePassedPredicate("m", "mp")}
           )`,
       [levelNumber, userId],
     );

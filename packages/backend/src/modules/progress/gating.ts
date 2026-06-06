@@ -39,9 +39,30 @@ export async function loadModule(c: Queryable, moduleId: string): Promise<Module
 }
 
 /**
+ * SQL predicate: is a module "passed" for unlocking the next one (§1.9 Phase C)?
+ * Driven by the module's `evaluation_kind`, given a module row aliased `mod`
+ * (has evaluation_kind, module_id) and its COMPLETED module_progress row aliased
+ * `mp` (has reflection_text, progress_id). Completion is asserted by the caller;
+ * this adds the per-kind requirement:
+ *   none / exit_exam → nothing extra (completion alone unlocks the next)
+ *   reflection       → a reflection was submitted for the module
+ *   quiz             → a passing quiz attempt (or the module has no active questions)
+ */
+export function modulePassedPredicate(mod: string, mp: string): string {
+  return `(CASE ${mod}.evaluation_kind
+      WHEN 'reflection' THEN ${mp}.reflection_text IS NOT NULL
+      WHEN 'quiz' THEN (
+        NOT EXISTS (SELECT 1 FROM question_bank q WHERE q.module_id = ${mod}.module_id AND q.is_active)
+        OR EXISTS (SELECT 1 FROM quiz_attempts qa WHERE qa.progress_id = ${mp}.progress_id AND qa.is_passed)
+      )
+      ELSE TRUE
+    END)`;
+}
+
+/**
  * Is `module` unlocked for `enrollment`? Enforces the hard lock (level ceiling)
- * and the sequential-prerequisite rule (previous module completed AND its quiz
- * passed). The first module of an unlocked level is always open.
+ * and the sequential-prerequisite rule (previous module completed AND, per its
+ * evaluation_kind, passed). The first module of an unlocked level is always open.
  */
 export async function isModuleUnlocked(
   c: Queryable,
@@ -58,7 +79,7 @@ export async function isModuleUnlocked(
   const row = await maybeOne<{ unlocked: boolean }>(
     c,
     `WITH prereq AS (
-        SELECT m2.module_id
+        SELECT m2.module_id, m2.evaluation_kind
           FROM modules m1
           JOIN modules m2
             ON m2.level_number = m1.level_number
@@ -71,10 +92,7 @@ export async function isModuleUnlocked(
          JOIN prereq p ON p.module_id = mp.module_id
         WHERE mp.enrollment_id = $2
           AND mp.is_completed
-          AND (
-            NOT EXISTS (SELECT 1 FROM question_bank q WHERE q.module_id = mp.module_id AND q.is_active)
-            OR EXISTS (SELECT 1 FROM quiz_attempts qa WHERE qa.progress_id = mp.progress_id AND qa.is_passed)
-          )
+          AND ${modulePassedPredicate("p", "mp")}
      ) AS unlocked`,
     [module.module_id, enrollment.enrollment_id],
   );

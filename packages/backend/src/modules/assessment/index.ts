@@ -43,7 +43,7 @@ export function registerAssessment(ctx: AppContext): Router {
     "/levels/:n/exam",
     auth,
     handler(async (req, res) => {
-      const n = parseBody(z.coerce.number().int().min(1).max(5), req.params.n);
+      const n = parseBody(z.coerce.number().int().min(1), req.params.n);
       res.json(await exams.assemble(requirePrincipal(req).userId, n));
     }),
   );
@@ -52,7 +52,7 @@ export function registerAssessment(ctx: AppContext): Router {
     "/levels/:n/exam/attempts",
     auth,
     handler(async (req, res) => {
-      const n = parseBody(z.coerce.number().int().min(1).max(5), req.params.n);
+      const n = parseBody(z.coerce.number().int().min(1), req.params.n);
       const sub = parseBody(ExamService.ExamSubmission, req.body);
       res.json(await exams.submit(requirePrincipal(req).userId, n, sub));
     }),
@@ -63,7 +63,7 @@ export function registerAssessment(ctx: AppContext): Router {
     "/levels/:n/reflection",
     auth,
     handler(async (req, res) => {
-      const n = parseBody(z.coerce.number().int().min(1).max(5), req.params.n);
+      const n = parseBody(z.coerce.number().int().min(1), req.params.n);
       const body = parseBody(ReflectionService.SubmitSchema, req.body);
       res.status(201).json(await reflections.submit(requirePrincipal(req).userId, n, body.reflection_text));
     }),

@@ -22,6 +22,7 @@ export class ProgressService {
     moduleId: string,
     clientMutationId: string | null,
     completedAt?: string,
+    reflectionText?: string,
   ): Promise<CompleteResult> {
     return tx(this.pool, async (c) => {
       // Offline idempotency: a replayed mutation id is a no-op returning the prior result.
@@ -55,15 +56,16 @@ export class ProgressService {
       // Forward-only upsert: completion only moves forward (§1.7 monotonic merge).
       const row = await one<{ progress_id: string; is_completed: boolean }>(
         c,
-        `INSERT INTO module_progress (enrollment_id, module_id, is_completed, completed_at, client_mutation_id)
-         VALUES ($1,$2,TRUE,$3,$4)
+        `INSERT INTO module_progress (enrollment_id, module_id, is_completed, completed_at, client_mutation_id, reflection_text)
+         VALUES ($1,$2,TRUE,$3,$4,$5)
          ON CONFLICT (enrollment_id, module_id) DO UPDATE
            SET is_completed = TRUE,
                completed_at = COALESCE(module_progress.completed_at, EXCLUDED.completed_at),
                client_mutation_id = COALESCE(module_progress.client_mutation_id, EXCLUDED.client_mutation_id),
+               reflection_text = COALESCE(EXCLUDED.reflection_text, module_progress.reflection_text),
                row_version = module_progress.row_version + 1
          RETURNING progress_id, is_completed`,
-        [enrollment.enrollment_id, moduleId, completedAt ?? new Date().toISOString(), clientMutationId],
+        [enrollment.enrollment_id, moduleId, completedAt ?? new Date().toISOString(), clientMutationId, reflectionText ?? null],
       );
 
       await recordChange(c, "module_progress", row.progress_id, userId, "upsert");

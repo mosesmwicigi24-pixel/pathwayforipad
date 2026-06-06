@@ -158,6 +158,7 @@ export class SyncService {
           moduleId,
           m.mutation_id,
           typeof p.completed_at === "string" ? p.completed_at : undefined,
+          typeof p.reflection_text === "string" ? p.reflection_text : undefined,
         );
         return r.duplicate;
       }

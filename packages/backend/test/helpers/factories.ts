@@ -61,12 +61,25 @@ export async function createEnrollment(userId: string, currentLevel = 1): Promis
 export async function createModule(
   level: number,
   seq: number,
-  opts: { title?: string; quizPassMark?: number; published?: boolean } = {},
+  opts: {
+    title?: string;
+    quizPassMark?: number;
+    published?: boolean;
+    evaluationKind?: "none" | "reflection" | "quiz" | "exit_exam";
+  } = {},
 ): Promise<string> {
   const { rows } = await testPool().query<{ module_id: string }>(
-    `INSERT INTO modules (level_number, module_sequence_number, title, lesson_content, quiz_pass_mark, is_published)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING module_id`,
-    [level, seq, opts.title ?? `L${level} M${seq}`, "content", opts.quizPassMark ?? 70, opts.published ?? true],
+    `INSERT INTO modules (level_number, module_sequence_number, title, lesson_content, quiz_pass_mark, status, evaluation_kind)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING module_id`,
+    [
+      level,
+      seq,
+      opts.title ?? `L${level} M${seq}`,
+      "content",
+      opts.quizPassMark ?? 70,
+      (opts.published ?? true) ? "published" : "draft",
+      opts.evaluationKind ?? "quiz",
+    ],
   );
   return rows[0]!.module_id;
 }

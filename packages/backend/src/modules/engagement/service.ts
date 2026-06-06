@@ -8,10 +8,15 @@
 // (§2.5) — embedded here so the recompute needs no filesystem access at runtime.
 // Keep the two in lockstep.
 import type { Pool } from "pg";
+import { ENGAGEMENT } from "@nuru/shared";
 import { many, maybeOne } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 import { assertCellInScope } from "../../http/auth.js";
 import type { Principal } from "../../http/http.js";
+
+// Cᵢ denominator: the LIVE count of published modules; falls back to the
+// documented constant only when there are none (e.g. a minimal test DB) (§1.8).
+const PUBLISHED_MODULE_COUNT = `COALESCE(NULLIF((SELECT count(*) FROM modules WHERE status = 'published'), 0), ${ENGAGEMENT.CURRICULUM_MODULE_COUNT})`;
 
 // §2.5 reference query → (user_id, cell_group_id, h_score, c_score, a_score, e_score).
 const AGGREGATION = `
@@ -21,7 +26,7 @@ WITH hab AS (
    WHERE occurred_at >= (CURRENT_DATE - INTERVAL '30 days')
    GROUP BY user_id),
 cur AS (
-  SELECT e.user_id, LEAST(1.0, COUNT(*) FILTER (WHERE mp.is_completed) / 45.0) AS c
+  SELECT e.user_id, LEAST(1.0, COUNT(*) FILTER (WHERE mp.is_completed)::numeric / ${PUBLISHED_MODULE_COUNT}) AS c
     FROM enrollments e JOIN module_progress mp USING (enrollment_id) GROUP BY e.user_id),
 att AS (
   SELECT u.user_id, LEAST(1.0, COUNT(al.*)::numeric / GREATEST(cg.meeting_cadence, 1)) AS a

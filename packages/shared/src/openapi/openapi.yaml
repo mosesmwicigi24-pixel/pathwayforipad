@@ -206,7 +206,7 @@ paths:
   /levels:
     get:
       tags: [curriculum]
-      summary: The five levels with themes and pass marks.
+      summary: The discipleship levels with themes and pass marks.
       responses:
         "200": { description: Levels }
   /levels/{n}/modules:
@@ -214,7 +214,7 @@ paths:
       tags: [curriculum]
       summary: Modules for a level; locked ones return metadata + locked:true.
       parameters:
-        - { name: n, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 5 } }
+        - { name: n, in: path, required: true, schema: { type: integer, minimum: 1 } }
       responses:
         "200": { description: Modules }
   /modules/{id}:
@@ -250,22 +250,173 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
-  /admin/modules/{id}:
+  # --- Admin curriculum CMS (Admin/SuperAdmin only, §5.4) ---
+  /admin/levels:
+    get:
+      tags: [curriculum]
+      summary: Admin. All levels with per-status module counts.
+      responses:
+        "200": { description: Levels }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [curriculum]
+      summary: Admin. Create the next contiguous level.
+      responses:
+        "201": { description: Created }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/levels/{n}:
     put:
       tags: [curriculum]
-      summary: Admin. Edit lesson content/pass mark; writes a new module_versions row.
+      summary: Admin. Update a level's title/theme/pass mark.
+      parameters:
+        - { name: n, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Updated }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/levels/{n}/exam:
+    put:
+      tags: [curriculum]
+      summary: Admin. Configure the level exit exam (pass mark + served question count).
+      parameters:
+        - { name: n, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Configured }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/levels/{n}/modules:
+    get:
+      tags: [curriculum]
+      summary: Admin. All modules for a level incl. drafts/archived, in sequence.
+      parameters:
+        - { name: n, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Modules }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/modules:
+    post:
+      tags: [curriculum]
+      summary: Admin. Create a module (auto-appended sequence); 409 on sequence clash.
+      responses:
+        "201": { description: Created }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /admin/modules/{id}:
+    get:
+      tags: [curriculum]
+      summary: Admin. Full module record incl. content + current version.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Module }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [curriculum]
+      summary: Admin. Edit any field; content edits version the module (optimistic-concurrency).
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
         "200": { description: Updated }
-  /admin/modules/{id}/questions:
-    post:
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
       tags: [curriculum]
-      summary: Admin. Add/replace question-bank items.
+      summary: Admin. Archive (soft) a module; never hard-deleted.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
-        "200": { description: Saved }
+        "200": { description: Archived }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/modules/{id}/publish:
+    post:
+      tags: [curriculum]
+      summary: Admin. Publish with validation (quiz needs questions; sequence stays contiguous).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Published }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /admin/modules/{id}/unpublish:
+    post:
+      tags: [curriculum]
+      summary: Admin. Return a module to draft (immediately hidden from students).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Unpublished }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/modules/{id}/reorder:
+    post:
+      tags: [curriculum]
+      summary: Admin. Move a module within its level; re-sequences atomically.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Reordered }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/modules/{id}/versions:
+    get:
+      tags: [curriculum]
+      summary: Admin. Module version history (who/when/version).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Versions }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/modules/{id}/revert:
+    post:
+      tags: [curriculum]
+      summary: Admin. Restore a prior version as a new version.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Reverted }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/modules/{id}/questions:
+    get:
+      tags: [curriculum]
+      summary: Admin. Active question bank for a module.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Questions }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [curriculum]
+      summary: Admin. Add question-bank items (per-type validation).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "201": { description: Saved }
+        "400": { description: Validation failed }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/questions/{qid}:
+    put:
+      tags: [curriculum]
+      summary: Admin. Edit a question (per-type validation on the merged result).
+      parameters:
+        - { name: qid, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Updated }
+        "400": { description: Validation failed }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    delete:
+      tags: [curriculum]
+      summary: Admin. Soft-delete (deactivate) a question.
+      parameters:
+        - { name: qid, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Deleted }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/preview:
+    post:
+      tags: [curriculum]
+      summary: Admin. Render authored Markdown to sanitized HTML for preview.
+      responses:
+        "200": { description: Sanitized HTML }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
 
   # --- Progress, assessment & reflections (§3.3) ---
   /modules/{id}/complete:

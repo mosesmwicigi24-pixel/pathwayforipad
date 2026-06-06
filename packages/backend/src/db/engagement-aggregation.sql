@@ -10,8 +10,10 @@ hab AS ( -- Hᵢ: active days / 20, capped
          LEAST(1.0, COUNT(DISTINCT date_trunc('day', occurred_at)) / 20.0) AS h
   FROM interaction_events, win
   WHERE occurred_at >= win.lo GROUP BY user_id),
-cur AS ( -- Cᵢ: completed modules / 45
-  SELECT e.user_id, LEAST(1.0, COUNT(*) FILTER (WHERE mp.is_completed) / 45.0) AS c
+cur AS ( -- Cᵢ: completed modules / live published-module count (fallback 45)
+  SELECT e.user_id,
+         LEAST(1.0, COUNT(*) FILTER (WHERE mp.is_completed)::numeric
+               / COALESCE(NULLIF((SELECT count(*) FROM modules WHERE status = 'published'), 0), 45)) AS c
   FROM enrollments e JOIN module_progress mp USING (enrollment_id) GROUP BY e.user_id),
 att AS ( -- Aᵢ: checkins / cell cadence, capped
   SELECT u.user_id,
