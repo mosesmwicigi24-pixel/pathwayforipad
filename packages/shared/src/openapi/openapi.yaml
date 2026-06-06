@@ -38,11 +38,18 @@ paths:
   /readyz:
     get:
       tags: [system]
-      summary: Readiness probe (checks database reachability).
+      summary: Readiness probe (checks database and, when configured, Redis reachability).
       security: []
       responses:
         "200": { description: Ready }
         "503": { description: A dependency is unavailable }
+  /metrics:
+    get:
+      tags: [system]
+      summary: RED-style request metrics snapshot (count, errors, latency by status class).
+      security: []
+      responses:
+        "200": { description: Metrics snapshot }
 
   # --- Authentication & identity (§3.3) ---
   /auth/oauth/{provider}:

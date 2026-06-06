@@ -297,6 +297,58 @@ how to run just the worker (pnpm --filter @nuru/backend worker), and what each s
 does + its cadence. Definition of done: typecheck, lint, test, openapi:lint all green.
 ```
 
+### Prompt 4 — done (runbook)
+
+The API is now a stateless HTTP process (`src/index.ts`) and all background work lives
+in a separate worker process (`src/worker.ts`). Both build from one Docker image.
+
+**Run the whole stack (Postgres 16 + Redis 7 + PgBouncer + API + worker):**
+
+```bash
+docker compose up --build
+# migrations + dev seed run automatically (one-shot `migrate` service) before
+# api/worker start. API → http://localhost:8080  (GET /healthz, /readyz, /metrics)
+```
+
+`migrate` talks to Postgres directly on :5432 (DDL/migrations); `api` and `worker`
+talk through PgBouncer in **transaction** pooling mode on :6432. node-postgres uses
+the extended protocol without server-side named prepared statements, so it is safe
+under transaction pooling.
+
+**Run just the worker (against a local DB, no Docker):**
+
+```bash
+pnpm --filter @nuru/backend worker        # tsx src/worker.ts (dev)
+pnpm --filter @nuru/backend build && pnpm --filter @nuru/backend worker:start  # compiled
+```
+
+**Scheduled / background jobs and their cadence** (all idempotent + safe across
+replicas via `SKIP LOCKED` / `IF NOT EXISTS`):
+
+| Job | Trigger | What it does |
+| --- | --- | --- |
+| Outbox drainer | every 5s | Claims pending `outbox` rows (`FOR UPDATE SKIP LOCKED`), dispatches the side-effect, marks done / retries with backoff / dead-letters at the cap. At-least-once; consumers dedupe (§1.6). |
+| Notification dispatch | every 10s | Sends due notifications honoring quiet hours + `max_daily` (§1.5). |
+| Re-engagement scan | hourly | Enqueues the 12-step inactivity nudge cadence (§1.5). |
+| Engagement recompute | daily 02:00 | `EngagementService.runRecompute()` → upserts `engagement_scores` (§1.8). |
+| Partition maintenance | daily 03:00 | Provisions current + next 2 months of `interaction_events`, prunes partitions older than 13 months (§2.4/§5.9), via SQL functions in migration `…014_partition-maintenance-functions`. |
+| `is_minor` refresh | daily 04:00 | Recomputes `users.is_minor` from `date_of_birth` so the flag can't go stale (see decision below). |
+
+**`is_minor` decision (resolves the flagged §5.9 open item):** the flag is set on
+write by a DB trigger, but age changes with the calendar, not with writes — a member
+who turns 18 would otherwise keep `is_minor = true` until their next profile edit.
+We keep the trigger for write-time correctness **and** add a nightly reconciliation
+job (`refreshMinorFlags`, idempotent `UPDATE … WHERE is_minor IS DISTINCT FROM …`)
+so the flag is always at most ~24h stale. This is cheaper and simpler than a
+per-request computed check and keeps the column directly queryable for gating/COPPA.
+
+**API hardening / observability added:** helmet security headers; token-bucket rate
+limiting (Redis-backed when `REDIS_URL` is set, in-memory otherwise) with stricter
+buckets on `/v1/auth`, `/v1/giving`, `/v1/sync` returning `429 RATE_LIMITED` +
+`Retry-After` + `X-RateLimit-*`; W3C `traceparent` propagation; RED metrics at
+`GET /metrics`; `GET /readyz` (DB + Redis ping → 503 when a dependency is down);
+log redaction of `authorization` / `cookie` / `stripe-signature`.
+
 ## Mobile app — login + offline sync (NEXT_STEPS Prompt 3)
 
 The login + offline-sync loop is wired and **proven in Node** (no simulator needed):

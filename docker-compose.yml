@@ -1,0 +1,124 @@
+# Runnable full stack (§1.6) — Postgres 16, Redis 7, PgBouncer (transaction mode),
+# the API, and the background worker, all from one backend image.
+#
+#   docker compose up --build
+#
+# Boot order: postgres + redis come up healthy -> `migrate` runs migrations and
+# the dev seed against Postgres DIRECTLY (DDL/prepared statements don't play well
+# through a transaction-mode pooler) -> api + worker start once migrate succeeds
+# and talk to Postgres THROUGH PgBouncer.
+#
+# Secrets here are throwaway local values only (§5.10). Never reuse in any real
+# environment; supply real secrets via your orchestrator's secret store.
+
+x-backend-env: &backend-env
+  NODE_ENV: development
+  PORT: "8080"
+  AWS_REGION: af-south-1
+  # App traffic flows through PgBouncer (6432); replica points at the same pool.
+  DATABASE_URL: postgres://nuru:nuru@pgbouncer:6432/nuru
+  DATABASE_REPLICA_URL: postgres://nuru:nuru@pgbouncer:6432/nuru
+  REDIS_URL: redis://redis:6379
+  JWT_SIGNING_KEY: local-dev-signing-key-change-me
+  YOUVERSION_LANGUAGE_RANGES: en;sw
+  LOG_LEVEL: info
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: nuru
+      POSTGRES_PASSWORD: nuru
+      POSTGRES_DB: nuru
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nuru -d nuru"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: nuru
+      DB_PASSWORD: nuru
+      DB_NAME: nuru
+      POOL_MODE: transaction
+      AUTH_TYPE: scram-sha-256
+      LISTEN_PORT: "6432"
+      MAX_CLIENT_CONN: "200"
+      DEFAULT_POOL_SIZE: "25"
+    ports:
+      - "6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U nuru -d nuru"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: apply migrations + dev seed straight to Postgres, then exit 0.
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    environment:
+      <<: *backend-env
+      NODE_ENV: development
+      DATABASE_URL: postgres://nuru:nuru@postgres:5432/nuru
+    command: ["sh", "-lc", "pnpm migrate:up && pnpm seed:dev"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    environment: *backend-env
+    command: ["node", "dist/index.js"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    environment: *backend-env
+    command: ["node", "dist/worker.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:

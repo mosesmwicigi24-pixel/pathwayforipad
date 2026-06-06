@@ -1,0 +1,12 @@
+# Keep the build context lean and force a clean, reproducible install in-image.
+**/node_modules
+**/dist
+**/.turbo
+.turbo
+.git
+.env
+**/.env
+*.log
+# NOTE: do not exclude any workspace package dir here — pnpm --frozen-lockfile
+# verifies every importer in the lockfile is present.
+nuru-place-technical-spec.pdf

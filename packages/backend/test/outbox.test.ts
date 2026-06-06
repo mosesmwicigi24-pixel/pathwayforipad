@@ -61,4 +61,29 @@ describe("outbox worker (§1.6)", () => {
     const ob = await testPool().query("SELECT status FROM outbox");
     expect(ob.rows[0].status).toBe("done");
   });
+
+  it("two concurrent drainers never double-process a row (SKIP LOCKED, §1.6)", async () => {
+    for (let i = 0; i < 6; i++) await enqueueOutbox(testPool(), "count.me", { i });
+
+    const seen: number[] = [];
+    const handlers = new Map<string, OutboxHandler>([
+      [
+        "count.me",
+        async (p) => {
+          seen.push(p.i as number);
+          await new Promise((r) => setTimeout(r, 15)); // hold the lock briefly
+        },
+      ],
+    ]);
+    const w1 = new OutboxWorker(testPool(), handlers, undefined, { batchSize: 6 });
+    const w2 = new OutboxWorker(testPool(), handlers, undefined, { batchSize: 6 });
+
+    const [a, b] = await Promise.all([w1.drainOnce(), w2.drainOnce()]);
+    expect(a.done + b.done).toBe(6); // all rows processed
+    expect(seen.length).toBe(6); // each handler run exactly once
+    expect(new Set(seen).size).toBe(6); // no duplicates
+
+    const done = await testPool().query("SELECT count(*)::int n FROM outbox WHERE status='done'");
+    expect(done.rows[0].n).toBe(6);
+  });
 });

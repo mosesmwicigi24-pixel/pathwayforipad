@@ -1,14 +1,24 @@
 // Express app assembly. The app is the modular monolith host: it builds the
 // shared AppContext, then mounts each logical module under /v1 (§1.5, §3.1).
-// Cross-cutting concerns that the spec terminates at the gateway (TLS, JWT
-// signature checks, WAF, rate limiting — §1.4) are intentionally NOT duplicated
-// here; this process trusts the signed internal identity headers the gateway
-// forwards. Per-request correlation echoes X-Request-Id (§3.1, §4.7).
+// Edge concerns the spec terminates at the gateway (TLS, WAF) aren't duplicated;
+// app-level hardening here is defense-in-depth (§5.8): helmet, body caps, rate
+// limiting, request correlation, structured logs with secret redaction (§4.7).
 import express, { type Express } from "express";
 import { randomUUID } from "node:crypto";
 import { pinoHttp } from "pino-http";
+import helmet from "helmet";
 import { ApiError } from "./errors.js";
 import type { AppContext } from "./context.js";
+import { traceMiddleware } from "./trace.js";
+import { MetricsRecorder, metricsMiddleware } from "./metrics.js";
+import {
+  InMemoryRateLimitStore,
+  RedisRateLimitStore,
+  rateLimit,
+  byUserOrIp,
+  byIp,
+  type RateLimitStore,
+} from "./rateLimit.js";
 
 import { registerIdentity } from "../modules/identity/index.js";
 import { registerCurriculum } from "../modules/curriculum/index.js";
@@ -24,6 +34,15 @@ import { registerMedia } from "../modules/media/index.js";
 export function createApp(ctx: AppContext): Express {
   const app = express();
   app.disable("x-powered-by");
+  app.use(helmet()); // security headers (§5.8)
+
+  // Trace context (§4.7) + RED request metrics.
+  const metrics = new MetricsRecorder();
+  app.use(traceMiddleware());
+  app.use(metricsMiddleware(metrics));
+
+  // Rate-limit store: Redis when configured (horizontally correct), else in-memory.
+  const rl: RateLimitStore = ctx.redis ? new RedisRateLimitStore(ctx.redis) : new InMemoryRateLimitStore();
 
   // Dev-only CORS so the local portal (:5173) can call the API (:8080). In
   // production the API gateway terminates CORS (§1.4), so this is never enabled.
@@ -44,9 +63,9 @@ export function createApp(ctx: AppContext): Express {
       next();
     });
   }
+
   // Parse JSON for everything EXCEPT the Stripe webhook, which needs the raw body
-  // bytes for HMAC signature verification (§3.5). That route installs its own
-  // express.raw() parser. Payload cap mirrors §5.8 hardening.
+  // bytes for HMAC signature verification (§3.5). Payload cap mirrors §5.8.
   const json = express.json({ limit: "256kb" });
   app.use((req, res, next) => {
     if (req.path === "/v1/webhooks/stripe") return next();
@@ -61,22 +80,39 @@ export function createApp(ctx: AppContext): Express {
     next();
   });
 
-  // Structured per-request logging (§4.7), correlated to the request id.
+  // Structured per-request logging (§4.7), correlated to the request id; secrets
+  // and tokens are redacted so they never reach the logs (§5.8/§5.10).
   app.use(
     pinoHttp({
       logger: ctx.log,
       genReqId: (_req, res) => String(res.getHeader("X-Request-Id") ?? ""),
+      redact: {
+        paths: ["req.headers.authorization", "req.headers.cookie", 'req.headers["stripe-signature"]'],
+        remove: true,
+      },
     }),
   );
 
-  // Liveness: the process is up. Readiness: dependencies (DB) are reachable.
+  // Health (liveness) + metrics. Readiness checks dependencies are reachable.
   app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
+  app.get("/metrics", (_req, res) => res.json(metrics.snapshot()));
   app.get("/readyz", (_req, res) => {
-    ctx.db.primary
-      .query("SELECT 1")
-      .then(() => res.json({ status: "ready" }))
-      .catch(() => res.status(503).json({ status: "degraded" }));
+    void (async () => {
+      try {
+        await ctx.db.primary.query("SELECT 1");
+        if (ctx.redis) await ctx.redis.ping();
+        res.json({ status: "ready" });
+      } catch {
+        res.status(503).json({ status: "degraded" });
+      }
+    })();
   });
+
+  // Global limiter (per user/IP) + stricter buckets on auth, payment and sync (§5.8).
+  app.use(rateLimit({ store: rl, name: "global", capacity: 300, refillPerSec: 5, keyBy: byUserOrIp }));
+  app.use("/v1/auth", rateLimit({ store: rl, name: "auth", capacity: 20, refillPerSec: 0.5, keyBy: byIp }));
+  app.use("/v1/giving", rateLimit({ store: rl, name: "pay", capacity: 30, refillPerSec: 1, keyBy: byUserOrIp }));
+  app.use("/v1/sync", rateLimit({ store: rl, name: "sync", capacity: 120, refillPerSec: 4, keyBy: byUserOrIp }));
 
   // Mount the ten logical modules under the versioned base path (§3.1).
   const v1 = express.Router();
