@@ -55,13 +55,14 @@ export function Card({
 }
 
 // --- Text helpers (typographic scale) ---
-type TextTone = "ink" | "secondary" | "tertiary" | "onNavy" | "onNavyDim" | "gold";
+type TextTone = "ink" | "secondary" | "tertiary" | "onNavy" | "onNavyDim" | "onNavyFaint" | "gold";
 const toneColor: Record<TextTone, string> = {
   ink: palette.ink,
   secondary: palette.ink600,
   tertiary: palette.ink400,
   onNavy: palette.onNavy,
   onNavyDim: palette.onNavyDim,
+  onNavyFaint: palette.onNavyFaint,
   gold: palette.goldLo,
 };
 export function T({

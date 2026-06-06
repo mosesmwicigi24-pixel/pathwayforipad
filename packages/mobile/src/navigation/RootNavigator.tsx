@@ -9,6 +9,7 @@ import { ModuleScreen } from "../screens/ModuleScreen";
 import { QuizScreen } from "../screens/QuizScreen";
 import { GivingScreen } from "../screens/GivingScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
+import { LevelCompleteScreen } from "../screens/LevelCompleteScreen";
 
 export type Route =
   | { name: "Login" }
@@ -16,7 +17,8 @@ export type Route =
   | { name: "Module"; moduleId: string }
   | { name: "Quiz"; moduleId: string }
   | { name: "Giving" }
-  | { name: "Profile" };
+  | { name: "Profile" }
+  | { name: "LevelComplete" };
 
 interface Navigation {
   route: Route;
@@ -46,6 +48,8 @@ function renderRoute(route: Route): ReactElement {
       return <GivingScreen />;
     case "Profile":
       return <ProfileScreen />;
+    case "LevelComplete":
+      return <LevelCompleteScreen />;
   }
 }
 

@@ -60,14 +60,19 @@ export function ProfileScreen(): ReactElement {
           <View>
             <T variant="overline" tone="tertiary" style={{ marginBottom: spacing.md, paddingHorizontal: spacing.xs }}>CERTIFICATES</T>
             <View style={st.listCard}>
-              <View style={st.certRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="View Foundations of Faith certificate"
+                onPress={() => nav.navigate({ name: "LevelComplete" })}
+                style={st.certRow}
+              >
                 <View style={st.certIcon}><T style={{ color: palette.gold, fontSize: 18 }}>✦</T></View>
                 <View style={{ flex: 1 }}>
                   <T variant="heading">Foundations of Faith</T>
                   <T variant="caption" tone="tertiary" style={{ marginTop: 2 }}>Level 1 · March 2024</T>
                 </View>
                 <T style={{ color: palette.gold }}>⤓</T>
-              </View>
+              </Pressable>
             </View>
           </View>
 
