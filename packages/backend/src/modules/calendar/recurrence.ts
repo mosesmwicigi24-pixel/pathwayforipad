@@ -2,8 +2,12 @@
 // IANA timezone (not UTC) so occurrences hold their wall-clock across DST. The
 // RRULE is validated against an allow-list first — recurrence-expansion bombs are
 // a DoS vector (§C.4). Pure functions; no DB.
-import { RRule } from "rrule";
+// `rrule` is a CommonJS module; under Node's ESM loader its named exports aren't
+// statically detectable, so import the default (module.exports) and destructure.
+import rrulePkg from "rrule";
 import { DateTime } from "luxon";
+
+const { RRule } = rrulePkg;
 import { ApiError } from "../../http/errors.js";
 
 const ALLOWED_FREQ = new Set([RRule.DAILY, RRule.WEEKLY, RRule.MONTHLY]);

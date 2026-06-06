@@ -10,6 +10,7 @@ import { CurriculumService } from "./service.js";
 import { AdminCurriculumService } from "./admin.js";
 import { ScriptureService, buildScriptureProvider } from "./scripture.js";
 import { renderSafeMarkdown } from "./markdown.js";
+import { cacheInvalidate, cacheKeys } from "../../cache.js";
 
 export const curriculumRouter: Router = Router();
 
@@ -17,12 +18,16 @@ const levelParam = z.coerce.number().int().min(1);
 const idOf = (req: { params: Record<string, string | undefined> }, k: string): string => req.params[k] ?? "";
 
 export function registerCurriculum(ctx: AppContext): Router {
-  const svc = new CurriculumService(ctx.db.primary);
+  const svc = new CurriculumService(ctx.db.primary, ctx.redis);
   const admin = new AdminCurriculumService(ctx.db.primary);
   const scripture = new ScriptureService(buildScriptureProvider(ctx.env), ctx.env.YOUVERSION_LANGUAGE_RANGES);
   const auth = authenticate(ctx.env);
   const adminOnly = [auth, requireRole("Admin")] as const;
   const r = curriculumRouter;
+
+  // Bust the read-through caches whenever the catalog or a lesson body changes.
+  const bust = (moduleId?: string): Promise<void> =>
+    cacheInvalidate(ctx.redis, cacheKeys.levels, ...(moduleId ? [cacheKeys.moduleContent(moduleId)] : []));
 
   // ---------- Student / member reads (gated) ----------
   r.get(
@@ -30,6 +35,15 @@ export function registerCurriculum(ctx: AppContext): Router {
     auth,
     handler(async (_req, res) => {
       res.json({ data: await svc.listLevels() });
+    }),
+  );
+
+  // Per-member pathway summary (level grid + completion). Not cached: per-user.
+  r.get(
+    "/me/pathway",
+    auth,
+    handler(async (req, res) => {
+      res.json(await svc.getPathwaySummary(requirePrincipal(req).userId));
     }),
   );
 
@@ -80,7 +94,9 @@ export function registerCurriculum(ctx: AppContext): Router {
   r.put("/admin/levels/:n", ...adminOnly, handler(async (req, res) => {
     const n = parseBody(levelParam, req.params.n);
     const input = parseBody(AdminCurriculumService.UpdateLevel, req.body);
-    res.json(await admin.updateLevel(n, requirePrincipal(req).userId, input));
+    const out = await admin.updateLevel(n, requirePrincipal(req).userId, input);
+    await bust();
+    res.json(out);
   }));
 
   r.put("/admin/levels/:n/exam", ...adminOnly, handler(async (req, res) => {
@@ -97,7 +113,9 @@ export function registerCurriculum(ctx: AppContext): Router {
   // ---- Modules ----
   r.post("/admin/modules", ...adminOnly, handler(async (req, res) => {
     const input = parseBody(AdminCurriculumService.CreateModule, req.body);
-    res.status(201).json(await admin.createModule(requirePrincipal(req).userId, input));
+    const out = await admin.createModule(requirePrincipal(req).userId, input);
+    await bust();
+    res.status(201).json(out);
   }));
 
   r.get("/admin/modules/:id", ...adminOnly, handler(async (req, res) => {
@@ -106,24 +124,34 @@ export function registerCurriculum(ctx: AppContext): Router {
 
   r.put("/admin/modules/:id", ...adminOnly, handler(async (req, res) => {
     const input = parseBody(AdminCurriculumService.UpdateModule, req.body);
-    res.json(await admin.updateModule(idOf(req, "id"), requirePrincipal(req).userId, input));
+    const out = await admin.updateModule(idOf(req, "id"), requirePrincipal(req).userId, input);
+    await bust(idOf(req, "id"));
+    res.json(out);
   }));
 
   r.post("/admin/modules/:id/publish", ...adminOnly, handler(async (req, res) => {
-    res.json(await admin.publish(idOf(req, "id"), requirePrincipal(req).userId));
+    const out = await admin.publish(idOf(req, "id"), requirePrincipal(req).userId);
+    await bust(idOf(req, "id"));
+    res.json(out);
   }));
 
   r.post("/admin/modules/:id/unpublish", ...adminOnly, handler(async (req, res) => {
-    res.json(await admin.unpublish(idOf(req, "id"), requirePrincipal(req).userId));
+    const out = await admin.unpublish(idOf(req, "id"), requirePrincipal(req).userId);
+    await bust(idOf(req, "id"));
+    res.json(out);
   }));
 
   r.post("/admin/modules/:id/reorder", ...adminOnly, handler(async (req, res) => {
     const input = parseBody(AdminCurriculumService.Reorder, req.body);
-    res.json({ data: await admin.reorder(idOf(req, "id"), requirePrincipal(req).userId, input.to_sequence) });
+    const out = await admin.reorder(idOf(req, "id"), requirePrincipal(req).userId, input.to_sequence);
+    await bust(idOf(req, "id"));
+    res.json({ data: out });
   }));
 
   r.delete("/admin/modules/:id", ...adminOnly, handler(async (req, res) => {
-    res.json(await admin.archive(idOf(req, "id"), requirePrincipal(req).userId));
+    const out = await admin.archive(idOf(req, "id"), requirePrincipal(req).userId);
+    await bust(idOf(req, "id"));
+    res.json(out);
   }));
 
   r.get("/admin/modules/:id/versions", ...adminOnly, handler(async (req, res) => {
@@ -132,7 +160,9 @@ export function registerCurriculum(ctx: AppContext): Router {
 
   r.post("/admin/modules/:id/revert", ...adminOnly, handler(async (req, res) => {
     const input = parseBody(AdminCurriculumService.Revert, req.body);
-    res.json(await admin.revert(idOf(req, "id"), requirePrincipal(req).userId, input.version_number));
+    const out = await admin.revert(idOf(req, "id"), requirePrincipal(req).userId, input.version_number);
+    await bust(idOf(req, "id"));
+    res.json(out);
   }));
 
   // ---- Question bank ----

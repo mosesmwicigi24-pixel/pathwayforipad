@@ -1,7 +1,8 @@
-// Lesson reader (spec §1.7; Figma "LessonReader"). Distraction-free reader: navy
-// header, media card, scripture + reflection blocks, sticky "Mark complete".
-// "Mark complete" enqueues an offline mutation (commits locally, replays on sync),
-// then advances to the quiz.
+// Lesson reader (spec §1.7; Figma "LessonReader"). Distraction-free reader: a navy
+// header, the Markdown lesson body from the database, an optional reflection block
+// (for reflection-gated modules), and a sticky "Mark complete". Completion posts to
+// the server (the authority for gating, §1.1) and then invalidates the pathway and
+// module-list caches so the next module unlocks immediately.
 import { useState, type ReactElement } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { ChevronLeft } from "lucide-react-native";
@@ -10,17 +11,39 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
+import { Markdown } from "../components/Markdown";
+import { Loading, ErrorState } from "../components/states";
+import { useModule } from "../api/hooks";
+import { NuruApi } from "../api/client";
+import { errorMessage, invalidateQueries, useMutation } from "../api/query";
 
 export function ModuleScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { moduleId } = useRoute<RouteProp<RootStackParamList, "Module">>().params;
-  const [marked, setMarked] = useState(false);
+  const { data: module, isLoading, error, refetch } = useModule(moduleId);
   const [reflection, setReflection] = useState("");
+  const complete = useMutation((body?: { reflection_text?: string }) => NuruApi.completeModule(moduleId, body));
 
-  function complete(): void {
-    // engine.enqueue("module_progress", "complete", { module_id, reflection_text, completed_at })
-    setMarked(true);
-    setTimeout(() => nav.navigate("Quiz", { moduleId }), 350);
+  const needsReflection = module?.evaluation_kind === "reflection";
+  const canComplete = !needsReflection || reflection.trim().length > 0;
+
+  async function onComplete(): Promise<void> {
+    if (!module) return;
+    try {
+      const res = await complete.mutate(needsReflection ? { reflection_text: reflection.trim() } : undefined);
+      // Refresh everything completion affects so the next module unlocks instantly.
+      invalidateQueries("pathway");
+      invalidateQueries(`levelModules:${module.level_number}`);
+      invalidateQueries("achievements");
+      invalidateQueries(`module:${moduleId}`);
+      if (module.evaluation_kind === "quiz") {
+        nav.navigate("Quiz", { moduleId });
+      } else if (res.next_module_unlocked || res.is_completed) {
+        nav.goBack();
+      }
+    } catch {
+      // error surfaced via complete.error below
+    }
   }
 
   return (
@@ -32,86 +55,95 @@ export function ModuleScreen(): ReactElement {
             <ChevronLeft size={20} color={palette.onNavy} />
           </Pressable>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <T variant="micro" tone="onNavyDim" style={{ letterSpacing: 1.4 }}>LESSON · MODULE {moduleId.slice(0, 4)}</T>
-            <T variant="heading" tone="onNavy" style={{ marginTop: 2 }}>The Church of Christ</T>
+            <T variant="micro" tone="onNavyDim" style={{ letterSpacing: 1.4 }}>
+              {module ? `LESSON · MODULE ${module.module_sequence_number}` : "LESSON"}
+            </T>
+            <T variant="heading" tone="onNavy" style={{ marginTop: 2 }}>
+              {module?.title ?? "Loading…"}
+            </T>
           </View>
-          <View style={st.minutesPill}>
-            <T variant="caption" tone="onNavyDim">12 min</T>
-          </View>
+          {module?.estimated_minutes != null ? (
+            <View style={st.minutesPill}>
+              <T variant="caption" tone="onNavyDim">{`${module.estimated_minutes} min`}</T>
+            </View>
+          ) : null}
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
-        {/* Media card */}
-        <View style={st.media}>
-          <View style={st.mediaHead}>
-            <View style={st.mediaTag}><T variant="micro" tone="onNavy">LESSON MEDIA</T></View>
-            <T variant="display" tone="onNavy" style={{ marginTop: spacing.lg }}>The Church of Christ</T>
-            <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.sm }}>
-              Read, listen, or watch — all available offline after sync.
-            </T>
-          </View>
-          <View style={st.mediaRow}>
-            <View style={st.mediaBtn}>
-              <View style={[st.mediaIcon, { backgroundColor: palette.navy }]}><T style={{ color: palette.gold }}>▶</T></View>
-              <T variant="body" style={{ fontWeight: "500" }}>Audio lesson</T>
-              <T variant="caption" tone="secondary">6:42</T>
-            </View>
-            <View style={st.mediaBtn}>
-              <View style={[st.mediaIcon, { backgroundColor: palette.white }]}><T style={{ color: palette.navy }}>▷</T></View>
-              <T variant="body" style={{ fontWeight: "500" }}>Video teaching</T>
-              <T variant="caption" tone="secondary">4:18</T>
-            </View>
-          </View>
+      {isLoading ? (
+        <Loading label="Loading lesson…" />
+      ) : error || !module ? (
+        <View style={{ padding: spacing.screen }}>
+          <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />
         </View>
+      ) : (
+        <>
+          <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: 130 }} showsVerticalScrollIndicator={false}>
+            {module.summary ? (
+              <View style={st.summary}>
+                <T variant="overline" tone="gold">IN THIS LESSON</T>
+                <T variant="bodyLg" style={{ marginTop: spacing.sm, color: palette.ink }}>{module.summary}</T>
+              </View>
+            ) : null}
 
-        {/* Article */}
-        <View style={{ gap: spacing.lg, marginTop: spacing.lg }}>
-          <T variant="bodyLg" style={{ color: "#1E293B" }}>
-            The Church is not first a building or an event. It is the living body of Christ — a family of believers
-            called together by the Holy Spirit, formed in love, and sent into the world with a shared mission.
-          </T>
+            {/* Lesson body (Markdown from the database) */}
+            <View style={{ marginTop: spacing.base }}>
+              <Markdown content={module.lesson_content} />
+            </View>
 
-          {/* Scripture card */}
-          <View style={st.scripture}>
-            <T variant="caption" tone="gold" style={{ fontWeight: "700" }}>✦</T>
-            <T variant="bodyLg" style={{ fontStyle: "italic", color: "#1E293B", marginTop: spacing.sm }}>
-              “…on this rock I will build my church, and the gates of Hades will not overcome it.”
-            </T>
-            <T variant="overline" tone="gold" style={{ marginTop: spacing.md }}>MATTHEW 16:18</T>
+            {/* Key verses */}
+            {module.key_verses && module.key_verses.length > 0 ? (
+              <View style={st.verses}>
+                <T variant="overline" tone="secondary">KEY VERSES</T>
+                <View style={st.verseChips}>
+                  {module.key_verses.map((v) => (
+                    <View key={v} style={st.verseChip}>
+                      <T variant="caption" style={{ color: palette.goldLo, fontWeight: "600" }}>{v}</T>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+
+            {/* Reflection (only required for reflection-gated modules) */}
+            {needsReflection ? (
+              <View style={st.reflection}>
+                <T variant="overline" tone="secondary">REFLECTION (REQUIRED)</T>
+                <T variant="bodyLg" style={{ marginTop: spacing.sm, color: palette.ink }}>
+                  Write what God is showing you before you continue.
+                </T>
+                <TextInput
+                  value={reflection}
+                  onChangeText={setReflection}
+                  placeholder="Write your thoughts here…"
+                  placeholderTextColor={palette.ink400}
+                  multiline
+                  numberOfLines={4}
+                  style={st.input}
+                  accessibilityLabel="Reflection response"
+                />
+              </View>
+            ) : null}
+
+            {complete.error ? (
+              <T variant="caption" style={{ color: palette.error, marginTop: spacing.base }}>
+                {errorMessage(complete.error)}
+              </T>
+            ) : null}
+          </ScrollView>
+
+          {/* Sticky CTA */}
+          <View style={st.footer}>
+            <PButton
+              variant="primary"
+              disabled={!canComplete || complete.isLoading}
+              onPress={() => void onComplete()}
+            >
+              {complete.isLoading ? "Saving…" : "Mark complete & continue"}
+            </PButton>
           </View>
-
-          <T variant="bodyLg" style={{ color: "#1E293B" }}>
-            When you belong to a church family, your faith becomes visible through service, forgiveness, generosity,
-            and consistent fellowship with other believers.
-          </T>
-
-          {/* Reflection */}
-          <View style={st.reflection}>
-            <T variant="overline" tone="secondary">REFLECTION</T>
-            <T variant="bodyLg" style={{ marginTop: spacing.sm, color: "#1E293B" }}>
-              What is one practical way you can contribute more meaningfully to your church community this week?
-            </T>
-            <TextInput
-              value={reflection}
-              onChangeText={setReflection}
-              placeholder="Write your thoughts here…"
-              placeholderTextColor={palette.ink400}
-              multiline
-              numberOfLines={4}
-              style={st.input}
-              accessibilityLabel="Reflection response"
-            />
-          </View>
-        </View>
-      </ScrollView>
-
-      {/* Sticky CTA */}
-      <View style={st.footer}>
-        <PButton variant={marked ? "gold" : "primary"} onPress={complete}>
-          {marked ? "✓ Marked complete" : "Mark complete & continue"}
-        </PButton>
-      </View>
+        </>
+      )}
     </View>
   );
 }
@@ -120,21 +152,29 @@ const st = {
   header: { backgroundColor: palette.navy, paddingHorizontal: spacing.base, paddingTop: 52, paddingBottom: spacing.base },
   iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center" },
   minutesPill: { backgroundColor: "rgba(255,255,255,0.08)", borderRadius: radii.pill, paddingHorizontal: spacing.md, paddingVertical: 6 },
-  media: { borderRadius: radii.hero, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
-  mediaHead: { backgroundColor: palette.navy, padding: spacing.lg },
-  mediaTag: { alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.14)", borderRadius: radii.pill, paddingHorizontal: spacing.md, paddingVertical: 4 },
-  mediaRow: { flexDirection: "row", gap: spacing.md, padding: spacing.base },
-  mediaBtn: { flex: 1, backgroundColor: "rgba(10,37,64,0.06)", borderRadius: radii.control, padding: spacing.base, gap: spacing.xs },
-  mediaIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: spacing.sm, ...shadow.card },
-  scripture: { borderRadius: 26, borderWidth: 1, borderColor: "rgba(201,162,39,0.25)", backgroundColor: "#FFF8DD", padding: spacing.lg },
-  reflection: { borderRadius: 28, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, padding: spacing.lg, ...shadow.card },
+  summary: {
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: "rgba(201,162,39,0.30)",
+    backgroundColor: palette.urgentBg,
+    padding: spacing.lg,
+  },
+  verses: { marginTop: spacing.lg },
+  verseChips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm },
+  verseChip: {
+    backgroundColor: palette.goldTint,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  reflection: { marginTop: spacing.lg, borderRadius: radii.card, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, padding: spacing.lg, ...shadow.card },
   input: {
     marginTop: spacing.base,
     minHeight: 96,
     borderRadius: radii.control,
     borderWidth: 1,
     borderColor: palette.border,
-    backgroundColor: "#F7F9FC",
+    backgroundColor: palette.coolPaper,
     padding: spacing.base,
     fontSize: 15,
     lineHeight: 22,

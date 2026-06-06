@@ -2,19 +2,83 @@
 // admin editing path that versions content. Reads are gated: locked module bodies
 // are never returned (hard-lock invariant, §1.9).
 import type { Pool } from "pg";
+import type Redis from "ioredis";
 import { z } from "zod";
 import { many, maybeOne, one, tx, recordChange, audit } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
+import { cacheGetSet, cacheKeys } from "../../cache.js";
 import { loadEnrollment, loadModule, isModuleUnlocked } from "../progress/gating.js";
 
 export class CurriculumService {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly redis?: Redis,
+  ) {}
 
+  /** Level catalog — identical for everyone, so cached (busted on admin edits). */
   listLevels(): Promise<unknown[]> {
-    return many(
-      this.pool,
-      `SELECT level_number, title, theme, required_exam_pass_mark FROM levels ORDER BY level_number`,
+    return cacheGetSet(this.redis, cacheKeys.levels, 600, () =>
+      many(
+        this.pool,
+        `SELECT level_number, title, theme, required_exam_pass_mark FROM levels ORDER BY level_number`,
+      ),
     );
+  }
+
+  /**
+   * Per-level pathway summary for the member: every level with its published
+   * module count, how many this member has completed, and a derived status
+   * (completed / active / locked) respecting the hard-lock ceiling (§1.9).
+   * Powers the Home dashboard and Levels overview in one round-trip.
+   */
+  async getPathwaySummary(userId: string): Promise<unknown> {
+    const enrollment = await loadEnrollment(this.pool, userId);
+    const currentLevel = enrollment?.current_level ?? 1;
+    const rows = await many<{
+      level_number: number;
+      title: string;
+      theme: string | null;
+      total_modules: number;
+      completed_modules: number;
+      minutes: number;
+    }>(
+      this.pool,
+      `SELECT l.level_number, l.title, l.theme,
+              COUNT(m.module_id)::int AS total_modules,
+              COUNT(mp.progress_id)::int AS completed_modules,
+              COALESCE(SUM(m.estimated_minutes), 0)::int AS minutes
+         FROM levels l
+         LEFT JOIN modules m
+           ON m.level_number = l.level_number AND m.is_published = TRUE
+         LEFT JOIN module_progress mp
+           ON mp.module_id = m.module_id AND mp.is_completed
+          AND mp.enrollment_id = $1
+        GROUP BY l.level_number, l.title, l.theme
+        ORDER BY l.level_number`,
+      [enrollment?.enrollment_id ?? null],
+    );
+
+    const levels = rows.map((r) => {
+      const allDone = r.total_modules > 0 && r.completed_modules >= r.total_modules;
+      const status =
+        r.level_number < currentLevel
+          ? "completed"
+          : r.level_number > currentLevel
+            ? "locked"
+            : allDone
+              ? "completed"
+              : "active";
+      return {
+        level_number: r.level_number,
+        title: r.title,
+        theme: r.theme,
+        total_modules: r.total_modules,
+        completed_modules: r.completed_modules,
+        minutes: r.minutes,
+        status,
+      };
+    });
+    return { current_level: currentLevel, levels };
   }
 
   /** Modules for a level. Locked modules return metadata + locked:true, no body. */
@@ -25,17 +89,29 @@ export class CurriculumService {
       level_number: number;
       module_sequence_number: number;
       title: string;
+      summary: string | null;
       estimated_minutes: number | null;
+      evaluation_kind: string;
       quiz_pass_mark: string;
       is_published: boolean;
     }>(
       this.pool,
-      `SELECT module_id, level_number, module_sequence_number, title, estimated_minutes,
-              quiz_pass_mark, is_published
+      `SELECT module_id, level_number, module_sequence_number, title, summary, estimated_minutes,
+              evaluation_kind, quiz_pass_mark, is_published
          FROM modules WHERE level_number = $1 AND is_published = TRUE
          ORDER BY module_sequence_number`,
       [levelNumber],
     );
+
+    // One query for everything this member has completed; cheap set membership.
+    const completedRows = enrollment
+      ? await many<{ module_id: string }>(
+          this.pool,
+          `SELECT module_id FROM module_progress WHERE enrollment_id = $1 AND is_completed`,
+          [enrollment.enrollment_id],
+        )
+      : [];
+    const completedSet = new Set(completedRows.map((r) => r.module_id));
 
     const out: unknown[] = [];
     for (const m of modules) {
@@ -46,13 +122,20 @@ export class CurriculumService {
           level_number: m.level_number,
           module_sequence_number: m.module_sequence_number,
         }));
+      const completed = completedSet.has(m.module_id);
+      const status = completed ? "completed" : unlocked ? "next" : "locked";
       out.push({
         module_id: m.module_id,
         level_number: m.level_number,
         module_sequence_number: m.module_sequence_number,
         title: m.title,
+        summary: m.summary,
         estimated_minutes: m.estimated_minutes,
+        evaluation_kind: m.evaluation_kind,
         quiz_pass_mark: Number(m.quiz_pass_mark),
+        completed,
+        status,
+        progress: completed ? 100 : 0,
         locked: !unlocked,
       });
     }
@@ -77,12 +160,17 @@ export class CurriculumService {
         module_sequence_number: module.module_sequence_number,
       });
     }
-    const full = await one<{ video_url: string | null }>(
-      this.pool,
-      `SELECT module_id, level_number, module_sequence_number, title, lesson_content,
-              video_url, evaluation_kind, estimated_minutes, quiz_pass_mark, current_version
-         FROM modules WHERE module_id = $1`,
-      [moduleId],
+    // Published lesson bodies are identical for every reader, so the (heavy)
+    // content read is cached and busted whenever an admin edits the module.
+    const full = await cacheGetSet(this.redis, cacheKeys.moduleContent(moduleId), 600, () =>
+      one<{ video_url: string | null }>(
+        this.pool,
+        `SELECT module_id, level_number, module_sequence_number, title, lesson_content,
+                summary, key_verses, video_url, evaluation_kind, estimated_minutes,
+                quiz_pass_mark, current_version
+           FROM modules WHERE module_id = $1`,
+        [moduleId],
+      ),
     );
     // Media is brokered as a signed URL by the media module; the raw video_url is
     // a placeholder reference here (§4.5). Wired when the media module lands.

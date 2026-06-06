@@ -45,6 +45,18 @@ export const palette = {
   onNavy: "#FFFFFF",
   onNavyDim: "rgba(255,255,255,0.55)",
   onNavyFaint: "rgba(255,255,255,0.40)",
+  // Extra surfaces used by Home/Levels/Calendar/Portal/Chat (Figma Make)
+  coolPaper: "#F7F9FC", // calendar / portal background
+  chatPaper: "#E8E1D3", // chat thread background
+  navyMid: "#315F8C", // hero gradient mid tone
+  // Soft status chips
+  urgentBg: "#FFF8DD",
+  urgentBorder: "rgba(217,185,74,0.30)",
+  urgentText: "#8A6B10",
+  activeBadgeBg: "#DDF4C6",
+  activeBadgeText: "#22612A",
+  online: "#25D366", // presence dot
+  myBubble: "#DDF4C6", // chat outgoing bubble
 } as const;
 
 // Gradients (consumed by expo-linear-gradient / RN gradient libs, or flattened).

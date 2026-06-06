@@ -1,18 +1,20 @@
 // Bottom tab bar (Figma "BottomTabBar") as a custom @react-navigation tabBar.
-// Navy bar, gold active icon + label + indicator dot, dim inactive. Pathway ·
-// Give · Profile.
+// Navy bar, gold active icon + label + indicator dot, dim inactive. Five primary
+// destinations: Home · Levels · Calendar · Portal · Chat.
 import type { ReactElement } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import { Home, Heart, User, type LucideIcon } from "lucide-react-native";
+import { BookOpen, CalendarDays, Home, MessageCircle, PanelsTopLeft, type LucideIcon } from "lucide-react-native";
 import { palette, spacing } from "../theme/tokens";
 import { T } from "../theme/components";
 
 const META: Record<string, { label: string; Icon: LucideIcon }> = {
-  Home: { label: "Pathway", Icon: Home },
-  Giving: { label: "Give", Icon: Heart },
-  Profile: { label: "Profile", Icon: User },
+  Home: { label: "Home", Icon: Home },
+  Levels: { label: "Levels", Icon: BookOpen },
+  Calendar: { label: "Calendar", Icon: CalendarDays },
+  Portal: { label: "Portal", Icon: PanelsTopLeft },
+  Chat: { label: "Chat", Icon: MessageCircle },
 };
 
 export function BottomTabBar({ state, navigation }: BottomTabBarProps): ReactElement {
@@ -37,7 +39,7 @@ export function BottomTabBar({ state, navigation }: BottomTabBarProps): ReactEle
             style={st.tab}
           >
             {focused ? <View style={st.dot} /> : null}
-            <meta.Icon size={22} color={color} strokeWidth={focused ? 2.2 : 1.8} />
+            <meta.Icon size={21} color={color} strokeWidth={focused ? 2.2 : 1.7} />
             <T variant="micro" style={{ color }}>{meta.label}</T>
           </Pressable>
         );
@@ -56,6 +58,6 @@ const st = {
     borderTopColor: "rgba(255,255,255,0.10)",
     paddingTop: spacing.sm,
   },
-  tab: { alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: spacing.base, height: 48 },
+  tab: { alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: spacing.sm, height: 48, flex: 1 },
   dot: { position: "absolute", top: -2, width: 28, height: 3, borderRadius: 2, backgroundColor: palette.gold },
 } as const;

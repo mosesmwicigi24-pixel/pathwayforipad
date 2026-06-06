@@ -26,3 +26,4 @@ ios/Pods/
 .DS_Store
 .idea/
 *.log
+.cursor/

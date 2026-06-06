@@ -12,7 +12,54 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import Svg, { Defs, LinearGradient as SvgGradient, Rect, Stop } from "react-native-svg";
 import { palette, radii, shadow, spacing, type as typ, buttonHeight } from "./tokens.js";
+
+// --- GradientBg: an absolutely-filling linear gradient (uses react-native-svg).
+// Diagonal top-left → bottom-right by default, matching the Figma hero blocks.
+export function GradientBg({
+  colors,
+  radius = 0,
+  style,
+}: {
+  colors: readonly [string, string, ...string[]];
+  radius?: number;
+  style?: StyleProp<ViewStyle>;
+}): ReactNode {
+  return (
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: "hidden" }, style]}>
+      <Svg width="100%" height="100%">
+        <Defs>
+          <SvgGradient id="g" x1="0" y1="0" x2="1" y2="1">
+            {colors.map((c, i) => (
+              <Stop key={`${c}-${i}`} offset={i / (colors.length - 1)} stopColor={c} stopOpacity={1} />
+            ))}
+          </SvgGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#g)" />
+      </Svg>
+    </View>
+  );
+}
+
+// --- Glow: a soft blurred-looking accent orb for navy headers (approximated with
+// a low-opacity rounded circle since RN has no cheap blur primitive).
+export function Glow({
+  size = 220,
+  color = "rgba(201,162,39,0.10)",
+  style,
+}: {
+  size?: number;
+  color?: string;
+  style?: StyleProp<ViewStyle>;
+}): ReactNode {
+  return (
+    <View
+      pointerEvents="none"
+      style={[{ position: "absolute", width: size, height: size, borderRadius: size / 2, backgroundColor: color }, style]}
+    />
+  );
+}
 
 // --- Screen: paper background + safe padding, scrollable by default ---
 export function Screen({

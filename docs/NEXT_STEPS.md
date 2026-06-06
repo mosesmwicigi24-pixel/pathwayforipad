@@ -78,11 +78,13 @@ assumes the previous is green. They follow the autonomous-operation rules in
 `CLAUDE.md` (make the recommended call, add standard deps, keep going until tests pass).
 
 > **Run the whole chain hands-off:** paste this into Claude Code —
-> *"Work through the build prompts in docs/NEXT_STEPS.md in order (Prompt 1 → 2 → 3 → 4).
+> *"Work through the build prompts in docs/NEXT_STEPS.md in order (Prompt 1 → 2 → 3 → 4 → 5 → 6 → 7).
 > Complete each one and get it fully green (typecheck, lint, test, openapi:lint) before
 > starting the next. Follow CLAUDE.md autonomous-operation rules — don't stop to ask;
 > make the recommended choice and keep going. After each prompt, summarize what changed
 > and the test result, then continue to the next."*
+>
+> _Status: Prompts 1–5 complete and green. Then Prompt 6 (UI/UX), then Prompt 7 (Features v2: video, calendar, onboarding, gamification — see docs/FEATURES_V2_SPEC.md)._
 
 ## Prompt 1 — Get to 100% green + end-to-end journeys + OpenAPI contract
 
@@ -413,3 +415,200 @@ DATABASE_URL=postgres://nuru:nuru@localhost:6432/nuru \
 Idempotent (upserts by level+sequence), imports everything as **draft**, and
 fabricates **no** quizzes — an Admin reviews and publishes via the CMS. If the
 source file is absent it prints guidance and exits 0.
+
+## Prompt 6 — UI/UX & design system (deep blue · white · gold · black)
+
+> Make both apps beautiful, calm, and effortless to navigate. The brand palette is
+> DEEP BLUE, WHITE, GOLD, and BLACK. The governing principles are SPACE and RESTRAINT:
+> generous whitespace, few elements per screen, gold used sparingly as an accent — never
+> congested. Work phase by phase; keep typecheck/lint/test green throughout. Follow
+> CLAUDE.md autonomous-operation rules.
+
+```
+Read CLAUDE.md and docs/NEXT_STEPS.md. GOAL: a polished, branded UI for the admin portal
+(packages/admin-web) and the mobile app (packages/mobile), built on one shared design
+language. No backend behavior changes.
+
+================================================================================
+PHASE A — Design tokens (single source of truth, shared by web + mobile)
+1. Create a tokens module (e.g. packages/shared/src/design/tokens.ts, exported from
+   @nuru/shared) defining the palette, type scale, spacing, radii, and shadows:
+   PALETTE
+     navy-950 #081C36   (app chrome: sidebar/header, mobile headers)
+     navy-900 #0A2540   (deep blue — primary brand surface)
+     navy-700 #133B6B   (hover/pressed on navy)
+     blue-600 #1B5FAE   (primary actions, links)
+     blue-100 #E8F0FA   (selected/active tints)
+     gold-500 #C9A227   (accent: active indicators, highlights, progress, badges)
+     gold-600 #A8860B   (gold that must sit on white — passes contrast at 14px+ bold)
+     gold-100 #F7EFD4   (subtle gold tint backgrounds)
+     ink-950  #0B0B0C   (black — primary text on white)
+     ink-600  #4B5563   (secondary text)
+     ink-300  #D1D5DB   (borders, dividers)
+     white    #FFFFFF   (cards/surfaces)
+     paper    #F7F9FC   (app background — slightly off-white so cards float)
+   SEMANTIC (engagement bands & feedback — tuned to harmonize with the palette):
+     thriving #1E7F4F · steady blue-600 · watch #B45309 · at_risk #B42318
+     success #1E7F4F · warning #B45309 · error #B42318
+   TYPE SCALE: one family (Inter on web; system SF/Roboto on mobile), weights 400/500/600/700;
+     display 28/34, title 20/28, body 15/22, caption 12/16. Line length ≤ ~70ch for reading.
+   SPACING: 8pt grid (4/8/12/16/24/32/48). RADII: 10 (controls), 14 (cards), 999 (pills).
+   SHADOWS: one soft card shadow; never stack heavy shadows.
+2. CONTRAST GUARDRAILS (non-negotiable, WCAG AA):
+   - Body text is ink-950 on white/paper; on navy surfaces text is white.
+   - Gold is an ACCENT: active-nav indicator, progress fill, badges, focus rings, small
+     headings on navy. Never gold body text on white (use gold-600 only ≥14px semibold).
+   - Every interactive element has a visible focus state (gold ring on navy, blue ring on white).
+3. RESTRAINT RULES (what keeps it beautiful and uncongested):
+   - One primary action per screen; everything else is secondary/ghost.
+   - Cards over tables where content is small; tables get roomy 48px rows.
+   - Max content width 1080px on web; min 24px screen padding on mobile, 24–32px section gaps.
+   - Subtle motion only: 150–200ms ease on hover/press/page transitions; skeleton loaders,
+     never spinners-on-white-void.
+
+PHASE B — Admin portal shell & navigation (packages/admin-web)
+4. Adopt Tailwind CSS, themed from the Phase A tokens (tailwind.config maps the palette;
+   no raw hex in components). Add lucide-react for icons. Inter via @fontsource/inter.
+5. App shell: a fixed left SIDEBAR in navy-950 — gold accent bar + blue-100 text-tint on the
+   active item, white icons/labels, sections: Cohort, Reviews, Curriculum (Admin-only),
+   collapsed-to-icons mode below 1100px. TOPBAR: white, page title, user chip (email + role
+   pill), sign-out. Content area on `paper` with white cards.
+6. Rebuild the existing screens on the new system WITHOUT changing behavior:
+   - Cohort: roomy table in a card; band shown as a colored pill (semantic tokens) + score;
+     Hᵢ/Cᵢ/Aᵢ as thin gold progress bars; skeleton rows while loading; friendly empty state;
+     cursor pagination as "Load more".
+   - Reviews: card list; reflection text in a readable serif-feel block (still Inter, larger
+     leading); Approve (primary blue) / Reject (ghost danger) with confirm.
+   - Curriculum CMS: two-pane layout — navy rail of levels/modules (gold dot = published,
+     hollow = draft) and a clean editor canvas; markdown editor and preview in tabs on
+     narrow screens, side-by-side ≥1280px; sticky save/publish bar with status chip
+     (Draft/Published/version); quiz panel as collapsible cards, not a dense grid.
+   - Dev login: centered card on navy-950 with the wordmark "Nuru Place · Pathway",
+     gold keyline, single email field + one primary button.
+7. States everywhere: loading skeletons, empty states (one-line message + gentle CTA),
+   error banners with retry. Toasts (top-right, auto-dismiss) for save/publish/approve.
+8. Keep all existing component tests green; update DOM assertions where markup changed.
+
+PHASE C — Mobile app (packages/mobile)
+9. Add @react-navigation/native + native-stack + bottom-tabs (pre-approved deps). Structure:
+   - Bottom tabs: Pathway (home) · Give · Profile — navy-950 bar, gold active icon+label,
+     ink-300 inactive; safe-area aware.
+   - Native stack above tabs for Lesson → Quiz flows with default platform transitions.
+10. Theme module (src/theme/tokens.ts) mirroring Phase A; a small set of primitives:
+    Screen (paper bg + padding), Card, Button (primary navy / gold CTA / ghost), Pill,
+    ProgressBar (gold fill on navy-100 track), SectionHeader. All screens compose these —
+    no ad-hoc inline styles left.
+11. Redesign screens, uncongested (one idea per screen):
+    - PATHWAY (home): greeting + level name; a hero card with a gold progress bar
+      ("Level 2 · 4 of 9 modules"); then the module list — white cards, lock icon and
+      ink-600 for locked, gold check for completed, chevron for next-up. The next unlocked
+      module gets a subtle gold "Continue" CTA.
+    - LESSON: distraction-free reader — title, est. minutes pill, sanitized markdown at
+      body 16/26 with 24px margins; sticky bottom "Mark complete" primary button;
+      reflection prompt (when evaluation_kind=reflection) as a gold-tinted card with a
+      text area.
+    - QUIZ: one question per screen, large tap targets (≥48px), selected option fills
+      blue-100 with blue-600 border; progress dots in gold; pass/fail result screen —
+      gold laurel motif on pass, warm retry message on fail (never red-shaming).
+    - GIVE: amount entry with big numerals, fund selector as segmented pills; the offline
+      hard-block presented kindly ("Giving needs a connection — you're offline") on a
+      navy info card. No card fields (Stripe sheet handles that later).
+    - PROFILE: avatar circle (initials on navy), level badge with gold ring, sign out.
+12. WIRE THE SCREENS TO THE REAL MACHINERY: remove HomeScreen's standalone
+    InMemoryLocalStore; screens read through the app-wide store/sync engine and session
+    (auth/session.ts). Render from cache instantly, reconcile in background (§1.3) — an
+    unobtrusive "Syncing…" pill, never a blocking spinner.
+13. Generate the native projects (npx react-native init shell or the community template,
+    matching the RN version in package.json) so `pnpm ios` runs on a simulator. Add
+    docs/NEXT_STEPS.md instructions: how to run iOS sim + Android emulator (10.0.2.2 note),
+    dev-login email. If native generation can't complete in this environment, scaffold what
+    you can, keep it compiling, and document the exact remaining manual steps.
+14. Accessibility: accessibilityRole/labels on all touchables; dynamic-type friendly
+    (no fixed text in pressables); contrast per Phase A.
+
+PHASE D — Consistency & verification
+15. A lightweight web /styleguide route (dev-only) rendering tokens, buttons, pills, cards,
+    band colors — the living reference for future screens.
+16. Tests: web component tests for shell nav (active state, admin-only Curriculum), band
+    pill mapping, toast on save; mobile unit tests for theme mapping + quiz option state;
+    everything existing stays green. Run pnpm build for admin-web to prove the Tailwind
+    pipeline compiles.
+17. Update README (a short "Design system" section pointing at tokens + styleguide) and
+    docs/NEXT_STEPS.md (how to view the styleguide; mobile run steps).
+
+OUT OF SCOPE: dark mode (tokens are structured to allow it later), logo design (use the
+"Nuru Place · Pathway" wordmark; slot an SVG logo when provided), Stripe payment sheet UI.
+
+DEFINITION OF DONE: pnpm typecheck, lint, test all green; admin-web builds; the portal
+looks branded (navy sidebar, gold accents, white cards on paper) with no raw default-HTML
+screens left; the mobile app compiles with the new navigation + themed screens wired to the
+real store/sync.
+```
+
+## Prompt 7 — Features v2: Video, Calendar, Onboarding, Gamification
+
+> Implements docs/FEATURES_V2_SPEC.md — read that file FIRST; it is the source of truth for
+> these four subsystems (schema DDL, endpoint catalog, infra, security, and the §D deviations
+> already decided). Work phase by phase, each green before the next. Follow CLAUDE.md
+> autonomous-operation rules.
+
+```
+Read CLAUDE.md, docs/FEATURES_V2_SPEC.md (authoritative for this work), and skim
+nuru-place-technical-spec.pdf §1.7/§1.9/§3.6/§5 for the guardrails it extends. Implement the
+four subsystems exactly as specified. Keep typecheck, lint, test, openapi:lint green at every
+phase. New deps pre-approved: rrule, chrono-node.
+
+PHASE A — Migrations (one forward migration per subsystem, §2 conventions, full down-paths):
+media_status enum + media_assets extensions + video_uploads + video_progress +
+modules.media_asset_id (V.1); event_series/event_exceptions/events extensions/event_rsvps with
+the RRULE allow-list noted in C.0 (C.1); onboarding_sessions/guardian_consents/
+onboarding_assessments + cell_groups name trigram index (O.1); badges/user_badges/user_streaks/
+gamification_events (G.1). Migration tests: apply + full down/up on embedded Postgres.
+
+PHASE B — Video (V.2–V.4): VideoPipelineProvider interface with CloudinaryProvider +
+HlsFfmpegProvider (FFmpeg invocation behind the interface; fake provider in tests); admin
+upload-session endpoints; outbox `media.transcode` consumer in the worker (idempotent on
+content_hash); gated GET /v1/media/{id}/manifest (hard-lock test: locked module's video manifest
+→ 409); sync domains video_progress (push+pull, LWW documented) and the existing
+interaction_events video kinds. Tests per V.2/V.4 incl. signed-URL expiry and replay idempotency.
+
+PHASE C — Calendar (C.1–C.4): series/exception CRUD with RRULE allow-list validation (422 on
+violation, expansion cap 500); projection endpoint GET /v1/calendar (rrule expansion in series
+IANA timezone — add a DST regression test around a transition date); occurrence materializer
+worker (advisory-locked, horizon 35d, per-occurrence qr_secret) on outbox `calendar.materialize`
++ daily cron; Redis-cached projections (in-memory fallback) with invalidation; RSVP endpoint +
+sync domains (`calendar` pull window, `event_rsvps` push); reminders via the notifications
+module; POST /v1/calendar/parse with chrono-node (rate-limited, leader+). Visibility-scoping
+tests: cell member sees cell events, outsider 403, congregation events visible to its members.
+
+PHASE D — Onboarding (O.1–O.4): resumable stepper endpoints (GET state + per-step PUTs +
+finalize calling the existing onboard()); guardian-consent enforcement — finalize for an
+is_minor user without unrevoked consent → 422 CONSENT_REQUIRED (test BOTH paths); consent
+immutability (new row + revoke, audited); guardian_contact field-level encrypted like phone;
+literacy quiz served + server-scored with client_mutation_id idempotency; directory search
+endpoint (minimal fields, rate-limited); +48h incomplete-onboarding nudge via outbox. Migrate
+the existing single-shot POST /v1/me/onboarding to delegate to the stepper finalize (keep the
+route for backward compat).
+
+PHASE E — Gamification (G.1–G.4): badge catalog admin CRUD with criteria validated against a
+registered rule-schema; rules worker on outbox topics (module.completed, attendance.checked_in,
+level.advanced, streak.tick) writing gamification_events + user_badges transactionally with
+dedupe_key (test: replaying an outbox event never double-awards); nightly streak job
+piggybacking the engagement batch, computed in each member's timezone (test across a timezone
+boundary); /v1/me/achievements, /v1/badges, aggregate-only cell milestones with the k>=3
+suppression (test), leader-scoped member view; achievements sync domain is PULL-ONLY — a push
+attempt is rejected (test). Seed a starter badge catalog (first_module, level_1..6,
+streak_7/30/90, attendance_10, scripture_30) as an idempotent seed.
+
+PHASE F — Integration & polish: register all new sync domains in PULL_DOMAINS/push handlers
+(replay no-op tests for each push domain); add the §X config keys to env.ts + .env.example;
+update openapi.yaml for every new route and keep the route↔spec contract test green; extend the
+dev seed so the portal/mobile show a populated calendar, a transcoded-fake video,
+an in-progress onboarding, and a few awarded badges; update README (one paragraph per
+subsystem) and docs/NEXT_STEPS.md run notes.
+
+DEFINITION OF DONE: pnpm typecheck, lint, test, openapi:lint all green; every §D deviation in
+docs/FEATURES_V2_SPEC.md respected (720p cap, timezone-aware RRULE, chrono-node, no public
+individual leaderboards, pull-only achievements); no v1 guardrail weakened (hard-lock, money
+never offline, idempotent replays, RBAC scoping, minors protection).
+```

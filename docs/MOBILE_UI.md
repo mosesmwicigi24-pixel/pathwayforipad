@@ -15,20 +15,30 @@ white · gold · black**, governed by **space + restraint**.
 Palette anchors: `paper #F4F0E8` · `navy #0A2540` / `navyDeep #071F3B` ·
 `gold #C9A227` · `ink #0B0B0C`.
 
-## Screens
-| Screen | File | Notes |
-| --- | --- | --- |
-| Pathway (home) | `screens/HomeScreen.tsx` | navy hero + gold progress, module cards (completed/next/locked) |
-| Lesson | `screens/ModuleScreen.tsx` | media card, scripture + reflection, sticky Mark-complete |
-| Quiz | `screens/QuizScreen.tsx` | one question/screen, gold dots, pass/fail (server-confirmed) |
-| Give | `screens/GivingScreen.tsx` | big-number entry, presets, funds; **online-only** (§5.6) |
-| Login | `screens/LoginScreen.tsx` | navy wordmark + gold cross/keyline |
-| Profile | `screens/ProfileScreen.tsx` | avatar + level ring, stats, certs, sign-out |
-| Level complete | `screens/LevelCompleteScreen.tsx` | certificate motif + next level |
-| Bottom tabs | `navigation/BottomTabBar.tsx` | navy/gold · Pathway · Give · Profile |
+## Screens & their data source
+Every screen reads live from the backend (DB) via the typed hooks in
+`api/hooks.ts` (a small server-state cache in `api/query.ts`) — no hardcoded
+content. Reads are server-gated; writes are server-authoritative (§1.1, §1.3).
 
-All screens keep the real wiring: dev-login + secure vault, offline sync engine,
-giving online-block. Render from cache, reconcile in background (§1.3).
+| Screen | File | Data source |
+| --- | --- | --- |
+| Home (dashboard) | `screens/HomeDashboardScreen.tsx` | `usePathway` · `useMe` · `useAchievements` |
+| Levels | `screens/LevelsScreen.tsx` | `usePathway` · `useMe` |
+| Level detail | `screens/LevelScreen.tsx` | `useLevelModules` · `usePathway` |
+| Lesson | `screens/ModuleScreen.tsx` | `useModule`; completion posts to server |
+| Quiz | `screens/QuizScreen.tsx` | `useQuiz` (server-assembled) → `submitQuiz` (**server-scored**) |
+| Give | `screens/GivingScreen.tsx` | `useGivingHistory`; **online-only** intent (§5.6) |
+| Calendar | `screens/CalendarScreen.tsx` | `useCalendar` (projected occurrences) |
+| Event detail | `screens/EventDetailScreen.tsx` | route params from the calendar projection |
+| Portal | `screens/PortalScreen.tsx` | `useMe` |
+| Login | `screens/LoginScreen.tsx` | dev-login → secure vault |
+| Level complete | `screens/LevelCompleteScreen.tsx` | `usePathway` · `useMe` |
+| Chat | `screens/ChatScreen.tsx` | **deferred (v3, no backend)** — presentational placeholder |
+| Bottom tabs | `navigation/BottomTabBar.tsx` | navy/gold · Home · Levels · Calendar · Portal · Chat |
+
+All screens keep the real wiring: dev-login + secure vault, the offline sync
+engine, and the giving online-block. Render from the query cache, reconcile in
+the background (§1.3).
 
 ## Pulling more frames from Figma
 The Figma **remote** MCP server is configured in `.mcp.json`. In a session:

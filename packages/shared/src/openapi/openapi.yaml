@@ -209,6 +209,13 @@ paths:
       summary: The discipleship levels with themes and pass marks.
       responses:
         "200": { description: Levels }
+  /me/pathway:
+    get:
+      tags: [curriculum]
+      summary: Per-member pathway summary; each level with module counts and completion status.
+      responses:
+        "200": { description: Pathway summary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /levels/{n}/modules:
     get:
       tags: [curriculum]

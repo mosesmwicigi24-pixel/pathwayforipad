@@ -6,6 +6,19 @@ import axios, { type AxiosInstance } from "axios";
 import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 import type { MeResponse, PendingMutation, SyncPullResponse, SyncPushResponse, TokenPair } from "@nuru/shared";
 import type { TokenVault } from "../auth/tokenVault";
+import type {
+  Achievements,
+  AssembledQuiz,
+  CalendarOccurrence,
+  CompleteResult,
+  EventDetail,
+  GivingRecord,
+  Level,
+  LevelModule,
+  ModuleDetail,
+  PathwaySummary,
+  QuizResult,
+} from "./types";
 
 export const api: AxiosInstance = axios.create({
   baseURL: "http://localhost:8080/v1",
@@ -55,6 +68,64 @@ export const NuruApi = {
   async me(): Promise<MeResponse> {
     const { data } = await api.get<MeResponse>("/me");
     return data;
+  },
+  // ---- Curriculum / pathway (real DB reads, server-gated) ----
+  async levels(): Promise<Level[]> {
+    const { data } = await api.get<{ data: Level[] }>("/levels");
+    return data.data;
+  },
+  async pathway(): Promise<PathwaySummary> {
+    const { data } = await api.get<PathwaySummary>("/me/pathway");
+    return data;
+  },
+  async levelModules(levelNumber: number): Promise<LevelModule[]> {
+    const { data } = await api.get<{ data: LevelModule[] }>(`/levels/${levelNumber}/modules`);
+    return data.data;
+  },
+  async module(moduleId: string): Promise<ModuleDetail> {
+    const { data } = await api.get<ModuleDetail>(`/modules/${moduleId}`);
+    return data;
+  },
+  async completeModule(moduleId: string, body?: { reflection_text?: string }): Promise<CompleteResult> {
+    const { data } = await api.post<CompleteResult>(`/modules/${moduleId}/complete`, body ?? {});
+    return data;
+  },
+  // ---- Quiz (server-assembled, server-scored, §1.3/§3.7) ----
+  async quiz(moduleId: string): Promise<AssembledQuiz> {
+    const { data } = await api.get<AssembledQuiz>(`/modules/${moduleId}/quiz`);
+    return data;
+  },
+  async submitQuiz(
+    moduleId: string,
+    body: { client_mutation_id: string; answers: Array<{ question_id: string; given_answer: string }> },
+  ): Promise<QuizResult> {
+    const { data } = await api.post<QuizResult>(`/modules/${moduleId}/quiz/attempts`, body);
+    return data;
+  },
+  // ---- Calendar ----
+  async calendar(from: string, to: string): Promise<CalendarOccurrence[]> {
+    const { data } = await api.get<{ data: CalendarOccurrence[] }>("/calendar", { params: { from, to } });
+    return data.data;
+  },
+  async event(eventId: string): Promise<EventDetail> {
+    const { data } = await api.get<EventDetail>(`/events/${eventId}`);
+    return data;
+  },
+  async rsvp(eventId: string, status: "going" | "maybe" | "declined"): Promise<unknown> {
+    const { data } = await api.post(`/events/${eventId}/rsvp`, { status });
+    return data;
+  },
+  // ---- Giving / achievements ----
+  async givingHistory(): Promise<GivingRecord[]> {
+    const { data } = await api.get<{ data: GivingRecord[] }>("/giving/history");
+    return data.data;
+  },
+  async achievements(): Promise<Achievements> {
+    const { data } = await api.get<Achievements>("/me/achievements");
+    return data;
+  },
+  async logout(refreshToken: string): Promise<void> {
+    await api.post("/auth/logout", { refresh_token: refreshToken });
   },
   async pull(body: { device_id?: string; cursors: Record<string, number> }): Promise<SyncPullResponse> {
     const { data } = await api.post<SyncPullResponse>("/sync/pull", body);

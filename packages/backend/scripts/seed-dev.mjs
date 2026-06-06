@@ -85,8 +85,8 @@ try {
   for (let i = 1; i <= DEV_MODULES; i++) {
     const id = (
       await client.query(
-        `INSERT INTO modules (level_number, module_sequence_number, title, lesson_content, quiz_pass_mark, is_published)
-         VALUES (1, $1, $2, 'dev', 70, TRUE) RETURNING module_id`,
+        `INSERT INTO modules (level_number, module_sequence_number, title, lesson_content, quiz_pass_mark, evaluation_kind, status)
+         VALUES (1, $1, $2, 'dev', 70, 'none', 'published') RETURNING module_id`,
         [100 + i, `Dev Module ${i}`], // seq 101+ to avoid clashing with any real curriculum
       )
     ).rows[0].module_id;

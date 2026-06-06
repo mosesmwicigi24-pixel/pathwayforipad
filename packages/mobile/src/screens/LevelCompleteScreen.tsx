@@ -9,9 +9,19 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
+import { usePathway, useMe } from "../api/hooks";
 
 export function LevelCompleteScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { data: pathway } = usePathway();
+  const { data: me } = useMe();
+
+  const levels = pathway?.levels ?? [];
+  // The most-recently completed level (highest with all modules done).
+  const completed = [...levels].reverse().find((l) => l.total_modules > 0 && l.completed_modules >= l.total_modules);
+  const nextLevel = completed ? levels.find((l) => l.level_number === completed.level_number + 1) : levels[0];
+  const name = me?.profile?.full_name ?? "you";
+
   return (
     <View style={st.root}>
       <View style={st.center}>
@@ -28,9 +38,9 @@ export function LevelCompleteScreen(): ReactElement {
         <T variant="overline" tone="gold" style={{ letterSpacing: 2.2, marginTop: spacing.xl }}>
           CERTIFICATE OF COMPLETION
         </T>
-        <T style={st.levelName}>Foundations of Faith</T>
+        <T style={st.levelName}>{completed?.title ?? "Your Level"}</T>
         <T variant="bodyLg" tone="onNavyDim" style={{ marginTop: spacing.md, textAlign: "center" }}>
-          Awarded to Moses Mwicigi{"\n"}for completing Level 1
+          {`Awarded to ${name}\nfor completing Level ${completed?.level_number ?? ""}`.trim()}
         </T>
 
         <View style={st.rule}>
@@ -38,17 +48,23 @@ export function LevelCompleteScreen(): ReactElement {
           <View style={st.ruleDot} />
           <View style={st.ruleLine} />
         </View>
-        <T variant="caption" tone="onNavyFaint">March 2024 · Nuru Place Pathway</T>
+        <T variant="caption" tone="onNavyFaint">Nuru Place Pathway</T>
       </View>
 
       {/* Next level card */}
-      <View style={st.nextCard}>
-        <T variant="overline" tone="onNavyDim">NEXT LEVEL</T>
-        <T variant="heading" tone="onNavy" style={{ marginTop: spacing.xs }}>Inner Transformation</T>
-        <T variant="caption" tone="onNavyFaint" style={{ marginTop: 2 }}>9 modules · approx. 2 hrs</T>
-      </View>
+      {nextLevel ? (
+        <View style={st.nextCard}>
+          <T variant="overline" tone="onNavyDim">NEXT LEVEL</T>
+          <T variant="heading" tone="onNavy" style={{ marginTop: spacing.xs }}>{nextLevel.title}</T>
+          <T variant="caption" tone="onNavyFaint" style={{ marginTop: 2 }}>
+            {`${nextLevel.total_modules} modules · approx. ${Math.round(nextLevel.minutes / 60) || 1} hr${nextLevel.minutes >= 120 ? "s" : ""}`}
+          </T>
+        </View>
+      ) : null}
 
-      <PButton variant="gold" onPress={() => nav.navigate("Tabs", { screen: "Home" })}>Begin Level 2</PButton>
+      <PButton variant="gold" onPress={() => nav.navigate("Tabs", { screen: "Home" })}>
+        {nextLevel ? `Begin Level ${nextLevel.level_number}` : "Continue"}
+      </PButton>
     </View>
   );
 }
