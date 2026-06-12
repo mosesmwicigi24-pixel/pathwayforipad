@@ -1485,6 +1485,12 @@ components:
       properties:
         module_id: { type: string, format: uuid }
         question_count: { type: integer }
+        time_limit_sec:
+          type: [integer, "null"]
+          description: Server-enforced time limit; the clock starts at assembly. Null = no limit.
+        attempts_remaining:
+          type: [integer, "null"]
+          description: Attempts left under the module's cap (server-counted). Null = unlimited.
         questions:
           type: array
           items:

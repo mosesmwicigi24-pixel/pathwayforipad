@@ -51,9 +51,41 @@ export class AssessmentService {
     return { enrollment, moduleSeq: module.module_sequence_number };
   }
 
-  /** Assemble a randomized quiz (no correct answers leaked, §5.8). */
+  /** Assemble a randomized quiz (no correct answers leaked, §5.8). Starts the
+   *  server-side time-limit clock and reports attempts remaining (B4). */
   async assembleQuiz(userId: string, moduleId: string): Promise<unknown> {
-    await this.requireUnlocked(this.pool, userId, moduleId);
+    const { enrollment } = await this.requireUnlocked(this.pool, userId, moduleId);
+    const cfg = await one<{ time_limit_sec: number | null; max_attempts: number | null }>(
+      this.pool,
+      `SELECT time_limit_sec, max_attempts FROM modules WHERE module_id = $1`,
+      [moduleId],
+    );
+
+    // Anchor the time-limit clock on the progress row (created here if needed).
+    const prog = await one<{ progress_id: string }>(
+      this.pool,
+      `INSERT INTO module_progress (enrollment_id, module_id, quiz_started_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (enrollment_id, module_id) DO UPDATE SET quiz_started_at = now()
+       RETURNING progress_id`,
+      [enrollment.enrollment_id, moduleId],
+    );
+
+    let attemptsRemaining: number | null = null;
+    if (cfg.max_attempts != null) {
+      const used = await one<{ n: number }>(
+        this.pool,
+        `SELECT count(*)::int AS n FROM quiz_attempts WHERE progress_id = $1`,
+        [prog.progress_id],
+      );
+      attemptsRemaining = Math.max(0, cfg.max_attempts - used.n);
+      if (attemptsRemaining === 0) {
+        throw new ApiError("UNPROCESSABLE", "Attempt limit reached for this quiz", {
+          max_attempts: cfg.max_attempts,
+        });
+      }
+    }
+
     const questions = await many(
       this.pool,
       `SELECT question_id, q_type, question_text, answer_options
@@ -61,7 +93,13 @@ export class AssessmentService {
       [moduleId],
     );
     if (questions.length === 0) throw new ApiError("UNPROCESSABLE", "Module has no quiz questions");
-    return { module_id: moduleId, question_count: questions.length, questions };
+    return {
+      module_id: moduleId,
+      question_count: questions.length,
+      time_limit_sec: cfg.time_limit_sec,
+      attempts_remaining: attemptsRemaining,
+      questions,
+    };
   }
 
   /** Score a submission server-side and record the attempt. */
@@ -103,13 +141,42 @@ export class AssessmentService {
       }
 
       // Ensure a progress row exists to anchor the attempt (FK quiz_attempts → module_progress).
-      const prog = await one<{ progress_id: string }>(
+      const prog = await one<{ progress_id: string; quiz_started_at: string | null }>(
         c,
         `INSERT INTO module_progress (enrollment_id, module_id) VALUES ($1, $2)
          ON CONFLICT (enrollment_id, module_id) DO UPDATE SET row_version = module_progress.row_version
-         RETURNING progress_id`,
+         RETURNING progress_id, quiz_started_at`,
         [enrollment.enrollment_id, moduleId],
       );
+
+      // Server-enforced quiz config (B4): the limit clock started at assemble;
+      // attempts are counted from recorded rows — neither is client-trusted.
+      const cfg = await one<{ time_limit_sec: number | null; max_attempts: number | null }>(
+        c,
+        `SELECT time_limit_sec, max_attempts FROM modules WHERE module_id = $1`,
+        [moduleId],
+      );
+      if (cfg.time_limit_sec != null) {
+        const startedMs = prog.quiz_started_at ? new Date(prog.quiz_started_at).getTime() : null;
+        const graceMs = 30_000; // network/clock grace
+        if (startedMs === null || Date.now() > startedMs + cfg.time_limit_sec * 1000 + graceMs) {
+          throw new ApiError("UNPROCESSABLE", "Time limit exceeded — re-open the quiz to try again", {
+            time_limit_sec: cfg.time_limit_sec,
+          });
+        }
+      }
+      if (cfg.max_attempts != null) {
+        const used = await one<{ n: number }>(
+          c,
+          `SELECT count(*)::int AS n FROM quiz_attempts WHERE progress_id = $1`,
+          [prog.progress_id],
+        );
+        if (used.n >= cfg.max_attempts) {
+          throw new ApiError("UNPROCESSABLE", "Attempt limit reached for this quiz", {
+            max_attempts: cfg.max_attempts,
+          });
+        }
+      }
 
       const active = await many<{ question_id: string; correct_answer: string }>(
         c,

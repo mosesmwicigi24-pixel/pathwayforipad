@@ -173,6 +173,9 @@ export class AdminCurriculumService {
       summary: z.string().nullable().optional(),
       key_verses: z.array(z.string()).nullable().optional(),
       module_sequence_number: z.number().int().min(1).optional(),
+      // Quiz Builder config (B4) — enforced server-side at assemble/submit.
+      time_limit_sec: z.number().int().min(30).max(7200).nullable().optional(),
+      max_attempts: z.number().int().min(1).max(50).nullable().optional(),
     })
     .strict();
 
@@ -203,8 +206,9 @@ export class AdminCurriculumService {
           c,
           `INSERT INTO modules
              (level_number, module_sequence_number, title, lesson_content, evaluation_kind,
-              quiz_pass_mark, estimated_minutes, video_url, summary, key_verses, status, current_version)
-           VALUES ($1,$2,$3,$4,$5,COALESCE($6,70.00),$7,$8,$9,$10,'draft',1)
+              quiz_pass_mark, estimated_minutes, video_url, summary, key_verses, status, current_version,
+              time_limit_sec, max_attempts)
+           VALUES ($1,$2,$3,$4,$5,COALESCE($6,70.00),$7,$8,$9,$10,'draft',1,$11,$12)
            RETURNING module_id`,
           [
             input.level_number,
@@ -217,6 +221,8 @@ export class AdminCurriculumService {
             input.video_url ?? null,
             input.summary ?? null,
             input.key_verses ? JSON.stringify(input.key_verses) : null,
+            input.time_limit_sec ?? null,
+            input.max_attempts ?? null,
           ],
         );
       } catch (e) {
@@ -252,7 +258,7 @@ export class AdminCurriculumService {
       c,
       `SELECT module_id, level_number, module_sequence_number, title, summary, lesson_content,
               key_verses, status, is_published, evaluation_kind, quiz_pass_mark, estimated_minutes,
-              video_url, current_version, row_version, created_at, updated_at
+              video_url, time_limit_sec, max_attempts, current_version, row_version, created_at, updated_at
          FROM modules WHERE module_id = $1`,
       [moduleId],
     );
@@ -268,6 +274,8 @@ export class AdminCurriculumService {
       estimated_minutes: z.number().int().min(0).nullable().optional(),
       video_url: z.string().url().max(512).nullable().optional(),
       key_verses: z.array(z.string()).nullable().optional(),
+      time_limit_sec: z.number().int().min(30).max(7200).nullable().optional(),
+      max_attempts: z.number().int().min(1).max(50).nullable().optional(),
       /** Optimistic-concurrency guard (§5.8): reject if the row changed since load. */
       expected_row_version: z.number().int().min(1).optional(),
     })
@@ -314,6 +322,8 @@ export class AdminCurriculumService {
         quiz_pass_mark: input.quiz_pass_mark,
         estimated_minutes: input.estimated_minutes,
         video_url: input.video_url,
+        time_limit_sec: input.time_limit_sec,
+        max_attempts: input.max_attempts,
         key_verses: input.key_verses === undefined ? undefined : input.key_verses === null ? null : JSON.stringify(input.key_verses),
       };
       const keys = Object.keys(cols).filter((k) => cols[k] !== undefined);
