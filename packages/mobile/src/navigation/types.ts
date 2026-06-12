@@ -1,15 +1,16 @@
-// Typed route params for @react-navigation (spec §1.3; Figma "Nuru Pathway app
-// design"). The root native-stack hosts Login, the bottom-tab area, and the
-// pushed learning flow (Level → Lesson → Quiz → LevelComplete) plus Giving and
-// the calendar Event detail. The bottom tabs are the five primary destinations.
+// Typed route params for @react-navigation (Contract Matrix M1; the new design's
+// tab structure). The root native-stack hosts Login, the bottom-tab area, and the
+// pushed flows: the learning path (Level → Lesson → Quiz → LevelComplete), the
+// full calendar browse, and the Event detail. The five primary destinations are
+// Home · Pathway · Give · Community · Profile.
 import type { NavigatorScreenParams } from "@react-navigation/native";
 
 export type TabParamList = {
   Home: undefined;
-  Levels: undefined;
-  Calendar: undefined;
-  Portal: undefined;
-  Chat: undefined;
+  Pathway: undefined;
+  Give: undefined;
+  Community: undefined;
+  Profile: undefined;
 };
 
 export type RootStackParamList = {
@@ -19,6 +20,7 @@ export type RootStackParamList = {
   Module: { moduleId: string };
   Quiz: { moduleId: string };
   LevelComplete: undefined;
-  Giving: undefined;
+  Giving: undefined; // legacy push target (Profile rows); the Give tab is primary
+  Calendar: undefined; // full browse, pushed from Home's Upcoming section
   EventDetail: { eventId: string; title: string; startAt: string; endAt?: string; location?: string | null };
 };

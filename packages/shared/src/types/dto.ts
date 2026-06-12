@@ -34,6 +34,9 @@ export interface UserProfile {
   timezone: string;
   locale: string;
   is_minor: boolean;
+  gender?: "male" | "female" | "prefer_not_to_say" | null;
+  city?: string | null;
+  socials?: Record<string, string>;
   row_version: number;
 }
 

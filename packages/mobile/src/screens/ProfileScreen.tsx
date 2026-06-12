@@ -1,7 +1,7 @@
-// Portal (Figma "PortalTab"). The administrative hub: profile + enrollment,
-// certificates, ministry records, and support — grouped into quiet list sections.
-// Giving history routes into the live Give flow (money is never queued offline,
-// §5.6). Sign out clears the session and returns to Login.
+// Profile (new design, Contract Matrix M1 — replaces the old Portal tab).
+// Identity card, personal details (incl. the B6 extensions: gender, city,
+// socials, baptism), pathway administration, and giving — grouped into quiet
+// list sections. Sign out clears the session and returns to Login.
 import { type ReactElement } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -21,23 +21,30 @@ function initials(full?: string | null): string {
   return (a + b).toUpperCase() || "NP";
 }
 
-interface Row {
-  label: string;
-  route?: keyof RootStackParamList;
+function genderLabel(g?: string | null): string | null {
+  if (g === "male") return "Male";
+  if (g === "female") return "Female";
+  if (g === "prefer_not_to_say") return "Prefer not to say";
+  return null;
 }
 
-const SECTIONS: { title: string; items: Row[] }[] = [
-  { title: "Profile & account", items: [{ label: "Personal information" }, { label: "Language & region" }, { label: "Notification preferences" }] },
-  { title: "Pathway administration", items: [{ label: "Enrollment status" }, { label: "Certificates & transcripts" }, { label: "Mentor assignment" }] },
-  { title: "Church services", items: [{ label: "Attendance record" }, { label: "Giving history", route: "Giving" }, { label: "Support requests" }] },
-];
-
-export function PortalScreen(): ReactElement {
+export function ProfileScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: me } = useMe();
-  const fullName = me?.profile?.full_name ?? "Member";
+  const profile = me?.profile;
+  const fullName = profile?.full_name ?? "Member";
   const level = me?.enrollment?.current_level ?? null;
-  const subtitle = [level ? `Level ${level} learner` : null, me?.profile?.email].filter(Boolean).join(" · ");
+  const subtitle = [level ? `Level ${level} learner` : null, profile?.email].filter(Boolean).join(" · ");
+  const socials = Object.entries(profile?.socials ?? {});
+
+  const details: Array<{ label: string; value: string }> = [
+    ...(profile?.phone_number ? [{ label: "Phone", value: profile.phone_number }] : []),
+    ...(genderLabel(profile?.gender) ? [{ label: "Gender", value: genderLabel(profile?.gender) ?? "" }] : []),
+    ...(profile?.city ? [{ label: "City", value: profile.city }] : []),
+    ...(profile?.year_of_salvation ? [{ label: "Saved in", value: String(profile.year_of_salvation) }] : []),
+    { label: "Baptized", value: profile?.is_baptized ? "Yes" : "Not yet" },
+    ...socials.map(([k, v]) => ({ label: k[0]?.toUpperCase() + k.slice(1), value: v })),
+  ];
 
   const signOut = async (): Promise<void> => {
     try {
@@ -54,11 +61,8 @@ export function PortalScreen(): ReactElement {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
         <View style={st.header}>
           <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -60, top: -60 }} />
-          <T variant="micro" tone="gold" style={st.kicker}>ADMINISTRATIVE HUB</T>
-          <T variant="display" tone="onNavy" style={{ marginTop: spacing.sm, fontSize: 34 }}>Portal</T>
-          <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.md, maxWidth: 330 }}>
-            Manage your profile, enrollment, certificates, ministry records, and support needs in one quiet place.
-          </T>
+          <T variant="micro" tone="gold" style={st.kicker}>YOUR JOURNEY</T>
+          <T variant="display" tone="onNavy" style={{ marginTop: spacing.sm, fontSize: 34 }}>Profile</T>
         </View>
 
         <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.lg }}>
@@ -76,23 +80,39 @@ export function PortalScreen(): ReactElement {
             </View>
           </View>
 
-          {SECTIONS.map((section) => (
-            <View key={section.title} style={{ marginTop: spacing.lg }}>
-              <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>{section.title.toUpperCase()}</T>
-              <View style={st.group}>
-                {section.items.map((item, i) => (
-                  <Pressable
-                    key={item.label}
-                    onPress={item.route ? () => nav.navigate(item.route as never) : undefined}
-                    style={({ pressed }) => [st.row, i < section.items.length - 1 && st.rowDivider, pressed && item.route && { backgroundColor: "rgba(10,37,64,0.03)" }]}
-                  >
-                    <T variant="heading" style={{ fontSize: 15, fontWeight: "500" }}>{item.label}</T>
-                    <T variant="heading" tone="tertiary" style={{ fontSize: 15 }}>›</T>
-                  </Pressable>
-                ))}
-              </View>
+          {/* Personal details (B6 profile extensions render when present) */}
+          <View style={{ marginTop: spacing.lg }}>
+            <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>PERSONAL DETAILS</T>
+            <View style={st.group}>
+              {details.map((d, i) => (
+                <View key={d.label} style={[st.row, i < details.length - 1 && st.rowDivider]}>
+                  <T variant="heading" style={{ fontSize: 15, fontWeight: "500" }}>{d.label}</T>
+                  <T variant="body" tone="secondary">{d.value}</T>
+                </View>
+              ))}
             </View>
-          ))}
+          </View>
+
+          {/* Pathway + church services */}
+          <View style={{ marginTop: spacing.lg }}>
+            <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>PATHWAY</T>
+            <View style={st.group}>
+              {[
+                { label: "Enrollment status" },
+                { label: "Certificates & transcripts" },
+                { label: "Giving history", onPress: () => nav.navigate("Giving") },
+              ].map((item, i, arr) => (
+                <Pressable
+                  key={item.label}
+                  onPress={item.onPress}
+                  style={({ pressed }) => [st.row, i < arr.length - 1 && st.rowDivider, pressed && item.onPress && { backgroundColor: "rgba(10,37,64,0.03)" }]}
+                >
+                  <T variant="heading" style={{ fontSize: 15, fontWeight: "500" }}>{item.label}</T>
+                  <T variant="heading" tone="tertiary" style={{ fontSize: 15 }}>›</T>
+                </Pressable>
+              ))}
+            </View>
+          </View>
 
           <Pressable onPress={() => void signOut()} style={({ pressed }) => [st.signOut, pressed && { transform: [{ scale: 0.99 }] }]}>
             <T variant="heading" style={{ fontSize: 15, color: palette.error }}>Sign out</T>

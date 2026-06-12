@@ -2,15 +2,15 @@
 // video hero, quick-start shortcuts, the scripture of the day, and a Continue card
 // that jumps back into the active level. Offline-first: everything renders instantly
 // from local content; nothing here blocks on the network.
-import { type ReactElement } from "react";
+import { useMemo, type ReactElement } from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { BookOpen, CalendarDays, ChevronRight, Headphones, MessageCircle, Play } from "lucide-react-native";
+import { BookOpen, CalendarDays, ChevronRight, HandCoins, Play, Users } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow, type as typ } from "../theme/tokens";
 import { Card, GradientBg, T } from "../theme/components";
-import { useAchievements, useMe, usePathway } from "../api/hooks";
+import { useAchievements, useCalendar, useMe, usePathway } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
 
@@ -42,6 +42,12 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: pathway, isLoading, error, refetch } = usePathway();
   const { data: me } = useMe();
   const { data: achievements } = useAchievements();
+  // Calendar folds into Home (M1): the next 7 days, stable range per mount.
+  const [fromIso, toIso] = useMemo(() => {
+    const now = new Date();
+    return [now.toISOString(), new Date(now.getTime() + 7 * 86_400_000).toISOString()];
+  }, []);
+  const { data: occurrences } = useCalendar(fromIso, toIso);
 
   if (isLoading) {
     return (
@@ -75,10 +81,10 @@ export function HomeDashboardScreen(): ReactElement {
   ] as const;
 
   const quickStarts = [
-    { label: "Lesson", Icon: BookOpen, onPress: () => nav.navigate("Tabs", { screen: "Levels" }) },
-    { label: "Audio", Icon: Headphones, onPress: () => nav.navigate("Tabs", { screen: "Levels" }) },
-    { label: "Calendar", Icon: CalendarDays, onPress: () => nav.navigate("Tabs", { screen: "Calendar" }) },
-    { label: "Chat", Icon: MessageCircle, onPress: () => nav.navigate("Tabs", { screen: "Chat" }) },
+    { label: "Lesson", Icon: BookOpen, onPress: () => nav.navigate("Tabs", { screen: "Pathway" }) },
+    { label: "Give", Icon: HandCoins, onPress: () => nav.navigate("Tabs", { screen: "Give" }) },
+    { label: "Events", Icon: CalendarDays, onPress: () => nav.navigate("Calendar") },
+    { label: "Community", Icon: Users, onPress: () => nav.navigate("Tabs", { screen: "Community" }) },
   ] as const;
 
   return (
@@ -143,6 +149,50 @@ export function HomeDashboardScreen(): ReactElement {
         </T>
         <T variant="caption" tone="secondary" style={{ marginTop: spacing.md, fontWeight: "500" }}>Psalm 119:105</T>
       </Card>
+
+      {/* Upcoming events (calendar folded into Home, M1) */}
+      {(occurrences ?? []).length > 0 ? (
+        <View style={{ marginTop: spacing.base }}>
+          <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" }}>
+            <T variant="overline" tone="secondary">THIS WEEK</T>
+            <Pressable onPress={() => nav.navigate("Calendar")}>
+              <T variant="micro" tone="gold">All events ›</T>
+            </Pressable>
+          </View>
+          {(occurrences ?? []).slice(0, 3).map((e) => (
+            <Pressable
+              key={e.occurrence_id}
+              onPress={() =>
+                nav.navigate("EventDetail", {
+                  eventId: e.occurrence_id,
+                  title: e.title,
+                  startAt: e.start_at,
+                  endAt: e.end_at,
+                  location: e.location,
+                })
+              }
+              style={({ pressed }) => [st.eventRow, pressed && st.press]}
+            >
+              <View style={st.eventDate}>
+                <T variant="micro" style={{ color: palette.gold }}>
+                  {new Date(e.start_at).toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}
+                </T>
+                <T variant="heading" tone="onNavy" style={{ fontSize: 16 }}>
+                  {new Date(e.start_at).getDate()}
+                </T>
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <T variant="heading" style={{ fontSize: 15 }}>{e.title}</T>
+                <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>
+                  {new Date(e.start_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                  {e.location ? ` · ${e.location}` : ""}
+                </T>
+              </View>
+              <ChevronRight size={16} color={palette.navy} />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
       {/* Continue */}
       {active ? (
@@ -244,5 +294,25 @@ const st = {
   },
   continueTrack: { marginTop: spacing.sm, height: 4, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.10)", overflow: "hidden" },
   continueFill: { height: "100%", borderRadius: 4, backgroundColor: palette.gold },
+  eventRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    marginTop: spacing.sm,
+    backgroundColor: palette.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: spacing.md,
+    ...shadow.card,
+  },
+  eventDate: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: palette.navy,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   press: { transform: [{ scale: 0.99 }] },
 } as const;

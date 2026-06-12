@@ -1,21 +1,26 @@
-// Bottom tab bar (Figma "BottomTabBar") as a custom @react-navigation tabBar.
-// Navy bar, gold active icon + label + indicator dot, dim inactive. Five primary
-// destinations: Home · Levels · Calendar · Portal · Chat.
+// Bottom tab bar (new design, Contract Matrix M1) as a custom @react-navigation
+// tabBar. Navy bar, gold active icon + label + indicator dot, dim inactive.
+// Five primary destinations: Home · Pathway · Give · Community · Profile.
 import type { ReactElement } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import { BookOpen, CalendarDays, Home, MessageCircle, PanelsTopLeft, type LucideIcon } from "lucide-react-native";
+import { BookOpen, HandCoins, Home, UserRound, Users, type LucideIcon } from "lucide-react-native";
 import { palette, spacing } from "../theme/tokens";
 import { T } from "../theme/components";
+import { TAB_LABELS } from "./tabs";
 
-const META: Record<string, { label: string; Icon: LucideIcon }> = {
-  Home: { label: "Home", Icon: Home },
-  Levels: { label: "Levels", Icon: BookOpen },
-  Calendar: { label: "Calendar", Icon: CalendarDays },
-  Portal: { label: "Portal", Icon: PanelsTopLeft },
-  Chat: { label: "Chat", Icon: MessageCircle },
+const ICONS: Record<string, LucideIcon> = {
+  Home,
+  Pathway: BookOpen,
+  Give: HandCoins,
+  Community: Users,
+  Profile: UserRound,
 };
+
+const META: Record<string, { label: string; Icon: LucideIcon }> = Object.fromEntries(
+  Object.entries(TAB_LABELS).map(([name, label]) => [name, { label, Icon: ICONS[name] ?? Home }]),
+);
 
 export function BottomTabBar({ state, navigation }: BottomTabBarProps): ReactElement {
   const insets = useSafeAreaInsets();
