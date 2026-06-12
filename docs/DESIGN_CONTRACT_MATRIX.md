@@ -81,6 +81,12 @@ Attendance, Events, Announcements, Badges, Certificates, Finance, Audit).
 8. **"ERP"/"CMS" labels** → adopted as the portal's two nav groups (matches `docs/FUNCTIONAL_OVERVIEW.md`).
 
 ## 4. Build plan (each phase = a green PR)
+
+> **STATUS: ✅ COMPLETE (2026-06-12).** All fifteen phases shipped as squash-merged
+> PRs: B1 #15 · B2 #16 · B3 #17 · B4 #18 · B5 #19 · B6 #20 · B7 #21 · B8 #22 ·
+> W1 #23 · W2 #24 · W3 #25 · W4 #26 · M1 #27 · M2 #28 · M3 #29.
+> Suites at completion: backend 219 · admin-web 31 · mobile 24 · shared 2.
+
 **Backend first (B1–B7):**
 - **B1 — ERP core reads:** admin reports (overview/engagement/attendance/consents), members admin (list/search/add), certificates admin (list/issue/revoke), finance reads, audit viewer.
 - **B2 — Attendance+Events ops:** manual check-in (+reason, toggle, audit), walk-ins/guests, event toggles (QR/RSVP/check-in-opens), reminders wiring, reschedule/cancel notifications, `GET /v1/me/rsvps`.
