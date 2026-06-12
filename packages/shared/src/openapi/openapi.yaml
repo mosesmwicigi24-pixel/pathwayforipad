@@ -21,6 +21,7 @@ tags:
   - name: portal
   - name: giving
   - name: certificates
+  - name: announcements
   - name: system
 
 security:
@@ -1217,6 +1218,93 @@ paths:
         "200": { description: Ledger entries }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
 
+  # --- Announcements (Contract Matrix B5) ---
+  /admin/announcements:
+    get:
+      tags: [announcements]
+      summary: Admin. List announcements with delivered/open counts.
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [draft, scheduled, sent, cancelled] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200": { description: Announcements }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [announcements]
+      summary: Admin. Compose an announcement (draft, or scheduled when scheduled_at is set).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnnouncementCompose" }
+      responses:
+        "201": { description: Created }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /admin/announcements/{id}:
+    get:
+      tags: [announcements]
+      summary: Admin. Announcement detail with per-channel delivered/open stats.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Announcement + stats }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [announcements]
+      summary: Admin. Edit a draft/scheduled announcement; 409 once sent or cancelled.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnnouncementCompose" }
+      responses:
+        "200": { description: Updated }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /admin/announcements/{id}/send:
+    post:
+      tags: [announcements]
+      summary: Admin. Send now — fans out per recipient×channel (idempotent); push/email respect quiet hours.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Fan-out summary }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /admin/announcements/{id}/cancel:
+    post:
+      tags: [announcements]
+      summary: Admin. Cancel a draft/scheduled announcement; 409 once sent.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Cancelled }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /me/announcements:
+    get:
+      tags: [announcements]
+      summary: My in-app (banner) announcements, newest first, unexpired.
+      responses:
+        "200": { description: Announcements }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /announcements/{id}/open:
+    post:
+      tags: [announcements]
+      summary: Open receipt — stamps opened_at on my deliveries (idempotent).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Receipt recorded }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # --- Webhooks & sync (system) (§3.3) ---
   /webhooks/stripe:
     post:
@@ -1526,6 +1614,33 @@ components:
         is_passed: { type: boolean }
         pass_mark: { type: number }
         duplicate: { type: boolean }
+    AnnouncementCompose:
+      type: object
+      required: [title, body, channels, audience]
+      properties:
+        title: { type: string, minLength: 3, maxLength: 200 }
+        body: { type: string, description: Markdown, maxLength: 20000 }
+        channels:
+          type: array
+          minItems: 1
+          items: { type: string, enum: [push, email, sms, whatsapp, banner] }
+        audience:
+          oneOf:
+            - type: object
+              required: [kind]
+              properties: { kind: { type: string, enum: [all] } }
+            - type: object
+              required: [kind, cell_group_ids]
+              properties:
+                kind: { type: string, enum: [cells] }
+                cell_group_ids: { type: array, minItems: 1, items: { type: string, format: uuid } }
+            - type: object
+              required: [kind, level_number]
+              properties:
+                kind: { type: string, enum: [level] }
+                level_number: { type: integer, minimum: 1 }
+        scheduled_at: { type: string, format: date-time, description: Omit to keep as draft until /send }
+        banner_expires_at: { type: string, format: date-time }
     ReflectionSubmit:
       type: object
       required: [reflection_text]

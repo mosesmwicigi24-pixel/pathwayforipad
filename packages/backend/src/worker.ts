@@ -19,6 +19,7 @@ import { NotificationService } from "./modules/notifications/service.js";
 import { EngagementService } from "./modules/engagement/service.js";
 import { PartitionMaintenance, refreshMinorFlags } from "./jobs/maintenance.js";
 import { GamificationService } from "./modules/gamification/service.js";
+import { AnnouncementService } from "./modules/announcements/service.js";
 
 function main(): void {
   const env = loadEnv();
@@ -33,6 +34,15 @@ function main(): void {
     new NotificationWorker(db.primary, buildDispatchProvider(env, log), log).start(10_000),
     new NudgeScanner(db.primary, new NotificationService(db.primary), log).start(60 * 60 * 1000),
   ];
+
+  // Scheduled announcements: dispatch any whose send time has arrived (B5).
+  // dispatchDue() is idempotent per (recipient, channel), so overlap is safe.
+  const announcements = new AnnouncementService(db.primary);
+  const annTimer = setInterval(
+    () => void announcements.dispatchDue().catch((err) => log.error({ err }, "announcement dispatch failed")),
+    60_000,
+  );
+  stops.push(() => clearInterval(annTimer));
 
   // Daily jobs on cron (server local time). Each guards its own errors.
   const engagement = new EngagementService(db.primary, db.replica);
