@@ -20,6 +20,9 @@ import { EngagementService } from "./modules/engagement/service.js";
 import { PartitionMaintenance, refreshMinorFlags } from "./jobs/maintenance.js";
 import { GamificationService } from "./modules/gamification/service.js";
 import { AnnouncementService } from "./modules/announcements/service.js";
+import { FinancialService } from "./modules/financial/service.js";
+import { buildPaymentGateway } from "./modules/financial/gateway.js";
+import { buildMobileMoneyProviders } from "./modules/financial/providers.js";
 
 function main(): void {
   const env = loadEnv();
@@ -43,6 +46,15 @@ function main(): void {
     60_000,
   );
   stops.push(() => clearInterval(annTimer));
+
+  // Recurring giving (B7): the server creates each cycle's intent. Deterministic
+  // per-cycle idempotency keys make overlapping/restarted runs double-charge-proof.
+  const financial = new FinancialService(db.primary, buildPaymentGateway(env), buildMobileMoneyProviders(env));
+  const schedTimer = setInterval(
+    () => void financial.runDueSchedules().catch((err) => log.error({ err }, "giving schedule run failed")),
+    5 * 60_000,
+  );
+  stops.push(() => clearInterval(schedTimer));
 
   // Daily jobs on cron (server local time). Each guards its own errors.
   const engagement = new EngagementService(db.primary, db.replica);

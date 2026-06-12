@@ -70,11 +70,11 @@ export function createApp(ctx: AppContext): Express {
     });
   }
 
-  // Parse JSON for everything EXCEPT the Stripe webhook, which needs the raw body
+  // Parse JSON for everything EXCEPT payment webhooks, which need the raw body
   // bytes for HMAC signature verification (§3.5). Payload cap mirrors §5.8.
   const json = express.json({ limit: "256kb" });
   app.use((req, res, next) => {
-    if (req.path === "/v1/webhooks/stripe") return next();
+    if (req.path.startsWith("/v1/webhooks/")) return next();
     json(req, res, next);
   });
 

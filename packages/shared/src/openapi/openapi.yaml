@@ -678,7 +678,7 @@ paths:
   /giving/intents:
     post:
       tags: [giving]
-      summary: Create a Stripe PaymentIntent (idempotent); returns client secret.
+      summary: Create a payment intent (card via Stripe → client secret; mpesa/airtel → STK push). Idempotent.
       requestBody:
         required: true
         content:
@@ -693,6 +693,35 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/Unprocessable" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+  /giving/schedules:
+    post:
+      tags: [giving]
+      summary: Create a recurring giving schedule (weekly/monthly). The SERVER charges each cycle; managed online-only (money never queues offline).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GivingScheduleCreate" }
+      responses:
+        "201": { description: Schedule created }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    get:
+      tags: [giving]
+      summary: My recurring giving schedules.
+      responses:
+        "200": { description: Schedules }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /giving/schedules/{id}/cancel:
+    post:
+      tags: [giving]
+      summary: Cancel an active schedule (idempotent; 404 once cancelled).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Cancelled }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /giving/history:
     get:
       tags: [giving]
@@ -1415,6 +1444,15 @@ paths:
       security: []
       responses:
         "200": { description: Acknowledged }
+  /webhooks/mobilemoney/{provider}:
+    post:
+      tags: [system]
+      summary: M-Pesa/Airtel callback receiver; HMAC-verified + idempotent — settlement happens only here.
+      security: []
+      parameters:
+        - { name: provider, in: path, required: true, schema: { type: string, enum: [mpesa, airtel] } }
+      responses:
+        "200": { description: Acknowledged }
   /sync/pull:
     post:
       tags: [system]
@@ -1620,19 +1658,33 @@ components:
       type: object
       required: [fund, amount_minor, currency]
       properties:
-        fund: { type: string, enum: [tithe, offering, general, media] }
+        fund: { type: string, description: "Fund code from the funds table (tithe, offering, general, media, mission, gift, …)" }
         amount_minor: { type: integer, format: int64, description: "Minor units, never floats" }
         currency: { type: string, minLength: 3, maxLength: 3 }
+        method: { type: string, enum: [card, mpesa, airtel], default: card }
+        phone_number: { type: string, description: "Mobile money only — where the STK push lands; defaults to the profile phone" }
         idempotency_key: { type: string, minLength: 8, maxLength: 255, description: Client-supplied; replays return the same transaction }
     GivingIntentResult:
       type: object
       required: [transaction_id, status, idempotency_key, reused]
       properties:
         transaction_id: { type: string, format: uuid }
-        client_secret: { type: string, description: Stripe PaymentIntent client secret (absent on a reused intent) }
+        client_secret: { type: string, description: Stripe PaymentIntent client secret (card method only; absent on a reused intent) }
+        provider: { type: string, enum: [stripe, mpesa, airtel] }
+        provider_ref: { type: string, description: Mobile-money checkout reference (STK push sent) }
         status: { type: string, enum: [processing, succeeded, failed, requires_action, refunded] }
         idempotency_key: { type: string }
         reused: { type: boolean }
+    GivingScheduleCreate:
+      type: object
+      required: [fund, amount_minor, currency, frequency]
+      properties:
+        fund: { type: string }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        frequency: { type: string, enum: [weekly, monthly] }
+        method: { type: string, enum: [card, mpesa, airtel], default: card }
+        idempotency_key: { type: string, minLength: 8, maxLength: 255 }
     GivingRecord:
       type: object
       required: [transaction_id, amount_minor, currency, status]

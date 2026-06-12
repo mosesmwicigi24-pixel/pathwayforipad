@@ -1,7 +1,8 @@
-// Financial service (spec §1.10 Flow C, §3.5, §5.6). Giving via Stripe, an
-// idempotent HMAC-verified webhook, and a balanced double-entry ledger. Money is
-// always integer minor units + ISO currency — never floats — and never queued
-// offline.
+// Financial service (spec §1.10 Flow C, §3.5, §5.6). Giving via Stripe (cards/
+// wallets) and mobile money (M-Pesa/Airtel STK push, B7) behind the same
+// intent → verified-webhook → balanced double-entry ledger flow, plus recurring
+// giving schedules driven by a server-side scheduler. Money is always integer
+// minor units + ISO currency — never floats — and never queued offline.
 import type { Pool, PoolClient } from "pg";
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
@@ -9,6 +10,7 @@ import { z } from "zod";
 import { maybeOne, one, many, tx, audit, enqueueOutbox } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 import type { PaymentGateway } from "./gateway.js";
+import type { MobileMoneyKey, MobileMoneyProviders } from "./providers.js";
 
 const sha256 = (b: Buffer | string): string => createHash("sha256").update(b).digest("hex");
 
@@ -16,19 +18,31 @@ export class FinancialService {
   constructor(
     private readonly pool: Pool,
     private readonly gateway: PaymentGateway,
+    private readonly mobileMoney?: MobileMoneyProviders,
   ) {}
 
   static readonly GivingIntent = z.object({
-    fund: z.enum(["tithe", "offering", "general", "media"]),
+    fund: z.string().min(2).max(40), // validated against the funds table (data-driven, B7)
     amount_minor: z.number().int().positive(),
     currency: z.string().length(3),
+    method: z.enum(["card", "mpesa", "airtel"]).default("card"),
+    phone_number: z.string().min(7).max(32).optional(), // mobile money; defaults to the profile phone
     idempotency_key: z.string().min(8).max(255).optional(),
   });
 
-  /** Create a Stripe PaymentIntent and the matching pending transaction (§1.10 C). */
+  private provider(key: MobileMoneyKey) {
+    const p = this.mobileMoney?.[key];
+    if (!p) throw new ApiError("UPSTREAM_UNAVAILABLE", `${key} payments are not configured`);
+    return p;
+  }
+
+  /** Create a payment intent (card via Stripe, or an STK push via mobile money)
+   *  and the matching pending transaction (§1.10 C). Settlement only ever
+   *  happens on the verified webhook/callback — never here. */
   async createGivingIntent(
     userId: string,
     input: z.infer<typeof FinancialService.GivingIntent>,
+    scheduleId?: string,
   ): Promise<Record<string, unknown>> {
     const key = input.idempotency_key ?? randomUUID();
 
@@ -50,6 +64,41 @@ export class FinancialService {
     if (!fund) throw new ApiError("VALIDATION_FAILED", "Unknown or inactive fund");
 
     const currency = input.currency.toUpperCase();
+
+    if (input.method === "mpesa" || input.method === "airtel") {
+      const phone =
+        input.phone_number ??
+        (await one<{ phone_number: string }>(this.pool, `SELECT phone_number FROM users WHERE user_id = $1`, [userId]))
+          .phone_number;
+      const charge = await this.provider(input.method).initiate({
+        amountMinor: input.amount_minor,
+        currency,
+        phoneNumber: phone,
+        metadata: { user_id: userId, fund: input.fund },
+      });
+      const txn = await one<{ transaction_id: string; status: string }>(
+        this.pool,
+        `INSERT INTO transactions (user_id, fund_id, amount_minor, currency, status, provider, provider_ref, idempotency_key, schedule_id)
+         VALUES ($1, $2, $3, $4, 'processing', $5, $6, $7, $8)
+         RETURNING transaction_id, status`,
+        [userId, fund.fund_id, input.amount_minor, currency, input.method, charge.ref, key, scheduleId ?? null],
+      );
+      await audit(this.pool, userId, "giving.intent_created", "transactions", txn.transaction_id, {
+        amount_minor: input.amount_minor,
+        currency,
+        fund: input.fund,
+        method: input.method,
+      });
+      return {
+        transaction_id: txn.transaction_id,
+        provider: input.method,
+        provider_ref: charge.ref, // STK push sent — the member confirms on their phone
+        status: txn.status,
+        idempotency_key: key,
+        reused: false,
+      };
+    }
+
     const intent = await this.gateway.createIntent({
       amountMinor: input.amount_minor,
       currency,
@@ -58,15 +107,16 @@ export class FinancialService {
 
     const txn = await one<{ transaction_id: string; status: string }>(
       this.pool,
-      `INSERT INTO transactions (user_id, fund_id, amount_minor, currency, status, stripe_payment_intent, idempotency_key)
-       VALUES ($1, $2, $3, $4, 'processing', $5, $6)
+      `INSERT INTO transactions (user_id, fund_id, amount_minor, currency, status, stripe_payment_intent, idempotency_key, schedule_id)
+       VALUES ($1, $2, $3, $4, 'processing', $5, $6, $7)
        RETURNING transaction_id, status`,
-      [userId, fund.fund_id, input.amount_minor, currency, intent.id, key],
+      [userId, fund.fund_id, input.amount_minor, currency, intent.id, key, scheduleId ?? null],
     );
     await audit(this.pool, userId, "giving.intent_created", "transactions", txn.transaction_id, {
       amount_minor: input.amount_minor,
       currency,
       fund: input.fund,
+      method: "card",
     });
     return {
       transaction_id: txn.transaction_id,
@@ -75,6 +125,37 @@ export class FinancialService {
       idempotency_key: key,
       reused: false,
     };
+  }
+
+  /**
+   * Verified mobile-money callback (B7): HMAC check, idempotent dedupe in
+   * processed_webhooks, then settlement by provider_ref — the same trust model
+   * as the Stripe webhook (§3.5).
+   */
+  async handleMobileMoneyCallback(
+    providerKey: MobileMoneyKey,
+    rawBody: Buffer | string,
+    signature: string,
+  ): Promise<Record<string, unknown>> {
+    const cb = this.provider(providerKey).verifyCallback(rawBody, signature);
+    return tx(this.pool, async (c) => {
+      const ins = await c.query(
+        `INSERT INTO processed_webhooks (event_id, provider, payload_hash)
+         VALUES ($1, $2, $3) ON CONFLICT (event_id) DO NOTHING RETURNING event_id`,
+        [cb.event_id, providerKey, sha256(rawBody)],
+      );
+      if (ins.rowCount === 0) return { duplicate: true };
+
+      if (cb.status === "succeeded") {
+        await this.settle(c, { provider_ref: cb.ref });
+      } else {
+        await c.query(
+          `UPDATE transactions SET status = 'failed' WHERE provider_ref = $1 AND status <> 'succeeded'`,
+          [cb.ref],
+        );
+      }
+      return { duplicate: false, status: cb.status };
+    });
   }
 
   /**
@@ -104,9 +185,12 @@ export class FinancialService {
     });
   }
 
-  /** Mark a transaction succeeded, post the double-entry, and grant a purchase if applicable. */
+  /** Mark a transaction succeeded, post the double-entry, and grant a purchase
+   *  if applicable. Looks up by Stripe intent id or mobile-money provider_ref;
+   *  cash is debited to the provider's account (cash:stripe / cash:mpesa / …). */
   private async settle(c: PoolClient, intent: Record<string, unknown>): Promise<void> {
-    const paymentIntentId = String(intent.id ?? "");
+    const byProviderRef = typeof intent.provider_ref === "string";
+    const ref = byProviderRef ? String(intent.provider_ref) : String(intent.id ?? "");
     const metadata = (intent.metadata as Record<string, unknown> | undefined) ?? {};
     const productId = typeof metadata.product_id === "string" ? metadata.product_id : null;
 
@@ -116,13 +200,14 @@ export class FinancialService {
       amount_minor: string;
       currency: string;
       status: string;
+      provider: string;
       fund_code: string | null;
     }>(
       c,
-      `SELECT t.transaction_id, t.user_id, t.amount_minor, t.currency, t.status, f.code AS fund_code
+      `SELECT t.transaction_id, t.user_id, t.amount_minor, t.currency, t.status, t.provider, f.code AS fund_code
          FROM transactions t LEFT JOIN funds f ON f.fund_id = t.fund_id
-        WHERE t.stripe_payment_intent = $1 FOR UPDATE OF t`,
-      [paymentIntentId],
+        WHERE ${byProviderRef ? "t.provider_ref" : "t.stripe_payment_intent"} = $1 FOR UPDATE OF t`,
+      [ref],
     );
     if (!txn || txn.status === "succeeded") return; // unknown intent or already settled
 
@@ -133,8 +218,8 @@ export class FinancialService {
     const creditAccount = productId ? "sales:media" : `fund:${txn.fund_code ?? "general"}`;
     await c.query(
       `INSERT INTO ledger_entries (transaction_id, account, side, amount_minor, currency)
-       VALUES ($1, 'cash:stripe', 'debit', $2, $3), ($1, $4, 'credit', $2, $3)`,
-      [txn.transaction_id, txn.amount_minor, txn.currency, creditAccount],
+       VALUES ($1, $5, 'debit', $2, $3), ($1, $4, 'credit', $2, $3)`,
+      [txn.transaction_id, txn.amount_minor, txn.currency, creditAccount, `cash:${txn.provider}`],
     );
 
     // A product purchase grants access on settlement (§3.3).
@@ -215,6 +300,140 @@ export class FinancialService {
       [userId],
     );
     return rows.map((r) => ({ ...r, amount_minor: Number(r.amount_minor) }));
+  }
+
+  // ---------------- Recurring giving (Contract Matrix B7) ----------------
+  // The member manages the schedule ONLINE (money is never queued offline,
+  // §3.6); the server-side scheduler is what creates each cycle's intent (§1.1).
+
+  static readonly CreateSchedule = z.object({
+    fund: z.string().min(2).max(40),
+    amount_minor: z.number().int().positive(),
+    currency: z.string().length(3),
+    frequency: z.enum(["weekly", "monthly"]),
+    method: z.enum(["card", "mpesa", "airtel"]).default("card"),
+    idempotency_key: z.string().min(8).max(255).optional(),
+  });
+
+  private static nextRun(from: Date, frequency: "weekly" | "monthly"): Date {
+    const next = new Date(from);
+    if (frequency === "weekly") next.setUTCDate(next.getUTCDate() + 7);
+    else next.setUTCMonth(next.getUTCMonth() + 1);
+    return next;
+  }
+
+  async createSchedule(
+    userId: string,
+    input: z.infer<typeof FinancialService.CreateSchedule>,
+  ): Promise<Record<string, unknown>> {
+    const key = input.idempotency_key ?? randomUUID();
+    const existing = await maybeOne<{ schedule_id: string; status: string }>(
+      this.pool,
+      `SELECT schedule_id, status FROM giving_schedules WHERE idempotency_key = $1 AND user_id = $2`,
+      [key, userId],
+    );
+    if (existing) return { ...existing, reused: true };
+
+    const fund = await maybeOne<{ fund_id: string }>(
+      this.pool,
+      `SELECT fund_id FROM funds WHERE code = $1 AND is_active`,
+      [input.fund],
+    );
+    if (!fund) throw new ApiError("VALIDATION_FAILED", "Unknown or inactive fund");
+
+    // First charge on the next cycle boundary; give now if you want to give now.
+    const firstRun = FinancialService.nextRun(new Date(), input.frequency);
+    const row = await one<{ schedule_id: string; next_run_at: string }>(
+      this.pool,
+      `INSERT INTO giving_schedules (user_id, fund_id, amount_minor, currency, frequency, method, next_run_at, idempotency_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING schedule_id, next_run_at`,
+      [userId, fund.fund_id, input.amount_minor, input.currency.toUpperCase(), input.frequency, input.method, firstRun.toISOString(), key],
+    );
+    await audit(this.pool, userId, "giving.schedule_created", "giving_schedules", row.schedule_id, {
+      fund: input.fund,
+      amount_minor: input.amount_minor,
+      frequency: input.frequency,
+      method: input.method,
+    });
+    return { schedule_id: row.schedule_id, status: "active", next_run_at: row.next_run_at, reused: false };
+  }
+
+  async listSchedules(userId: string): Promise<{ data: unknown[] }> {
+    const rows = await many<Record<string, unknown>>(
+      this.pool,
+      `SELECT s.schedule_id, f.code AS fund, s.amount_minor, s.currency, s.frequency, s.method,
+              s.status, s.next_run_at, s.last_run_at, s.created_at
+         FROM giving_schedules s JOIN funds f ON f.fund_id = s.fund_id
+        WHERE s.user_id = $1 ORDER BY s.created_at DESC`,
+      [userId],
+    );
+    return { data: rows.map((r) => ({ ...r, amount_minor: Number(r.amount_minor) })) };
+  }
+
+  async cancelSchedule(userId: string, scheduleId: string): Promise<Record<string, unknown>> {
+    const row = await maybeOne<{ schedule_id: string }>(
+      this.pool,
+      `UPDATE giving_schedules SET status = 'cancelled', cancelled_at = now()
+        WHERE schedule_id = $1 AND user_id = $2 AND status = 'active'
+        RETURNING schedule_id`,
+      [scheduleId, userId],
+    );
+    if (!row) throw new ApiError("NOT_FOUND", "Active schedule not found");
+    await audit(this.pool, userId, "giving.schedule_cancelled", "giving_schedules", scheduleId, {});
+    return { schedule_id: scheduleId, status: "cancelled" };
+  }
+
+  /**
+   * Scheduler hook: charge every due active schedule. The cycle's intent key is
+   * deterministic (schedule id + the due instant), so a crashed/overlapping run
+   * can never double-charge; next_run_at advances from the DUE time, not "now",
+   * so cadence never drifts.
+   */
+  async runDueSchedules(now: Date = new Date()): Promise<{ run: number; failed: number }> {
+    const due = await many<{
+      schedule_id: string;
+      user_id: string;
+      fund: string;
+      amount_minor: string;
+      currency: string;
+      frequency: "weekly" | "monthly";
+      method: "card" | "mpesa" | "airtel";
+      next_run_at: string;
+    }>(
+      this.pool,
+      `SELECT s.schedule_id, s.user_id, f.code AS fund, s.amount_minor, s.currency,
+              s.frequency, s.method, s.next_run_at
+         FROM giving_schedules s JOIN funds f ON f.fund_id = s.fund_id
+        WHERE s.status = 'active' AND s.next_run_at <= $1
+        ORDER BY s.next_run_at`,
+      [now.toISOString()],
+    );
+    let run = 0;
+    let failed = 0;
+    for (const s of due) {
+      try {
+        await this.createGivingIntent(
+          s.user_id,
+          {
+            fund: s.fund,
+            amount_minor: Number(s.amount_minor),
+            currency: s.currency,
+            method: s.method,
+            idempotency_key: `sched:${s.schedule_id}:${s.next_run_at}`,
+          },
+          s.schedule_id,
+        );
+        await this.pool.query(
+          `UPDATE giving_schedules SET last_run_at = $2, next_run_at = $3 WHERE schedule_id = $1`,
+          [s.schedule_id, now.toISOString(), FinancialService.nextRun(new Date(s.next_run_at), s.frequency).toISOString()],
+        );
+        run += 1;
+      } catch {
+        failed += 1; // provider down etc. — schedule stays due; the next tick retries
+      }
+    }
+    return { run, failed };
   }
 
   // ---------------- Admin finance reads (ERP, Contract Matrix B1) ----------------

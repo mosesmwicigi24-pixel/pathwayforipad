@@ -7,12 +7,18 @@ import { authenticate, requireRole } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { FinancialService } from "./service.js";
 import { buildPaymentGateway, type PaymentGateway } from "./gateway.js";
+import { buildMobileMoneyProviders, type MobileMoneyProviders } from "./providers.js";
 
 export const financialRouter: Router = Router();
 
-export function registerFinancial(ctx: AppContext, gatewayOverride?: PaymentGateway): Router {
+export function registerFinancial(
+  ctx: AppContext,
+  gatewayOverride?: PaymentGateway,
+  mobileMoneyOverride?: MobileMoneyProviders,
+): Router {
   const gateway = gatewayOverride ?? buildPaymentGateway(ctx.env);
-  const svc = new FinancialService(ctx.db.primary, gateway);
+  const mobileMoney = mobileMoneyOverride ?? buildMobileMoneyProviders(ctx.env);
+  const svc = new FinancialService(ctx.db.primary, gateway, mobileMoney);
   const auth = authenticate(ctx.env);
   const r = financialRouter;
 
@@ -30,6 +36,33 @@ export function registerFinancial(ctx: AppContext, gatewayOverride?: PaymentGate
     auth,
     handler(async (req, res) => {
       res.json({ data: await svc.listGiving(requirePrincipal(req).userId) });
+    }),
+  );
+
+  // ---- Recurring giving (B7): managed online-only; the scheduler charges ----
+  r.post(
+    "/giving/schedules",
+    auth,
+    handler(async (req, res) => {
+      const body = parseBody(FinancialService.CreateSchedule, req.body);
+      res.status(201).json(await svc.createSchedule(requirePrincipal(req).userId, body));
+    }),
+  );
+
+  r.get(
+    "/giving/schedules",
+    auth,
+    handler(async (req, res) => {
+      res.json(await svc.listSchedules(requirePrincipal(req).userId));
+    }),
+  );
+
+  r.post(
+    "/giving/schedules/:id/cancel",
+    auth,
+    handler(async (req, res) => {
+      const { id } = parseBody(z.object({ id: z.string().uuid() }), req.params);
+      res.json(await svc.cancelSchedule(requirePrincipal(req).userId, id));
     }),
   );
 
@@ -76,6 +109,19 @@ export function registerFinancial(ctx: AppContext, gatewayOverride?: PaymentGate
       const signature = req.header("stripe-signature") ?? "";
       const body: Buffer | string = Buffer.isBuffer(req.body) ? req.body : JSON.stringify(req.body ?? {});
       const result = await svc.handleWebhook(body, signature);
+      res.json({ received: true, ...result });
+    }),
+  );
+
+  // Mobile-money callbacks (B7): same trust model — no session auth, HMAC only.
+  r.post(
+    "/webhooks/mobilemoney/:provider",
+    express.raw({ type: "*/*", limit: "256kb" }),
+    handler(async (req, res) => {
+      const { provider } = parseBody(z.object({ provider: z.enum(["mpesa", "airtel"]) }), req.params);
+      const signature = req.header("x-mm-signature") ?? "";
+      const body: Buffer | string = Buffer.isBuffer(req.body) ? req.body : JSON.stringify(req.body ?? {});
+      const result = await svc.handleMobileMoneyCallback(provider, body, signature);
       res.json({ received: true, ...result });
     }),
   );

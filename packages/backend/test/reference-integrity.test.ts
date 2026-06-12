@@ -1,5 +1,6 @@
 // Reference-integrity check (spec §2.6, Prompt 5 Phase A): the seed must produce
-// the SIX PRD levels with their verbatim titles and the 4 core funds. Curriculum
+// the SIX PRD levels with their verbatim titles and the core funds (4 spec +
+// mission/gift from Contract Matrix B7). Curriculum
 // size is data-driven now (no magic 45), so instead of a module count we assert
 // that every level's PUBLISHED module_sequence_numbers are contiguous from 1 —
 // the gating engine depends on that contiguity.
@@ -31,9 +32,9 @@ describe("seed reference integrity", () => {
     expect(rows.map((r) => r.title)).toEqual(LEVEL_TITLES);
   });
 
-  it("loads the 4 core funds", async () => {
+  it("loads the core funds (incl. B7 mission/gift)", async () => {
     const { rows } = await testPool().query<{ code: string }>("SELECT code FROM funds ORDER BY code");
-    expect(rows.map((r) => r.code)).toEqual(["general", "media", "offering", "tithe"]);
+    expect(rows.map((r) => r.code)).toEqual(["general", "gift", "media", "mission", "offering", "tithe"]);
   });
 
   it("every level's published module sequence is contiguous from 1 (no gaps)", async () => {

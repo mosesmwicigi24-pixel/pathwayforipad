@@ -31,6 +31,8 @@ const EnvSchema = z.object({
 
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  MPESA_CALLBACK_SECRET: z.string().optional(),
+  AIRTEL_CALLBACK_SECRET: z.string().optional(),
 
   YOUVERSION_APP_KEY: z.string().optional(),
   YOUVERSION_LANGUAGE_RANGES: z.string().default("en"),
