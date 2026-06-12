@@ -1436,6 +1436,84 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # --- Community: cohort discussions (Contract Matrix B8) ---
+  /community/threads:
+    get:
+      tags: [progress]
+      summary: My cell's discussion board (pinned first; moderation-hidden excluded).
+      responses:
+        "200": { description: Threads }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    post:
+      tags: [progress]
+      summary: Start a thread in my cell (client-generated id; offline-queueable; idempotent).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ThreadCreate" }
+      responses:
+        "201": { description: Created }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /community/threads/{id}:
+    get:
+      tags: [progress]
+      summary: Thread + visible comments; 404 outside my cell (no existence leak).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Thread }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /community/threads/{id}/comments:
+    post:
+      tags: [progress]
+      summary: Comment on a thread in my cell; 422 when locked. Offline-queueable; idempotent.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommentCreate" }
+      responses:
+        "201": { description: Created }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /admin/community/threads/{id}:
+    patch:
+      tags: [progress]
+      summary: Leader moderation — pin/lock/hide a thread (Instructor+ within leader_assignments; hide tombstones it off devices).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pinned: { type: boolean }
+                locked: { type: boolean }
+                hidden: { type: boolean }
+      responses:
+        "200": { description: Moderated }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/community/comments/{id}/hide:
+    post:
+      tags: [progress]
+      summary: Leader moderation — hide a comment (scoped; tombstoned off devices).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Hidden }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # --- Webhooks & sync (system) (§3.3) ---
   /webhooks/stripe:
     post:
@@ -1768,6 +1846,21 @@ components:
         is_passed: { type: boolean }
         pass_mark: { type: number }
         duplicate: { type: boolean }
+    ThreadCreate:
+      type: object
+      required: [thread_id, title, body]
+      properties:
+        thread_id: { type: string, format: uuid, description: Client-generated (offline-first) }
+        title: { type: string, minLength: 3, maxLength: 200 }
+        body: { type: string, maxLength: 20000, description: Markdown }
+        client_mutation_id: { type: string, format: uuid }
+    CommentCreate:
+      type: object
+      required: [comment_id, body]
+      properties:
+        comment_id: { type: string, format: uuid, description: Client-generated (offline-first) }
+        body: { type: string, maxLength: 10000 }
+        client_mutation_id: { type: string, format: uuid }
     GiftsSubmission:
       type: object
       required: [client_mutation_id, answers]

@@ -21,11 +21,15 @@ import { MediaService } from "../media/service.js";
 import { CloudinaryProvider } from "../media/pipeline.js";
 import { CalendarService } from "../calendar/service.js";
 import { GrowthService } from "../growth/service.js";
+import { CommunityService } from "../community/service.js";
 
 interface DomainSpec {
   table: string;
   idCol: string;
-  scope: "row" | "global" | "user";
+  /** "cell": rows visible to everyone in the member's cell_group (the table
+   *  must carry cell_group_id); out-of-scope or moderation-hidden ids resolve
+   *  to tombstones, so hiding pulls content off devices. */
+  scope: "row" | "global" | "user" | "cell";
   /** Column list to expose (defaults to *). Use to keep server-only fields —
    *  e.g. a reviewer's internal pastoral note — off the member's device. */
   columns?: string;
@@ -54,6 +58,19 @@ const PULL_DOMAINS: Record<string, DomainSpec> = {
   prayer_entries: { table: "prayer_entries", idCol: "entry_id", scope: "user" },
   saved_verses: { table: "saved_verses", idCol: "saved_verse_id", scope: "user" },
   gift_assessments: { table: "gift_assessments", idCol: "assessment_id", scope: "user" },
+  // B8 community — cell-visible; moderation metadata stays server-side.
+  discussion_threads: {
+    table: "discussion_threads",
+    idCol: "thread_id",
+    scope: "cell",
+    columns: "thread_id, cell_group_id, author_user_id, title, body, is_pinned, is_locked, created_at, updated_at",
+  },
+  discussion_comments: {
+    table: "discussion_comments",
+    idCol: "comment_id",
+    scope: "cell",
+    columns: "comment_id, thread_id, cell_group_id, author_user_id, body, created_at",
+  },
 };
 
 const PAGE = 1000;
@@ -89,6 +106,7 @@ export class SyncService {
   private readonly video: VideoService;
   private readonly calendar: CalendarService;
   private readonly growth: GrowthService;
+  private readonly community: CommunityService;
 
   constructor(private readonly pool: Pool) {
     this.progress = new ProgressService(pool);
@@ -99,6 +117,7 @@ export class SyncService {
     this.video = new VideoService(pool, new MediaService(undefined), new CloudinaryProvider());
     this.calendar = new CalendarService(pool);
     this.growth = new GrowthService(pool);
+    this.community = new CommunityService(pool);
   }
 
   /** Delta pull: changed rows + tombstones + new cursors since the client's cursors. */
@@ -156,6 +175,17 @@ export class SyncService {
       return many(c, `SELECT ${cols} FROM ${spec.table} WHERE user_id = $1`, [userId]);
     }
     if (ids.length === 0) return Promise.resolve([]);
+    if (spec.scope === "cell") {
+      // Only rows in the member's own cell, never moderation-hidden ones —
+      // anything filtered out here resolves to a tombstone for this device.
+      return many(
+        c,
+        `SELECT ${cols} FROM ${spec.table}
+          WHERE ${spec.idCol} = ANY($1::uuid[]) AND NOT is_hidden
+            AND cell_group_id = (SELECT cell_group_id FROM users WHERE user_id = $2)`,
+        [ids, userId],
+      );
+    }
     return many(c, `SELECT ${cols} FROM ${spec.table} WHERE ${spec.idCol} = ANY($1::uuid[])`, [ids]);
   }
 
@@ -262,6 +292,22 @@ export class SyncService {
       case "saved_verses:delete": {
         const r = await this.growth.deleteVerse(userId, String(p.saved_verse_id ?? ""));
         return !r.deleted;
+      }
+      case "discussion_threads:create": {
+        // Cohort post queued offline (B8). Idempotent on the mutation id.
+        const r = await this.community.createThread(
+          userId,
+          parseBody(CommunityService.CreateThread, { ...p, client_mutation_id: m.mutation_id }),
+        );
+        return r.duplicate;
+      }
+      case "discussion_comments:create": {
+        const r = await this.community.addComment(
+          userId,
+          String(p.thread_id ?? ""),
+          parseBody(CommunityService.CreateComment, { ...p, client_mutation_id: m.mutation_id }),
+        );
+        return r.duplicate;
       }
       case "gift_assessments:submit": {
         // Server-scored (§1.1) even when queued offline; replays return the original.
