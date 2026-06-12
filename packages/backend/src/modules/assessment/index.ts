@@ -8,6 +8,7 @@ import { authenticate, requireRole } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { AssessmentService } from "./service.js";
 import { ReflectionService } from "./reflection.js";
+import { ModuleReflectionService } from "./moduleReflection.js";
 import { ExamService } from "./exam.js";
 
 export const assessmentRouter: Router = Router();
@@ -15,9 +16,48 @@ export const assessmentRouter: Router = Router();
 export function registerAssessment(ctx: AppContext): Router {
   const svc = new AssessmentService(ctx.db.primary);
   const reflections = new ReflectionService(ctx.db.primary);
+  const moduleReflections = new ModuleReflectionService(ctx.db.primary);
   const exams = new ExamService(ctx.db.primary);
   const auth = authenticate(ctx.env);
+  const leaderPlus = [auth, requireRole("Instructor")] as const;
   const r = assessmentRouter;
+
+  // ---- Module reflections (Contract Matrix B3) ----
+  // The member's own reflection state + reviewer feedback (never the pastoral note).
+  r.get(
+    "/modules/:id/reflection",
+    auth,
+    handler(async (req, res) => {
+      res.json(await moduleReflections.myReflection(requirePrincipal(req).userId, req.params.id ?? ""));
+    }),
+  );
+
+  // Reviewer queue — cell-scoped for Instructors, congregation-wide for Admin+.
+  r.get(
+    "/admin/reflections",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      const q = parseBody(ModuleReflectionService.Queue, req.query);
+      res.json({ data: await moduleReflections.queue(requirePrincipal(req), q) });
+    }),
+  );
+
+  r.post(
+    "/admin/reflections/:id/decision",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      const input = parseBody(ModuleReflectionService.Decision, req.body ?? {});
+      res.json(await moduleReflections.decide(requirePrincipal(req), req.params.id ?? "", input));
+    }),
+  );
+
+  r.get(
+    "/admin/reflections/:id/history",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      res.json({ data: await moduleReflections.history(requirePrincipal(req), req.params.id ?? "") });
+    }),
+  );
 
   // Assemble a randomized quiz for an unlocked module (no answers leaked).
   r.get(

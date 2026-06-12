@@ -24,6 +24,9 @@ interface DomainSpec {
   table: string;
   idCol: string;
   scope: "row" | "global" | "user";
+  /** Column list to expose (defaults to *). Use to keep server-only fields —
+   *  e.g. a reviewer's internal pastoral note — off the member's device. */
+  columns?: string;
 }
 
 // Server-pullable domains → how to materialise their current rows. Table/column
@@ -36,6 +39,13 @@ const PULL_DOMAINS: Record<string, DomainSpec> = {
   enrollments: { table: "enrollments", idCol: "enrollment_id", scope: "user" },
   video_progress: { table: "video_progress", idCol: "media_asset_id", scope: "user" },
   event_rsvps: { table: "event_rsvps", idCol: "rsvp_id", scope: "user" },
+  module_reflections: {
+    table: "module_reflections",
+    idCol: "reflection_id",
+    scope: "user",
+    // pastoral_note is internal-only (§5.4) — never synced to the member.
+    columns: "reflection_id, progress_id, user_id, module_id, body, state, feedback_notes, submitted_at, reviewed_at",
+  },
   achievements: { table: "user_badges", idCol: "user_badge_id", scope: "user" },
 };
 
@@ -132,11 +142,12 @@ export class SyncService {
     userId: string,
     ids: string[],
   ): Promise<Array<Record<string, unknown>>> {
+    const cols = spec.columns ?? "*";
     if (spec.scope === "user") {
-      return many(c, `SELECT * FROM ${spec.table} WHERE user_id = $1`, [userId]);
+      return many(c, `SELECT ${cols} FROM ${spec.table} WHERE user_id = $1`, [userId]);
     }
     if (ids.length === 0) return Promise.resolve([]);
-    return many(c, `SELECT * FROM ${spec.table} WHERE ${spec.idCol} = ANY($1::uuid[])`, [ids]);
+    return many(c, `SELECT ${cols} FROM ${spec.table} WHERE ${spec.idCol} = ANY($1::uuid[])`, [ids]);
   }
 
   /** Ordered, idempotent mutation replay. Each mutation gets its own result. */

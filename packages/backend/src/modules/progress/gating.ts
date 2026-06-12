@@ -45,12 +45,16 @@ export async function loadModule(c: Queryable, moduleId: string): Promise<Module
  * `mp` (has reflection_text, progress_id). Completion is asserted by the caller;
  * this adds the per-kind requirement:
  *   none / exit_exam → nothing extra (completion alone unlocks the next)
- *   reflection       → a reflection was submitted for the module
+ *   reflection       → a reflection exists and was not sent back ('returned'
+ *                      re-locks until resubmitted; pending/approved/deferred pass)
  *   quiz             → a passing quiz attempt (or the module has no active questions)
  */
 export function modulePassedPredicate(mod: string, mp: string): string {
   return `(CASE ${mod}.evaluation_kind
-      WHEN 'reflection' THEN ${mp}.reflection_text IS NOT NULL
+      WHEN 'reflection' THEN EXISTS (
+        SELECT 1 FROM module_reflections mr
+         WHERE mr.progress_id = ${mp}.progress_id AND mr.state <> 'returned'
+      )
       WHEN 'quiz' THEN (
         NOT EXISTS (SELECT 1 FROM question_bank q WHERE q.module_id = ${mod}.module_id AND q.is_active)
         OR EXISTS (SELECT 1 FROM quiz_attempts qa WHERE qa.progress_id = ${mp}.progress_id AND qa.is_passed)

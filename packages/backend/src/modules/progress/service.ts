@@ -68,6 +68,24 @@ export class ProgressService {
         [enrollment.enrollment_id, moduleId, completedAt ?? new Date().toISOString(), clientMutationId, reflectionText ?? null],
       );
 
+      // A submitted reflection becomes a reviewable module_reflections row (B3):
+      // new submissions enter 'pending'; resubmitting a 'returned' one re-enters
+      // 'pending' with the new body. Pending/approved/deferred pass gating;
+      // only 'returned' re-locks (see modulePassedPredicate).
+      if (reflectionText) {
+        const refl = await one<{ reflection_id: string }>(
+          c,
+          `INSERT INTO module_reflections (progress_id, user_id, module_id, body)
+           VALUES ($1,$2,$3,$4)
+           ON CONFLICT (progress_id) DO UPDATE
+             SET body = EXCLUDED.body, state = 'pending', submitted_at = now(),
+                 reviewed_by = NULL, reviewed_at = NULL, feedback_notes = NULL
+           RETURNING reflection_id`,
+          [row.progress_id, userId, moduleId, reflectionText],
+        );
+        await recordChange(c, "module_reflections", refl.reflection_id, userId, "upsert");
+      }
+
       await recordChange(c, "module_progress", row.progress_id, userId, "upsert");
       // Verified signal → re-evaluate faithfulness badges (§G.3). Idempotent worker.
       await enqueueOutbox(c, "gamification.evaluate", { user_id: userId });

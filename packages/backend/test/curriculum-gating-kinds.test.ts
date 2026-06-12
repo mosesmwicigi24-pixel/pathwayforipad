@@ -50,17 +50,23 @@ describe("gating by evaluation_kind (§1.9)", () => {
     expect(await unlocked(m2)).toBe(true);
   });
 
-  it("'reflection' module needs completion + a reflection", async () => {
+  it("'reflection' module needs completion + an unreturned reflection (B3 model)", async () => {
     const m1 = await createModule(1, 1, { evaluationKind: "reflection" });
     const m2 = await createModule(1, 2, { evaluationKind: "none" });
     await complete(m1); // completed but no reflection
     expect(await unlocked(m2)).toBe(false);
 
+    // The real write path inserts a reviewable module_reflections row (pending).
     await testPool().query(
-      `UPDATE module_progress SET reflection_text = 'I learned much' WHERE enrollment_id=$1 AND module_id=$2`,
-      [enr, m1],
+      `INSERT INTO module_reflections (progress_id, user_id, module_id, body)
+       SELECT progress_id, $1, $2, 'I learned much' FROM module_progress
+        WHERE enrollment_id = $3 AND module_id = $2`,
+      [userId, m1, enr],
     );
-    expect(await unlocked(m2)).toBe(true);
+    expect(await unlocked(m2)).toBe(true); // pending passes
+
+    await testPool().query(`UPDATE module_reflections SET state = 'returned' WHERE module_id = $1`, [m1]);
+    expect(await unlocked(m2)).toBe(false); // returned re-locks
   });
 
   it("'quiz' module still needs a passing attempt", async () => {

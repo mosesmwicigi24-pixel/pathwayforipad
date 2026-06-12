@@ -1040,6 +1040,45 @@ paths:
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # --- Module reflections (Contract Matrix B3) ---
+  /modules/{id}/reflection:
+    get:
+      tags: [assessment]
+      summary: The member's own module reflection — state + reviewer feedback (never the pastoral note).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Reflection }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/reflections:
+    get:
+      tags: [portal]
+      summary: Leader+. Module-reflection review queue (cell-scoped; state + overdue filters).
+      responses:
+        "200": { description: Queue }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/reflections/{id}/decision:
+    post:
+      tags: [portal]
+      summary: Leader+. Approve / return (feedback required, re-locks gating) / defer. Audited; notifies member (+multiplier).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Decided }
+        "400": { description: Validation failed }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/reflections/{id}/history:
+    get:
+      tags: [portal]
+      summary: Leader+. The audited decision trail for one reflection.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: History }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # --- Attendance + events ops (Contract Matrix B2) ---
   /me/rsvps:
     get:
