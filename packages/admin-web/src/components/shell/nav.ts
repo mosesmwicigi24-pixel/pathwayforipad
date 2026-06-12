@@ -46,7 +46,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { id: "cohort", label: "My Cohort", adminOnly: false },
       { id: "reviews", label: "Reflection Queue", adminOnly: false },
       { id: "attendance", label: "Attendance", adminOnly: false },
-      { id: "events", label: "Events", adminOnly: true },
+      { id: "events", label: "Events", adminOnly: false }, // leaders manage their cell's series (server-scoped)
       { id: "announcements", label: "Announcements", adminOnly: true },
       { id: "badges", label: "Badges", adminOnly: true },
       { id: "certificates", label: "Certificates", adminOnly: true },

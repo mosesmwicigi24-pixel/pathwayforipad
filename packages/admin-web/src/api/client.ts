@@ -247,6 +247,114 @@ export const CurriculumApi = {
   deleteQuestion: (qid: string) => api.delete<{ deleted: boolean }>(`/admin/questions/${qid}`).then((r) => r.data),
 };
 
+// ---- Operations (ERP, W3 over B1/B2/B3/B5) ----
+export interface MemberRow {
+  user_id: string;
+  full_name: string;
+  email: string | null;
+  phone_number: string;
+  is_minor: boolean;
+  created_at: string;
+  cell_name: string | null;
+  cell_group_id: string | null;
+  current_level: number | null;
+  e_score: number | null;
+  band: string | null;
+  last_activity: string | null;
+}
+
+export interface ReflectionRow {
+  reflection_id: string;
+  user_id: string;
+  full_name: string;
+  module_id: string;
+  module_title: string;
+  level_number: number;
+  body: string;
+  state: string;
+  submitted_at: string;
+  reviewed_at: string | null;
+  overdue: boolean;
+}
+
+export interface CalendarOccurrence {
+  event_id: string;
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  location: string | null;
+  visibility: string;
+  cell_group_id: string | null;
+}
+
+export interface EventRoster {
+  checked_in: Array<{ attendance_id: string; user_id: string; full_name: string; method: string; note: string | null; checked_in_at: string }>;
+  guests: Array<{ guest_id: string; guest_name: string; phone: string | null; first_time: boolean; created_at: string }>;
+  rsvp_no_show: Array<{ user_id: string; full_name: string }>;
+}
+
+export type ReflectionState = "pending" | "approved" | "rejected" | "returned" | "deferred";
+
+export const OpsApi = {
+  members: (q: { search?: string; band?: string; level?: number; cursor?: string } = {}) =>
+    api.get<{ data: MemberRow[]; next_cursor: string | null }>("/admin/members", { params: q }).then((r) => r.data),
+  addMember: (body: { full_name: string; phone_number: string; email?: string; date_of_birth?: string; cell_group_id: string }) =>
+    api.post<MemberRow>("/admin/members", body).then((r) => r.data),
+
+  reflections: (q: { state?: ReflectionState; overdue?: boolean } = {}) =>
+    api.get<{ data: ReflectionRow[] }>("/admin/reflections", { params: q }).then((r) => r.data.data),
+  decideReflection: (id: string, body: { decision: "approve" | "return" | "defer"; feedback_notes?: string; pastoral_note?: string }) =>
+    api.post<{ state: string }>(`/admin/reflections/${id}/decision`, body).then((r) => r.data),
+
+  calendar: (fromIso: string, toIso: string) =>
+    api.get<{ data: CalendarOccurrence[] }>("/calendar", { params: { from: fromIso, to: toIso } }).then((r) => r.data.data),
+  roster: (eventId: string) => api.get<EventRoster>(`/admin/events/${eventId}/attendance`).then((r) => r.data),
+  manualCheckIn: (eventId: string, body: { user_id: string; note?: string }) =>
+    api.post(`/admin/events/${eventId}/checkins`, body).then((r) => r.data),
+  addGuest: (eventId: string, body: { guest_name: string; phone?: string; first_time?: boolean }) =>
+    api.post(`/admin/events/${eventId}/guests`, body).then((r) => r.data),
+  createSeries: (body: Record<string, unknown>) => api.post("/admin/events/series", body).then((r) => r.data),
+};
+
+// ---- Announcements (W3 over B5) ----
+export type AnnouncementChannel = "push" | "email" | "sms" | "whatsapp" | "banner";
+
+export interface AnnouncementRow {
+  announcement_id: string;
+  title: string;
+  body: string;
+  channels: AnnouncementChannel[];
+  audience_kind: "all" | "cells" | "level";
+  status: "draft" | "scheduled" | "sent" | "cancelled";
+  scheduled_at: string | null;
+  sent_at: string | null;
+  created_at: string;
+  delivered_count?: number;
+  opened_count?: number;
+}
+
+export interface AnnouncementStats {
+  channel: string;
+  targeted: number;
+  delivered: number;
+  suppressed: number;
+  opened: number;
+}
+
+export const AnnouncementsApi = {
+  list: (status?: string) =>
+    api
+      .get<{ data: AnnouncementRow[] }>("/admin/announcements", { params: status ? { status } : {} })
+      .then((r) => r.data.data),
+  create: (body: Record<string, unknown>) =>
+    api.post<AnnouncementRow>("/admin/announcements", body).then((r) => r.data),
+  get: (id: string) =>
+    api.get<AnnouncementRow & { stats: AnnouncementStats[] }>(`/admin/announcements/${id}`).then((r) => r.data),
+  send: (id: string) =>
+    api.post<{ recipients: number; deliveries: number }>(`/admin/announcements/${id}/send`).then((r) => r.data),
+  cancel: (id: string) => api.post(`/admin/announcements/${id}/cancel`).then((r) => r.data),
+};
+
 // ---- Video Library (W2; Features v2 §V) ----
 export type MediaStatus = "uploading" | "transcoding" | "ready" | "failed";
 

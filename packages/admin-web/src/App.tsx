@@ -10,9 +10,13 @@ import { PortalShell } from "./components/shell/PortalShell";
 import { canSee, defaultScreen, NAV_SECTIONS, type ScreenId } from "./components/shell/nav";
 import { Dashboard } from "./components/dashboard/Dashboard";
 import { CohortTable } from "./components/CohortTable";
-import { ReviewQueue } from "./components/ReviewQueue";
 import { CurriculumAdmin } from "./components/curriculum/CurriculumAdmin";
 import { VideoLibrary } from "./components/curriculum/VideoLibrary";
+import { Members } from "./components/ops/Members";
+import { ReflectionQueue } from "./components/ops/ReflectionQueue";
+import { Attendance } from "./components/ops/Attendance";
+import { Events } from "./components/ops/Events";
+import { Announcements } from "./components/ops/Announcements";
 import { colors, card, font } from "./theme";
 
 const TITLES: Record<ScreenId, string> = Object.fromEntries(
@@ -50,15 +54,15 @@ export function App(): ReactElement {
       case "cohort":
         return <CohortTable />;
       case "reviews":
-        return <ReviewQueue />;
+        return <ReflectionQueue />;
       case "members":
-        return <ComingSoon label="Members" phase="W3" />;
+        return <Members />;
       case "attendance":
-        return <ComingSoon label="Attendance" phase="W3" />;
+        return <Attendance />;
       case "events":
-        return <ComingSoon label="Events" phase="W3" />;
+        return <Events />;
       case "announcements":
-        return <ComingSoon label="Announcements" phase="W3" />;
+        return <Announcements />;
       case "badges":
         return <ComingSoon label="Badges" phase="W4" />;
       case "certificates":

@@ -15,7 +15,7 @@ describe("portal nav gating", () => {
 
   it("instructors see only the leader screens — no dashboard/finance/audit", () => {
     const ids = visibleSections("Instructor").flatMap((s) => s.items.map((i) => i.id));
-    expect(ids).toEqual(["cohort", "reviews", "attendance"]);
+    expect(ids).toEqual(["cohort", "reviews", "attendance", "events"]);
   });
 
   it("lands admins on the dashboard, leaders on their cohort", () => {
