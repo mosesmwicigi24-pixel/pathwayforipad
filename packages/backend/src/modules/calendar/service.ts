@@ -11,6 +11,7 @@ import { many, maybeOne, one, tx, recordChange, audit, enqueueOutbox, type Query
 import { ApiError } from "../../http/errors.js";
 import type { Principal } from "../../http/http.js";
 import { validateRrule, expandOccurrences, type Occurrence } from "./recurrence.js";
+import { NotificationService } from "../notifications/service.js";
 
 const MAX_RANGE_DAYS = 92;
 
@@ -26,6 +27,10 @@ interface SeriesRow {
   duration_min: number;
   rrule: string | null;
   visibility: "congregation" | "cell" | "leaders";
+  rsvp_enabled?: boolean;
+  qr_enabled?: boolean;
+  reminders_enabled?: boolean;
+  checkin_opens_min_before?: number | null;
 }
 
 interface UserScope {
@@ -37,11 +42,16 @@ interface UserScope {
 }
 
 export class CalendarService {
+  private readonly notifications: NotificationService;
+
   constructor(
     private readonly pool: Pool,
     private readonly horizonDays: number = 35,
     private readonly maxInstances: number = 500,
-  ) {}
+    notifications?: NotificationService,
+  ) {
+    this.notifications = notifications ?? new NotificationService(pool);
+  }
 
   private async scopeOf(c: Queryable, userId: string): Promise<UserScope> {
     const u = await one<{ congregation_id: string; cell_group_id: string | null; role: string }>(
@@ -131,6 +141,11 @@ export class CalendarService {
       duration_min: z.number().int().min(5).max(720),
       rrule: z.string().nullable().optional(),
       visibility: z.enum(["congregation", "cell", "leaders"]).default("cell"),
+      // Ops toggles (Contract Matrix B2) — copied onto materialized occurrences.
+      rsvp_enabled: z.boolean().default(true),
+      qr_enabled: z.boolean().default(true),
+      reminders_enabled: z.boolean().default(true),
+      checkin_opens_min_before: z.number().int().min(0).max(1440).nullable().optional(),
     })
     .strict();
 
@@ -145,8 +160,9 @@ export class CalendarService {
       const row = await one<{ series_id: string }>(
         c,
         `INSERT INTO event_series
-           (congregation_id, cell_group_id, title, description, location, timezone, dtstart_local, duration_min, rrule, visibility, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING series_id`,
+           (congregation_id, cell_group_id, title, description, location, timezone, dtstart_local, duration_min, rrule, visibility, created_by,
+            rsvp_enabled, qr_enabled, reminders_enabled, checkin_opens_min_before)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING series_id`,
         [
           principal.congregationId,
           input.cell_group_id ?? null,
@@ -159,6 +175,10 @@ export class CalendarService {
           input.rrule ?? null,
           input.visibility,
           principal.userId,
+          input.rsvp_enabled ?? true,
+          input.qr_enabled ?? true,
+          input.reminders_enabled ?? true,
+          input.checkin_opens_min_before ?? null,
         ],
       );
       await enqueueOutbox(c, "calendar.materialize", { series_id: row.series_id });
@@ -241,6 +261,40 @@ export class CalendarService {
         [seriesId, input.original_start_at, input.is_cancelled, input.new_start_at ?? null, input.new_end_at ?? null, input.note ?? null],
       );
       await audit(c, principal.userId, "calendar.exception", "event_series", seriesId, { original: input.original_start_at });
+
+      // Notify members who RSVP'd "going" to the matching materialized occurrence
+      // (cancellation or reschedule, Contract Matrix B2). Best-effort: notification
+      // failures must not roll back the exception itself.
+      const occurrence = await maybeOne<{ event_id: string; occurs_at: string }>(
+        c,
+        `SELECT event_id, occurs_at FROM events WHERE series_id = $1 AND occurrence_start = $2`,
+        [seriesId, input.original_start_at],
+      );
+      if (occurrence) {
+        const goers = await many<{ user_id: string }>(
+          c,
+          `SELECT user_id FROM event_rsvps WHERE event_id = $1 AND status = 'going'`,
+          [occurrence.event_id],
+        );
+        const template = input.is_cancelled ? "event_cancelled" : "event_rescheduled";
+        for (const g of goers) {
+          try {
+            await this.notifications.schedule({
+              userId: g.user_id,
+              channel: "push",
+              template,
+              payload: {
+                event_id: occurrence.event_id,
+                original_start_at: input.original_start_at,
+                new_start_at: input.new_start_at ?? null,
+                note: input.note ?? null,
+              },
+            });
+          } catch {
+            // best-effort
+          }
+        }
+      }
       return row;
     });
   }
@@ -262,7 +316,8 @@ export class CalendarService {
       this.pool,
       `SELECT series_id, congregation_id, cell_group_id, title, description, location, timezone,
               to_char(dtstart_local, 'YYYY-MM-DD"T"HH24:MI:SS') AS dtstart_local,
-              duration_min, rrule, visibility
+              duration_min, rrule, visibility,
+              rsvp_enabled, qr_enabled, reminders_enabled, checkin_opens_min_before
          FROM event_series WHERE series_id = $1 AND deleted_at IS NULL`,
       [seriesId],
     );
@@ -278,11 +333,29 @@ export class CalendarService {
     for (const o of occ) {
       if (exCancelled.has(new Date(o.start_at).getTime())) continue;
       const eventId = occurrenceId(seriesId, o.start_at);
+      // Check-in window: opens N minutes before the occurrence when configured.
+      const opensAt =
+        s.checkin_opens_min_before == null
+          ? null
+          : new Date(new Date(o.start_at).getTime() - s.checkin_opens_min_before * 60_000).toISOString();
       const r = await this.pool.query(
-        `INSERT INTO events (event_id, congregation_id, cell_group_id, title, occurs_at, qr_secret, series_id, occurrence_start)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        `INSERT INTO events (event_id, congregation_id, cell_group_id, title, occurs_at, qr_secret, series_id, occurrence_start,
+                             rsvp_enabled, qr_enabled, checkin_opens_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (series_id, occurrence_start) DO NOTHING`,
-        [eventId, s.congregation_id, s.cell_group_id, s.title, o.start_at, randomBytes(24).toString("hex"), seriesId, o.start_at],
+        [
+          eventId,
+          s.congregation_id,
+          s.cell_group_id,
+          s.title,
+          o.start_at,
+          randomBytes(24).toString("hex"),
+          seriesId,
+          o.start_at,
+          s.rsvp_enabled ?? true,
+          s.qr_enabled ?? true,
+          opensAt,
+        ],
       );
       created += r.rowCount ?? 0;
     }
@@ -306,8 +379,16 @@ export class CalendarService {
       const dup = await maybeOne<{ status: string }>(c, `SELECT status FROM event_rsvps WHERE client_mutation_id = $1`, [input.client_mutation_id]);
       if (dup) return { duplicate: true, status: dup.status };
     }
-    const ev = await maybeOne<{ event_id: string }>(c, `SELECT event_id FROM events WHERE event_id = $1`, [eventId]);
+    const ev = await maybeOne<{ event_id: string; occurs_at: string; rsvp_enabled: boolean; reminders: boolean }>(
+      c,
+      `SELECT e.event_id, e.occurs_at, e.rsvp_enabled,
+              COALESCE(es.reminders_enabled, TRUE) AS reminders
+         FROM events e LEFT JOIN event_series es ON es.series_id = e.series_id
+        WHERE e.event_id = $1`,
+      [eventId],
+    );
     if (!ev) throw new ApiError("NOT_FOUND", "Event not found");
+    if (!ev.rsvp_enabled) throw new ApiError("UNPROCESSABLE", "RSVP is not enabled for this event");
     const row = await one<{ rsvp_id: string; status: string }>(
       c,
       `INSERT INTO event_rsvps (event_id, user_id, status, client_mutation_id)
@@ -318,7 +399,37 @@ export class CalendarService {
       [eventId, userId, input.status, input.client_mutation_id ?? null],
     );
     await recordChange(c, "event_rsvps", row.rsvp_id, userId, "upsert");
+
+    // Reminders at T-24h and T-1h for a future "going" RSVP (quiet-hours aware;
+    // skip the 24h one when the event is closer than that).
+    if (input.status === "going" && ev.reminders) {
+      const startMs = new Date(ev.occurs_at).getTime();
+      const offsets = [24 * 60, 60].filter((min) => startMs - min * 60_000 > Date.now());
+      for (const min of offsets) {
+        await this.notifications.schedule({
+          userId,
+          channel: "push",
+          template: min >= 1440 ? "event_reminder_24h" : "event_reminder_1h",
+          payload: { event_id: eventId, occurs_at: ev.occurs_at },
+          at: startMs - min * 60_000,
+        });
+      }
+    }
     return { duplicate: false, status: row.status };
+  }
+
+  /** The member's RSVPs for upcoming events ("My RSVPs", Contract Matrix B2). */
+  async myRsvps(userId: string): Promise<unknown[]> {
+    return many(
+      this.pool,
+      `SELECT r.rsvp_id, r.status::text, r.updated_at,
+              e.event_id, e.title, e.occurs_at, e.cell_group_id
+         FROM event_rsvps r JOIN events e ON e.event_id = r.event_id
+        WHERE r.user_id = $1 AND e.occurs_at >= now() - interval '1 day'
+        ORDER BY e.occurs_at ASC
+        LIMIT 100`,
+      [userId],
+    );
   }
 
   async getEvent(userId: string, eventId: string): Promise<unknown> {

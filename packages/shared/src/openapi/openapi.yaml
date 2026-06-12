@@ -1040,6 +1040,46 @@ paths:
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # --- Attendance + events ops (Contract Matrix B2) ---
+  /me/rsvps:
+    get:
+      tags: [system]
+      summary: The member's RSVPs for upcoming events.
+      responses:
+        "200": { description: RSVPs }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/events/{id}/checkins:
+    post:
+      tags: [portal]
+      summary: Leader+. Manual check-in with optional reason (cell-scoped, idempotent, audited).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "201": { description: Checked in (or duplicate) }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /admin/events/{id}/guests:
+    post:
+      tags: [portal]
+      summary: Leader+. Record a walk-in / first-time guest (cell-scoped, audited).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "201": { description: Guest recorded }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/events/{id}/attendance:
+    get:
+      tags: [portal]
+      summary: Leader+. Event roster — checked-in (with method), guests, RSVP'd-but-absent.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Roster }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # --- ERP core (Contract Matrix B1) ---
   /admin/reports/overview:
     get:

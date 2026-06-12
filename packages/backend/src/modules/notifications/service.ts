@@ -82,6 +82,9 @@ export class NotificationService {
     template: string;
     payload?: Record<string, unknown>;
     timezone?: string;
+    /** Epoch ms to target (e.g. an event reminder at T-24h); defaults to now.
+     *  Still quiet-hours adjusted and capped like any other nudge. */
+    at?: number;
   }): Promise<{ notification_id: string; status: string; scheduled_for: string }> {
     const prefs = await this.prefs(input.userId);
     const channelEnabled = input.channel === "push" ? prefs.push_enabled : prefs.email_enabled;
@@ -97,7 +100,8 @@ export class NotificationService {
     );
 
     const tz = input.timezone ?? "Africa/Nairobi";
-    const when = nextSendTime(this.now(), tz, prefs.quiet_from, prefs.quiet_to);
+    const targetMs = Math.max(input.at ?? this.now(), this.now()); // never schedule into the past
+    const when = nextSendTime(targetMs, tz, prefs.quiet_from, prefs.quiet_to);
     const suppressed = !channelEnabled || dayCount.n >= prefs.max_daily;
 
     const row = await one<{ notification_id: string; status: string; scheduled_for: string }>(

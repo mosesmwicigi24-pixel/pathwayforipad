@@ -7,11 +7,13 @@ import type { AppContext } from "../../http/context.js";
 import { authenticate, requireRole } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { CalendarService } from "./service.js";
+import { AttendanceService } from "../progress/attendance.js";
 
 export const calendarRouter: Router = Router();
 
 export function registerCalendar(ctx: AppContext): Router {
   const svc = new CalendarService(ctx.db.primary, ctx.env.CAL_MATERIALIZE_HORIZON_DAYS, ctx.env.CAL_MAX_INSTANCES);
+  const attendance = new AttendanceService(ctx.db.primary);
   const auth = authenticate(ctx.env);
   const leaderPlus = [auth, requireRole("Instructor")] as const;
   const r = calendarRouter;
@@ -40,6 +42,42 @@ export function registerCalendar(ctx: AppContext): Router {
     handler(async (req, res) => {
       const input = parseBody(CalendarService.Rsvp, req.body ?? {});
       res.json(await svc.setRsvp(requirePrincipal(req).userId, req.params.id ?? "", input));
+    }),
+  );
+
+  // The member's upcoming RSVPs ("My RSVPs", Contract Matrix B2).
+  r.get(
+    "/me/rsvps",
+    auth,
+    handler(async (req, res) => {
+      res.json({ data: await svc.myRsvps(requirePrincipal(req).userId) });
+    }),
+  );
+
+  // ---- Leader attendance ops (Contract Matrix B2; cell-scoped, audited) ----
+  r.post(
+    "/admin/events/:id/checkins",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      const input = parseBody(AttendanceService.ManualCheckIn, req.body ?? {});
+      res.status(201).json(await attendance.manualCheckIn(requirePrincipal(req), req.params.id ?? "", input));
+    }),
+  );
+
+  r.post(
+    "/admin/events/:id/guests",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      const input = parseBody(AttendanceService.AddGuest, req.body ?? {});
+      res.status(201).json(await attendance.addGuest(requirePrincipal(req), req.params.id ?? "", input));
+    }),
+  );
+
+  r.get(
+    "/admin/events/:id/attendance",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      res.json(await attendance.roster(requirePrincipal(req), req.params.id ?? ""));
     }),
   );
 
