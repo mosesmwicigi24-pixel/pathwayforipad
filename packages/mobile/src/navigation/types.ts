@@ -22,5 +22,6 @@ export type RootStackParamList = {
   LevelComplete: undefined;
   Giving: undefined; // legacy push target (Profile rows); the Give tab is primary
   Calendar: undefined; // full browse, pushed from Home's Upcoming section
+  Thread: { threadId: string; title?: string }; // cohort discussion detail (M2)
   EventDetail: { eventId: string; title: string; startAt: string; endAt?: string; location?: string | null };
 };

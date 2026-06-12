@@ -9,9 +9,12 @@ import type {
   CalendarOccurrence,
   EventDetail,
   GivingRecord,
+  GivingSchedule,
   LevelModule,
   ModuleDetail,
   PathwaySummary,
+  ThreadDetail,
+  ThreadSummary,
 } from "./types";
 
 export const queryKeys = {
@@ -23,7 +26,10 @@ export const queryKeys = {
   calendar: (from: string, to: string) => `calendar:${from}:${to}`,
   event: (id: string) => `event:${id}`,
   giving: "giving",
+  schedules: "schedules",
   achievements: "achievements",
+  threads: "threads",
+  thread: (id: string) => `thread:${id}`,
 };
 
 export function useMe(): QueryResult<MeResponse> {
@@ -69,4 +75,18 @@ export function useGivingHistory(): QueryResult<GivingRecord[]> {
 
 export function useAchievements(): QueryResult<Achievements> {
   return useQuery(queryKeys.achievements, () => NuruApi.achievements(), { staleMs: 60_000 });
+}
+
+export function useSchedules(): QueryResult<GivingSchedule[]> {
+  return useQuery(queryKeys.schedules, () => NuruApi.schedules(), { staleMs: 30_000 });
+}
+
+export function useThreads(): QueryResult<ThreadSummary[]> {
+  return useQuery(queryKeys.threads, () => NuruApi.threads(), { staleMs: 15_000 });
+}
+
+export function useThread(threadId: string | null): QueryResult<ThreadDetail> {
+  return useQuery(threadId ? queryKeys.thread(threadId) : null, () => NuruApi.thread(threadId ?? ""), {
+    staleMs: 10_000,
+  });
 }

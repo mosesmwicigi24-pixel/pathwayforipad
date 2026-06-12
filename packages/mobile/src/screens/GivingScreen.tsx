@@ -1,9 +1,12 @@
-// Giving (spec §1.10 C, §5.6; Figma "GiveTab"). Money is online-only — the flow
-// hard-blocks when offline rather than queuing financial intent. Big-number entry
-// with presets + a segmented fund selector. Card data is tokenized by Stripe
-// Elements (later), never by us.
+// Give (new design, Contract Matrix M2 over B7; §1.10 C, §5.6). Money is
+// online-only — the flow hard-blocks when offline rather than queuing financial
+// intent. Big-number entry with presets, fund chips, payment method
+// (Card / M-Pesa / Airtel — mobile money sends an STK push to the phone), and
+// frequency (One-time / Weekly / Monthly — recurring is charged by the SERVER
+// on schedule; you manage it here). Card data is tokenized client-side, never
+// by us; active schedules list with cancel.
 import { useState, type ReactElement } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { ArrowLeft } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NuruApi } from "../api/client";
@@ -11,9 +14,9 @@ import { uuidv4 } from "../util/uuid";
 import { assertOnlineForGiving, getConnectivity } from "../net/connectivity";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
-import { useGivingHistory } from "../api/hooks";
+import { useGivingHistory, useMe, useSchedules } from "../api/hooks";
 import { invalidateQueries } from "../api/query";
-import type { GivingRecord } from "../api/types";
+import type { GivingMethod, GivingRecord } from "../api/types";
 
 function money(minor: number, currency: string): string {
   return `${currency} ${(minor / 100).toLocaleString(undefined, { minimumFractionDigits: 0 })}`;
@@ -22,45 +25,101 @@ function when(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-const FUNDS = ["tithe", "offering", "general", "media"] as const;
+const FUNDS = ["tithe", "offering", "mission", "gift"] as const;
 const PRESETS = [500, 1000, 2500, 5000];
 const CURRENCY = "KES";
+const METHODS: Array<{ key: GivingMethod; label: string }> = [
+  { key: "card", label: "Card" },
+  { key: "mpesa", label: "M-Pesa" },
+  { key: "airtel", label: "Airtel" },
+];
+const FREQUENCIES = [
+  { key: "once", label: "One-time" },
+  { key: "weekly", label: "Weekly" },
+  { key: "monthly", label: "Monthly" },
+] as const;
 
 export function GivingScreen(): ReactElement {
   const nav = useNavigation();
   const [fund, setFund] = useState<(typeof FUNDS)[number]>("tithe");
   const [amount, setAmount] = useState(0); // major units
+  const [method, setMethod] = useState<GivingMethod>("card");
+  const [frequency, setFrequency] = useState<(typeof FREQUENCIES)[number]["key"]>("once");
+  const [phone, setPhone] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const { data: history } = useGivingHistory();
+  const { data: schedules, refetch: refetchSchedules } = useSchedules();
+  const { data: me } = useMe();
+
+  const mobileMoney = method === "mpesa" || method === "airtel";
+  const phonePlaceholder = me?.profile?.phone_number ?? "+2547…";
 
   async function give(): Promise<void> {
     if (amount <= 0) return;
-    setStatus("Creating payment…");
+    setStatus(frequency === "once" ? "Creating payment…" : "Setting up your schedule…");
     try {
       await assertOnlineForGiving(getConnectivity()); // §5.6: never queue money offline
-      await NuruApi.giving({ fund, amount_minor: amount * 100, currency: CURRENCY, idempotency_key: uuidv4() });
+      if (frequency === "once") {
+        await NuruApi.giving({
+          fund,
+          amount_minor: amount * 100,
+          currency: CURRENCY,
+          method,
+          ...(mobileMoney && phone.trim() ? { phone_number: phone.trim() } : {}),
+          idempotency_key: uuidv4(),
+        });
+        setStatus(
+          mobileMoney
+            ? "STK push sent — confirm on your phone to complete."
+            : "Payment started — confirm in the card sheet.",
+        );
+        invalidateQueries("giving");
+      } else {
+        await NuruApi.createSchedule({
+          fund,
+          amount_minor: amount * 100,
+          currency: CURRENCY,
+          frequency,
+          method,
+          idempotency_key: uuidv4(),
+        });
+        setStatus(`Done — ${frequency} giving of KSh ${amount.toLocaleString()} to ${fund} is active.`);
+        void refetchSchedules();
+      }
       setOffline(false);
-      setStatus("Payment started — confirm in the card sheet.");
-      invalidateQueries("giving");
     } catch {
       setOffline(true);
       setStatus(null);
     }
   }
 
+  async function cancelSchedule(id: string): Promise<void> {
+    try {
+      await NuruApi.cancelSchedule(id);
+      void refetchSchedules();
+    } catch {
+      // server said no (already cancelled) — refresh shows the truth
+      void refetchSchedules();
+    }
+  }
+
+  const active = (schedules ?? []).filter((s) => s.status === "active");
+
   return (
     <View style={{ flex: 1, backgroundColor: palette.paper }}>
       {/* Header */}
       <View style={st.header}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          onPress={() => nav.goBack()}
-          style={({ pressed }) => [st.iconBtn, { marginBottom: spacing.md }, pressed && { transform: [{ scale: 0.95 }] }]}
-        >
-          <ArrowLeft size={20} color={palette.onNavy} />
-        </Pressable>
+        {nav.canGoBack() ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            onPress={() => nav.goBack()}
+            style={({ pressed }) => [st.iconBtn, { marginBottom: spacing.md }, pressed && { transform: [{ scale: 0.95 }] }]}
+          >
+            <ArrowLeft size={20} color={palette.onNavy} />
+          </Pressable>
+        ) : null}
         <T variant="title" tone="onNavy">Give</T>
         <T variant="body" tone="onNavyDim">Sow into the Kingdom</T>
       </View>
@@ -113,16 +172,90 @@ export function GivingScreen(): ReactElement {
           })}
         </View>
 
+        {/* Payment method */}
+        <View>
+          <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>PAYMENT METHOD</T>
+          <View style={st.segment}>
+            {METHODS.map((m) => {
+              const on = method === m.key;
+              return (
+                <Pressable key={m.key} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setMethod(m.key)} style={[st.segItem, on && { backgroundColor: palette.navy }]}>
+                  <T variant="body" style={{ color: on ? palette.white : palette.ink600, fontWeight: on ? "600" : "400" }}>{m.label}</T>
+                </Pressable>
+              );
+            })}
+          </View>
+          {mobileMoney ? (
+            <TextInput
+              value={phone}
+              onChangeText={setPhone}
+              placeholder={`STK push to ${phonePlaceholder}`}
+              placeholderTextColor={palette.ink400}
+              keyboardType="phone-pad"
+              accessibilityLabel="Mobile money phone number"
+              style={st.phoneInput}
+            />
+          ) : null}
+        </View>
+
+        {/* Frequency */}
+        <View>
+          <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>FREQUENCY</T>
+          <View style={st.segment}>
+            {FREQUENCIES.map((f) => {
+              const on = frequency === f.key;
+              return (
+                <Pressable key={f.key} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setFrequency(f.key)} style={[st.segItem, on && { backgroundColor: palette.navy }]}>
+                  <T variant="body" style={{ color: on ? palette.white : palette.ink600, fontWeight: on ? "600" : "400" }}>{f.label}</T>
+                </Pressable>
+              );
+            })}
+          </View>
+          {frequency !== "once" ? (
+            <T variant="micro" tone="tertiary" style={{ marginTop: spacing.sm, textAlign: "center" }}>
+              The first {frequency} gift is charged on the next cycle — cancel anytime below.
+            </T>
+          ) : null}
+        </View>
+
         {status ? <T variant="caption" tone="secondary" style={{ textAlign: "center" }}>{status}</T> : null}
 
         <View style={{ marginTop: spacing.sm }}>
           <PButton variant="gold" onPress={() => void give()} disabled={amount <= 0}>
-            {`Give KSh ${amount.toLocaleString()} · ${fund}`}
+            {frequency === "once"
+              ? `Give KSh ${amount.toLocaleString()} · ${fund}`
+              : `Give KSh ${amount.toLocaleString()} ${frequency} · ${fund}`}
           </PButton>
         </View>
         <T variant="micro" tone="tertiary" style={{ textAlign: "center" }}>
-          Card details are handled securely by Stripe — never stored by Nuru.
+          {mobileMoney
+            ? "You'll confirm each payment on your phone — we never hold your PIN."
+            : "Card details are handled securely by Stripe — never stored by Nuru."}
         </T>
+
+        {/* Active recurring schedules */}
+        {active.length > 0 ? (
+          <View style={{ marginTop: spacing.base }}>
+            <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>RECURRING GIVING</T>
+            <View style={st.historyGroup}>
+              {active.map((s, i) => (
+                <View key={s.schedule_id} style={[st.historyRow, i < active.length - 1 && st.historyDivider]}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <T variant="heading" style={{ fontSize: 15, textTransform: "capitalize" }}>
+                      {`${s.fund} · ${s.frequency}`}
+                    </T>
+                    <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>
+                      {`${money(s.amount_minor, s.currency)} · next ${when(s.next_run_at)} · ${s.method}`}
+                    </T>
+                  </View>
+                  <Pressable accessibilityRole="button" onPress={() => void cancelSchedule(s.schedule_id)}>
+                    <T variant="caption" style={{ color: palette.error, fontWeight: "600" }}>Cancel</T>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
 
         {/* Giving history (real ledger from the server) */}
         {history && history.length > 0 ? (
@@ -156,6 +289,17 @@ const st = {
   preset: { height: 34, paddingHorizontal: 14, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   segment: { flexDirection: "row", gap: 4, backgroundColor: palette.white, borderRadius: radii.control, padding: 5, borderWidth: 1, borderColor: palette.border, ...shadow.card },
   segItem: { flex: 1, height: 44, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  phoneInput: {
+    marginTop: spacing.sm,
+    backgroundColor: palette.white,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    borderColor: palette.border,
+    paddingHorizontal: spacing.base,
+    height: 48,
+    fontSize: 15,
+    color: palette.ink,
+  },
   offline: { flexDirection: "row", gap: spacing.md, backgroundColor: palette.navy, borderRadius: radii.control, padding: spacing.base },
   offlineIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: "rgba(201,162,39,0.15)", alignItems: "center", justifyContent: "center" },
   historyGroup: { backgroundColor: palette.white, borderRadius: radii.control, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },

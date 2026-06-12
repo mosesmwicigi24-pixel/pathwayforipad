@@ -12,12 +12,16 @@ import type {
   CalendarOccurrence,
   CompleteResult,
   EventDetail,
+  GivingIntentResult,
   GivingRecord,
+  GivingSchedule,
   Level,
   LevelModule,
   ModuleDetail,
   PathwaySummary,
   QuizResult,
+  ThreadDetail,
+  ThreadSummary,
 } from "./types";
 
 export const api: AxiosInstance = axios.create({
@@ -135,8 +139,57 @@ export const NuruApi = {
     const { data } = await api.post<SyncPushResponse>("/sync/push", body);
     return data;
   },
-  async giving(body: { fund: string; amount_minor: number; currency: string; idempotency_key: string }): Promise<unknown> {
-    const { data } = await api.post("/giving/intents", body);
+  async giving(body: {
+    fund: string;
+    amount_minor: number;
+    currency: string;
+    method?: "card" | "mpesa" | "airtel";
+    phone_number?: string;
+    idempotency_key: string;
+  }): Promise<GivingIntentResult> {
+    const { data } = await api.post<GivingIntentResult>("/giving/intents", body);
+    return data;
+  },
+
+  // ---- Recurring giving (M2 over B7; managed ONLINE-only, §3.6) ----
+  async schedules(): Promise<GivingSchedule[]> {
+    const { data } = await api.get<{ data: GivingSchedule[] }>("/giving/schedules");
+    return data.data;
+  },
+  async createSchedule(body: {
+    fund: string;
+    amount_minor: number;
+    currency: string;
+    frequency: "weekly" | "monthly";
+    method?: "card" | "mpesa" | "airtel";
+    idempotency_key: string;
+  }): Promise<unknown> {
+    const { data } = await api.post("/giving/schedules", body);
+    return data;
+  },
+  async cancelSchedule(id: string): Promise<unknown> {
+    const { data } = await api.post(`/giving/schedules/${id}/cancel`);
+    return data;
+  },
+
+  // ---- Community discussions (M2 over B8; client-generated ids = idempotent) ----
+  async threads(): Promise<ThreadSummary[]> {
+    const { data } = await api.get<{ data: ThreadSummary[] }>("/community/threads");
+    return data.data;
+  },
+  async thread(id: string): Promise<ThreadDetail> {
+    const { data } = await api.get<ThreadDetail>(`/community/threads/${id}`);
+    return data;
+  },
+  async createThread(body: { thread_id: string; title: string; body: string; client_mutation_id: string }): Promise<unknown> {
+    const { data } = await api.post("/community/threads", body);
+    return data;
+  },
+  async addComment(
+    threadId: string,
+    body: { comment_id: string; body: string; client_mutation_id: string },
+  ): Promise<unknown> {
+    const { data } = await api.post(`/community/threads/${threadId}/comments`, body);
     return data;
   },
 };

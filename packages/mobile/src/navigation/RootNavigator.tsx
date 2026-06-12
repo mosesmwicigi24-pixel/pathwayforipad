@@ -17,6 +17,7 @@ import { CalendarScreen } from "../screens/CalendarScreen.js";
 import { EventDetailScreen } from "../screens/EventDetailScreen.js";
 import { ProfileScreen } from "../screens/ProfileScreen.js";
 import { CommunityScreen } from "../screens/CommunityScreen.js";
+import { ThreadScreen } from "../screens/ThreadScreen.js";
 import { ModuleScreen } from "../screens/ModuleScreen.js";
 import { QuizScreen } from "../screens/QuizScreen.js";
 import { GivingScreen } from "../screens/GivingScreen.js";
@@ -53,6 +54,7 @@ export function RootNavigator(): ReactElement {
         <Stack.Screen name="LevelComplete" component={LevelCompleteScreen} />
         <Stack.Screen name="Giving" component={GivingScreen} />
         <Stack.Screen name="Calendar" component={CalendarScreen} />
+        <Stack.Screen name="Thread" component={ThreadScreen} />
         <Stack.Screen name="EventDetail" component={EventDetailScreen} />
       </Stack.Navigator>
     </NavigationContainer>

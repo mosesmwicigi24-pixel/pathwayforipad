@@ -116,14 +116,20 @@ export function T({
   variant = "body",
   tone = "ink",
   style,
+  numberOfLines,
   children,
 }: {
   variant?: keyof typeof typ;
   tone?: TextTone;
   style?: StyleProp<TextStyle>;
+  numberOfLines?: number;
   children: ReactNode;
 }): ReactNode {
-  return <Text style={[typ[variant], { color: toneColor[tone] }, style]}>{children}</Text>;
+  return (
+    <Text numberOfLines={numberOfLines} style={[typ[variant], { color: toneColor[tone] }, style]}>
+      {children}
+    </Text>
+  );
 }
 
 // --- Button: primary (navy) · gold · ghost · ghostDark, lg/md ---

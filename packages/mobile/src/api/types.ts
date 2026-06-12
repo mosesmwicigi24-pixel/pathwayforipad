@@ -128,3 +128,60 @@ export interface Achievements {
   }>;
   streak: { current: number; longest: number };
 }
+
+// ---- Give v2 (Contract Matrix M2 over B7) ----
+export type GivingMethod = "card" | "mpesa" | "airtel";
+
+export interface GivingIntentResult {
+  transaction_id: string;
+  status: string;
+  client_secret?: string; // card path
+  provider?: string; // mobile-money path
+  provider_ref?: string;
+  reused: boolean;
+}
+
+export interface GivingSchedule {
+  schedule_id: string;
+  fund: string;
+  amount_minor: number;
+  currency: string;
+  frequency: "weekly" | "monthly";
+  method: GivingMethod;
+  status: "active" | "cancelled";
+  next_run_at: string;
+  created_at: string;
+}
+
+// ---- Community discussions (Contract Matrix M2 over B8) ----
+export interface ThreadSummary {
+  thread_id: string;
+  title: string;
+  body: string;
+  is_pinned: boolean;
+  is_locked: boolean;
+  created_at: string;
+  author_name: string;
+  author_user_id: string;
+  comment_count: number;
+}
+
+export interface ThreadComment {
+  comment_id: string;
+  body: string;
+  created_at: string;
+  author_user_id: string;
+  author_name: string;
+}
+
+export interface ThreadDetail {
+  thread_id: string;
+  title: string;
+  body: string;
+  is_pinned: boolean;
+  is_locked: boolean;
+  created_at: string;
+  author_user_id: string;
+  author_name: string;
+  comments: ThreadComment[];
+}
