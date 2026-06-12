@@ -84,7 +84,15 @@ assumes the previous is green. They follow the autonomous-operation rules in
 > make the recommended choice and keep going. After each prompt, summarize what changed
 > and the test result, then continue to the next."*
 >
-> _Status: Prompts 1–5 complete and green. Then Prompt 6 (UI/UX), then Prompt 7 (Features v2: video, calendar, onboarding, gamification — see docs/FEATURES_V2_SPEC.md)._
+> _Status: Prompts 1–5, the UI/UX pass, and Features v2 are complete and green
+> (see docs/FEATURES_V2_SPEC.md, docs/FUNCTIONAL_OVERVIEW.md)._
+>
+> _**Current direction (supersedes the prompts below):** the two published Figma
+> designs — mobile app + web portal (CMS/ERP) — were reconciled against the
+> backend in **docs/DESIGN_CONTRACT_MATRIX.md**. That matrix is now the governing
+> build plan: backend phases **B1–B8**, then web portal **W1–W4**, then mobile
+> **M1–M3**. The prompts below are retained as history of how the platform got
+> here; new work follows the matrix._
 
 ## Prompt 1 — Get to 100% green + end-to-end journeys + OpenAPI contract
 

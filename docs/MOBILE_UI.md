@@ -1,5 +1,10 @@
 # Mobile UI — design system & run guide
 
+> **Direction note:** per `docs/DESIGN_CONTRACT_MATRIX.md`, the published mobile
+> design moves the tabs to **Home · Pathway · Give · Community · Profile** (phase
+> M of the build plan); Chat becomes structured cohort discussions. The current
+> 5-tab build below remains accurate until phase M lands.
+
 The React Native app (`packages/mobile`) is built on the **Figma Make** design
 "Nuru Pathway app design", pulled in via the Figma MCP server. Brand: **deep blue ·
 white · gold · black**, governed by **space + restraint**.

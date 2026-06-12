@@ -1,8 +1,9 @@
 // Module: financial (spec §1.5, §1.10, §3.5, §5.6)
 // Owns: giving, Stripe orchestration, the double-entry ledger, idempotent webhooks.
 import express, { Router } from "express";
+import { z } from "zod";
 import type { AppContext } from "../../http/context.js";
-import { authenticate } from "../../http/auth.js";
+import { authenticate, requireRole } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { FinancialService } from "./service.js";
 import { buildPaymentGateway, type PaymentGateway } from "./gateway.js";
@@ -31,6 +32,23 @@ export function registerFinancial(ctx: AppContext, gatewayOverride?: PaymentGate
       res.json({ data: await svc.listGiving(requirePrincipal(req).userId) });
     }),
   );
+
+  // ---- Admin finance reads (ERP, Contract Matrix B1; Admin = view, §5.4) ----
+  const adminOnly = [auth, requireRole("Admin")] as const;
+
+  r.get("/admin/finance/summary", ...adminOnly, handler(async (_req, res) => {
+    res.json(await svc.financeSummary());
+  }));
+
+  r.get("/admin/finance/transactions", ...adminOnly, handler(async (req, res) => {
+    const q = parseBody(FinancialService.ListTransactions, req.query);
+    res.json(await svc.listTransactions(q));
+  }));
+
+  r.get("/admin/finance/ledger", ...adminOnly, handler(async (req, res) => {
+    const q = parseBody(z.object({ limit: z.coerce.number().int().min(1).max(500).default(100) }), req.query);
+    res.json({ data: await svc.listLedger(q.limit) });
+  }));
 
   // Media store (§3.3): catalogue + purchase (access granted on the webhook).
   r.get(

@@ -1040,6 +1040,104 @@ paths:
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # --- ERP core (Contract Matrix B1) ---
+  /admin/reports/overview:
+    get:
+      tags: [portal]
+      summary: Admin. Dashboard KPI block (members, learners, engagement, certs, reviews…).
+      responses:
+        "200": { description: KPI aggregates }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/reports/engagement:
+    get:
+      tags: [portal]
+      summary: Admin. Engagement band distribution + lowest-engagement cells.
+      responses:
+        "200": { description: Engagement report }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/reports/attendance:
+    get:
+      tags: [portal]
+      summary: Admin. Weekly attendance trend + recent events with check-ins/RSVPs.
+      parameters:
+        - { name: weeks, in: query, schema: { type: integer, minimum: 1, maximum: 52, default: 8 } }
+      responses:
+        "200": { description: Attendance report }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/reports/consents:
+    get:
+      tags: [portal]
+      summary: Admin. Guardian consents needing annual renewal (§5.9).
+      responses:
+        "200": { description: Expiring consents }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/members:
+    get:
+      tags: [portal]
+      summary: Admin. Congregation-wide member list (search/cell/band/level filters, keyset-paged).
+      responses:
+        "200": { description: Members }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [portal]
+      summary: Admin. Add a learner (creates Student + enrollment at L1). Audited.
+      responses:
+        "201": { description: Member created }
+        "400": { description: Validation failed }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/audit:
+    get:
+      tags: [portal]
+      summary: SuperAdmin. Append-only audit log viewer (actor/action/entity filters).
+      responses:
+        "200": { description: Audit entries }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/certificates:
+    get:
+      tags: [certificates]
+      summary: Admin. Issued-certificates register (incl. revocations).
+      responses:
+        "200": { description: Certificates }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [certificates]
+      summary: Admin. Manually issue a certificate (idempotent per user+level). Audited.
+      responses:
+        "201": { description: Issued }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/certificates/{id}/revoke:
+    post:
+      tags: [certificates]
+      summary: Admin. Revoke a certificate with a required reason; verify() turns invalid. Audited.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Revoked }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/finance/summary:
+    get:
+      tags: [giving]
+      summary: Admin (view). Per-fund settled revenue — this month + all time.
+      responses:
+        "200": { description: Fund summary }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/finance/transactions:
+    get:
+      tags: [giving]
+      summary: Admin (view). Transactions register (fund/status filters, keyset-paged).
+      responses:
+        "200": { description: Transactions }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/finance/ledger:
+    get:
+      tags: [giving]
+      summary: Admin (view). Recent balanced double-entry ledger postings.
+      responses:
+        "200": { description: Ledger entries }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+
   # --- Webhooks & sync (system) (§3.3) ---
   /webhooks/stripe:
     post:

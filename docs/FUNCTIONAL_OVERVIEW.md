@@ -1,5 +1,11 @@
 # Nuru Place Pathway — Functional Overview (step-by-step)
 
+> **Direction note:** the published Figma designs were reconciled with this
+> system in `docs/DESIGN_CONTRACT_MATRIX.md` — that matrix governs current
+> build phases (B1–B8 / W1–W4 / M1–M3) and records every design⚖️backend
+> decision (new mobile tabs, cohort discussions, reflection states, payment
+> providers, quiz limits). This overview describes the running platform.
+
 What the platform does, end to end, written as concrete step-by-step flows and
 grounded in the engineering spec (`nuru-place-technical-spec.pdf` §1–§5) and the
 Features v2 spec (`docs/FEATURES_V2_SPEC.md`). Every step names the API surface and

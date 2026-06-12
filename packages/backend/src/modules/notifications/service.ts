@@ -86,12 +86,14 @@ export class NotificationService {
     const prefs = await this.prefs(input.userId);
     const channelEnabled = input.channel === "push" ? prefs.push_enabled : prefs.email_enabled;
 
+    // Count "today" by the SAME clock the scheduler uses (injectable in tests) —
+    // mixing the DB's now() with this.now() makes the cap silently miscount.
     const dayCount = await one<{ n: number }>(
       this.pool,
       `SELECT count(*)::int AS n FROM notifications
         WHERE user_id = $1 AND status <> 'suppressed'
-          AND scheduled_for::date = (now() AT TIME ZONE 'UTC')::date`,
-      [input.userId],
+          AND scheduled_for::date = ($2::timestamptz AT TIME ZONE 'UTC')::date`,
+      [input.userId, new Date(this.now()).toISOString()],
     );
 
     const tz = input.timezone ?? "Africa/Nairobi";

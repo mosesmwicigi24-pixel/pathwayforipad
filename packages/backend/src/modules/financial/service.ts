@@ -216,4 +216,86 @@ export class FinancialService {
     );
     return rows.map((r) => ({ ...r, amount_minor: Number(r.amount_minor) }));
   }
+
+  // ---------------- Admin finance reads (ERP, Contract Matrix B1) ----------------
+  // Admin = view-only over the ledger; fund/financial CONFIG stays SuperAdmin (§5.4).
+
+  /** Per-fund revenue: settled totals this month + all time (the "Fund Revenue" card). */
+  async financeSummary(): Promise<Record<string, unknown>> {
+    const funds = await many<Record<string, unknown>>(
+      this.pool,
+      `SELECT f.code, f.name, t.currency,
+              COALESCE(sum(t.amount_minor) FILTER (WHERE t.status = 'succeeded'), 0)::bigint AS total_minor,
+              COALESCE(sum(t.amount_minor) FILTER (
+                WHERE t.status = 'succeeded' AND t.settled_at >= date_trunc('month', now())), 0)::bigint AS month_minor,
+              count(t.transaction_id) FILTER (WHERE t.status = 'succeeded')::int AS gift_count
+         FROM funds f
+         LEFT JOIN transactions t ON t.fund_id = f.fund_id
+        GROUP BY f.code, f.name, t.currency
+        ORDER BY f.code`,
+    );
+    return {
+      funds: funds.map((r) => ({ ...r, total_minor: Number(r.total_minor), month_minor: Number(r.month_minor) })),
+    };
+  }
+
+  static readonly ListTransactions = z.object({
+    fund: z.string().max(40).optional(),
+    status: z.enum(["requires_action", "processing", "succeeded", "failed", "refunded"]).optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    before: z.string().optional(), // keyset on created_at ISO
+  });
+
+  async listTransactions(
+    q: z.infer<typeof FinancialService.ListTransactions>,
+  ): Promise<{ data: unknown[]; next_cursor: string | null }> {
+    const params: unknown[] = [];
+    const where: string[] = ["TRUE"];
+    if (q.fund) {
+      params.push(q.fund);
+      where.push(`f.code = $${params.length}`);
+    }
+    if (q.status) {
+      params.push(q.status);
+      where.push(`t.status = $${params.length}::txn_status`);
+    }
+    if (q.before) {
+      params.push(q.before);
+      where.push(`t.created_at < $${params.length}`);
+    }
+    params.push(q.limit + 1);
+    const rows = await many<Record<string, unknown>>(
+      this.pool,
+      `SELECT t.transaction_id, u.full_name, t.amount_minor, t.currency, t.status,
+              f.code AS fund, t.created_at, t.settled_at
+         FROM transactions t
+         LEFT JOIN funds f ON f.fund_id = t.fund_id
+         LEFT JOIN users u ON u.user_id = t.user_id
+        WHERE ${where.join(" AND ")}
+        ORDER BY t.created_at DESC
+        LIMIT $${params.length}`,
+      params,
+    );
+    const hasMore = rows.length > q.limit;
+    const page = hasMore ? rows.slice(0, q.limit) : rows;
+    const last = page[page.length - 1];
+    return {
+      data: page.map((r) => ({ ...r, amount_minor: Number(r.amount_minor) })),
+      next_cursor: hasMore && last ? String(last.created_at) : null,
+    };
+  }
+
+  /** Recent double-entry ledger postings (always balanced, §5.6). */
+  async listLedger(limit = 100): Promise<unknown[]> {
+    const rows = await many<Record<string, unknown>>(
+      this.pool,
+      `SELECT le.entry_id, le.transaction_id, le.account, le.side::text, le.amount_minor,
+              le.currency, le.created_at
+         FROM ledger_entries le
+        ORDER BY le.created_at DESC
+        LIMIT $1`,
+      [Math.min(Math.max(limit, 1), 500)],
+    );
+    return rows.map((r) => ({ ...r, amount_minor: Number(r.amount_minor) }));
+  }
 }

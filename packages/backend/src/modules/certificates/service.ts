@@ -8,7 +8,8 @@
 // key so verifiers need only the public half. Flagged.
 import type { Pool, PoolClient } from "pg";
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { maybeOne, one, many, type Queryable } from "../../db/db.js";
+import { z } from "zod";
+import { maybeOne, one, many, tx, audit, type Queryable } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 import { renderCertificatePdf } from "./pdf.js";
 import type { ObjectStore } from "./objectStore.js";
@@ -99,7 +100,8 @@ export class CertificateService {
     }));
   }
 
-  /** Public verification: recompute the hash + signature and report validity (§5.5). */
+  /** Public verification: recompute the hash + signature and report validity (§5.5).
+   *  A revoked certificate verifies as invalid (with the revocation surfaced). */
   async verify(code: string): Promise<Record<string, unknown>> {
     const cert = await maybeOne<{
       user_id: string;
@@ -107,10 +109,11 @@ export class CertificateService {
       content_hash: string;
       signature: string;
       issued_at: string;
+      revoked_at: string | null;
       full_name: string;
     }>(
       this.pool,
-      `SELECT c.user_id, c.level_number, c.content_hash, c.signature, c.issued_at, u.full_name
+      `SELECT c.user_id, c.level_number, c.content_hash, c.signature, c.issued_at, c.revoked_at, u.full_name
          FROM certificates c JOIN users u ON u.user_id = c.user_id
         WHERE c.verification_code = $1`,
       [code],
@@ -122,13 +125,88 @@ export class CertificateService {
       level_number: cert.level_number,
       verification_code: code,
     });
-    const valid = recomputedHash === cert.content_hash && this.sign(cert.content_hash) === cert.signature;
+    const intact = recomputedHash === cert.content_hash && this.sign(cert.content_hash) === cert.signature;
+    const revoked = cert.revoked_at !== null;
 
     return {
-      valid,
+      valid: intact && !revoked,
+      revoked,
       recipient_name: cert.full_name,
       level_number: cert.level_number,
       issued_at: cert.issued_at,
     };
+  }
+
+  // ---------------- Admin (ERP, Contract Matrix B1) ----------------
+
+  static readonly ListAdmin = z.object({
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    before: z.string().optional(), // keyset on issued_at ISO
+  });
+
+  /** Issued-certificates register for the portal (newest first). */
+  async listAll(q: z.infer<typeof CertificateService.ListAdmin>): Promise<{ data: unknown[]; next_cursor: string | null }> {
+    const params: unknown[] = [];
+    let where = "TRUE";
+    if (q.before) {
+      params.push(q.before);
+      where = `c.issued_at < $${params.length}`;
+    }
+    params.push(q.limit + 1);
+    const rows = await many<Record<string, unknown>>(
+      this.pool,
+      `SELECT c.certificate_id, c.user_id, u.full_name, c.level_number, c.verification_code,
+              c.issued_at, c.revoked_at, c.revoked_reason
+         FROM certificates c JOIN users u ON u.user_id = c.user_id
+        WHERE ${where}
+        ORDER BY c.issued_at DESC
+        LIMIT $${params.length}`,
+      params,
+    );
+    const hasMore = rows.length > q.limit;
+    const page = hasMore ? rows.slice(0, q.limit) : rows;
+    const last = page[page.length - 1];
+    return { data: page, next_cursor: hasMore && last ? String(last.issued_at) : null };
+  }
+
+  static readonly AdminIssue = z
+    .object({ user_id: z.string().uuid(), level_number: z.number().int().min(1).nullable() })
+    .strict();
+
+  /** Manual issuance from the portal (idempotent via issue()); audited. */
+  async adminIssue(adminId: string, input: z.infer<typeof CertificateService.AdminIssue>): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const user = await maybeOne(c, `SELECT 1 FROM users WHERE user_id = $1 AND deleted_at IS NULL`, [input.user_id]);
+      if (!user) throw new ApiError("NOT_FOUND", "Member not found");
+      const cert = await this.issue(input.user_id, input.level_number, c);
+      await audit(c, adminId, "certificate.issued_manually", "certificates", cert.certificate_id, {
+        user_id: input.user_id,
+        level_number: input.level_number,
+      });
+      return cert;
+    });
+  }
+
+  static readonly Revoke = z.object({ reason: z.string().min(5).max(500) }).strict();
+
+  /** Data-correction revocation: reason required, audited, verify() turns invalid. */
+  async revoke(adminId: string, certificateId: string, reason: string): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const updated = await maybeOne<{ certificate_id: string }>(
+        c,
+        `UPDATE certificates SET revoked_at = now(), revoked_reason = $2, revoked_by = $3
+          WHERE certificate_id = $1 AND revoked_at IS NULL
+          RETURNING certificate_id`,
+        [certificateId, reason, adminId],
+      );
+      if (!updated) throw new ApiError("NOT_FOUND", "Certificate not found or already revoked");
+      await audit(c, adminId, "certificate.revoked", "certificates", certificateId, { reason });
+      return one(
+        c,
+        `SELECT certificate_id, user_id, level_number, verification_code, issued_at, revoked_at, revoked_reason
+           FROM certificates WHERE certificate_id = $1`,
+        [certificateId],
+      );
+    });
   }
 }

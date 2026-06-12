@@ -1,0 +1,56 @@
+// Module: adminops (Design Contract Matrix B1; web portal "ERP")
+// Owns: dashboard report aggregates, congregation-wide member administration,
+// and the audit viewer. Reports/members are Admin+; the audit log is SuperAdmin.
+import { Router } from "express";
+import { z } from "zod";
+import type { AppContext } from "../../http/context.js";
+import { authenticate, requireRole } from "../../http/auth.js";
+import { handler, parseBody, requirePrincipal } from "../../http/http.js";
+import { AdminOpsService } from "./service.js";
+
+export const adminOpsRouter: Router = Router();
+
+export function registerAdminOps(ctx: AppContext): Router {
+  const svc = new AdminOpsService(ctx.db.primary, ctx.db.replica);
+  const auth = authenticate(ctx.env);
+  const adminOnly = [auth, requireRole("Admin")] as const;
+  const superOnly = [auth, requireRole("SuperAdmin")] as const;
+  const r = adminOpsRouter;
+
+  // ---- Dashboard reports ----
+  r.get("/admin/reports/overview", ...adminOnly, handler(async (_req, res) => {
+    res.json(await svc.overview());
+  }));
+
+  r.get("/admin/reports/engagement", ...adminOnly, handler(async (_req, res) => {
+    res.json(await svc.engagementReport());
+  }));
+
+  r.get("/admin/reports/attendance", ...adminOnly, handler(async (req, res) => {
+    const q = parseBody(z.object({ weeks: z.coerce.number().int().min(1).max(52).default(8) }), req.query);
+    res.json(await svc.attendanceReport(q.weeks));
+  }));
+
+  r.get("/admin/reports/consents", ...adminOnly, handler(async (_req, res) => {
+    res.json({ data: await svc.consentsReport() });
+  }));
+
+  // ---- Members administration ----
+  r.get("/admin/members", ...adminOnly, handler(async (req, res) => {
+    const q = parseBody(AdminOpsService.ListMembers, req.query);
+    res.json(await svc.listMembers(q));
+  }));
+
+  r.post("/admin/members", ...adminOnly, handler(async (req, res) => {
+    const input = parseBody(AdminOpsService.AddMember, req.body);
+    res.status(201).json(await svc.addMember(requirePrincipal(req).userId, input));
+  }));
+
+  // ---- Audit viewer ----
+  r.get("/admin/audit", ...superOnly, handler(async (req, res) => {
+    const q = parseBody(AdminOpsService.ListAudit, req.query);
+    res.json(await svc.listAudit(q));
+  }));
+
+  return r;
+}
