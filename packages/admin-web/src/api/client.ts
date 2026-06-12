@@ -192,6 +192,9 @@ export interface AdminModule extends AdminModuleSummary {
   quiz_pass_mark: string;
   estimated_minutes: number | null;
   video_url: string | null;
+  media_asset_id: string | null;
+  time_limit_sec: number | null;
+  max_attempts: number | null;
   current_version: number;
   row_version: number;
 }
@@ -242,4 +245,37 @@ export const CurriculumApi = {
   addQuestions: (id: string, questions: Array<Record<string, unknown>>) =>
     api.post<{ added: number }>(`/admin/modules/${id}/questions`, { questions }).then((r) => r.data),
   deleteQuestion: (qid: string) => api.delete<{ deleted: boolean }>(`/admin/questions/${qid}`).then((r) => r.data),
+};
+
+// ---- Video Library (W2; Features v2 §V) ----
+export type MediaStatus = "uploading" | "transcoding" | "ready" | "failed";
+
+export interface MediaAssetRow {
+  media_asset_id: string;
+  kind: string;
+  status: MediaStatus;
+  provider: string;
+  duration_sec: number | null;
+  error_detail: string | null;
+  created_at: string;
+  attached_module_title: string | null;
+  attached_module_id: string | null;
+  is_stuck: boolean;
+}
+
+export interface UploadSession {
+  upload_id: string;
+  media_asset_id: string;
+  signed_put_url: string;
+  expires_at: string;
+}
+
+export const MediaApi = {
+  list: () => api.get<{ data: MediaAssetRow[]; total: number; stuck: number }>("/admin/media").then((r) => r.data),
+  createUpload: (kind = "lesson_video") =>
+    api.post<UploadSession>("/admin/media/uploads", { kind }).then((r) => r.data),
+  completeUpload: (uploadId: string) =>
+    api.post<{ status: string }>(`/admin/media/uploads/${uploadId}/complete`, {}).then((r) => r.data),
+  archive: (assetId: string) =>
+    api.delete<{ archived: boolean }>(`/admin/media/${assetId}`).then((r) => r.data),
 };

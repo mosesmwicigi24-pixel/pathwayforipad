@@ -58,6 +58,14 @@ export function registerMedia(ctx: AppContext): Router {
   );
 
   r.get(
+    "/admin/media",
+    ...adminOnly,
+    handler(async (_req, res) => {
+      res.json(await video.listAssets());
+    }),
+  );
+
+  r.get(
     "/admin/media/:id",
     ...adminOnly,
     handler(async (req, res) => {

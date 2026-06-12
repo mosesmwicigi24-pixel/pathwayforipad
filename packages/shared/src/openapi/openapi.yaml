@@ -838,6 +838,13 @@ paths:
         "200": { description: Signed manifest URL }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/GateLocked" }
+  /admin/media:
+    get:
+      tags: [system]
+      summary: Admin. Video Library — all managed assets with linked module + stuck-encoding flag.
+      responses:
+        "200": { description: Assets }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
   /admin/media/uploads:
     post:
       tags: [system]

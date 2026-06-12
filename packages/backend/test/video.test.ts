@@ -92,6 +92,43 @@ describe("cross-device resume (LWW, §V.0)", () => {
   });
 });
 
+describe("video library list (W2)", () => {
+  it("lists assets newest-first with linked module + stuck-encoding flag", async () => {
+    const v = newVideo();
+    const ok = await v.createUploadSession(adminId, {});
+    const stuckSession = await v.createUploadSession(adminId, {});
+
+    // Attach the first asset to a module (the new UpdateModule path).
+    const m1 = await createModule(1, 1, { published: false });
+    const tok = bearer({ sub: adminId, role: "Admin", cong });
+    const upd = await agent()
+      .put(`/v1/admin/modules/${m1}`)
+      .set("Authorization", tok)
+      .send({ media_asset_id: ok.media_asset_id });
+    expect(upd.status).toBe(200);
+    expect(upd.body.media_asset_id).toBe(ok.media_asset_id);
+
+    // Make the second asset look stuck: transcoding since 2 hours ago.
+    await testPool().query(
+      `UPDATE media_assets SET status='transcoding', created_at = now() - interval '2 hours' WHERE media_asset_id=$1`,
+      [stuckSession.media_asset_id],
+    );
+
+    const list = await agent().get("/v1/admin/media").set("Authorization", tok);
+    expect(list.status).toBe(200);
+    expect(list.body.total).toBe(2);
+    expect(list.body.stuck).toBe(1);
+    const attached = list.body.data.find(
+      (a: { media_asset_id: string }) => a.media_asset_id === ok.media_asset_id,
+    );
+    expect(attached.attached_module_title).toBeTruthy();
+    const stuck = list.body.data.find(
+      (a: { media_asset_id: string }) => a.media_asset_id === stuckSession.media_asset_id,
+    );
+    expect(stuck.is_stuck).toBe(true);
+  });
+});
+
 describe("RBAC (§5.4)", () => {
   it("non-admins get 403 on admin media routes", async () => {
     const tok = bearer({ sub: studentId, role: "Student", cong });

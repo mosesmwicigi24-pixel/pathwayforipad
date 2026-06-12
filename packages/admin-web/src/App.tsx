@@ -12,6 +12,7 @@ import { Dashboard } from "./components/dashboard/Dashboard";
 import { CohortTable } from "./components/CohortTable";
 import { ReviewQueue } from "./components/ReviewQueue";
 import { CurriculumAdmin } from "./components/curriculum/CurriculumAdmin";
+import { VideoLibrary } from "./components/curriculum/VideoLibrary";
 import { colors, card, font } from "./theme";
 
 const TITLES: Record<ScreenId, string> = Object.fromEntries(
@@ -44,6 +45,8 @@ export function App(): ReactElement {
         return <Dashboard />;
       case "curriculum":
         return <CurriculumAdmin />;
+      case "videos":
+        return <VideoLibrary />;
       case "cohort":
         return <CohortTable />;
       case "reviews":

@@ -1,17 +1,22 @@
-// Blog-like module editor (Prompt 5 Phase E). Split-pane Markdown editor with a
-// live sanitized preview, evaluation-kind + quiz authoring, draft/publish with
-// validation, and version history. Optimistic-concurrency: edits carry the
-// row_version we loaded; the server rejects (409) a stale overwrite.
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+// Blog-like module editor (Prompt 5 Phase E + W2 Pulse upgrades). Split-pane
+// Markdown editor with a rich-text toolbar (storage stays Markdown — recorded
+// matrix decision), live sanitized preview, evaluation-kind + quiz authoring
+// incl. the B4 time-limit/attempts config, Video Library attachment, and
+// version history. Optimistic-concurrency: edits carry the row_version we
+// loaded; the server rejects (409) a stale overwrite.
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import {
   CurriculumApi,
+  MediaApi,
   type AdminModule,
   type AdminQuestion,
   type EvaluationKind,
+  type MediaAssetRow,
   type ModuleVersion,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
 import { publishBlockReason, questionDraftErrors, type QuestionDraft } from "../../util/curriculumLogic";
+import { applyToolbar, TOOLBAR_BUTTONS } from "../../util/editorToolbar";
 import { MarkdownPreview } from "../MarkdownPreview";
 
 const KINDS: EvaluationKind[] = ["none", "reflection", "quiz", "exit_exam"];
@@ -39,6 +44,11 @@ export function ModuleEditor({
   const [passMark, setPassMark] = useState("70");
   const [minutes, setMinutes] = useState("");
   const [content, setContent] = useState("");
+  const [timeLimitMin, setTimeLimitMin] = useState(""); // minutes in the UI, seconds on the wire
+  const [maxAttempts, setMaxAttempts] = useState("");
+  const [assetId, setAssetId] = useState("");
+  const [assets, setAssets] = useState<MediaAssetRow[]>([]);
+  const contentRef = useRef<HTMLTextAreaElement | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -51,12 +61,36 @@ export function ModuleEditor({
       setPassMark(String(m.quiz_pass_mark));
       setMinutes(m.estimated_minutes === null ? "" : String(m.estimated_minutes));
       setContent(m.lesson_content);
+      setTimeLimitMin(m.time_limit_sec === null ? "" : String(Math.round(m.time_limit_sec / 60)));
+      setMaxAttempts(m.max_attempts === null ? "" : String(m.max_attempts));
+      setAssetId(m.media_asset_id ?? "");
       setQuestions(await CurriculumApi.questions(moduleId));
       setDirty(false);
     } catch (e) {
       setError(errorMessage(e, "Could not load the module."));
     }
   }, [moduleId]);
+
+  // Video Library options for the attach dropdown (editor is Admin-only).
+  useEffect(() => {
+    void MediaApi.list()
+      .then((r) => setAssets(r.data))
+      .catch(() => setAssets([]));
+  }, []);
+
+  function runToolbar(action: (typeof TOOLBAR_BUTTONS)[number]["action"]): void {
+    const ta = contentRef.current;
+    const start = ta?.selectionStart ?? content.length;
+    const end = ta?.selectionEnd ?? content.length;
+    const result = applyToolbar(action, content, start, end);
+    touch(setContent)(result.value);
+    // Restore focus + selection after React re-renders the textarea.
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(result.selectionStart, result.selectionEnd);
+    });
+  }
 
   useEffect(() => {
     void load();
@@ -90,6 +124,9 @@ export function ModuleEditor({
         quiz_pass_mark: Number(passMark),
         estimated_minutes: minutes === "" ? null : Number(minutes),
         lesson_content: content,
+        time_limit_sec: timeLimitMin === "" ? null : Number(timeLimitMin) * 60,
+        max_attempts: maxAttempts === "" ? null : Number(maxAttempts),
+        media_asset_id: assetId === "" ? null : assetId,
         expected_row_version: mod.row_version,
       });
       setMod(updated);
@@ -173,15 +210,67 @@ export function ModuleEditor({
           Estimated minutes
           <input value={minutes} onChange={(e) => touch(setMinutes)(e.target.value)} style={inputStyle} />
         </label>
+        {kind === "quiz" ? (
+          <>
+            <label>
+              Time limit (minutes, blank = none) — server-enforced
+              <input
+                value={timeLimitMin}
+                onChange={(e) => touch(setTimeLimitMin)(e.target.value)}
+                style={inputStyle}
+                placeholder="e.g. 10"
+              />
+            </label>
+            <label>
+              Max attempts (blank = unlimited) — server-enforced
+              <input
+                value={maxAttempts}
+                onChange={(e) => touch(setMaxAttempts)(e.target.value)}
+                style={inputStyle}
+                placeholder="e.g. 3"
+              />
+            </label>
+          </>
+        ) : null}
         <label style={{ gridColumn: "1 / span 2" }}>
           Summary
           <input value={summary} onChange={(e) => touch(setSummary)(e.target.value)} style={inputStyle} />
         </label>
+        <label style={{ gridColumn: "1 / span 2" }}>
+          Lesson video (from the Video Library)
+          <select value={assetId} onChange={(e) => touch(setAssetId)(e.target.value)} style={inputStyle}>
+            <option value="">— none —</option>
+            {assets
+              .filter((a) => a.status === "ready" || a.media_asset_id === assetId)
+              .map((a) => (
+                <option key={a.media_asset_id} value={a.media_asset_id}>
+                  {a.media_asset_id.slice(0, 8)} · {a.status}
+                  {a.duration_sec ? ` · ${Math.round(a.duration_sec / 60)}min` : ""}
+                  {a.attached_module_title ? ` · in: ${a.attached_module_title}` : ""}
+                </option>
+              ))}
+          </select>
+        </label>
       </div>
 
       <h3 style={{ marginTop: 16 }}>Lesson (Markdown)</h3>
+      <div role="toolbar" aria-label="Formatting" style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+        {TOOLBAR_BUTTONS.map((b) => (
+          <button
+            key={b.action}
+            type="button"
+            title={b.hint}
+            aria-label={b.hint}
+            onClick={() => runToolbar(b.action)}
+            style={{ minWidth: 32, padding: "4px 8px" }}
+          >
+            {b.label}
+          </button>
+        ))}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <textarea
+          ref={contentRef}
           aria-label="Lesson markdown"
           value={content}
           onChange={(e) => touch(setContent)(e.target.value)}

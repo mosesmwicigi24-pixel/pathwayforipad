@@ -258,7 +258,7 @@ export class AdminCurriculumService {
       c,
       `SELECT module_id, level_number, module_sequence_number, title, summary, lesson_content,
               key_verses, status, is_published, evaluation_kind, quiz_pass_mark, estimated_minutes,
-              video_url, time_limit_sec, max_attempts, current_version, row_version, created_at, updated_at
+              video_url, media_asset_id, time_limit_sec, max_attempts, current_version, row_version, created_at, updated_at
          FROM modules WHERE module_id = $1`,
       [moduleId],
     );
@@ -273,6 +273,7 @@ export class AdminCurriculumService {
       quiz_pass_mark: z.number().min(0).max(100).optional(),
       estimated_minutes: z.number().int().min(0).nullable().optional(),
       video_url: z.string().url().max(512).nullable().optional(),
+      media_asset_id: z.string().uuid().nullable().optional(), // managed Video Library asset (W2)
       key_verses: z.array(z.string()).nullable().optional(),
       time_limit_sec: z.number().int().min(30).max(7200).nullable().optional(),
       max_attempts: z.number().int().min(1).max(50).nullable().optional(),
@@ -322,6 +323,7 @@ export class AdminCurriculumService {
         quiz_pass_mark: input.quiz_pass_mark,
         estimated_minutes: input.estimated_minutes,
         video_url: input.video_url,
+        media_asset_id: input.media_asset_id,
         time_limit_sec: input.time_limit_sec,
         max_attempts: input.max_attempts,
         key_verses: input.key_verses === undefined ? undefined : input.key_verses === null ? null : JSON.stringify(input.key_verses),

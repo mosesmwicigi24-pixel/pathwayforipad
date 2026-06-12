@@ -131,6 +131,27 @@ export class VideoService {
     }
   }
 
+  /** Video Library (W2): all managed assets, newest first, with the linked
+   *  module title and a stuck-encoding flag (transcoding for > 30 min). */
+  async listAssets(): Promise<{ data: unknown[]; total: number; stuck: number }> {
+    const rows = await many<Record<string, unknown>>(
+      this.pool,
+      `SELECT ma.media_asset_id, ma.kind, ma.status, ma.provider, ma.duration_sec,
+              ma.error_detail, ma.created_at,
+              m.title AS attached_module_title, m.module_id AS attached_module_id,
+              (ma.status = 'transcoding' AND ma.created_at < now() - interval '30 minutes') AS is_stuck
+         FROM media_assets ma
+         LEFT JOIN modules m ON m.media_asset_id = ma.media_asset_id
+        ORDER BY ma.created_at DESC
+        LIMIT 200`,
+    );
+    return {
+      data: rows,
+      total: rows.length,
+      stuck: rows.filter((r) => r.is_stuck === true).length,
+    };
+  }
+
   getAsset(id: string): Promise<unknown> {
     return maybeOne(
       this.pool,

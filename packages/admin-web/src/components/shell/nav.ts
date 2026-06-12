@@ -6,6 +6,7 @@ import { isAdminRole } from "../../util/jwt";
 export type ScreenId =
   | "dashboard"
   | "curriculum"
+  | "videos"
   | "members"
   | "cohort"
   | "reviews"
@@ -33,7 +34,10 @@ export const NAV_SECTIONS: NavSection[] = [
   { title: null, items: [{ id: "dashboard", label: "Dashboard", adminOnly: true }] },
   {
     title: "Curriculum",
-    items: [{ id: "curriculum", label: "Levels & Modules", adminOnly: true }],
+    items: [
+      { id: "curriculum", label: "Levels & Modules", adminOnly: true },
+      { id: "videos", label: "Video Library", adminOnly: true },
+    ],
   },
   {
     title: "Operations",
