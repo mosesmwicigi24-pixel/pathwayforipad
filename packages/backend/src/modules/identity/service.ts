@@ -15,6 +15,7 @@ import {
 } from "./tokens.js";
 import type { OAuthProfile } from "./oauth.js";
 import { generateTotpSecret, otpauthUri, verifyTotp } from "./totp.js";
+import { hashPassword, verifyPassword } from "./passwords.js";
 import { sealSecret, openSecret } from "./secretbox.js";
 
 export interface SessionTokens {
@@ -200,7 +201,8 @@ export class IdentityService {
     const profile = await one(
       this.pool,
       `SELECT user_id, email, full_name, phone_number, date_of_birth, year_of_salvation,
-              is_baptized, cell_group_id, congregation_id, role, timezone, locale, is_minor, row_version
+              is_baptized, cell_group_id, congregation_id, role, timezone, locale, is_minor,
+              gender, city, socials, row_version
          FROM users WHERE user_id = $1 AND deleted_at IS NULL`,
       [userId],
     );
@@ -218,6 +220,9 @@ export class IdentityService {
       cell_group_id: z.string().uuid().nullable().optional(),
       timezone: z.string().max(64).optional(),
       locale: z.string().max(12).optional(),
+      gender: z.enum(["male", "female", "prefer_not_to_say"]).nullable().optional(),
+      city: z.string().max(120).nullable().optional(),
+      socials: z.record(z.string().max(200)).optional(), // {instagram, x, facebook, ...}
       row_version: z.number().int().positive(),
     })
     .strict(); // mass-assignment guard (§5.8): role/congregation_id are not writable
@@ -228,10 +233,10 @@ export class IdentityService {
       const sets: string[] = [];
       const params: unknown[] = [];
       let i = 1;
-      for (const field of ["phone_number", "cell_group_id", "timezone", "locale"] as const) {
+      for (const field of ["phone_number", "cell_group_id", "timezone", "locale", "gender", "city", "socials"] as const) {
         if (field in input && input[field] !== undefined) {
           sets.push(`${field} = $${i++}`);
-          params.push(input[field]);
+          params.push(field === "socials" ? JSON.stringify(input[field]) : input[field]);
         }
       }
       sets.push(`row_version = row_version + 1`, `updated_at = now()`);
@@ -257,6 +262,49 @@ export class IdentityService {
       await recordChange(c, "users", userId, userId, "upsert");
       return updated;
     });
+  }
+
+  static readonly ChangePasswordSchema = z
+    .object({
+      current_password: z.string().min(1).max(200),
+      new_password: z.string().min(8).max(200),
+    })
+    .strict();
+
+  /**
+   * Change the account password (B6 Profile). Requires the current password
+   * (argon2id verify, §5.5); SSO-only accounts have no stored secret and are
+   * directed to their provider instead. All refresh-token families are revoked
+   * so stolen sessions die with the old credential.
+   */
+  async changePassword(
+    userId: string,
+    input: z.infer<typeof IdentityService.ChangePasswordSchema>,
+  ): Promise<{ changed: boolean }> {
+    const row = await maybeOne<{ password_hash: string | null }>(
+      this.pool,
+      `SELECT password_hash FROM users WHERE user_id = $1 AND deleted_at IS NULL`,
+      [userId],
+    );
+    if (!row) throw new ApiError("NOT_FOUND", "User not found");
+    if (!row.password_hash) {
+      throw new ApiError("UNPROCESSABLE", "This account signs in with a provider and has no password");
+    }
+    if (!(await verifyPassword(row.password_hash, input.current_password))) {
+      throw new ApiError("FORBIDDEN_SCOPE", "Current password is incorrect");
+    }
+    const newHash = await hashPassword(input.new_password);
+    await this.pool.query(`UPDATE users SET password_hash = $2, updated_at = now() WHERE user_id = $1`, [
+      userId,
+      newHash,
+    ]);
+    // Old sessions die with the old credential: revoke every refresh chain.
+    await this.pool.query(
+      `UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
+      [userId],
+    );
+    await audit(this.pool, userId, "user.password_changed", "users", userId, {});
+    return { changed: true };
   }
 
   static readonly OnboardingSchema = z

@@ -1218,6 +1218,108 @@ paths:
         "200": { description: Ledger entries }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
 
+  # --- Growth domains (Contract Matrix B6) ---
+  /gifts/questions:
+    get:
+      tags: [progress]
+      summary: Spiritual-gifts Likert bank (active items, in order). No scoring data leaks.
+      responses:
+        "200": { description: Questions }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /gifts/assessments:
+    post:
+      tags: [progress]
+      summary: Submit Likert answers; SERVER-scored over the full bank. Idempotent on client_mutation_id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GiftsSubmission" }
+      responses:
+        "201": { description: Gift profile (scores + top gifts) }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /me/gifts:
+    get:
+      tags: [progress]
+      summary: My latest gift profile + suggested serving tracks.
+      responses:
+        "200": { description: Profile + tracks }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/prayers:
+    get:
+      tags: [progress]
+      summary: My prayer journal (private — no leader/admin read path exists).
+      responses:
+        "200": { description: Entries }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [progress]
+      summary: Create/update a journal entry (client-generated id; LWW; offline-queueable).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PrayerUpsert" }
+      responses:
+        "200": { description: Upserted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/prayers/{id}:
+    delete:
+      tags: [progress]
+      summary: Hard-delete a journal entry (privacy); tombstoned to all devices.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Deleted (idempotent) }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/verses:
+    get:
+      tags: [progress]
+      summary: My verse library.
+      responses:
+        "200": { description: Saved verses }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [progress]
+      summary: Save a verse (dedup per reference+version; offline-queueable).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VerseSave" }
+      responses:
+        "200": { description: Saved }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/verses/{id}:
+    delete:
+      tags: [progress]
+      summary: Remove a verse from my library.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Deleted (idempotent) }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/password:
+    post:
+      tags: [auth]
+      summary: Change my password (verifies the current one; revokes all refresh sessions).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string }
+                new_password: { type: string, minLength: 8 }
+      responses:
+        "200": { description: Changed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   # --- Announcements (Contract Matrix B5) ---
   /admin/announcements:
     get:
@@ -1614,6 +1716,41 @@ components:
         is_passed: { type: boolean }
         pass_mark: { type: number }
         duplicate: { type: boolean }
+    GiftsSubmission:
+      type: object
+      required: [client_mutation_id, answers]
+      properties:
+        client_mutation_id: { type: string, format: uuid }
+        answers:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [question_id, value]
+            properties:
+              question_id: { type: string, format: uuid }
+              value: { type: integer, minimum: 1, maximum: 5, description: Likert 1 (rarely) … 5 (strongly agree) }
+    PrayerUpsert:
+      type: object
+      required: [entry_id, body]
+      properties:
+        entry_id: { type: string, format: uuid, description: Client-generated (offline-first) }
+        title: { type: [string, "null"], maxLength: 200 }
+        body: { type: string, maxLength: 10000 }
+        is_answered: { type: boolean, default: false }
+        answered_note: { type: [string, "null"], maxLength: 2000 }
+        updated_at: { type: string, format: date-time, description: LWW anchor — stale replays are no-ops }
+        client_mutation_id: { type: string, format: uuid }
+    VerseSave:
+      type: object
+      required: [saved_verse_id, reference]
+      properties:
+        saved_verse_id: { type: string, format: uuid, description: Client-generated (offline-first) }
+        reference: { type: string, maxLength: 80 }
+        version: { type: string, maxLength: 12, default: KJV }
+        verse_text: { type: [string, "null"], maxLength: 2000 }
+        note: { type: [string, "null"], maxLength: 2000 }
+        client_mutation_id: { type: string, format: uuid }
     AnnouncementCompose:
       type: object
       required: [title, body, channels, audience]

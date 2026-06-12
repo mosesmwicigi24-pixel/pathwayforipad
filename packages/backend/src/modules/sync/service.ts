@@ -11,6 +11,7 @@
 import type { Pool, PoolClient } from "pg";
 import { many, type Queryable } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
+import { parseBody } from "../../http/http.js";
 import { ProgressService } from "../progress/service.js";
 import { AssessmentService } from "../assessment/service.js";
 import { ExamService } from "../assessment/exam.js";
@@ -19,6 +20,7 @@ import { VideoService } from "../media/video.js";
 import { MediaService } from "../media/service.js";
 import { CloudinaryProvider } from "../media/pipeline.js";
 import { CalendarService } from "../calendar/service.js";
+import { GrowthService } from "../growth/service.js";
 
 interface DomainSpec {
   table: string;
@@ -47,6 +49,11 @@ const PULL_DOMAINS: Record<string, DomainSpec> = {
     columns: "reflection_id, progress_id, user_id, module_id, body, state, feedback_notes, submitted_at, reviewed_at",
   },
   achievements: { table: "user_badges", idCol: "user_badge_id", scope: "user" },
+  // B6 growth domains — all strictly user-scoped (prayers are pastoral-private,
+  // §5.4: no other principal can ever pull them).
+  prayer_entries: { table: "prayer_entries", idCol: "entry_id", scope: "user" },
+  saved_verses: { table: "saved_verses", idCol: "saved_verse_id", scope: "user" },
+  gift_assessments: { table: "gift_assessments", idCol: "assessment_id", scope: "user" },
 };
 
 const PAGE = 1000;
@@ -81,6 +88,7 @@ export class SyncService {
   private readonly attendance: AttendanceService;
   private readonly video: VideoService;
   private readonly calendar: CalendarService;
+  private readonly growth: GrowthService;
 
   constructor(private readonly pool: Pool) {
     this.progress = new ProgressService(pool);
@@ -90,6 +98,7 @@ export class SyncService {
     // Progress upsert only needs the pool; media/pipeline deps are unused on this path.
     this.video = new VideoService(pool, new MediaService(undefined), new CloudinaryProvider());
     this.calendar = new CalendarService(pool);
+    this.growth = new GrowthService(pool);
   }
 
   /** Delta pull: changed rows + tombstones + new cursors since the client's cursors. */
@@ -228,6 +237,42 @@ export class SyncService {
         const r = await this.attendance.checkIn(userId, String(p.event_id ?? ""), {
           client_scan_id: m.mutation_id,
           scan_token: String(p.scan_token ?? ""),
+        });
+        return r.duplicate;
+      }
+      case "prayer_entries:upsert": {
+        // Private journal write (B6). LWW on updated_at; idempotent on mutation id.
+        const r = await this.growth.upsertPrayer(
+          userId,
+          parseBody(GrowthService.PrayerUpsert, { ...p, client_mutation_id: m.mutation_id }),
+        );
+        return r.duplicate;
+      }
+      case "prayer_entries:delete": {
+        const r = await this.growth.deletePrayer(userId, String(p.entry_id ?? ""));
+        return !r.deleted; // already gone ⇒ duplicate replay
+      }
+      case "saved_verses:save": {
+        const r = await this.growth.saveVerse(
+          userId,
+          parseBody(GrowthService.VerseSave, { ...p, client_mutation_id: m.mutation_id }),
+        );
+        return r.duplicate;
+      }
+      case "saved_verses:delete": {
+        const r = await this.growth.deleteVerse(userId, String(p.saved_verse_id ?? ""));
+        return !r.deleted;
+      }
+      case "gift_assessments:submit": {
+        // Server-scored (§1.1) even when queued offline; replays return the original.
+        const r = await this.growth.submitGifts(userId, {
+          client_mutation_id: m.mutation_id,
+          answers: Array.isArray(p.answers)
+            ? (p.answers as Array<Record<string, unknown>>).map((a) => ({
+                question_id: String(a.question_id ?? ""),
+                value: Number(a.value ?? 0),
+              }))
+            : [],
         });
         return r.duplicate;
       }

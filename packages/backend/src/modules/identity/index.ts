@@ -112,6 +112,15 @@ export function registerIdentity(ctx: AppContext): Router {
   );
 
   r.post(
+    "/me/password",
+    auth,
+    handler(async (req, res) => {
+      const input = parseBody(IdentityService.ChangePasswordSchema, req.body);
+      res.json(await svc.changePassword(requirePrincipal(req).userId, input));
+    }),
+  );
+
+  r.post(
     "/me/onboarding",
     auth,
     handler(async (req, res) => {
