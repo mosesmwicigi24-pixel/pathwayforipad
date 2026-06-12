@@ -9,10 +9,15 @@ import type {
   CalendarOccurrence,
   EventDetail,
   GivingRecord,
+  GiftQuestion,
   GivingSchedule,
+  MyGifts,
+  MyReflection,
   LevelModule,
   ModuleDetail,
   PathwaySummary,
+  PrayerEntry,
+  SavedVerse,
   ThreadDetail,
   ThreadSummary,
 } from "./types";
@@ -30,6 +35,11 @@ export const queryKeys = {
   achievements: "achievements",
   threads: "threads",
   thread: (id: string) => `thread:${id}`,
+  giftQuestions: "giftQuestions",
+  myGifts: "myGifts",
+  prayers: "prayers",
+  verses: "verses",
+  myReflection: (moduleId: string) => `myReflection:${moduleId}`,
 };
 
 export function useMe(): QueryResult<MeResponse> {
@@ -88,5 +98,28 @@ export function useThreads(): QueryResult<ThreadSummary[]> {
 export function useThread(threadId: string | null): QueryResult<ThreadDetail> {
   return useQuery(threadId ? queryKeys.thread(threadId) : null, () => NuruApi.thread(threadId ?? ""), {
     staleMs: 10_000,
+  });
+}
+
+export function useGiftQuestions(): QueryResult<GiftQuestion[]> {
+  return useQuery(queryKeys.giftQuestions, () => NuruApi.giftQuestions(), { staleMs: 300_000 });
+}
+
+export function useMyGifts(): QueryResult<MyGifts> {
+  return useQuery(queryKeys.myGifts, () => NuruApi.myGifts(), { staleMs: 60_000 });
+}
+
+export function usePrayers(): QueryResult<PrayerEntry[]> {
+  return useQuery(queryKeys.prayers, () => NuruApi.prayers(), { staleMs: 15_000 });
+}
+
+export function useVerses(): QueryResult<SavedVerse[]> {
+  return useQuery(queryKeys.verses, () => NuruApi.verses(), { staleMs: 30_000 });
+}
+
+/** Review state for a reflection-gated module; null until one is submitted. */
+export function useMyReflection(moduleId: string | null): QueryResult<MyReflection | null> {
+  return useQuery(moduleId ? queryKeys.myReflection(moduleId) : null, () => NuruApi.myReflection(moduleId ?? ""), {
+    staleMs: 15_000,
   });
 }

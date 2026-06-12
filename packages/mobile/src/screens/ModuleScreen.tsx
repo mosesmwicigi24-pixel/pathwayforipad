@@ -13,9 +13,10 @@ import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 import { Markdown } from "../components/Markdown";
 import { Loading, ErrorState } from "../components/states";
-import { useModule } from "../api/hooks";
+import { useModule, useMyReflection, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries, useMutation } from "../api/query";
+import { REVIEW_BANNER, showReflectionComposer } from "./reflectionStates";
 
 export function ModuleScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -25,17 +26,25 @@ export function ModuleScreen(): ReactElement {
   const complete = useMutation((body?: { reflection_text?: string }) => NuruApi.completeModule(moduleId, body));
 
   const needsReflection = module?.evaluation_kind === "reflection";
-  const canComplete = !needsReflection || reflection.trim().length > 0;
+  const { data: myReflection, refetch: refetchReflection } = useMyReflection(needsReflection ? moduleId : null);
+  const banner = myReflection ? REVIEW_BANNER[myReflection.state] : undefined;
+  const showComposer = needsReflection && showReflectionComposer(myReflection?.state ?? null);
+  const canComplete = !showComposer || reflection.trim().length > 0;
 
   async function onComplete(): Promise<void> {
     if (!module) return;
     try {
-      const res = await complete.mutate(needsReflection ? { reflection_text: reflection.trim() } : undefined);
+      const res = await complete.mutate(showComposer ? { reflection_text: reflection.trim() } : undefined);
       // Refresh everything completion affects so the next module unlocks instantly.
       invalidateQueries("pathway");
       invalidateQueries(`levelModules:${module.level_number}`);
       invalidateQueries("achievements");
       invalidateQueries(`module:${moduleId}`);
+      if (needsReflection) {
+        invalidateQueries(queryKeys.myReflection(moduleId));
+        void refetchReflection(); // a resubmission resets the state to pending
+        setReflection("");
+      }
       if (module.evaluation_kind === "quiz") {
         nav.navigate("Quiz", { moduleId });
       } else if (res.next_module_unlocked || res.is_completed) {
@@ -105,12 +114,29 @@ export function ModuleScreen(): ReactElement {
               </View>
             ) : null}
 
-            {/* Reflection (only required for reflection-gated modules) */}
-            {needsReflection ? (
+            {/* Reflection review state (M3 over B3): the leader's decision */}
+            {needsReflection && myReflection && banner ? (
+              <View style={[st.reflection, { backgroundColor: banner.bg, borderColor: "transparent" }]}>
+                <T variant="heading" style={{ color: banner.fg, fontSize: 15 }}>{banner.title}</T>
+                <T variant="caption" style={{ color: banner.fg, marginTop: 4, opacity: 0.9 }}>{banner.body}</T>
+                {myReflection.feedback_notes ? (
+                  <T variant="body" style={{ marginTop: spacing.sm, color: palette.ink, fontStyle: "italic" }}>
+                    &ldquo;{myReflection.feedback_notes}&rdquo;
+                  </T>
+                ) : null}
+              </View>
+            ) : null}
+
+            {/* Reflection composer: first submission, or a returned resubmit */}
+            {showComposer ? (
               <View style={st.reflection}>
-                <T variant="overline" tone="secondary">REFLECTION (REQUIRED)</T>
+                <T variant="overline" tone="secondary">
+                  {banner?.resubmit ? "REVISE YOUR REFLECTION" : "REFLECTION (REQUIRED)"}
+                </T>
                 <T variant="bodyLg" style={{ marginTop: spacing.sm, color: palette.ink }}>
-                  Write what God is showing you before you continue.
+                  {banner?.resubmit
+                    ? "Take your leader's feedback in, then resubmit."
+                    : "Write what God is showing you before you continue."}
                 </T>
                 <TextInput
                   value={reflection}

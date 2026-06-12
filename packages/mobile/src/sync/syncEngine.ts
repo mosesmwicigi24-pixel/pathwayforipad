@@ -22,6 +22,15 @@ const ID_FIELD: Record<string, string> = {
   quiz_attempts: "attempt_id",
   level_exam_attempts: "exam_attempt_id",
   enrollments: "enrollment_id",
+  video_progress: "media_asset_id",
+  event_rsvps: "rsvp_id",
+  module_reflections: "reflection_id", // B3: review states sync to the device
+  achievements: "user_badge_id",
+  prayer_entries: "entry_id", // B6: private journal (user-scoped server-side)
+  saved_verses: "saved_verse_id", // B6: verse library
+  gift_assessments: "assessment_id", // B6: gift profile
+  discussion_threads: "thread_id", // B8: cohort board (cell-scoped server-side)
+  discussion_comments: "comment_id",
 };
 
 export class SyncEngine {

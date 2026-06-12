@@ -93,6 +93,27 @@ export function ProfileScreen(): ReactElement {
             </View>
           </View>
 
+          {/* Growth (M3): gifts, prayer, verses */}
+          <View style={{ marginTop: spacing.lg }}>
+            <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>GROWTH</T>
+            <View style={st.group}>
+              {[
+                { label: "Spiritual gifts", onPress: () => nav.navigate("Gifts") },
+                { label: "Prayer journal", onPress: () => nav.navigate("PrayerJournal") },
+                { label: "Verse library", onPress: () => nav.navigate("VerseLibrary") },
+              ].map((item, i, arr) => (
+                <Pressable
+                  key={item.label}
+                  onPress={item.onPress}
+                  style={({ pressed }) => [st.row, i < arr.length - 1 && st.rowDivider, pressed && { backgroundColor: "rgba(10,37,64,0.03)" }]}
+                >
+                  <T variant="heading" style={{ fontSize: 15, fontWeight: "500" }}>{item.label}</T>
+                  <T variant="heading" tone="tertiary" style={{ fontSize: 15 }}>›</T>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
           {/* Pathway + church services */}
           <View style={{ marginTop: spacing.lg }}>
             <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>PATHWAY</T>

@@ -185,3 +185,62 @@ export interface ThreadDetail {
   author_name: string;
   comments: ThreadComment[];
 }
+
+// ---- Growth domains (Contract Matrix M3 over B6) ----
+export interface GiftQuestion {
+  question_id: string;
+  gift_key: string;
+  prompt: string;
+  sort: number;
+}
+
+export interface ServingTrack {
+  track_key: string;
+  title: string;
+  description: string;
+  gift_keys: string[];
+  match_count: number;
+}
+
+export interface GiftAssessment {
+  assessment_id: string;
+  scores: Record<string, number>;
+  top_gifts: string[];
+  submitted_at: string;
+}
+
+export interface MyGifts {
+  assessment: GiftAssessment | null;
+  suggested_tracks: ServingTrack[];
+}
+
+export interface PrayerEntry {
+  entry_id: string;
+  title: string | null;
+  body: string;
+  is_answered: boolean;
+  answered_note: string | null;
+  answered_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedVerse {
+  saved_verse_id: string;
+  reference: string;
+  version: string;
+  verse_text: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+// ---- Module reflection review state (M3 over B3) ----
+export interface MyReflection {
+  reflection_id: string;
+  module_id: string;
+  body: string;
+  state: "pending" | "approved" | "rejected" | "returned" | "deferred";
+  feedback_notes: string | null;
+  submitted_at: string;
+  reviewed_at: string | null;
+}

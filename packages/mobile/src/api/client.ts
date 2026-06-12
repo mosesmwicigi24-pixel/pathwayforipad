@@ -18,8 +18,14 @@ import type {
   Level,
   LevelModule,
   ModuleDetail,
+  GiftAssessment,
+  GiftQuestion,
+  MyGifts,
+  MyReflection,
   PathwaySummary,
+  PrayerEntry,
   QuizResult,
+  SavedVerse,
   ThreadDetail,
   ThreadSummary,
 } from "./types";
@@ -191,5 +197,73 @@ export const NuruApi = {
   ): Promise<unknown> {
     const { data } = await api.post(`/community/threads/${threadId}/comments`, body);
     return data;
+  },
+
+  // ---- Growth domains (M3 over B6; server-scored, user-private) ----
+  async giftQuestions(): Promise<GiftQuestion[]> {
+    const { data } = await api.get<{ data: GiftQuestion[] }>("/gifts/questions");
+    return data.data;
+  },
+  async submitGifts(body: {
+    client_mutation_id: string;
+    answers: Array<{ question_id: string; value: number }>;
+  }): Promise<GiftAssessment & { duplicate: boolean }> {
+    const { data } = await api.post<GiftAssessment & { duplicate: boolean }>("/gifts/assessments", body);
+    return data;
+  },
+  async myGifts(): Promise<MyGifts> {
+    const { data } = await api.get<MyGifts>("/me/gifts");
+    return data;
+  },
+
+  async prayers(): Promise<PrayerEntry[]> {
+    const { data } = await api.get<{ data: PrayerEntry[] }>("/me/prayers");
+    return data.data;
+  },
+  async upsertPrayer(body: {
+    entry_id: string;
+    title?: string | null;
+    body: string;
+    is_answered?: boolean;
+    answered_note?: string | null;
+    client_mutation_id?: string;
+  }): Promise<unknown> {
+    const { data } = await api.put("/me/prayers", body);
+    return data;
+  },
+  async deletePrayer(entryId: string): Promise<unknown> {
+    const { data } = await api.delete(`/me/prayers/${entryId}`);
+    return data;
+  },
+
+  async verses(): Promise<SavedVerse[]> {
+    const { data } = await api.get<{ data: SavedVerse[] }>("/me/verses");
+    return data.data;
+  },
+  async saveVerse(body: {
+    saved_verse_id: string;
+    reference: string;
+    version?: string;
+    verse_text?: string | null;
+    note?: string | null;
+    client_mutation_id?: string;
+  }): Promise<unknown> {
+    const { data } = await api.put("/me/verses", body);
+    return data;
+  },
+  async deleteVerse(savedVerseId: string): Promise<unknown> {
+    const { data } = await api.delete(`/me/verses/${savedVerseId}`);
+    return data;
+  },
+
+  // ---- Module reflection review state (M3 over B3); null = none submitted ----
+  async myReflection(moduleId: string): Promise<MyReflection | null> {
+    try {
+      const { data } = await api.get<MyReflection>(`/modules/${moduleId}/reflection`);
+      return data;
+    } catch (e) {
+      if ((e as AxiosError).response?.status === 404) return null;
+      throw e;
+    }
   },
 };
