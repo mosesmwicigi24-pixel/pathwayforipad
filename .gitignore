@@ -27,3 +27,6 @@ ios/Pods/
 .idea/
 *.log
 .cursor/
+
+# machine-local Claude Code permissions (never shared)
+.claude/settings.local.json
