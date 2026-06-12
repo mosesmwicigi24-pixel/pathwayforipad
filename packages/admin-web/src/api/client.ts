@@ -103,6 +103,63 @@ export const PortalApi = {
   },
 };
 
+// ---- Admin reports (ERP Dashboard, B1 ⟷ W1) ----
+export interface OverviewKpis {
+  total_members: number;
+  active_learners: number;
+  avg_engagement: number;
+  members_at_risk: number;
+  certificates_this_month: number;
+  reflections_this_week: number;
+  pending_reviews: number;
+  reviews_overdue: number;
+  modules_published: number;
+  cohorts_running: number;
+  checked_in_this_week: number;
+}
+
+export interface AttendanceTrendPoint {
+  week_start: string;
+  check_ins: number;
+  unique_members: number;
+}
+
+export interface RecentEventRow {
+  event_id: string;
+  title: string;
+  occurs_at: string;
+  checked_in: number;
+  rsvp_going: number;
+}
+
+export interface ConsentRow {
+  consent_id: string;
+  user_id: string;
+  full_name: string;
+  guardian_name: string;
+  relationship: string;
+  granted_at: string;
+  renew_by: string;
+}
+
+export const AdminApi = {
+  async overview(): Promise<OverviewKpis> {
+    const { data } = await api.get<OverviewKpis>("/admin/reports/overview");
+    return data;
+  },
+  async attendanceReport(weeks = 8): Promise<{ trend: AttendanceTrendPoint[]; recent_events: RecentEventRow[] }> {
+    const { data } = await api.get<{ trend: AttendanceTrendPoint[]; recent_events: RecentEventRow[] }>(
+      "/admin/reports/attendance",
+      { params: { weeks } },
+    );
+    return data;
+  },
+  async consentsReport(): Promise<ConsentRow[]> {
+    const { data } = await api.get<{ data: ConsentRow[] }>("/admin/reports/consents");
+    return data.data;
+  },
+};
+
 // ---- Curriculum CMS (Admin/SuperAdmin) ----
 export type EvaluationKind = "none" | "reflection" | "quiz" | "exit_exam";
 export type ModuleStatus = "draft" | "published" | "archived";
