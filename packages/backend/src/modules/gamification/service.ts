@@ -149,7 +149,15 @@ export class GamificationService {
   }
 
   listBadges(): Promise<unknown[]> {
-    return many(this.pool, `SELECT code, name, description, category, icon_key FROM badges WHERE is_active ORDER BY category, code`);
+    // earned_count powers the portal's "most-earned" view (W4); a global
+    // aggregate, so no k-anonymity concern (unlike per-cell milestones).
+    return many(
+      this.pool,
+      `SELECT b.code, b.name, b.description, b.category, b.icon_key,
+              (SELECT count(*)::int FROM user_badges ub
+                WHERE ub.badge_id = b.badge_id AND ub.revoked_at IS NULL) AS earned_count
+         FROM badges b WHERE b.is_active ORDER BY b.category, b.code`,
+    );
   }
 
   /** Aggregate-only cell encouragement; suppressed below the k-anonymity floor. */

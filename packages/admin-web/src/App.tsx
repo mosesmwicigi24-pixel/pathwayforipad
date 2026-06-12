@@ -17,23 +17,13 @@ import { ReflectionQueue } from "./components/ops/ReflectionQueue";
 import { Attendance } from "./components/ops/Attendance";
 import { Events } from "./components/ops/Events";
 import { Announcements } from "./components/ops/Announcements";
-import { colors, card, font } from "./theme";
-
+import { Badges } from "./components/ops/Badges";
+import { Certificates } from "./components/ops/Certificates";
+import { Finance } from "./components/ops/Finance";
+import { AuditLog } from "./components/ops/AuditLog";
 const TITLES: Record<ScreenId, string> = Object.fromEntries(
   NAV_SECTIONS.flatMap((s) => s.items.map((i) => [i.id, i.label])),
 ) as Record<ScreenId, string>;
-
-function ComingSoon(props: { label: string; phase: string }): ReactElement {
-  return (
-    <div style={{ ...card, maxWidth: 560 }}>
-      <h2 style={{ margin: "0 0 8px", fontSize: font.size.lg }}>{props.label}</h2>
-      <p style={{ color: colors.textMuted, fontSize: font.size.base, margin: 0 }}>
-        This screen ships in build phase {props.phase} of the design contract matrix. The backend API for it is
-        already live.
-      </p>
-    </div>
-  );
-}
 
 export function App(): ReactElement {
   const { accessToken, role } = useAppSelector((s) => s.auth);
@@ -64,13 +54,13 @@ export function App(): ReactElement {
       case "announcements":
         return <Announcements />;
       case "badges":
-        return <ComingSoon label="Badges" phase="W4" />;
+        return <Badges />;
       case "certificates":
-        return <ComingSoon label="Certificates" phase="W4" />;
+        return <Certificates />;
       case "finance":
-        return <ComingSoon label="Finance" phase="W4" />;
+        return <Finance />;
       case "audit":
-        return <ComingSoon label="Audit Log" phase="W4" />;
+        return <AuditLog />;
     }
   })();
 

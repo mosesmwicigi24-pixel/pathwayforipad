@@ -355,6 +355,96 @@ export const AnnouncementsApi = {
   cancel: (id: string) => api.post(`/admin/announcements/${id}/cancel`).then((r) => r.data),
 };
 
+// ---- Badges / Certificates / Finance / Audit (W4 over B1 + gamification) ----
+export interface BadgeRow {
+  code: string;
+  name: string;
+  description: string;
+  category: "journey" | "consistency" | "community" | "service";
+  icon_key: string | null;
+  earned_count: number;
+}
+
+export interface CertificateRow {
+  certificate_id: string;
+  user_id: string;
+  full_name: string;
+  level_number: number | null;
+  verification_code: string;
+  issued_at: string;
+  revoked_at: string | null;
+  revoked_reason: string | null;
+}
+
+export interface FundSummary {
+  code: string;
+  name: string;
+  currency: string | null;
+  total_minor: number;
+  month_minor: number;
+  gift_count: number;
+}
+
+export interface TransactionRow {
+  transaction_id: string;
+  full_name: string | null;
+  amount_minor: number;
+  currency: string;
+  status: string;
+  fund: string | null;
+  created_at: string;
+  settled_at: string | null;
+}
+
+export interface LedgerRow {
+  entry_id: string;
+  transaction_id: string;
+  account: string;
+  side: string;
+  amount_minor: number;
+  currency: string;
+  created_at: string;
+}
+
+export interface AuditRow {
+  audit_id: number;
+  actor_id: string | null;
+  actor_name: string | null;
+  action: string;
+  entity: string | null;
+  entity_id: string | null;
+  meta: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export const ConfigApi = {
+  badges: () => api.get<{ data: BadgeRow[] }>("/badges").then((r) => r.data.data),
+  createBadge: (body: Record<string, unknown>) => api.post("/admin/badges", body).then((r) => r.data),
+  retireBadge: (code: string) => api.delete(`/admin/badges/${code}`).then((r) => r.data),
+
+  certificates: (before?: string) =>
+    api
+      .get<{ data: CertificateRow[]; next_cursor: string | null }>("/admin/certificates", {
+        params: before ? { before } : {},
+      })
+      .then((r) => r.data),
+  issueCertificate: (body: { user_id: string; level_number: number | null }) =>
+    api.post("/admin/certificates", body).then((r) => r.data),
+  revokeCertificate: (id: string, reason: string) =>
+    api.post(`/admin/certificates/${id}/revoke`, { reason }).then((r) => r.data),
+
+  financeSummary: () => api.get<{ funds: FundSummary[] }>("/admin/finance/summary").then((r) => r.data),
+  transactions: (q: { fund?: string; status?: string; before?: string } = {}) =>
+    api
+      .get<{ data: TransactionRow[]; next_cursor: string | null }>("/admin/finance/transactions", { params: q })
+      .then((r) => r.data),
+  ledger: (limit = 100) =>
+    api.get<{ data: LedgerRow[] }>("/admin/finance/ledger", { params: { limit } }).then((r) => r.data.data),
+
+  audit: (q: { actor_id?: string; action?: string; entity?: string; before?: number } = {}) =>
+    api.get<{ data: AuditRow[]; next_cursor: number | null }>("/admin/audit", { params: q }).then((r) => r.data),
+};
+
 // ---- Video Library (W2; Features v2 §V) ----
 export type MediaStatus = "uploading" | "transcoding" | "ready" | "failed";
 
