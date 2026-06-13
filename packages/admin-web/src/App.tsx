@@ -15,6 +15,7 @@ import { VideoLibrary } from "./components/pages/VideoLibrary";
 import { ModulePreview } from "./components/pages/ModulePreview";
 import { CellEngagement } from "./components/pages/CellEngagement";
 import { CellDetail } from "./components/pages/CellDetail";
+import { Members } from "./components/pages/Members";
 import { Placeholder } from "./components/pages/Placeholder";
 
 const ph = (title: string, phase: string): ReactElement => <Placeholder title={title} phase={phase} />;
@@ -36,7 +37,7 @@ const router = createBrowserRouter([
       { path: "video-library", element: <VideoLibrary /> },
       { path: "cell-engagement", element: <CellEngagement /> },
       { path: "cell-engagement/:cellId", element: <CellDetail /> },
-      { path: "members", element: ph("Members", "P7 — Operations") },
+      { path: "members", element: <Members /> },
       { path: "member-profile", element: ph("Member Profile", "P7 — Operations") },
       { path: "reflection-queue", element: ph("Reflection Queue", "P7 — Operations") },
       { path: "events", element: ph("Events & Attendance", "P7 — Operations") },

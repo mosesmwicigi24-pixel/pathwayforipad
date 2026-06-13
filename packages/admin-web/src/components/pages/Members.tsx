@@ -1,0 +1,264 @@
+// Members — rebuilt to the "Final Pathway Portal" make, wired to the live ops API
+// (OpsApi.members + addMember). Real roster rows (name/contact, cell, start point,
+// engagement, band, last active), server-side search + band + level filters, a
+// client cell filter, a real Add-member modal, and a print/PDF export of the
+// loaded roster. Mock-only fields (gender/age/country/programme/baptized) aren't
+// in our model, so the real tracked fields are shown instead.
+import { useCallback, useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
+import { Search, Plus, ChevronDown, ArrowRight, Mail, UserCheck, UserPlus, Users as UsersIcon, ChevronRight, CheckCircle2, Flag, Download, Printer, X } from "lucide-react";
+import { OpsApi, AdminApi, type MemberRow, type EngagementCellRow } from "../../api/client";
+import { errorMessage } from "../../util/error";
+
+type BandKey = "thriving" | "steady" | "watch" | "at_risk";
+const bandMeta: Record<BandKey, { label: string; bg: string; fg: string; ring: string }> = {
+  thriving: { label: "Thriving", bg: "rgba(22,163,74,0.10)", fg: "#16A34A", ring: "rgba(22,163,74,0.2)" },
+  steady: { label: "Steady", bg: "rgba(11,31,51,0.08)", fg: "#0B1F33", ring: "rgba(11,31,51,0.15)" },
+  watch: { label: "Watch", bg: "rgba(200,155,60,0.12)", fg: "#8B6914", ring: "rgba(200,155,60,0.25)" },
+  at_risk: { label: "At-risk", bg: "rgba(220,38,38,0.10)", fg: "#DC2626", ring: "rgba(220,38,38,0.2)" },
+};
+const AVATARS = ["linear-gradient(135deg,#0B1F33,#1E4068)", "linear-gradient(135deg,#C89B3C,#8B6914)", "linear-gradient(135deg,#16A34A,#065F46)", "linear-gradient(135deg,#7C3AED,#4C1D95)", "linear-gradient(135deg,#DC2626,#7F1D1D)", "linear-gradient(135deg,#0EA5E9,#075985)"];
+const initials = (n: string): string => n.split(/\s+/).map((p) => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
+const pct = (v: number | null): number => Math.round((v ?? 0) * 100);
+const relTime = (iso: string | null): string => { if (!iso) return "—"; const t = new Date(iso).getTime(); if (Number.isNaN(t)) return "—"; const d = Math.floor((Date.now() - t) / 86400000); return d <= 0 ? "Today" : d === 1 ? "Yesterday" : `${d}d ago`; };
+const BANDS_ORDER: ("All" | BandKey)[] = ["All", "thriving", "steady", "watch", "at_risk"];
+
+export function Members(): ReactElement {
+  const navigate = useNavigate();
+  const [rows, setRows] = useState<MemberRow[]>([]);
+  const [cells, setCells] = useState<EngagementCellRow[]>([]);
+  const [query, setQuery] = useState("");
+  const [band, setBand] = useState<"All" | BandKey>("All");
+  const [cellFilter, setCellFilter] = useState<string>("All");
+  const [addOpen, setAddOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const q: { search?: string; band?: string } = {};
+      if (query.trim()) q.search = query.trim();
+      if (band !== "All") q.band = band;
+      const r = await OpsApi.members(q);
+      setRows(r.data);
+    } catch (e) { setError(errorMessage(e, "Could not load members.")); }
+  }, [query, band]);
+
+  useEffect(() => { const t = setTimeout(() => void load(), 250); return () => clearTimeout(t); }, [load]);
+  useEffect(() => { void AdminApi.engagementReport().then((r) => setCells(r.cells)).catch(() => {}); }, []);
+
+  const cellNames = useMemo(() => ["All", ...Array.from(new Set(rows.map((m) => m.cell_name).filter(Boolean) as string[]))], [rows]);
+  const filtered = useMemo(() => rows.filter((m) => cellFilter === "All" || m.cell_name === cellFilter), [rows, cellFilter]);
+  const counts = {
+    total: rows.length,
+    thriving: rows.filter((m) => m.band === "thriving").length,
+    watch: rows.filter((m) => m.band === "watch").length,
+    atRisk: rows.filter((m) => m.band === "at_risk").length,
+  };
+
+  return (
+    <div className="min-h-full" style={{ background: "var(--background)" }}>
+      <div style={{ background: "var(--nuru-dark)", padding: "22px clamp(16px,4vw,48px) 24px" }}>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-1.5" style={{ fontSize: 11, color: "rgba(232,239,245,0.55)", letterSpacing: "0.04em" }}><span>Nuru Pathway</span><ChevronRight size={10} /><span style={{ color: "#fff", fontWeight: 600 }}>Members</span></div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 rounded-lg px-2.5" style={{ height: 32, background: "rgba(245,199,126,0.14)", color: "#F5C77E", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", border: "1px solid rgba(245,199,126,0.25)" }}><UsersIcon size={11} /> {counts.total} loaded</span>
+            <button onClick={() => setExportOpen(true)} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: 12, border: "1px solid rgba(255,255,255,0.15)" }}><Download size={13} /> Export</button>
+            <button onClick={() => setAddOpen(true)} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none" }}><Plus size={13} /> Add member</button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 mt-4 rounded-xl" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", overflow: "hidden" }}>
+          {[
+            { label: "Members (loaded)", value: String(counts.total), tone: "#fff", band: false, bg: "" },
+            { label: "Thriving", value: String(counts.thriving), tone: "#16A34A", band: true, bg: "#E8F6EC" },
+            { label: "Watch", value: String(counts.watch), tone: "#A87616", band: true, bg: "#FFF6E0" },
+            { label: "At-risk", value: String(counts.atRisk), tone: "#DC2626", band: true, bg: "#FDECEC" },
+          ].map((item, idx) => (
+            <div key={item.label} style={{ padding: "14px 20px", borderRight: idx < 3 ? "1px solid rgba(255,255,255,0.07)" : "none", borderBottom: idx < 2 ? "1px solid rgba(255,255,255,0.07)" : "none" }}>
+              <div style={{ fontSize: 10.5, color: "rgba(232,239,245,0.5)", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 6 }}>{item.label}</div>
+              {item.band ? <span className="inline-flex items-center rounded-full px-2.5 py-1" style={{ background: item.bg, color: item.tone, fontSize: 13, fontWeight: 700 }}>● {item.value}</span> : <div style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "#fff", lineHeight: 1.1 }}>{item.value}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: "28px clamp(16px,4vw,48px) 48px" }}>
+        {error ? <p style={{ color: "#A8281F", marginBottom: 12 }}>{error}</p> : null}
+        <div className="flex flex-col md:flex-row md:items-center gap-3 mb-4 rounded-2xl" style={{ background: "#fff", border: "1px solid var(--border)", padding: "12px 14px" }}>
+          <div className="flex items-center gap-2 rounded-lg flex-1" style={{ height: 38, background: "var(--input-background)", padding: "0 12px" }}>
+            <Search size={14} style={{ color: "var(--muted-foreground)" }} />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name, email or phone…" className="flex-1 bg-transparent outline-none" style={{ fontSize: 13 }} />
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => setBand(BANDS_ORDER[(BANDS_ORDER.indexOf(band) + 1) % BANDS_ORDER.length] as "All" | BandKey)} className="flex items-center gap-1.5 rounded-lg" style={{ height: 38, padding: "0 12px", background: "var(--input-background)", fontSize: 12, fontWeight: 600, color: "var(--nuru-navy)", border: "1px solid var(--border)" }}>Band: {band === "All" ? "All" : bandMeta[band].label} <ChevronDown size={12} /></button>
+            <button onClick={() => setCellFilter(cellNames[(cellNames.indexOf(cellFilter) + 1) % cellNames.length] ?? "All")} className="flex items-center gap-1.5 rounded-lg" style={{ height: 38, padding: "0 12px", background: "var(--input-background)", fontSize: 12, fontWeight: 600, color: "var(--nuru-navy)", border: "1px solid var(--border)" }}>Cell: {cellFilter} <ChevronDown size={12} /></button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {filtered.map((m, i) => {
+            const bm = bandMeta[(m.band ?? "steady") as BandKey] ?? bandMeta.steady;
+            const progress = pct(m.e_score);
+            return (
+              <div key={m.user_id} onClick={() => navigate(`/member-profile?id=${m.user_id}`)} className="group rounded-2xl flex items-center gap-4 transition-all hover:-translate-y-px cursor-pointer" style={{ background: "#fff", border: "1px solid var(--border)", padding: "14px 18px", boxShadow: "0 1px 2px rgba(11,31,51,0.03)" }}>
+                <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 44, height: 44, background: AVATARS[i % AVATARS.length], color: "#fff", fontSize: 14, fontWeight: 700 }}>{initials(m.full_name)}</div>
+                <div className="min-w-0" style={{ width: 220 }}>
+                  <div className="flex items-center gap-2">
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.full_name}</span>
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: "var(--nuru-gold)", background: "rgba(200,155,60,0.10)", padding: "2px 6px", borderRadius: 4 }}>L{m.current_level ?? "—"}</span>
+                    {m.is_minor ? <span style={{ fontSize: 9, fontWeight: 700, color: "#A87616", background: "rgba(245,158,11,0.18)", padding: "2px 6px", borderRadius: 4 }}>MINOR</span> : null}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5" style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}><Mail size={10} /><span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.email ?? m.phone_number}</span></div>
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); if (m.cell_group_id) navigate(`/cell-engagement/${m.cell_group_id}`); }} className="hidden md:flex flex-col text-left rounded-lg px-2 py-1 -mx-2" style={{ width: 170, background: "none", border: "none" }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{m.cell_name ?? "—"}</span>
+                  <span className="flex items-center gap-1 mt-0.5" style={{ fontSize: 11, color: "var(--muted-foreground)" }}><UserCheck size={10} style={{ color: "var(--nuru-gold)" }} /> cell</span>
+                </button>
+                <div className="hidden md:flex flex-col" style={{ width: 100 }}>
+                  <span className="inline-flex items-center gap-1" style={{ fontSize: 12.5, fontWeight: 700, color: "var(--nuru-navy)" }}><Flag size={11} style={{ color: "#0EA5E9" }} /> L{m.start_level ?? 1}·M{m.start_module_sequence ?? 1}</span>
+                  <span style={{ fontSize: 10.5, color: "var(--muted-foreground)", marginTop: 2 }}>start point</span>
+                </div>
+                <div className="hidden md:flex flex-col flex-1 min-w-0" style={{ maxWidth: 200 }}>
+                  <div className="flex items-center justify-between mb-1"><span style={{ fontSize: 11, color: "var(--muted-foreground)", fontWeight: 600 }}>Engagement</span><span style={{ fontSize: 12, color: "var(--nuru-navy)", fontWeight: 700 }}>{progress}%</span></div>
+                  <div style={{ height: 6, background: "var(--input-background)", borderRadius: 99, overflow: "hidden" }}><div style={{ height: "100%", width: `${progress}%`, background: bm.fg, borderRadius: 99 }} /></div>
+                </div>
+                <div className="hidden xl:flex flex-col items-end" style={{ width: 84 }}><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>Last active</span><span style={{ fontSize: 12.5, color: "var(--nuru-navy)", fontWeight: 600 }}>{relTime(m.last_activity)}</span></div>
+                <span className="rounded-full shrink-0 text-center" style={{ width: 78, padding: "5px 0", background: bm.bg, color: bm.fg, fontSize: 11, fontWeight: 700, border: `1px solid ${bm.ring}` }}>{bm.label}</span>
+                <button onClick={(e) => { e.stopPropagation(); navigate(`/member-profile?id=${m.user_id}`); }} className="flex items-center justify-center gap-1.5 rounded-xl shrink-0 transition-all group-hover:bg-[var(--nuru-navy)] group-hover:text-white" style={{ height: 36, padding: "0 14px", background: "var(--input-background)", color: "var(--nuru-navy)", fontSize: 12.5, fontWeight: 600, border: "1px solid var(--border)" }}>See <ArrowRight size={13} /></button>
+              </div>
+            );
+          })}
+          {filtered.length === 0 ? <div className="rounded-2xl text-center py-12" style={{ background: "#fff", border: "1px dashed var(--border)" }}><p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>No members match those filters.</p></div> : null}
+        </div>
+
+        <div className="flex items-center justify-between mt-6">
+          <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>Showing {filtered.length} of {rows.length} loaded</span>
+          <div className="flex items-center gap-1.5"><CheckCircle2 size={12} style={{ color: "#16A34A" }} /><span style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}>Live from the directory</span></div>
+        </div>
+      </div>
+
+      {addOpen ? <AddMemberModal cells={cells} onClose={() => setAddOpen(false)} onCreated={async () => { setAddOpen(false); await load(); }} /> : null}
+      {exportOpen ? <ExportModal members={filtered} onClose={() => setExportOpen(false)} /> : null}
+    </div>
+  );
+}
+
+function AddMemberModal({ cells, onClose, onCreated }: { cells: EngagementCellRow[]; onClose: () => void; onCreated: () => void }): ReactElement {
+  const [full_name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone_number, setPhone] = useState("");
+  const [date_of_birth, setDob] = useState("");
+  const [cell_group_id, setCell] = useState(cells[0]?.cell_group_id ?? "");
+  const [start_level, setStartLevel] = useState("1");
+  const [start_module_sequence, setStartModule] = useState("1");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => { if (!cell_group_id && cells[0]) setCell(cells[0].cell_group_id); }, [cells, cell_group_id]);
+
+  async function submit(): Promise<void> {
+    if (!full_name.trim()) { setError("Please enter the member's name."); return; }
+    if (!phone_number.trim()) { setError("Phone number is required."); return; }
+    if (!cell_group_id) { setError("Select a cell."); return; }
+    setSaving(true); setError("");
+    try {
+      await OpsApi.addMember({
+        full_name: full_name.trim(), phone_number: phone_number.trim(),
+        ...(email.trim() ? { email: email.trim() } : {}),
+        ...(date_of_birth ? { date_of_birth } : {}),
+        cell_group_id, start_level: Number(start_level) || 1, start_module_sequence: Number(start_module_sequence) || 1,
+      });
+      onCreated();
+    } catch (e) { setError(errorMessage(e, "Could not add member.")); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(11,31,51,0.55)" }} onClick={onClose}>
+      <div className="rounded-2xl overflow-hidden flex flex-col w-full" style={{ background: "var(--card)", maxWidth: 560, maxHeight: "92vh", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 py-5 flex items-start justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div>
+            <div className="flex items-center gap-2" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: "var(--nuru-gold)" }}><UserPlus size={12} /> NEW MEMBER</div>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)", marginTop: 2 }}>Add a disciple</h2>
+            <p style={{ fontSize: 13, color: "var(--muted-foreground)", marginTop: 4 }}>Capture their details and place them in a cell with a starting point.</p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-2" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none" }}><X size={16} /></button>
+        </div>
+        <div className="px-6 py-5 flex flex-col gap-4 overflow-y-auto">
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Full name" required><input value={full_name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Grace Wanjiru" style={inputS} /></Field>
+            <Field label="Phone" required><input value={phone_number} onChange={(e) => setPhone(e.target.value)} placeholder="+254 …" style={inputS} /></Field>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Email"><input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@email.com" style={inputS} /></Field>
+            <Field label="Date of birth"><input type="date" value={date_of_birth} onChange={(e) => setDob(e.target.value)} style={inputS} /></Field>
+          </div>
+          <Field label="Cell assignment" required>
+            <select value={cell_group_id} onChange={(e) => setCell(e.target.value)} style={inputS}>{cells.map((c) => <option key={c.cell_group_id} value={c.cell_group_id}>{c.name}</option>)}</select>
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Start level"><input type="number" min={1} value={start_level} onChange={(e) => setStartLevel(e.target.value)} style={inputS} /></Field>
+            <Field label="Start module"><input type="number" min={1} value={start_module_sequence} onChange={(e) => setStartModule(e.target.value)} style={inputS} /></Field>
+          </div>
+          {error ? <div style={{ fontSize: 12.5, color: "#DC2626", fontWeight: 600 }}>{error}</div> : null}
+        </div>
+        <div className="px-6 py-4 flex items-center justify-end gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+          <button onClick={onClose} className="rounded-xl px-4 py-2.5" style={{ background: "transparent", color: "var(--foreground)", fontSize: 13, fontWeight: 600, border: "none" }}>Cancel</button>
+          <button onClick={() => void submit()} disabled={saving} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 600, border: "none", opacity: saving ? 0.6 : 1 }}><Plus size={14} /> Add member</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExportModal({ members, onClose }: { members: MemberRow[]; onClose: () => void }): ReactElement {
+  const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+  return (
+    <>
+      <style>{`@media print { body * { visibility: hidden !important; } #members-print, #members-print * { visibility: visible !important; } #members-print { position: fixed !important; inset: 0 !important; padding: 28px !important; background: #fff !important; } @page { size: A4 landscape; margin: 12mm; } }`}</style>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(11,31,51,0.55)" }} onClick={onClose}>
+        <div className="rounded-2xl overflow-hidden flex flex-col w-full" style={{ background: "var(--card)", maxWidth: 460, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }} onClick={(e) => e.stopPropagation()}>
+          <div className="px-6 py-5 flex items-start justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div><div className="flex items-center gap-2" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: "var(--nuru-gold)" }}><Download size={12} /> EXPORT</div><h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)", marginTop: 2 }}>Export members to PDF</h2><p style={{ fontSize: 13, color: "var(--muted-foreground)", marginTop: 4 }}>Prints the {members.length} currently filtered members.</p></div>
+            <button onClick={onClose} className="rounded-lg p-2" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none" }}><X size={16} /></button>
+          </div>
+          <div className="px-6 py-4 flex items-center justify-end gap-2">
+            <button onClick={onClose} className="rounded-xl px-4 py-2.5" style={{ background: "transparent", color: "var(--foreground)", fontSize: 13, fontWeight: 600, border: "none" }}>Cancel</button>
+            <button onClick={() => window.print()} disabled={members.length === 0} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: members.length === 0 ? "var(--muted)" : "var(--nuru-gold)", color: members.length === 0 ? "var(--muted-foreground)" : "#fff", fontSize: 13, fontWeight: 600, border: "none" }}><Printer size={14} /> Export {members.length} to PDF</button>
+          </div>
+        </div>
+      </div>
+      <div id="members-print" style={{ position: "absolute", left: -99999, top: 0, width: 1100, background: "#fff", color: "#0B1F33", fontFamily: "var(--font-sans)" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", borderBottom: "2px solid #0B1F33", paddingBottom: 12, marginBottom: 16 }}>
+          <div><div style={{ fontFamily: "var(--font-display)", fontSize: 24 }}>Nuru Pathway — Members</div><div style={{ fontSize: 12, color: "#6B7280" }}>Discipleship register</div></div>
+          <div style={{ textAlign: "right", fontSize: 12, color: "#6B7280" }}><div>{members.length} members</div><div>Generated {today}</div></div>
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+          <thead><tr style={{ background: "#F3F4F6", textAlign: "left" }}>{["#", "Name", "Email", "Phone", "Cell", "Level", "Start", "Engagement", "Band", "Last active"].map((h) => <th key={h} style={{ padding: "6px 7px", fontSize: 8.5, textTransform: "uppercase", color: "#374151", borderBottom: "1px solid #D1D5DB", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {members.map((m, i) => (
+              <tr key={m.user_id} style={{ borderBottom: "1px solid #E5E7EB" }}>
+                <td style={{ padding: "5px 7px", color: "#9CA3AF" }}>{i + 1}</td>
+                <td style={{ padding: "5px 7px", fontWeight: 700, whiteSpace: "nowrap" }}>{m.full_name}</td>
+                <td style={{ padding: "5px 7px" }}>{m.email ?? "—"}</td>
+                <td style={{ padding: "5px 7px", whiteSpace: "nowrap" }}>{m.phone_number}</td>
+                <td style={{ padding: "5px 7px", whiteSpace: "nowrap" }}>{m.cell_name ?? "—"}</td>
+                <td style={{ padding: "5px 7px" }}>L{m.current_level ?? "—"}</td>
+                <td style={{ padding: "5px 7px", whiteSpace: "nowrap" }}>L{m.start_level ?? 1}·M{m.start_module_sequence ?? 1}</td>
+                <td style={{ padding: "5px 7px" }}>{pct(m.e_score)}%</td>
+                <td style={{ padding: "5px 7px" }}>{bandMeta[(m.band ?? "steady") as BandKey]?.label ?? "—"}</td>
+                <td style={{ padding: "5px 7px", whiteSpace: "nowrap" }}>{relTime(m.last_activity)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div style={{ marginTop: 16, fontSize: 10, color: "#9CA3AF", textAlign: "center" }}>Confidential · Nuru Pathway discipleship records</div>
+      </div>
+    </>
+  );
+}
+
+const inputS = { width: "100%", height: 42, borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--input-background)", fontSize: 13, padding: "0 12px", color: "var(--foreground)", outline: "none" } as const;
+function Field({ label, children, required }: { label: string; children: ReactNode; required?: boolean }): ReactElement {
+  return <div><label style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>{label}{required ? <span style={{ color: "#DC2626", marginLeft: 3 }}>*</span> : null}</label>{children}</div>;
+}
