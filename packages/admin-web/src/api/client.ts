@@ -222,7 +222,12 @@ export interface Language {
 }
 export const SystemApi = {
   countries: () => unwrap(api.get<{ data: Country[] }>("/admin/countries")),
+  createCountry: (body: Record<string, unknown>) => api.post<Country>("/admin/countries", body).then((r) => r.data),
+  updateCountry: (code: string, body: Record<string, unknown>) => api.put<Country>(`/admin/countries/${code}`, body).then((r) => r.data),
   languages: () => unwrap(api.get<{ data: Language[] }>("/admin/languages")),
+  createLanguage: (body: Record<string, unknown>) => api.post<Language>("/admin/languages", body).then((r) => r.data),
+  updateLanguage: (code: string, body: Record<string, unknown>) => api.put<Language>(`/admin/languages/${code}`, body).then((r) => r.data),
+  deleteLanguage: (code: string) => api.delete<{ deleted: boolean }>(`/admin/languages/${code}`).then((r) => r.data),
 };
 
 // ---- Curriculum CMS (Admin/SuperAdmin) ----

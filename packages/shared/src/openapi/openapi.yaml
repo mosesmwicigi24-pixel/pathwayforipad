@@ -434,12 +434,52 @@ paths:
       responses:
         "200": { description: Countries }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [system]
+      summary: Admin. Add a country (reference data).
+      responses:
+        "201": { description: Created }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/countries/{code}:
+    put:
+      tags: [system]
+      summary: Admin. Update a country (incl. enable/disable).
+      parameters: [{ name: code, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: Updated }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
   /admin/languages:
     get:
       tags: [system]
       summary: Admin. List languages (reference data) for the System section + dashboard counts.
       responses:
         "200": { description: Languages }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [system]
+      summary: Admin. Add a language (reference data).
+      responses:
+        "201": { description: Created }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/languages/{code}:
+    put:
+      tags: [system]
+      summary: Admin. Update a language (incl. default + coverage + status).
+      parameters: [{ name: code, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: Updated }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    delete:
+      tags: [system]
+      summary: Admin. Remove a non-default language.
+      parameters: [{ name: code, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: Deleted }
+        "422": { $ref: "#/components/responses/Unprocessable" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
 
   # --- Progress, assessment & reflections (§3.3) ---
