@@ -13,6 +13,8 @@ import { LevelDetail } from "./components/pages/LevelDetail";
 import { QuizBuilder } from "./components/pages/QuizBuilder";
 import { VideoLibrary } from "./components/pages/VideoLibrary";
 import { ModulePreview } from "./components/pages/ModulePreview";
+import { CellEngagement } from "./components/pages/CellEngagement";
+import { CellDetail } from "./components/pages/CellDetail";
 import { Placeholder } from "./components/pages/Placeholder";
 
 const ph = (title: string, phase: string): ReactElement => <Placeholder title={title} phase={phase} />;
@@ -32,8 +34,8 @@ const router = createBrowserRouter([
       { path: "level-detail", element: <LevelDetail /> },
       { path: "quiz-builder", element: <QuizBuilder /> },
       { path: "video-library", element: <VideoLibrary /> },
-      { path: "cell-engagement", element: ph("Cell Engagement", "P7 — Operations") },
-      { path: "cell-engagement/:cellId", element: ph("Cell Detail", "P7 — Operations") },
+      { path: "cell-engagement", element: <CellEngagement /> },
+      { path: "cell-engagement/:cellId", element: <CellDetail /> },
       { path: "members", element: ph("Members", "P7 — Operations") },
       { path: "member-profile", element: ph("Member Profile", "P7 — Operations") },
       { path: "reflection-queue", element: ph("Reflection Queue", "P7 — Operations") },
