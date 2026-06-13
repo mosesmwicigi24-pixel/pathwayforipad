@@ -82,8 +82,8 @@ export function QuizScreen(): ReactElement {
         <Header onBack={() => nav.goBack()} title="Module quiz" />
         <View style={res.center}>
           <View style={res.laurel}><T style={{ fontSize: 44 }}>🏅</T></View>
-          <T style={res.bigGold}>{Math.round(result.score_achieved)}%</T>
-          <T variant="title" tone="onNavy" style={{ marginTop: spacing.sm }}>Module passed</T>
+          <T serif style={res.bigGold}>{Math.round(result.score_achieved)}%</T>
+          <T serif variant="title" tone="onNavy" style={{ marginTop: spacing.sm }}>Module passed</T>
           <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.sm, textAlign: "center" }}>
             Passed at {result.pass_mark}%. Well done.
           </T>
@@ -106,8 +106,8 @@ export function QuizScreen(): ReactElement {
         <Header onBack={() => nav.goBack()} title="Module quiz" />
         <View style={res.center}>
           <View style={res.book}><T style={{ fontSize: 40 }}>📖</T></View>
-          <T style={[res.bigGold, { color: palette.ink }]}>{Math.round(result.score_achieved)}%</T>
-          <T variant="title" style={{ marginTop: spacing.xs }}>Almost there</T>
+          <T serif style={[res.bigGold, { color: palette.ink }]}>{Math.round(result.score_achieved)}%</T>
+          <T serif variant="title" style={{ marginTop: spacing.xs }}>Almost there</T>
           <T variant="bodyLg" tone="secondary" style={{ marginTop: spacing.sm, textAlign: "center", maxWidth: 300 }}>
             You need {result.pass_mark}% to pass. Review the lesson — you've got this.
           </T>

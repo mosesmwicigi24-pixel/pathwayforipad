@@ -4,8 +4,8 @@
 // the server (the authority for gating, §1.1) and then invalidates the pathway and
 // module-list caches so the next module unlocks immediately.
 import { useState, type ReactElement } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
-import { ChevronLeft } from "lucide-react-native";
+import { Pressable, ScrollView, TextInput, View, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
+import { Check, ChevronLeft, Headphones, PenLine, Play } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -30,6 +30,26 @@ export function ModuleScreen(): ReactElement {
   const banner = myReflection ? REVIEW_BANNER[myReflection.state] : undefined;
   const showComposer = needsReflection && showReflectionComposer(myReflection?.state ?? null);
   const canComplete = !showComposer || reflection.trim().length > 0;
+
+  // Read/Listen/Watch/Reflect proof (new design, spec §6). The Read step
+  // completes on scroll; Listen/Watch when the member opens the media; Reflect
+  // when a reflection is submitted (or the module needs none). Informational —
+  // the server stays authoritative for actual gating (§1.1).
+  const [proof, setProof] = useState({ read: false, listen: false, watch: false });
+  const reflectDone = !needsReflection || (!!myReflection && !showComposer);
+  const proofSteps = [
+    { key: "read", label: "Read", Icon: Check, done: proof.read },
+    { key: "listen", label: "Listen", Icon: Headphones, done: proof.listen },
+    { key: "watch", label: "Watch", Icon: Play, done: proof.watch },
+    { key: "reflect", label: "Reflect", Icon: PenLine, done: reflectDone },
+  ] as const;
+
+  function onScroll(e: NativeSyntheticEvent<NativeScrollEvent>): void {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 80 && !proof.read) {
+      setProof((p) => ({ ...p, read: true }));
+    }
+  }
 
   async function onComplete(): Promise<void> {
     if (!module) return;
@@ -64,10 +84,10 @@ export function ModuleScreen(): ReactElement {
             <ChevronLeft size={20} color={palette.onNavy} />
           </Pressable>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <T variant="micro" tone="onNavyDim" style={{ letterSpacing: 1.4 }}>
+            <T variant="micro" tone="gold" style={{ letterSpacing: 1.4 }}>
               {module ? `LESSON · MODULE ${module.module_sequence_number}` : "LESSON"}
             </T>
-            <T variant="heading" tone="onNavy" style={{ marginTop: 2 }}>
+            <T serif tone="onNavy" style={{ marginTop: 2, fontSize: 20 }}>
               {module?.title ?? "Loading…"}
             </T>
           </View>
@@ -77,6 +97,20 @@ export function ModuleScreen(): ReactElement {
             </View>
           ) : null}
         </View>
+
+        {/* Read · Listen · Watch · Reflect proof row (spec §6) */}
+        {module ? (
+          <View style={st.proofRow}>
+            {proofSteps.map((s) => (
+              <View key={s.key} style={[st.proofChip, s.done ? st.proofOn : st.proofOff]}>
+                <s.Icon size={11} color={s.done ? palette.navy : "rgba(255,255,255,0.7)"} />
+                <T variant="micro" style={{ color: s.done ? palette.navy : "rgba(255,255,255,0.7)", fontWeight: "600" }}>
+                  {s.label}
+                </T>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
 
       {isLoading ? (
@@ -87,13 +121,50 @@ export function ModuleScreen(): ReactElement {
         </View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: 130 }} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            contentContainerStyle={{ padding: spacing.screen, paddingBottom: 130 }}
+            showsVerticalScrollIndicator={false}
+            onScroll={onScroll}
+            scrollEventThrottle={64}
+          >
             {module.summary ? (
               <View style={st.summary}>
                 <T variant="overline" tone="gold">IN THIS LESSON</T>
                 <T variant="bodyLg" style={{ marginTop: spacing.sm, color: palette.ink }}>{module.summary}</T>
               </View>
             ) : null}
+
+            {/* Media: watch video / listen audio (mark the proof steps) */}
+            <View style={st.mediaRow}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setProof((p) => ({ ...p, watch: true }))}
+                style={({ pressed }) => [st.mediaBtn, pressed && { opacity: 0.85 }]}
+              >
+                <View style={[st.mediaTile, { backgroundColor: "#FEE2E2" }]}>
+                  <Play size={16} color="#B91C1C" fill="#B91C1C" />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <T variant="caption" style={{ fontWeight: "600" }}>Watch video</T>
+                  <T variant="micro" tone="tertiary">{proof.watch ? "Watched" : "9 min"}</T>
+                </View>
+                {proof.watch ? <Check size={14} color={palette.successText} /> : null}
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setProof((p) => ({ ...p, listen: true }))}
+                style={({ pressed }) => [st.mediaBtn, pressed && { opacity: 0.85 }]}
+              >
+                <View style={[st.mediaTile, { backgroundColor: palette.goldTint }]}>
+                  <Headphones size={16} color={palette.goldLo} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <T variant="caption" style={{ fontWeight: "600" }}>Listen audio</T>
+                  <T variant="micro" tone="tertiary">{proof.listen ? "Listened" : "14 min"}</T>
+                </View>
+                {proof.listen ? <Check size={14} color={palette.successText} /> : null}
+              </Pressable>
+            </View>
 
             {/* Lesson body (Markdown from the database) */}
             <View style={{ marginTop: spacing.base }}>
@@ -208,4 +279,22 @@ const st = {
     color: palette.ink,
   },
   footer: { borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.white, paddingHorizontal: spacing.screen, paddingTop: spacing.base, paddingBottom: spacing.lg },
+  proofRow: { flexDirection: "row", gap: 6, marginTop: spacing.base },
+  proofChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: radii.pill, paddingVertical: 7 },
+  proofOn: { backgroundColor: palette.gold },
+  proofOff: { backgroundColor: "rgba(255,255,255,0.08)" },
+  mediaRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.base },
+  mediaBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: palette.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: spacing.md,
+    ...shadow.card,
+  },
+  mediaTile: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
 } as const;

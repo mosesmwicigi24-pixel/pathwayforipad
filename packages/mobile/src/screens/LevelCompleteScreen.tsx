@@ -38,7 +38,7 @@ export function LevelCompleteScreen(): ReactElement {
         <T variant="overline" tone="gold" style={{ letterSpacing: 2.2, marginTop: spacing.xl }}>
           CERTIFICATE OF COMPLETION
         </T>
-        <T style={st.levelName}>{completed?.title ?? "Your Level"}</T>
+        <T serif style={st.levelName}>{completed?.title ?? "Your Level"}</T>
         <T variant="bodyLg" tone="onNavyDim" style={{ marginTop: spacing.md, textAlign: "center" }}>
           {`Awarded to ${name}\nfor completing Level ${completed?.level_number ?? ""}`.trim()}
         </T>
