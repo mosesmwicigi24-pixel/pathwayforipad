@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { ConfigApi, type CertificateRow } from "../../api/client";
 import { errorMessage } from "../../util/error";
 import { colors, card, font } from "../../theme";
+import { PageHeader } from "../../ui/PageHeader";
 
 export function Certificates(): ReactElement {
   const [rows, setRows] = useState<CertificateRow[]>([]);
@@ -43,18 +44,20 @@ export function Certificates(): ReactElement {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <section style={{ display: "flex", alignItems: "center" }}>
-        <h2 style={{ margin: 0, fontSize: font.size.lg }}>Issued certificates</h2>
-        <div style={{ flex: 1 }} />
-        <button type="button" onClick={() => setShowIssue(true)}>
-          Issue manually
-        </button>
-      </section>
+      <PageHeader
+        title="Certificates &amp; Badges"
+        action={
+          <button type="button" onClick={() => setShowIssue(true)} style={{ background: "var(--nuru-navy)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 600 }}>
+            Issue manually
+          </button>
+        }
+      />
+      <h2 className="type-section" style={{ fontSize: 18 }}>Issued certificates</h2>
 
       {error ? <p style={{ color: colors.danger, margin: 0 }}>{error}</p> : null}
       {notice ? <p style={{ color: colors.success, margin: 0 }}>{notice}</p> : null}
 
-      <section style={card}>
+      <section className="nuru-card" style={{ padding: 16 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: font.size.md }}>
           <thead>
             <tr style={{ textAlign: "left", color: colors.textMuted }}>

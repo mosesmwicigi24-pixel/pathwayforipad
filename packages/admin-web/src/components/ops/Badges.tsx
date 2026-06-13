@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from "re
 import { ConfigApi, type BadgeRow } from "../../api/client";
 import { errorMessage } from "../../util/error";
 import { colors, card, font } from "../../theme";
+import { PageHeader } from "../../ui/PageHeader";
 
 export function Badges(): ReactElement {
   const [rows, setRows] = useState<BadgeRow[]>([]);
@@ -38,17 +39,19 @@ export function Badges(): ReactElement {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <section style={{ display: "flex", alignItems: "center" }}>
-        <h2 style={{ margin: 0, fontSize: font.size.lg }}>Badge catalog · most-earned first</h2>
-        <div style={{ flex: 1 }} />
-        <button type="button" onClick={() => setShowCreate(true)}>
-          New badge
-        </button>
-      </section>
+      <PageHeader
+        title="Badges Catalog"
+        action={
+          <button type="button" onClick={() => setShowCreate(true)} style={{ background: "var(--nuru-navy)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 600 }}>
+            New badge
+          </button>
+        }
+      />
+      <h2 className="type-section" style={{ fontSize: 18 }}>Catalog · most-earned first</h2>
 
       {error ? <p style={{ color: colors.danger, margin: 0 }}>{error}</p> : null}
 
-      <section style={card}>
+      <section className="nuru-card" style={{ padding: 16 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: font.size.md }}>
           <thead>
             <tr style={{ textAlign: "left", color: colors.textMuted }}>

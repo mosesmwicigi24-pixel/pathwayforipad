@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { ConfigApi, type FundSummary, type TransactionRow, type LedgerRow } from "../../api/client";
 import { errorMessage } from "../../util/error";
 import { colors, card, font } from "../../theme";
+import { PageHeader } from "../../ui/PageHeader";
 
 export function money(minor: number, currency: string | null): string {
   const c = currency ?? "KES";
@@ -60,26 +61,28 @@ export function Finance(): ReactElement {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <PageHeader eyebrow="OPERATIONS" title="Finance" />
       {error ? <p style={{ color: colors.danger, margin: 0 }}>{error}</p> : null}
 
       <section
+        className="nuru-card-rotate"
         style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}
         aria-label="Fund revenue"
       >
         {funds.map((f) => (
-          <div key={`${f.code}-${f.currency ?? ""}`} style={{ ...card, padding: 14 }}>
-            <div style={{ color: colors.textMuted, fontSize: font.size.sm }}>{f.name}</div>
-            <div style={{ fontSize: font.size.xl, fontWeight: 700, marginTop: 4 }}>
+          <div key={`${f.code}-${f.currency ?? ""}`} style={{ borderRadius: 16, padding: 16, border: "1px solid var(--border)" }}>
+            <div style={{ color: "var(--muted-foreground)", fontSize: 12 }}>{f.name}</div>
+            <div className="nuru-numeric" style={{ fontSize: 24, marginTop: 4 }}>
               {money(f.month_minor, f.currency)}
             </div>
-            <div style={{ color: colors.textFaint, fontSize: font.size.sm }}>
+            <div style={{ color: "var(--muted-foreground)", fontSize: 11.5, marginTop: 2 }}>
               this month · all-time {money(f.total_minor, f.currency)} · {f.gift_count} gifts
             </div>
           </div>
         ))}
       </section>
 
-      <section style={card} aria-label="Transactions">
+      <section className="nuru-card" style={{ padding: 16 }} aria-label="Transactions">
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
           <h2 style={{ margin: 0, fontSize: font.size.lg }}>Transactions</h2>
           <div style={{ flex: 1 }} />
