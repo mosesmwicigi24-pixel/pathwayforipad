@@ -16,6 +16,7 @@ import { CurriculumLevels } from "./components/curriculum/CurriculumLevels";
 import { VideoLibrary } from "./components/curriculum/VideoLibrary";
 import { GrowthContent } from "./components/curriculum/GrowthContent";
 import { LevelDetail } from "./components/curriculum/LevelDetail";
+import { ModuleEditorPage } from "./components/curriculum/ModuleEditorPage";
 import { Members } from "./components/ops/Members";
 import { CohortEngagement } from "./components/ops/CohortEngagement";
 import { ReflectionQueue } from "./components/ops/ReflectionQueue";
@@ -60,11 +61,11 @@ export function App(): ReactElement {
         return <CurriculumLevels onOpenCms={() => setScreen("cms")} />;
       case "level-detail":
         return <LevelDetail />;
-      case "cms":
       case "module-editor":
+        return <ModuleEditorPage onNavigate={setScreen} />;
+      case "cms":
       case "quiz-builder":
-        // One persistent hub instance backs the CMS sub-screens, so the selected
-        // level/module carries across these nav items (level → module → quiz).
+        // The CMS hub backs the CMS + Quiz Builder nav items for now.
         return <CurriculumAdmin />;
       case "videos":
         return <VideoLibrary />;
