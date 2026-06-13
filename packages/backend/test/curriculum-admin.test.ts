@@ -222,7 +222,51 @@ describe("question bank CRUD + per-type validation (§5.8)", () => {
     const del = await agent().delete(`/v1/admin/questions/${qid}`).set(auth(adminTok));
     expect(del.status).toBe(200);
     const after = await agent().get(`/v1/admin/modules/${id}/questions`).set(auth(adminTok));
-    expect(after.body.data).toHaveLength(0); // deactivated
+    expect(after.body.data).toHaveLength(0); // archived → hidden from the builder
+  });
+
+  it("Quiz Builder metadata round-trips: explanation, points, draft visibility, shuffle, archive (FR2b)", async () => {
+    const id = await newModule(1, { evaluation_kind: "quiz" });
+
+    // A draft (is_active=false) plus an active question with editorial metadata.
+    const add = await agent()
+      .post(`/v1/admin/modules/${id}/questions`)
+      .set(auth(adminTok))
+      .send({
+        questions: [
+          { q_type: "MultipleChoice", question_text: "Active?", answer_options: ["A", "B"], correct_answer: "A", explanation: "Because A.", points: 3, is_active: true },
+          { q_type: "TrueFalse", question_text: "Draft?", correct_answer: "True", is_active: false },
+        ],
+      });
+    expect(add.status).toBe(201);
+
+    // The builder lists BOTH active and draft questions (it dropped the is_active filter).
+    const list = await agent().get(`/v1/admin/modules/${id}/questions`).set(auth(adminTok));
+    expect(list.body.data).toHaveLength(2);
+    const mc = list.body.data.find((q: { question_text: string }) => q.question_text === "Active?");
+    expect(mc.explanation).toBe("Because A.");
+    expect(mc.points).toBe(3);
+    expect(mc.is_active).toBe(true);
+    const draft = list.body.data.find((q: { question_text: string }) => q.question_text === "Draft?");
+    expect(draft.is_active).toBe(false);
+
+    // Update persists explanation/points and the draft→active toggle.
+    const upd = await agent().put(`/v1/admin/questions/${draft.question_id}`).set(auth(adminTok))
+      .send({ is_active: true, points: 5, explanation: "Now graded." });
+    expect(upd.status).toBe(200);
+    expect(upd.body.points).toBe(5);
+    expect(upd.body.is_active).toBe(true);
+
+    // Per-module shuffle flag round-trips through updateModule.
+    const mod = await agent().put(`/v1/admin/modules/${id}`).set(auth(adminTok)).send({ quiz_shuffle: false });
+    expect(mod.status).toBe(200);
+    expect(mod.body.quiz_shuffle).toBe(false);
+
+    // Archiving one question hides it from the builder while the other remains.
+    await agent().delete(`/v1/admin/questions/${mc.question_id}`).set(auth(adminTok));
+    const after = await agent().get(`/v1/admin/modules/${id}/questions`).set(auth(adminTok));
+    expect(after.body.data).toHaveLength(1);
+    expect(after.body.data[0].question_text).toBe("Draft?");
   });
 });
 

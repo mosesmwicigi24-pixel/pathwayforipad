@@ -18,6 +18,10 @@ const QuestionInput = z.object({
   answer_options: z.array(z.string()).optional(),
   correct_answer: z.string().min(1),
   difficulty_rating: z.number().int().min(1).max(5).default(1),
+  explanation: z.string().nullable().optional(),
+  points: z.number().int().min(1).max(100).default(1),
+  /** Author can create a question as a draft (excluded from the live quiz). */
+  is_active: z.boolean().optional(),
 });
 type QuestionInput = z.infer<typeof QuestionInput>;
 
@@ -267,7 +271,7 @@ export class AdminCurriculumService {
       c,
       `SELECT module_id, level_number, module_sequence_number, title, summary, lesson_content,
               key_verses, status, is_published, evaluation_kind, quiz_pass_mark, estimated_minutes,
-              video_url, media_asset_id, time_limit_sec, max_attempts, current_version, row_version, created_at, updated_at
+              video_url, media_asset_id, time_limit_sec, max_attempts, quiz_shuffle, current_version, row_version, created_at, updated_at
          FROM modules WHERE module_id = $1`,
       [moduleId],
     );
@@ -286,6 +290,7 @@ export class AdminCurriculumService {
       key_verses: z.array(z.string()).nullable().optional(),
       time_limit_sec: z.number().int().min(30).max(7200).nullable().optional(),
       max_attempts: z.number().int().min(1).max(50).nullable().optional(),
+      quiz_shuffle: z.boolean().optional(),
       /** Optimistic-concurrency guard (§5.8): reject if the row changed since load. */
       expected_row_version: z.number().int().min(1).optional(),
     })
@@ -335,6 +340,7 @@ export class AdminCurriculumService {
         media_asset_id: input.media_asset_id,
         time_limit_sec: input.time_limit_sec,
         max_attempts: input.max_attempts,
+        quiz_shuffle: input.quiz_shuffle,
         key_verses: input.key_verses === undefined ? undefined : input.key_verses === null ? null : JSON.stringify(input.key_verses),
       };
       const keys = Object.keys(cols).filter((k) => cols[k] !== undefined);
@@ -523,8 +529,8 @@ export class AdminCurriculumService {
     return many(
       this.pool,
       `SELECT question_id, module_id, q_type, question_text, answer_options, correct_answer,
-              difficulty_rating, is_active
-         FROM question_bank WHERE module_id = $1 AND is_active ORDER BY question_id`,
+              difficulty_rating, is_active, explanation, points
+         FROM question_bank WHERE module_id = $1 AND archived_at IS NULL ORDER BY question_id`,
       [moduleId],
     );
   }
@@ -542,8 +548,8 @@ export class AdminCurriculumService {
       if (!m) throw new ApiError("NOT_FOUND", "Module not found");
       for (const q of input.questions) {
         await c.query(
-          `INSERT INTO question_bank (module_id, q_type, question_text, answer_options, correct_answer, difficulty_rating)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
+          `INSERT INTO question_bank (module_id, q_type, question_text, answer_options, correct_answer, difficulty_rating, explanation, points, is_active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,1),COALESCE($9,TRUE))`,
           [
             moduleId,
             q.q_type,
@@ -551,6 +557,9 @@ export class AdminCurriculumService {
             q.answer_options ? JSON.stringify(q.answer_options) : null,
             q.correct_answer,
             q.difficulty_rating,
+            q.explanation ?? null,
+            q.points ?? null,
+            q.is_active ?? null,
           ],
         );
       }
@@ -571,7 +580,7 @@ export class AdminCurriculumService {
     return tx(this.pool, async (c) => {
       const cur = await maybeOne<QuestionInput & { is_active: boolean; answer_options: string[] | null }>(
         c,
-        `SELECT q_type, question_text, answer_options, correct_answer, difficulty_rating, is_active
+        `SELECT q_type, question_text, answer_options, correct_answer, difficulty_rating, is_active, explanation, points
            FROM question_bank WHERE question_id = $1 FOR UPDATE`,
         [questionId],
       );
@@ -583,13 +592,15 @@ export class AdminCurriculumService {
         answer_options: input.answer_options ?? cur.answer_options ?? undefined,
         correct_answer: input.correct_answer ?? cur.correct_answer,
         difficulty_rating: input.difficulty_rating ?? cur.difficulty_rating,
+        explanation: input.explanation ?? cur.explanation ?? null,
+        points: input.points ?? cur.points ?? 1,
       };
       validateQuestion(merged);
 
       await c.query(
         `UPDATE question_bank
             SET q_type = $2, question_text = $3, answer_options = $4, correct_answer = $5,
-                difficulty_rating = $6, is_active = $7
+                difficulty_rating = $6, is_active = $7, explanation = $8, points = $9
           WHERE question_id = $1`,
         [
           questionId,
@@ -599,6 +610,8 @@ export class AdminCurriculumService {
           merged.correct_answer,
           merged.difficulty_rating,
           input.is_active ?? cur.is_active,
+          merged.explanation ?? null,
+          merged.points ?? 1,
         ],
       );
       await audit(c, editorId, "question.updated", "question_bank", questionId, {});
@@ -606,12 +619,17 @@ export class AdminCurriculumService {
     });
   }
 
-  /** Soft-delete: deactivate so existing attempts that reference it are preserved. */
+  /**
+   * Soft-delete (archive) so existing attempts that reference it keep their FK (§2).
+   * Clearing is_active alongside archived_at means every delivery/scoring query
+   * (all of which filter WHERE is_active) drops it with no further change, while
+   * the builder hides it via archived_at IS NULL — distinct from a "draft".
+   */
   async deleteQuestion(questionId: string, editorId: string): Promise<{ deleted: boolean }> {
     return tx(this.pool, async (c) => {
       const q = await maybeOne(c, `SELECT 1 FROM question_bank WHERE question_id = $1`, [questionId]);
       if (!q) throw new ApiError("NOT_FOUND", "Question not found");
-      await c.query(`UPDATE question_bank SET is_active = FALSE WHERE question_id = $1`, [questionId]);
+      await c.query(`UPDATE question_bank SET is_active = FALSE, archived_at = now() WHERE question_id = $1`, [questionId]);
       await audit(c, editorId, "question.deleted", "question_bank", questionId, {});
       return { deleted: true };
     });

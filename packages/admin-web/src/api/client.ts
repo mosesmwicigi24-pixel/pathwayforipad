@@ -216,6 +216,7 @@ export interface AdminModule extends AdminModuleSummary {
   media_asset_id: string | null;
   time_limit_sec: number | null;
   max_attempts: number | null;
+  quiz_shuffle: boolean;
   current_version: number;
   row_version: number;
 }
@@ -229,6 +230,8 @@ export interface AdminQuestion {
   correct_answer: string;
   difficulty_rating: number;
   is_active: boolean;
+  explanation: string | null;
+  points: number;
 }
 
 export interface ModuleVersion {
@@ -267,6 +270,8 @@ export const CurriculumApi = {
   questions: (id: string) => unwrap(api.get<{ data: AdminQuestion[] }>(`/admin/modules/${id}/questions`)),
   addQuestions: (id: string, questions: Array<Record<string, unknown>>) =>
     api.post<{ added: number }>(`/admin/modules/${id}/questions`, { questions }).then((r) => r.data),
+  updateQuestion: (qid: string, body: Record<string, unknown>) =>
+    api.put<AdminQuestion>(`/admin/questions/${qid}`, body).then((r) => r.data),
   deleteQuestion: (qid: string) => api.delete<{ deleted: boolean }>(`/admin/questions/${qid}`).then((r) => r.data),
 };
 

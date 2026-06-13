@@ -385,7 +385,7 @@ paths:
   /admin/modules/{id}/questions:
     get:
       tags: [curriculum]
-      summary: Admin. Active question bank for a module.
+      summary: Admin. Question bank for a module (active + drafts; archived excluded).
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
@@ -412,7 +412,7 @@ paths:
         "403": { $ref: "#/components/responses/ForbiddenScope" }
     delete:
       tags: [curriculum]
-      summary: Admin. Soft-delete (deactivate) a question.
+      summary: Admin. Archive (soft-delete) a question; attempts keep their FK.
       parameters:
         - { name: qid, in: path, required: true, schema: { type: string, format: uuid } }
       responses:

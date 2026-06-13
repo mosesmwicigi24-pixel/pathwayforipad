@@ -17,6 +17,7 @@ import { VideoLibrary } from "./components/curriculum/VideoLibrary";
 import { GrowthContent } from "./components/curriculum/GrowthContent";
 import { LevelDetail } from "./components/curriculum/LevelDetail";
 import { ModuleEditorPage } from "./components/curriculum/ModuleEditorPage";
+import { QuizBuilder } from "./components/curriculum/QuizBuilder";
 import { Members } from "./components/ops/Members";
 import { CohortEngagement } from "./components/ops/CohortEngagement";
 import { ReflectionQueue } from "./components/ops/ReflectionQueue";
@@ -63,9 +64,9 @@ export function App(): ReactElement {
         return <LevelDetail />;
       case "module-editor":
         return <ModuleEditorPage onNavigate={setScreen} />;
-      case "cms":
       case "quiz-builder":
-        // The CMS hub backs the CMS + Quiz Builder nav items for now.
+        return <QuizBuilder onNavigate={setScreen} />;
+      case "cms":
         return <CurriculumAdmin />;
       case "videos":
         return <VideoLibrary />;
