@@ -1,309 +1,354 @@
-// Levels (Figma "LevelsOverview"). A calm map of the six-level discipleship
-// pathway: a navy header with an overall progress ring + summary stats, the active
-// level's Continue card, then a card per level (completed / active / locked). The
-// hard-lock invariant (§1.9) is reflected visually — locked levels are dimmed and
-// non-tappable; the server remains authoritative for what actually opens.
-import { type ReactElement } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import Svg, { Circle } from "react-native-svg";
-import { BookOpen, Check, ChevronRight, Cross, Lock, Map } from "lucide-react-native";
+// Pathway tab root — "Today's journey" hub (new design, spec §3 PathwayHub).
+// Navy header with an overall-progress ring + verse of the day; then today's
+// rhythm, a Continue-learning card into the active level, the six-level pathway
+// list, an action grid into the growth screens, and a listen banner. Real
+// pathway + scripture + achievements data; the server stays authoritative for
+// unlocking (§1.9).
+import { useState, type ReactElement } from "react";
+import { Pressable, ScrollView, View } from "react-native";
+import {
+  BookMarked,
+  BookOpen,
+  Check,
+  ChevronRight,
+  HandHeart,
+  Library,
+  Lock,
+  PenLine,
+  PlayCircle,
+  Quote,
+  Sparkles,
+  Sun,
+  UserRoundCheck,
+  type LucideIcon,
+} from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { Glow, T } from "../theme/components";
-import { usePathway, useMe } from "../api/hooks";
+import { useAchievements, usePathway, useScripture } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
-import type { LevelStatus } from "../api/types";
+import type { PathwayLevel } from "../api/types";
 
-interface LevelView {
-  id: number;
-  title: string;
-  subtitle: string;
-  modules: number;
-  completed: number;
-  status: LevelStatus;
-}
-
-function firstName(full?: string | null): string {
-  return (full ?? "Friend").trim().split(/\s+/)[0] ?? "Friend";
-}
+const RHYTHM: Array<{ key: string; label: string; Icon: LucideIcon }> = [
+  { key: "prayer", label: "Prayer", Icon: HandHeart },
+  { key: "word", label: "Word", Icon: BookOpen },
+  { key: "reflection", label: "Reflection", Icon: PenLine },
+];
 
 export function LevelsScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: pathway, isLoading, error, refetch } = usePathway();
-  const { data: me } = useMe();
-
-  const open = (id: number): void => nav.navigate("Level", { levelId: id });
+  const { data: achievements } = useAchievements();
+  const { data: verse } = useScripture("Romans 12:2");
+  const [rhythm, setRhythm] = useState<Record<string, boolean>>({ prayer: false, word: false, reflection: false });
 
   if (isLoading) {
     return (
-      <View style={[st.screen, st.centerBox]}>
+      <View style={[st.screen, st.center]}>
         <Loading label="Loading your pathway…" />
       </View>
     );
   }
   if (error || !pathway) {
     return (
-      <View style={[st.screen, st.centerBox]}>
+      <View style={[st.screen, st.center]}>
         <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />
       </View>
     );
   }
 
-  const levels: LevelView[] = pathway.levels.map((l) => ({
-    id: l.level_number,
-    title: l.title,
-    subtitle: l.theme ?? "",
-    modules: l.total_modules,
-    completed: l.completed_modules,
-    status: l.status,
-  }));
-  const totalModules = levels.reduce((s, l) => s + l.modules, 0);
-  const doneModules = levels.reduce((s, l) => s + l.completed, 0);
-  const pct = totalModules > 0 ? Math.round((doneModules / totalModules) * 100) : 0;
-  const levelsDone = levels.filter((l) => l.status === "completed").length;
-  const active = levels.find((l) => l.status === "active");
+  const levels = pathway.levels;
+  const active =
+    levels.find((l) => l.status === "active") ??
+    levels.find((l) => l.level_number === pathway.current_level) ??
+    levels[0];
+  const totalModules = levels.reduce((s, l) => s + l.total_modules, 0);
+  const doneModules = levels.reduce((s, l) => s + l.completed_modules, 0);
+  const overallPct = totalModules > 0 ? Math.round((doneModules / totalModules) * 100) : 0;
+  const activePct = active && active.total_modules > 0 ? Math.round((active.completed_modules / active.total_modules) * 100) : 0;
+  const streak = achievements?.streak?.current ?? 0;
+  const rhythmLeft = RHYTHM.filter((r) => !rhythm[r.key]).length;
 
   return (
-    <View style={st.screen}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xl }}>
-        {/* Navy header */}
-        <View style={st.header}>
-          <Glow size={220} color="rgba(201,162,39,0.12)" style={{ right: -60, top: -70 }} />
-          <Glow size={96} color="rgba(95,143,200,0.15)" style={{ left: 24, top: 90 }} />
-          <T variant="micro" tone="gold" style={st.kicker}>{`WELCOME BACK, ${firstName(me?.profile?.full_name).toUpperCase()}`}</T>
-          <View style={st.headRow}>
-            <View style={{ flex: 1, paddingRight: spacing.base }}>
-              <T variant="display" tone="onNavy" style={{ letterSpacing: -1.2 }}>Your pathway is unfolding.</T>
-              <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.md }}>
-                A calm view of your discipleship journey, saved progress, and what opens next.
-              </T>
-            </View>
-            <ProgressRing pct={pct} />
+    <ScrollView style={st.screen} contentContainerStyle={{ paddingBottom: spacing.xl }} showsVerticalScrollIndicator={false}>
+      {/* ── Navy header with progress ring + verse ──────────────────── */}
+      <View style={st.header}>
+        <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -70, top: -70 }} />
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T variant="micro" tone="gold" style={st.kicker}>PATHWAY</T>
+            <T serif tone="onNavy" style={st.h1}>Today's journey</T>
+            <T variant="body" tone="onNavyDim" style={{ marginTop: 4 }}>Grace for today's step</T>
           </View>
-
-          <View style={st.statRow}>
-            <StatCard label="Levels" value={`${levelsDone}/${levels.length}`} />
-            <StatCard label="Modules" value={`${doneModules}/${totalModules}`} />
-            <StatCard label="Current" value={`L${pathway.current_level}`} />
+          <View style={st.ring}>
+            <T serif tone="onNavy" style={{ fontSize: 18 }}>{`${overallPct}%`}</T>
           </View>
         </View>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => nav.navigate("VerseLibrary")}
+          style={({ pressed }) => [st.verseGlass, pressed && { opacity: 0.9 }]}
+        >
+          <View style={st.verseIcon}>
+            <Quote size={15} color={palette.goldGlow} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T variant="micro" tone="onNavyFaint" style={{ letterSpacing: 1.2 }}>VERSE OF THE DAY</T>
+            <T serif tone="onNavy" style={{ fontSize: 14, lineHeight: 20, marginTop: 2 }} numberOfLines={2}>
+              {verse?.text ?? "“Do not conform to the pattern of this world, but be transformed by the renewing of your mind.”"}
+            </T>
+            <T variant="micro" tone="gold" style={{ marginTop: 2 }}>{verse?.reference ?? "Romans 12:2"}</T>
+          </View>
+        </Pressable>
+      </View>
 
-        <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.lg }}>
-          {active ? (
-            <Pressable onPress={() => open(active.id)} style={({ pressed }) => [st.continueCard, pressed && st.press]}>
-              <View style={st.continueIcon}>
-                <BookOpen size={20} color={palette.navy} />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <T variant="micro" tone="gold">CONTINUE YOUR JOURNEY</T>
-                <T variant="heading" style={{ marginTop: 2 }}>{`Level ${active.id}: ${active.title}`}</T>
-                <View style={st.miniTrack}>
-                  <View style={[st.miniFill, { width: `${active.modules > 0 ? Math.round((active.completed / active.modules) * 100) : 0}%` }]} />
-                </View>
-              </View>
-              <ChevronRight size={20} color={palette.gold} />
-            </Pressable>
-          ) : null}
-
-          <View style={st.sectionHead}>
-            <View>
-              <T variant="micro" tone="secondary" style={st.kicker}>{`${levels.length}-LEVEL PATHWAY`}</T>
-              <T variant="title" style={{ marginTop: 2 }}>Choose your level</T>
-            </View>
-            <View style={st.mapChip}>
-              <Map size={19} color={palette.navy} />
+      <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.base, gap: spacing.base }}>
+        {/* ── Today's rhythm ─────────────────────────────────────────── */}
+        <View style={st.card}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Sun size={14} color={palette.goldLo} />
+            <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", letterSpacing: 1.4, flex: 1 }}>
+              TODAY'S RHYTHM
+            </T>
+            <View style={st.streakChip}>
+              <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "600" }}>{`🔥 ${streak}d`}</T>
             </View>
           </View>
+          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
+            {RHYTHM.map(({ key, label, Icon }) => {
+              const on = rhythm[key] === true;
+              return (
+                <Pressable
+                  key={key}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  onPress={() => setRhythm((p) => ({ ...p, [key]: !p[key] }))}
+                  style={[st.habitTile, on ? st.habitOn : st.habitOff]}
+                >
+                  <View style={[st.habitDot, { backgroundColor: on ? palette.gold : palette.white }]}>
+                    <Icon size={14} color={on ? palette.navy : palette.ink400} />
+                  </View>
+                  <T variant="caption" style={{ fontWeight: "600", color: on ? palette.navy : palette.ink600 }}>{label}</T>
+                </Pressable>
+              );
+            })}
+          </View>
+          <T variant="micro" tone="tertiary" style={{ marginTop: spacing.sm }}>
+            {rhythmLeft === 0 ? "Beautiful — all three today." : `${rhythmLeft} step${rhythmLeft === 1 ? "" : "s"} left today`}
+          </T>
+        </View>
 
-          <View style={{ gap: spacing.md }}>
+        {/* ── Continue learning (deep navy) ──────────────────────────── */}
+        {active ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => nav.navigate("Level", { levelId: active.level_number })}
+            style={({ pressed }) => [st.continueCard, pressed && { transform: [{ scale: 0.99 }] }]}
+          >
+            <Glow size={140} color="rgba(201,162,39,0.14)" style={{ right: -30, top: -30 }} />
+            <View style={st.continueTile}>
+              <PlayCircle size={22} color={palette.gold} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T variant="micro" tone="gold" style={{ letterSpacing: 1.4, fontWeight: "700" }}>
+                {`CONTINUE · LEVEL ${active.level_number}`}
+              </T>
+              <T serif tone="onNavy" style={{ fontSize: 18, marginTop: 2 }} numberOfLines={1}>{active.title}</T>
+              <View style={[st.track, { marginTop: spacing.sm, backgroundColor: "rgba(255,255,255,0.12)" }]}>
+                <View style={[st.fill, { width: `${activePct}%` }]} />
+              </View>
+              <T variant="micro" tone="onNavyDim" style={{ marginTop: 6 }}>
+                {`${active.completed_modules} of ${active.total_modules} modules · ${activePct}%`}
+              </T>
+            </View>
+            <ChevronRight size={18} color={palette.gold} />
+          </Pressable>
+        ) : null}
+
+        {/* ── Six-level pathway ──────────────────────────────────────── */}
+        <View style={st.card}>
+          <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", letterSpacing: 1.4 }}>SIX-LEVEL PATHWAY</T>
+          <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
             {levels.map((lvl) => (
-              <LevelCard key={lvl.id} level={lvl} onTap={() => lvl.status !== "locked" && open(lvl.id)} />
+              <LevelRow
+                key={lvl.level_number}
+                level={lvl}
+                isActive={active?.level_number === lvl.level_number}
+                onPress={() => nav.navigate("Level", { levelId: lvl.level_number })}
+              />
             ))}
           </View>
         </View>
-      </ScrollView>
-    </View>
-  );
-}
 
-function StatCard({ label, value }: { label: string; value: string }): ReactElement {
-  return (
-    <View style={st.statCard}>
-      <T variant="micro" style={{ color: "rgba(255,255,255,0.38)", letterSpacing: 1.2, textTransform: "uppercase" }}>{label}</T>
-      <T variant="heading" tone="onNavy" style={{ marginTop: 4, fontSize: 16 }}>{value}</T>
-    </View>
-  );
-}
+        {/* ── Action grid → growth screens ───────────────────────────── */}
+        <View style={st.actionGrid}>
+          <ActionTile label="Prayer journal" sub="Private to you" Icon={HandHeart} tint="#FEE2E2" fg="#B91C1C" onPress={() => nav.navigate("PrayerJournal")} />
+          <ActionTile label="Your discipler" sub="Mentor & cell" Icon={UserRoundCheck} tint={palette.successBg} fg={palette.successText} onPress={() => nav.navigate("Tabs", { screen: "Community" })} />
+          <ActionTile label="Spiritual gifts" sub="Take assessment" Icon={Sparkles} tint="#F3E8FF" fg="#7E22CE" onPress={() => nav.navigate("Gifts")} />
+          <ActionTile label="Verse library" sub="Saved scriptures" Icon={Library} tint="#E0F2FE" fg="#0369A1" onPress={() => nav.navigate("VerseLibrary")} />
+        </View>
 
-function ProgressRing({ pct }: { pct: number }): ReactElement {
-  const size = 74;
-  const stroke = 6;
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const offset = c - (pct / 100) * c;
-  return (
-    <View style={{ width: size, height: size }}>
-      <Svg width={size} height={size} style={{ transform: [{ rotate: "-90deg" }] }}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke="rgba(255,255,255,0.10)" strokeWidth={stroke} fill="none" />
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={palette.gold}
-          strokeWidth={stroke}
-          fill="none"
-          strokeLinecap="round"
-          strokeDasharray={c}
-          strokeDashoffset={offset}
-        />
-      </Svg>
-      <View style={st.ringCenter}>
-        <T variant="heading" tone="onNavy" style={{ fontSize: 18, letterSpacing: -0.8 }}>{`${pct}%`}</T>
-        <T variant="micro" style={{ color: "rgba(255,255,255,0.35)", marginTop: -2, letterSpacing: 1, textTransform: "uppercase", fontSize: 9 }}>done</T>
+        {/* ── Listen banner ──────────────────────────────────────────── */}
+        <View style={st.listenBanner}>
+          <View style={st.listenTile}>
+            <BookMarked size={18} color={palette.goldLo} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T variant="heading" style={{ fontSize: 14 }}>Listen on the go</T>
+            <T variant="micro" tone="tertiary">Today's devotional · 6 min audio</T>
+          </View>
+          <PlayCircle size={24} color={palette.goldLo} />
+        </View>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
-function LevelCard({ level, onTap }: { level: LevelView; onTap: () => void }): ReactElement {
+function LevelRow({ level, isActive, onPress }: { level: PathwayLevel; isActive: boolean; onPress: () => void }): ReactElement {
   const completed = level.status === "completed";
-  const active = level.status === "active";
   const locked = level.status === "locked";
-  const pct = level.modules > 0 ? Math.round((level.completed / level.modules) * 100) : 0;
-  const iconBg = active ? palette.navy : completed ? palette.goldTint : palette.mutedBg;
-  const iconFg = active ? palette.gold : completed ? palette.goldLo : palette.ink400;
-
+  const pct = level.total_modules > 0 ? Math.round((level.completed_modules / level.total_modules) * 100) : 0;
   return (
     <Pressable
-      onPress={locked ? undefined : onTap}
-      disabled={locked}
+      onPress={locked ? undefined : onPress}
+      accessibilityRole="button"
       style={({ pressed }) => [
-        st.levelCard,
-        active && { borderColor: "rgba(201,162,39,0.45)" },
-        locked && { opacity: 0.6 },
-        pressed && !locked && st.press,
+        st.levelRow,
+        isActive && { backgroundColor: "rgba(201,162,39,0.10)", borderColor: "rgba(201,162,39,0.4)" },
+        locked && { opacity: 0.55 },
+        pressed && !locked && { opacity: 0.85 },
       ]}
     >
-      <View style={[st.levelIcon, { backgroundColor: iconBg }]}>
-        {completed ? <Check size={19} color={iconFg} /> : locked ? <Lock size={17} color={iconFg} /> : <Cross size={18} color={iconFg} />}
-      </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <View style={st.levelTopRow}>
-          <T variant="micro" tone="gold" style={{ letterSpacing: 1.4, textTransform: "uppercase" }}>{`Level ${level.id}`}</T>
-          <Badge status={level.status} />
-        </View>
-        <T variant="heading" style={{ marginTop: 4 }}>{level.title}</T>
-        <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>{level.subtitle}</T>
-
+      <View style={[st.levelTile, { backgroundColor: completed ? palette.goldTint : isActive ? palette.gold : palette.mutedBg }]}>
         {locked ? (
-          <View style={st.lockRow}>
-            <Lock size={12} color={palette.ink400} />
-            <T variant="caption" tone="tertiary">{`Complete Level ${level.id - 1} to unlock`}</T>
-          </View>
+          <Lock size={15} color={palette.ink400} />
+        ) : completed ? (
+          <Check size={15} color={palette.goldLo} />
         ) : (
-          <View style={{ marginTop: spacing.md }}>
-            <View style={st.levelMeta}>
-              <T variant="caption" tone="secondary">{`${level.completed}/${level.modules} modules`}</T>
-              <T variant="caption" style={{ color: palette.navy, fontWeight: "500" }}>{`${pct}%`}</T>
-            </View>
-            <View style={st.track}>
-              <View style={[st.fill, { width: `${pct}%` }]} />
-            </View>
-          </View>
+          <T variant="caption" style={{ fontWeight: "700", color: isActive ? palette.navy : palette.ink600 }}>{`L${level.level_number}`}</T>
         )}
       </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <T variant="heading" style={{ fontSize: 14 }} numberOfLines={1}>{level.title}</T>
+        <View style={[st.miniTrack, { marginTop: 6 }]}>
+          <View style={{ width: `${pct}%`, height: "100%", borderRadius: 2, backgroundColor: completed || isActive ? palette.gold : palette.lockedFill }} />
+        </View>
+      </View>
+      <T variant="micro" tone="tertiary">{`${pct}%`}</T>
     </Pressable>
   );
 }
 
-function Badge({ status }: { status: LevelStatus }): ReactElement {
-  const map = {
-    completed: { label: "Complete", bg: palette.goldTint, fg: palette.urgentText },
-    active: { label: "Active", bg: palette.activeBadgeBg, fg: palette.activeBadgeText },
-    locked: { label: "Locked", bg: palette.mutedBg, fg: palette.ink400 },
-  } as const;
-  const m = map[status];
+function ActionTile({
+  label,
+  sub,
+  Icon,
+  tint,
+  fg,
+  onPress,
+}: {
+  label: string;
+  sub: string;
+  Icon: LucideIcon;
+  tint: string;
+  fg: string;
+  onPress: () => void;
+}): ReactElement {
   return (
-    <View style={[st.badge, { backgroundColor: m.bg }]}>
-      <T variant="micro" style={{ color: m.fg }}>{m.label}</T>
-    </View>
+    <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => [st.actionTile, pressed && { opacity: 0.85 }]}>
+      <View style={[st.actionIcon, { backgroundColor: tint }]}>
+        <Icon size={18} color={fg} />
+      </View>
+      <T variant="heading" style={{ fontSize: 14, marginTop: spacing.sm }}>{label}</T>
+      <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{sub}</T>
+    </Pressable>
   );
 }
 
 const st = {
   screen: { flex: 1, backgroundColor: palette.paper },
-  centerBox: { alignItems: "center", justifyContent: "center" },
+  center: { alignItems: "center", justifyContent: "center" },
   header: {
     backgroundColor: palette.navy,
     paddingHorizontal: spacing.screen,
-    paddingTop: 54,
+    paddingTop: 58,
     paddingBottom: spacing.lg,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
     overflow: "hidden",
   },
-  kicker: { letterSpacing: 1.8, textTransform: "uppercase" },
-  headRow: { flexDirection: "row", alignItems: "flex-end", marginTop: spacing.md },
-  statRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.lg },
-  statCard: {
-    flex: 1,
-    borderRadius: 16,
+  kicker: { letterSpacing: 2.4, fontWeight: "600" },
+  h1: { fontSize: 26, lineHeight: 32, marginTop: spacing.sm, fontWeight: "600" },
+  ring: { width: 64, height: 64, borderRadius: 32, borderWidth: 5, borderColor: palette.gold, alignItems: "center", justifyContent: "center" },
+  verseGlass: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    marginTop: spacing.base,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
+    borderColor: "rgba(201,162,39,0.33)",
     backgroundColor: "rgba(255,255,255,0.06)",
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    padding: spacing.md,
   },
-  ringCenter: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  verseIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: "rgba(201,162,39,0.15)", alignItems: "center", justifyContent: "center" },
+  card: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
+  streakChip: { backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  habitTile: { flex: 1, alignItems: "center", gap: 4, borderRadius: 14, paddingVertical: spacing.md, borderWidth: 1 },
+  habitOn: { backgroundColor: "rgba(201,162,39,0.12)", borderColor: "rgba(201,162,39,0.45)" },
+  habitOff: { backgroundColor: palette.surface, borderColor: "transparent" },
+  habitDot: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   continueCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.base,
-    backgroundColor: palette.white,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: "rgba(201,162,39,0.35)",
-    padding: spacing.base,
-    marginBottom: spacing.lg,
-    ...shadow.card,
-  },
-  continueIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
-    backgroundColor: "rgba(10,37,64,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  miniTrack: { marginTop: spacing.md, height: 8, borderRadius: 8, backgroundColor: palette.track, overflow: "hidden" },
-  miniFill: { height: "100%", borderRadius: 8, backgroundColor: palette.gold },
-  sectionHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: spacing.md },
-  mapChip: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    backgroundColor: palette.white,
-    alignItems: "center",
-    justifyContent: "center",
-    ...shadow.card,
-  },
-  levelCard: {
-    flexDirection: "row",
     gap: spacing.md,
+    backgroundColor: palette.navyDeep,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(201,162,39,0.33)",
+    padding: spacing.base,
+    overflow: "hidden",
+    ...shadow.card,
+  },
+  continueTile: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(201,162,39,0.15)", alignItems: "center", justifyContent: "center" },
+  track: { height: 6, borderRadius: 3, backgroundColor: palette.track, overflow: "hidden" },
+  fill: { height: "100%", borderRadius: 3, backgroundColor: palette.gold },
+  levelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "transparent",
+    padding: spacing.sm,
+  },
+  levelTile: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  miniTrack: { height: 4, borderRadius: 2, backgroundColor: palette.track, overflow: "hidden" },
+  actionGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  actionTile: {
+    width: "48%",
+    flexGrow: 1,
     backgroundColor: palette.white,
-    borderRadius: 22,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: palette.border,
     padding: spacing.base,
     ...shadow.card,
   },
-  levelIcon: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  levelTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  badge: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 4 },
-  lockRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: spacing.md },
-  levelMeta: { flexDirection: "row", justifyContent: "space-between", marginBottom: spacing.sm },
-  track: { height: 6, borderRadius: 6, backgroundColor: palette.track, overflow: "hidden" },
-  fill: { height: "100%", borderRadius: 6, backgroundColor: palette.gold },
-  press: { transform: [{ scale: 0.99 }] },
+  actionIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  listenBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: palette.white,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: spacing.base,
+    ...shadow.card,
+  },
+  listenTile: { width: 40, height: 40, borderRadius: 12, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
 } as const;
