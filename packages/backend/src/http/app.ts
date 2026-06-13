@@ -37,6 +37,7 @@ import { registerGamification } from "../modules/gamification/index.js";
 import { registerAnnouncements } from "../modules/announcements/index.js";
 import { registerGrowth } from "../modules/growth/index.js";
 import { registerCommunity } from "../modules/community/index.js";
+import { registerGrowthContent } from "../modules/growth-content/index.js";
 
 export function createApp(ctx: AppContext): Express {
   const app = express();
@@ -140,6 +141,7 @@ export function createApp(ctx: AppContext): Express {
   v1.use(registerAnnouncements(ctx));
   v1.use(registerGrowth(ctx));
   v1.use(registerCommunity(ctx));
+  v1.use(registerGrowthContent(ctx));
   app.use("/v1", v1);
 
   // Terminal error handler — always emits the §3.2 envelope.

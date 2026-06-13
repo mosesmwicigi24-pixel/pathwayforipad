@@ -1467,6 +1467,100 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # --- Growth content (Contract Matrix D5) ---
+  /growth/devotional:
+    get:
+      tags: [progress]
+      summary: Today's devotional (audio/video/scripture/body/reflection).
+      responses:
+        "200": { description: Devotional }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /growth/memory-verses:
+    get:
+      tags: [progress]
+      summary: Memory-verse library with my mastery status.
+      responses:
+        "200": { description: Verses }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /growth/memory-verses/practice:
+    post:
+      tags: [progress]
+      summary: Record a type-from-memory practice attempt; mastered at ≥90% match.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [memory_verse_id, match_pct]
+              properties:
+                memory_verse_id: { type: string, format: uuid }
+                match_pct: { type: integer, minimum: 0, maximum: 100 }
+      responses:
+        "200": { description: Progress }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /growth/plans:
+    get:
+      tags: [progress]
+      summary: Reading plans with my enrollment + progress.
+      responses:
+        "200": { description: Plans }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /growth/plans/{id}:
+    get:
+      tags: [progress]
+      summary: Reading-plan detail with days and my progress.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Plan }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /growth/plans/{id}/start:
+    post:
+      tags: [progress]
+      summary: Enroll in a reading plan (idempotent).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "201": { description: Enrolled }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /growth/plans/{id}/complete-day:
+    post:
+      tags: [progress]
+      summary: Mark a reading-plan day complete; advances progress.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [day_number]
+              properties:
+                day_number: { type: integer, minimum: 1 }
+      responses:
+        "200": { description: Progress }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /growth/resources:
+    get:
+      tags: [progress]
+      summary: Resource library (books / audio / video / articles).
+      responses:
+        "200": { description: Resources }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /growth/mentor:
+    get:
+      tags: [progress]
+      summary: My discipler (from the relationship tree) + meeting notes.
+      responses:
+        "200": { description: Mentor }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   # --- Community: cohort discussions (Contract Matrix B8) ---
   /community/threads:
     get:
