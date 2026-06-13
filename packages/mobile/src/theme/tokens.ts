@@ -22,6 +22,15 @@ export const palette = {
   ink600: "#68758A", // secondary text
   ink400: "#8B95A5", // tertiary text
   ink300: "#B5BDC9", // chevrons / faint
+  // New-design surfaces & tints (Figma Make redesign, docs/MOBILE_DESIGN_SPEC.md)
+  surface: "#FBF8F1", // inset tiles inside white cards
+  goldChipBg: "#FFF4DA", // streak/pending chip bg
+  goldChipText: "#7A5A14", // chip text on goldChipBg
+  verseBg: "#FFF8E6", // verse-for-today card bg
+  priorityBg: "#FFFAEC", // priority strip bg
+  navyCeremony: "#081C36", // full-dark ceremony screens (login, level complete)
+  successBg: "#DCFCE7", // habit-done tile bg
+  successText: "#166534", // habit-done tile text
   // Tints & lines
   tintBlue: "#E8EEF7", // selected/active tint
   mutedBg: "#EEF1F5", // neutral icon chip bg

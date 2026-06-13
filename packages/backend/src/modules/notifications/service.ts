@@ -4,7 +4,7 @@
 // 12-nudge cadence. Sending is delegated to PUSH_PROVIDER dispatch (out of scope
 // here); this owns the scheduling decision.
 import type { Pool } from "pg";
-import { maybeOne, one, audit } from "../../db/db.js";
+import { many, maybeOne, one, audit } from "../../db/db.js";
 
 export interface NotifPrefs {
   push_enabled: boolean;
@@ -123,5 +123,45 @@ export class NotificationService {
       status: row.status,
     });
     return row;
+  }
+
+  // ---- Member notification center (Design spec D1) ----
+
+  /** My recent notifications, newest first, plus the unread badge count. */
+  async listMine(userId: string, limit = 50): Promise<{ data: unknown[]; unread: number }> {
+    const data = await many(
+      this.pool,
+      `SELECT notification_id, template, payload, status, scheduled_for, sent_at, read_at
+         FROM notifications
+        WHERE user_id = $1 AND status <> 'suppressed'
+        ORDER BY scheduled_for DESC
+        LIMIT $2`,
+      [userId, Math.min(Math.max(limit, 1), 100)],
+    );
+    const unread = await one<{ n: number }>(
+      this.pool,
+      `SELECT count(*)::int AS n FROM notifications
+        WHERE user_id = $1 AND status = 'sent' AND read_at IS NULL`,
+      [userId],
+    );
+    return { data, unread: unread.n };
+  }
+
+  /** Mark all (or the given ids) read for this user. Idempotent. */
+  async markRead(userId: string, ids?: string[]): Promise<{ marked: number }> {
+    // Only delivered rows are markable — matches the unread-badge definition.
+    const res = ids?.length
+      ? await this.pool.query(
+          `UPDATE notifications SET read_at = now()
+            WHERE user_id = $1 AND status = 'sent' AND read_at IS NULL
+              AND notification_id = ANY($2::uuid[])`,
+          [userId, ids],
+        )
+      : await this.pool.query(
+          `UPDATE notifications SET read_at = now()
+            WHERE user_id = $1 AND status = 'sent' AND read_at IS NULL`,
+          [userId],
+        );
+    return { marked: res.rowCount ?? 0 };
   }
 }

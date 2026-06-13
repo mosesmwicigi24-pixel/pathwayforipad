@@ -21,6 +21,7 @@ import { ThreadScreen } from "../screens/ThreadScreen.js";
 import { GiftsScreen } from "../screens/GiftsScreen.js";
 import { PrayerJournalScreen } from "../screens/PrayerJournalScreen.js";
 import { VerseLibraryScreen } from "../screens/VerseLibraryScreen.js";
+import { NotificationsScreen } from "../screens/NotificationsScreen.js";
 import { ModuleScreen } from "../screens/ModuleScreen.js";
 import { QuizScreen } from "../screens/QuizScreen.js";
 import { GivingScreen } from "../screens/GivingScreen.js";
@@ -38,8 +39,8 @@ function Tabs(): ReactElement {
     >
       <Tab.Screen name="Home" component={HomeDashboardScreen} />
       <Tab.Screen name="Pathway" component={LevelsScreen} />
-      <Tab.Screen name="Give" component={GivingScreen} />
       <Tab.Screen name="Community" component={CommunityScreen} />
+      <Tab.Screen name="Give" component={GivingScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
@@ -61,6 +62,7 @@ export function RootNavigator(): ReactElement {
         <Stack.Screen name="Gifts" component={GiftsScreen} />
         <Stack.Screen name="PrayerJournal" component={PrayerJournalScreen} />
         <Stack.Screen name="VerseLibrary" component={VerseLibraryScreen} />
+        <Stack.Screen name="Notifications" component={NotificationsScreen} />
         <Stack.Screen name="EventDetail" component={EventDetailScreen} />
       </Stack.Navigator>
     </NavigationContainer>

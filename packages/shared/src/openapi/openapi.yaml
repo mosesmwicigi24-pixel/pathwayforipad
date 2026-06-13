@@ -1336,6 +1336,30 @@ paths:
       responses:
         "200": { description: Deleted (idempotent) }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/notifications:
+    get:
+      tags: [progress]
+      summary: My notification center — recent notifications + unread badge count.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200": { description: Notifications + unread count }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/notifications/read:
+    post:
+      tags: [progress]
+      summary: Mark all (or the given ids) read. Idempotent display state.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: { type: array, minItems: 1, items: { type: string, format: uuid } }
+      responses:
+        "200": { description: Marked count }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /me/password:
     post:
       tags: [auth]

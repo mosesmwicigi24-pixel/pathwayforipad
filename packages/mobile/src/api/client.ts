@@ -20,6 +20,9 @@ import type {
   ModuleDetail,
   GiftAssessment,
   GiftQuestion,
+  MyAnnouncement,
+  NotificationRow,
+  ScripturePassage,
   MyGifts,
   MyReflection,
   PathwaySummary,
@@ -253,6 +256,30 @@ export const NuruApi = {
   },
   async deleteVerse(savedVerseId: string): Promise<unknown> {
     const { data } = await api.delete(`/me/verses/${savedVerseId}`);
+    return data;
+  },
+
+  // ---- Notification center + home extras (D1) ----
+  async notifications(): Promise<{ data: NotificationRow[]; unread: number }> {
+    const { data } = await api.get<{ data: NotificationRow[]; unread: number }>("/me/notifications");
+    return data;
+  },
+  async markNotificationsRead(ids?: string[]): Promise<{ marked: number }> {
+    const { data } = await api.post<{ marked: number }>("/me/notifications/read", ids?.length ? { ids } : {});
+    return data;
+  },
+  async myAnnouncements(): Promise<MyAnnouncement[]> {
+    const { data } = await api.get<{ data: MyAnnouncement[] }>("/me/announcements");
+    return data.data;
+  },
+  async openAnnouncement(id: string): Promise<unknown> {
+    const { data } = await api.post(`/announcements/${id}/open`);
+    return data;
+  },
+  async scripture(ref: string, version?: string): Promise<ScripturePassage> {
+    const { data } = await api.get<ScripturePassage>("/scripture", {
+      params: { ref, ...(version ? { version } : {}) },
+    });
     return data;
   },
 

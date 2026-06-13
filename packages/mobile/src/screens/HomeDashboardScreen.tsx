@@ -1,18 +1,53 @@
-// Home (Figma "HomeTab"). The warm daily anchor: greeting, quick stats, a welcome
-// video hero, quick-start shortcuts, the scripture of the day, and a Continue card
-// that jumps back into the active level. Offline-first: everything renders instantly
-// from local content; nothing here blocks on the network.
-import { useMemo, type ReactElement } from "react";
+// Home (new design, spec §1 — docs/MOBILE_DESIGN_SPEC.md). The warm daily
+// anchor: navy header (serif greeting, EAT date, bell with unread badge,
+// level status chip), featured welcome video, the real resume card, today's
+// rhythm with streak, progress snapshot, story card, upcoming events, the
+// verse for today (WEB default per D-M4), encouragement, and announcements —
+// real data wherever the API serves it; spec demo content elsewhere.
+import { useMemo, useState, type ReactElement } from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { BookOpen, CalendarDays, ChevronRight, HandCoins, Play, Users } from "lucide-react-native";
+import {
+  BadgeCheck,
+  Bell,
+  BookOpen,
+  Check,
+  ChevronRight,
+  Clock,
+  Flame,
+  Heart,
+  Megaphone,
+  Play,
+  Share2,
+  Sparkles,
+  Target,
+  Users,
+} from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
-import { palette, radii, spacing, shadow, type as typ } from "../theme/tokens";
-import { Card, GradientBg, T } from "../theme/components";
-import { useAchievements, useCalendar, useMe, usePathway } from "../api/hooks";
-import { errorMessage } from "../api/query";
+import { palette, radii, spacing, shadow } from "../theme/tokens";
+import { GradientBg, Glow, T } from "../theme/components";
+import {
+  useAchievements,
+  useCalendar,
+  useMe,
+  useMyAnnouncements,
+  useNotifications,
+  usePathway,
+  useScripture,
+} from "../api/hooks";
+import { NuruApi } from "../api/client";
+import { errorMessage, invalidateQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
+
+function todayKicker(): string {
+  const d = new Date();
+  const date = d
+    .toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })
+    .toUpperCase()
+    .replace(",", " ·");
+  return `${date} · EAT`;
+}
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -21,44 +56,45 @@ function greeting(): string {
   return "Good evening";
 }
 
-function todayLabel(): string {
-  return new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-}
-
 function firstName(full?: string | null): string {
   return (full ?? "Friend").trim().split(/\s+/)[0] ?? "Friend";
 }
 
-function initials(full?: string | null): string {
-  const parts = (full ?? "").trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "NP";
-  const a = parts[0]?.[0] ?? "";
-  const b = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
-  return (a + b).toUpperCase() || "NP";
-}
+const RHYTHM: Array<{ key: "prayer" | "word" | "reflection"; label: string }> = [
+  { key: "prayer", label: "Prayer" },
+  { key: "word", label: "Word" },
+  { key: "reflection", label: "Reflection" },
+];
 
 export function HomeDashboardScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: pathway, isLoading, error, refetch } = usePathway();
   const { data: me } = useMe();
   const { data: achievements } = useAchievements();
-  // Calendar folds into Home (M1): the next 7 days, stable range per mount.
+  const { data: notifications } = useNotifications();
+  const { data: announcements, refetch: refetchAnnouncements } = useMyAnnouncements();
+  const { data: verse } = useScripture("Psalm 119:105");
   const [fromIso, toIso] = useMemo(() => {
     const now = new Date();
     return [now.toISOString(), new Date(now.getTime() + 7 * 86_400_000).toISOString()];
   }, []);
   const { data: occurrences } = useCalendar(fromIso, toIso);
 
+  // Today's rhythm — local, device-day state (D-M5: habit check-ins are
+  // last-write-wins convenience state, not server-gated progress).
+  const [rhythm, setRhythm] = useState<Record<string, boolean>>({ prayer: false, word: false, reflection: false });
+  const rhythmDone = RHYTHM.filter((r) => rhythm[r.key]).length;
+
   if (isLoading) {
     return (
-      <View style={[st.screen, { alignItems: "center", justifyContent: "center" }]}>
+      <View style={[st.screen, st.center]}>
         <Loading label="Loading your dashboard…" />
       </View>
     );
   }
   if (error || !pathway) {
     return (
-      <View style={[st.screen, { alignItems: "center", justifyContent: "center" }]}>
+      <View style={[st.screen, st.center]}>
         <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />
       </View>
     );
@@ -73,246 +109,518 @@ export function HomeDashboardScreen(): ReactElement {
   const doneModules = pathway.levels.reduce((s, l) => s + l.completed_modules, 0);
   const overallPct = totalModules > 0 ? Math.round((doneModules / totalModules) * 100) : 0;
   const streak = achievements?.streak?.current ?? 0;
+  const unread = notifications?.unread ?? 0;
+  const modulesLeft = active ? active.total_modules - active.completed_modules : 0;
+  const habitsPct = Math.round((rhythmDone / 3) * 100);
 
-  const quickStats = [
-    { label: "Current", value: `L${pathway.current_level}` },
-    { label: "Streak", value: `${streak}d` },
-    { label: "Progress", value: `${overallPct}%` },
-  ] as const;
-
-  const quickStarts = [
-    { label: "Lesson", Icon: BookOpen, onPress: () => nav.navigate("Tabs", { screen: "Pathway" }) },
-    { label: "Give", Icon: HandCoins, onPress: () => nav.navigate("Tabs", { screen: "Give" }) },
-    { label: "Events", Icon: CalendarDays, onPress: () => nav.navigate("Calendar") },
-    { label: "Community", Icon: Users, onPress: () => nav.navigate("Tabs", { screen: "Community" }) },
-  ] as const;
+  const openAnnouncement = (id: string): void => {
+    void NuruApi.openAnnouncement(id)
+      .then(() => {
+        invalidateQueries("myAnnouncements");
+        void refetchAnnouncements();
+      })
+      .catch(() => undefined);
+    nav.navigate("Tabs", { screen: "Community" });
+  };
 
   return (
-    <ScrollView style={st.screen} contentContainerStyle={st.body} showsVerticalScrollIndicator={false}>
-      {/* Greeting */}
-      <View style={st.headRow}>
-        <View style={{ flex: 1 }}>
-          <T variant="micro" tone="gold" style={st.kicker}>{todayLabel().toUpperCase()}</T>
-          <T variant="title" style={{ marginTop: spacing.sm }}>{`${greeting()}, ${firstName(me?.profile?.full_name)}.`}</T>
-          <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>Grace for today&apos;s step.</T>
-        </View>
-        <View style={st.avatar}>
-          <T variant="label" style={{ color: palette.gold }}>{initials(me?.profile?.full_name)}</T>
-        </View>
-      </View>
-
-      {/* Quick stats */}
-      <View style={st.statRow}>
-        {quickStats.map((s) => (
-          <View key={s.label} style={st.statCard}>
-            <T variant="heading" style={{ fontSize: 17 }}>{s.value}</T>
-            <T variant="micro" tone="tertiary" style={{ marginTop: 4 }}>{s.label}</T>
+    <ScrollView style={st.screen} contentContainerStyle={{ paddingBottom: spacing.xl }} showsVerticalScrollIndicator={false}>
+      {/* ── Navy header ─────────────────────────────────────────────── */}
+      <View style={st.header}>
+        <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -70, top: -70 }} />
+        <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T variant="micro" tone="gold" style={st.kicker}>{todayKicker()}</T>
+            <T serif tone="onNavy" style={st.greeting}>{`${greeting()}, ${firstName(me?.profile?.full_name)}.`}</T>
+            <T variant="body" tone="onNavyDim" style={{ marginTop: 4 }}>Grace for today's step.</T>
           </View>
-        ))}
-      </View>
-
-      {/* Welcome video */}
-      <Pressable style={({ pressed }) => [st.videoCard, pressed && st.press]}>
-        <View style={st.videoHero}>
-          <GradientBg colors={[palette.navy, palette.navyMid, palette.gold]} />
-          <View style={st.playBtn}>
-            <Play size={22} color={palette.navy} fill={palette.navy} />
-          </View>
-          <View style={st.durBadge}>
-            <T variant="micro" style={{ color: "rgba(255,255,255,0.85)" }}>2:05</T>
-          </View>
-        </View>
-        <View style={{ padding: spacing.base }}>
-          <T variant="overline" tone="gold">WELCOME VIDEO</T>
-          <T variant="heading" style={{ marginTop: 4 }}>Welcome to Pathway Discipleship</T>
-          <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>
-            A short introduction to your journey, lessons, mentors, and next steps.
-          </T>
-        </View>
-      </Pressable>
-
-      {/* Quick starts */}
-      <View style={st.quickRow}>
-        {quickStarts.map(({ label, Icon, onPress }) => (
-          <Pressable key={label} onPress={onPress} style={({ pressed }) => [st.quickCard, pressed && st.press]}>
-            <Icon size={17} color={palette.navy} strokeWidth={1.9} />
-            <T variant="micro" tone="secondary" style={{ marginTop: spacing.sm }}>{label}</T>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+            onPress={() => nav.navigate("Notifications")}
+            style={({ pressed }) => [st.bellBtn, pressed && { transform: [{ scale: 0.95 }] }]}
+          >
+            <Bell size={20} color={palette.onNavy} strokeWidth={1.8} />
+            {unread > 0 ? (
+              <View style={st.bellBadge}>
+                <T variant="micro" style={{ color: palette.navy, fontWeight: "700", fontSize: 10 }}>
+                  {unread > 9 ? "9+" : String(unread)}
+                </T>
+              </View>
+            ) : null}
           </Pressable>
-        ))}
+        </View>
+        {active ? (
+          <View style={st.statusChip}>
+            <T variant="caption" style={{ color: palette.goldGlow, fontWeight: "600" }}>
+              {`Level ${active.level_number} · ${active.completed_modules} of ${active.total_modules} modules · ${streak}d streak`}
+            </T>
+          </View>
+        ) : null}
       </View>
 
-      {/* Scripture */}
-      <Card accent style={{ marginTop: spacing.base, padding: spacing.lg }}>
-        <T variant="overline" tone="gold">SCRIPTURE FOR TODAY</T>
-        <T style={[typ.bodyLg, { marginTop: spacing.md, color: palette.ink }]}>
-          &ldquo;Your word is a lamp for my feet, a light on my path.&rdquo;
-        </T>
-        <T variant="caption" tone="secondary" style={{ marginTop: spacing.md, fontWeight: "500" }}>Psalm 119:105</T>
-      </Card>
-
-      {/* Upcoming events (calendar folded into Home, M1) */}
-      {(occurrences ?? []).length > 0 ? (
-        <View style={{ marginTop: spacing.base }}>
-          <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" }}>
-            <T variant="overline" tone="secondary">THIS WEEK</T>
-            <Pressable onPress={() => nav.navigate("Calendar")}>
-              <T variant="micro" tone="gold">All events ›</T>
-            </Pressable>
+      <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.base, gap: spacing.base }}>
+        {/* ── Featured welcome video ─────────────────────────────────── */}
+        <View style={st.featuredCard}>
+          <View style={st.channelRow}>
+            <View style={st.channelAvatar}>
+              <T variant="micro" style={{ color: palette.gold, fontWeight: "700" }}>N</T>
+            </View>
+            <T variant="caption" style={{ fontWeight: "600" }}>Nuru Pathway</T>
+            <BadgeCheck size={14} color={palette.gold} />
+            <View style={{ flex: 1 }} />
+            <T variant="micro" tone="tertiary" style={{ letterSpacing: 1.2 }}>FEATURED</T>
           </View>
-          {(occurrences ?? []).slice(0, 3).map((e) => (
-            <Pressable
-              key={e.occurrence_id}
-              onPress={() =>
-                nav.navigate("EventDetail", {
-                  eventId: e.occurrence_id,
-                  title: e.title,
-                  startAt: e.start_at,
-                  endAt: e.end_at,
-                  location: e.location,
-                })
-              }
-              style={({ pressed }) => [st.eventRow, pressed && st.press]}
-            >
-              <View style={st.eventDate}>
-                <T variant="micro" style={{ color: palette.gold }}>
-                  {new Date(e.start_at).toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}
-                </T>
-                <T variant="heading" tone="onNavy" style={{ fontSize: 16 }}>
-                  {new Date(e.start_at).getDate()}
-                </T>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Play welcome video"
+            onPress={() => (active ? nav.navigate("Level", { levelId: active.level_number }) : undefined)}
+            style={({ pressed }) => [st.thumb, pressed && { opacity: 0.92 }]}
+          >
+            <GradientBg colors={[palette.navy, palette.navy700, palette.gold]} radius={16} />
+            <View style={st.playBtn}>
+              <Play size={24} color={palette.navy} fill={palette.navy} />
+            </View>
+            <View style={st.durBadge}>
+              <T variant="micro" style={{ color: "rgba(255,255,255,0.9)" }}>12:40</T>
+            </View>
+          </Pressable>
+          <T variant="heading" style={{ marginTop: spacing.md, fontSize: 17 }}>Welcome to the Pathway</T>
+          <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>Start here — what the journey looks like</T>
+          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
+            {["Intro", "Level overview", "Testimonies"].map((c) => (
+              <View key={c} style={st.chip}>
+                <T variant="micro" tone="secondary">{c}</T>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* ── Resume card (real pathway data) ────────────────────────── */}
+        {active ? (
+          <View style={st.card}>
+            <View style={{ flexDirection: "row", gap: spacing.md }}>
+              <View style={st.resumeTile}>
+                <Play size={20} color={palette.goldLo} fill={palette.goldLo} />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <T variant="heading" style={{ fontSize: 15 }}>{e.title}</T>
+                <T variant="micro" style={st.resumeKicker}>{`CONTINUE · LEVEL ${active.level_number}`}</T>
+                <T serif style={st.resumeTitle}>{active.title}</T>
                 <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>
-                  {new Date(e.start_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                  {e.location ? ` · ${e.location}` : ""}
+                  {`${active.completed_modules} of ${active.total_modules} modules`}
                 </T>
               </View>
-              <ChevronRight size={16} color={palette.navy} />
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.md }}>
+              <View style={st.track}>
+                <View style={[st.fill, { width: `${activePct}%` }]} />
+              </View>
+              <T variant="caption" style={{ color: palette.goldLo, fontWeight: "600" }}>{`${activePct}% complete`}</T>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => nav.navigate("Level", { levelId: active.level_number })}
+              style={({ pressed }) => [st.continueBtn, pressed && { transform: [{ scale: 0.99 }] }]}
+            >
+              <T variant="heading" style={{ color: palette.goldGlow, fontSize: 15 }}>Continue ›</T>
             </Pressable>
-          ))}
-        </View>
-      ) : null}
-
-      {/* Continue */}
-      {active ? (
-        <Pressable onPress={() => nav.navigate("Level", { levelId: active.level_number })} style={({ pressed }) => [st.continueCard, pressed && st.press]}>
-          <View style={st.continueIcon}>
-            <BookOpen size={19} color={palette.gold} />
           </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <T variant="micro" tone="gold">CONTINUE</T>
-            <T variant="heading" tone="onNavy" style={{ marginTop: 2 }}>{`Level ${active.level_number}: ${active.title}`}</T>
-            <View style={st.continueTrack}>
-              <View style={[st.continueFill, { width: `${activePct}%` }]} />
+        ) : null}
+
+        {/* ── Today's rhythm ─────────────────────────────────────────── */}
+        <View style={st.card}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <T variant="heading" style={{ flex: 1, fontSize: 15 }}>
+              {rhythmDone === 3 ? "Today's rhythm complete 🎉" : "Today's rhythm"}
+            </T>
+            <View style={st.streakChip}>
+              <Flame size={12} color={palette.goldChipText} fill={palette.goldChipText} />
+              <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "600" }}>{`${streak}-day streak`}</T>
             </View>
           </View>
-          <ChevronRight size={18} color={palette.gold} />
+          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
+            {RHYTHM.map(({ key, label }) => {
+              const done = rhythm[key] === true;
+              return (
+                <Pressable
+                  key={key}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: done }}
+                  onPress={() => setRhythm((prev) => ({ ...prev, [key]: !prev[key] }))}
+                  style={[st.habitTile, { backgroundColor: done ? palette.successBg : palette.goldChipBg }]}
+                >
+                  <View style={[st.habitDot, { backgroundColor: done ? palette.successText : palette.white }]}>
+                    {done ? <Check size={12} color={palette.white} /> : <Clock size={12} color={palette.goldLo} />}
+                  </View>
+                  <T variant="caption" style={{ fontWeight: "600", color: done ? palette.successText : palette.goldChipText }}>
+                    {label}
+                  </T>
+                  <T variant="micro" style={{ color: done ? palette.successText : palette.goldChipText, opacity: 0.8 }}>
+                    {done ? "DONE" : "PENDING"}
+                  </T>
+                </Pressable>
+              );
+            })}
+          </View>
+          {!rhythm.reflection ? (
+            <T variant="micro" tone="tertiary" style={{ marginTop: spacing.sm }}>
+              Complete reflection to keep your rhythm.
+            </T>
+          ) : null}
+        </View>
+
+        {/* ── Your progress ──────────────────────────────────────────── */}
+        <View style={st.card}>
+          <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+            <T variant="heading" style={{ flex: 1, fontSize: 15 }}>Your progress</T>
+            <Pressable onPress={() => nav.navigate("Tabs", { screen: "Pathway" })}>
+              <T variant="micro" style={{ color: palette.goldLo, fontWeight: "600" }}>View pathway ›</T>
+            </Pressable>
+          </View>
+          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
+            {(
+              [
+                { label: "Habits", value: `${habitsPct}%`, fill: palette.gold, pct: habitsPct },
+                { label: "Curriculum", value: `${overallPct}%`, fill: palette.navy, pct: overallPct },
+                { label: "Streak", value: `${streak}d`, fill: palette.success, pct: Math.min(100, streak * 10) },
+              ] as const
+            ).map((m) => (
+              <View key={m.label} style={st.metricTile}>
+                <T serif style={{ fontSize: 22, color: palette.ink }}>{m.value}</T>
+                <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>{m.label}</T>
+                <View style={[st.miniTrack, { marginTop: spacing.sm }]}>
+                  <View style={{ width: `${m.pct}%`, height: "100%", borderRadius: 2, backgroundColor: m.fill }} />
+                </View>
+              </View>
+            ))}
+          </View>
+          {active && modulesLeft > 0 ? (
+            <View style={st.targetStrip}>
+              <View style={st.targetTile}>
+                <Target size={14} color={palette.goldLo} />
+              </View>
+              <T variant="caption" tone="secondary">
+                <T variant="caption" style={{ fontWeight: "700", color: palette.ink }}>{`${modulesLeft} module${modulesLeft === 1 ? "" : "s"}`}</T>
+                {` left before Level ${active.level_number + 1}`}
+              </T>
+            </View>
+          ) : null}
+        </View>
+
+        {/* ── This week at Nuru (story) ──────────────────────────────── */}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => nav.navigate("Tabs", { screen: "Community" })}
+          style={({ pressed }) => [st.card, pressed && { transform: [{ scale: 0.99 }] }]}
+        >
+          <View style={st.storyImage}>
+            <GradientBg colors={[palette.navy700, palette.navy, palette.goldLo]} radius={16} />
+          </View>
+          <T variant="micro" style={[st.resumeKicker, { marginTop: spacing.md }]}>THIS WEEK AT NURU</T>
+          <T serif style={{ fontSize: 18, color: palette.ink, marginTop: 4 }}>Cohort gathered for a new beginning</T>
+          <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>
+            A glimpse of grace as the journey continues — see what your community shared this week.
+          </T>
+          <T variant="micro" style={{ color: palette.goldLo, fontWeight: "600", marginTop: spacing.sm }}>Read more ›</T>
         </Pressable>
-      ) : null}
+
+        {/* ── Upcoming (real calendar) ───────────────────────────────── */}
+        {(occurrences ?? []).length > 0 ? (
+          <View style={st.card}>
+            <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+              <T variant="heading" style={{ flex: 1, fontSize: 15 }}>Upcoming</T>
+              <Pressable onPress={() => nav.navigate("Calendar")}>
+                <T variant="micro" style={{ color: palette.goldLo, fontWeight: "600" }}>See all ›</T>
+              </Pressable>
+            </View>
+            {(occurrences ?? []).slice(0, 3).map((e) => (
+              <Pressable
+                key={e.occurrence_id}
+                onPress={() =>
+                  nav.navigate("EventDetail", {
+                    eventId: e.occurrence_id,
+                    title: e.title,
+                    startAt: e.start_at,
+                    endAt: e.end_at,
+                    location: e.location,
+                  })
+                }
+                style={({ pressed }) => [st.eventRow, pressed && { opacity: 0.85 }]}
+              >
+                <View style={st.eventDate}>
+                  <T variant="micro" style={{ color: palette.gold, fontWeight: "700" }}>
+                    {new Date(e.start_at).toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}
+                  </T>
+                  <T serif tone="onNavy" style={{ fontSize: 16 }}>{String(new Date(e.start_at).getDate())}</T>
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <T variant="micro" style={{ color: palette.goldLo, fontWeight: "600" }}>
+                    {new Date(e.start_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                  </T>
+                  <T variant="heading" style={{ fontSize: 14, marginTop: 1 }} numberOfLines={1}>{e.title}</T>
+                  {e.location ? (
+                    <T variant="micro" tone="tertiary" numberOfLines={1}>{e.location}</T>
+                  ) : null}
+                </View>
+                <ChevronRight size={16} color={palette.ink300} />
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
+        {/* ── Verse for today (WEB default, D-M4) ────────────────────── */}
+        <View style={st.verseCard}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <BookOpen size={13} color={palette.goldChipText} />
+            <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>
+              VERSE FOR TODAY
+            </T>
+            <View style={{ flex: 1 }} />
+            <View style={st.versionPill}>
+              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>{verse?.version ?? "WEB"} ▾</T>
+            </View>
+          </View>
+          <T serif style={{ fontSize: 18, lineHeight: 27, color: palette.ink, marginTop: spacing.md }}>
+            {verse?.text ?? "“Your word is a lamp to my feet, and a light for my path.”"}
+          </T>
+          <T variant="caption" tone="secondary" style={{ marginTop: spacing.sm, fontWeight: "500" }}>
+            {`${verse?.reference ?? "Psalm 119:105"} · ${verse?.version ?? "WEB"}`}
+          </T>
+          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
+            <Pressable onPress={() => nav.navigate("VerseLibrary")} style={st.versePillBtn}>
+              <Heart size={13} color={palette.ink600} />
+              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>Save</T>
+            </Pressable>
+            <View style={st.versePillBtn}>
+              <Share2 size={13} color={palette.ink600} />
+              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>Share</T>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Encouragement ──────────────────────────────────────────── */}
+        <View style={st.encourageStrip}>
+          <View style={st.encourageTile}>
+            <Sparkles size={14} color={palette.goldLo} />
+          </View>
+          <T serif style={{ flex: 1, fontSize: 14, fontStyle: "italic", color: palette.ink600 }}>
+            {rhythmDone === 3
+              ? "Beautifully done today."
+              : "You're one reflection away from completing this week's rhythm."}
+          </T>
+        </View>
+
+        {/* ── Announcements (real, B5) ───────────────────────────────── */}
+        {(announcements ?? []).length > 0 ? (
+          <View style={st.card}>
+            <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+              <T variant="heading" style={{ flex: 1, fontSize: 15 }}>Announcements</T>
+              <Pressable onPress={() => nav.navigate("Tabs", { screen: "Community" })}>
+                <T variant="micro" style={{ color: palette.goldLo, fontWeight: "600" }}>View all ›</T>
+              </Pressable>
+            </View>
+            {(announcements ?? []).slice(0, 3).map((a) => (
+              <Pressable
+                key={a.announcement_id}
+                onPress={() => openAnnouncement(a.announcement_id)}
+                style={({ pressed }) => [st.annRow, pressed && { opacity: 0.85 }]}
+              >
+                <View style={st.annTile}>
+                  <Megaphone size={16} color={palette.navy} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <T variant="heading" style={{ fontSize: 14 }} numberOfLines={1}>{a.title}</T>
+                  <T variant="micro" tone="tertiary" numberOfLines={1}>
+                    {a.sent_at ? new Date(a.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}
+                  </T>
+                </View>
+                {!a.opened ? <View style={st.unreadDot} /> : null}
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
+        {/* ── Your cohort ────────────────────────────────────────────── */}
+        <View style={st.card}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <View style={{ flex: 1 }}>
+              <T variant="heading" style={{ fontSize: 15 }}>Your cohort</T>
+              <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>Walking the pathway together</T>
+            </View>
+            <View style={st.cohortAvatars}>
+              <Users size={16} color={palette.navy} />
+            </View>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => nav.navigate("Tabs", { screen: "Community" })}
+            style={({ pressed }) => [st.cohortBtn, pressed && { opacity: 0.85 }]}
+          >
+            <T variant="caption" style={{ fontWeight: "600", color: palette.navy }}>Open community ›</T>
+          </Pressable>
+        </View>
+      </View>
     </ScrollView>
   );
 }
 
 const st = {
-  screen: { flex: 1, backgroundColor: palette.paper },
-  body: { paddingHorizontal: spacing.screen, paddingTop: 54, paddingBottom: spacing.xl },
-  headRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.base },
-  kicker: { letterSpacing: 1.6, textTransform: "uppercase" },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+  screen: { flex: 1, backgroundColor: "#F6F4EE" },
+  center: { alignItems: "center", justifyContent: "center" },
+  header: {
     backgroundColor: palette.navy,
+    paddingHorizontal: spacing.screen,
+    paddingTop: 58,
+    paddingBottom: spacing.lg,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    overflow: "hidden",
+  },
+  kicker: { letterSpacing: 2.4, fontWeight: "600" },
+  greeting: { fontSize: 28, lineHeight: 34, marginTop: spacing.sm, fontWeight: "600" },
+  bellBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.10)",
     alignItems: "center",
     justifyContent: "center",
   },
-  statRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.lg },
-  statCard: {
-    flex: 1,
-    backgroundColor: "rgba(255,255,255,0.85)",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+  bellBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: palette.gold,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
   },
-  videoCard: {
+  statusChip: {
+    alignSelf: "flex-start",
     marginTop: spacing.base,
+    borderWidth: 1,
+    borderColor: "rgba(201,162,39,0.55)",
+    borderRadius: radii.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  card: {
     backgroundColor: palette.white,
-    borderRadius: 26,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: palette.border,
-    overflow: "hidden",
+    padding: spacing.base,
     ...shadow.card,
   },
-  videoHero: { height: 144, alignItems: "center", justifyContent: "center" },
+  featuredCard: {
+    backgroundColor: "#EEF0F3",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: spacing.base,
+    ...shadow.card,
+  },
+  channelRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: spacing.md },
+  channelAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
+  thumb: { height: 170, borderRadius: 16, overflow: "hidden", alignItems: "center", justifyContent: "center" },
   playBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: palette.white,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: palette.gold,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.6)",
   },
   durBadge: {
     position: "absolute",
     right: 12,
     bottom: 12,
-    backgroundColor: "rgba(0,0,0,0.25)",
+    backgroundColor: "rgba(0,0,0,0.45)",
     borderRadius: radii.pill,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-  quickRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.base },
-  quickCard: {
-    flex: 1,
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.85)",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    paddingVertical: spacing.md,
-  },
-  continueCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    marginTop: spacing.base,
+  chip: { backgroundColor: palette.white, borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: palette.border },
+  resumeTile: { width: 44, height: 44, borderRadius: 14, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
+  resumeKicker: { color: palette.goldLo, fontWeight: "700", letterSpacing: 1.8 },
+  resumeTitle: { fontSize: 19, color: palette.ink, marginTop: 2 },
+  track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: palette.track, overflow: "hidden" },
+  fill: { height: "100%", borderRadius: 3, backgroundColor: palette.gold },
+  continueBtn: {
+    marginTop: spacing.md,
     backgroundColor: palette.navy,
-    borderRadius: 24,
-    padding: spacing.base,
-    ...shadow.card,
-  },
-  continueIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.10)",
+    borderRadius: 16,
     alignItems: "center",
-    justifyContent: "center",
+    paddingVertical: 14,
   },
-  continueTrack: { marginTop: spacing.sm, height: 4, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.10)", overflow: "hidden" },
-  continueFill: { height: "100%", borderRadius: 4, backgroundColor: palette.gold },
-  eventRow: {
+  streakChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: palette.goldChipBg,
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  habitTile: { flex: 1, alignItems: "center", gap: 4, borderRadius: 14, paddingVertical: spacing.md },
+  habitDot: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  metricTile: { flex: 1, backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
+  miniTrack: { height: 4, borderRadius: 2, backgroundColor: palette.track, overflow: "hidden" },
+  targetStrip: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
-    marginTop: spacing.sm,
-    backgroundColor: palette.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    borderRadius: 14,
     padding: spacing.md,
-    ...shadow.card,
+    marginTop: spacing.md,
   },
-  eventDate: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: palette.navy,
+  targetTile: { width: 28, height: 28, borderRadius: 9, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
+  storyImage: { height: 150, borderRadius: 16, overflow: "hidden" },
+  eventRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.md },
+  eventDate: { width: 46, height: 46, borderRadius: 14, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
+  verseCard: {
+    backgroundColor: palette.verseBg,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(201,162,39,0.35)",
+    padding: spacing.base,
+  },
+  versionPill: { backgroundColor: palette.white, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: palette.border },
+  versePillBtn: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 5,
+    backgroundColor: palette.white,
+    borderRadius: radii.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
-  press: { transform: [{ scale: 0.99 }] },
+  encourageStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: palette.surface,
+    borderRadius: 16,
+    padding: spacing.md,
+  },
+  encourageTile: { width: 32, height: 32, borderRadius: 10, backgroundColor: palette.white, alignItems: "center", justifyContent: "center", ...shadow.card },
+  annRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.md },
+  annTile: { width: 36, height: 36, borderRadius: 12, backgroundColor: palette.tintBlue, alignItems: "center", justifyContent: "center" },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.gold },
+  cohortAvatars: { width: 36, height: 36, borderRadius: 12, backgroundColor: palette.tintBlue, alignItems: "center", justifyContent: "center" },
+  cohortBtn: {
+    marginTop: spacing.md,
+    backgroundColor: palette.surface,
+    borderRadius: 14,
+    alignItems: "center",
+    paddingVertical: 12,
+  },
 } as const;

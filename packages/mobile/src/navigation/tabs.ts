@@ -4,7 +4,7 @@ import type { TabParamList } from "./types";
 
 export type TabName = keyof TabParamList;
 
-export const TAB_ORDER: readonly TabName[] = ["Home", "Pathway", "Give", "Community", "Profile"];
+export const TAB_ORDER: readonly TabName[] = ["Home", "Pathway", "Community", "Give", "Profile"];
 
 export const TAB_LABELS: Record<TabName, string> = {
   Home: "Home",

@@ -5,21 +5,21 @@ import type { ReactElement } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import { BookOpen, HandCoins, Home, UserRound, Users, type LucideIcon } from "lucide-react-native";
+import { BookOpen, HandHeart, House, User, Users, type LucideIcon } from "lucide-react-native";
 import { palette, spacing } from "../theme/tokens";
 import { T } from "../theme/components";
 import { TAB_LABELS } from "./tabs";
 
 const ICONS: Record<string, LucideIcon> = {
-  Home,
+  Home: House,
   Pathway: BookOpen,
-  Give: HandCoins,
+  Give: HandHeart,
   Community: Users,
-  Profile: UserRound,
+  Profile: User,
 };
 
 const META: Record<string, { label: string; Icon: LucideIcon }> = Object.fromEntries(
-  Object.entries(TAB_LABELS).map(([name, label]) => [name, { label, Icon: ICONS[name] ?? Home }]),
+  Object.entries(TAB_LABELS).map(([name, label]) => [name, { label, Icon: ICONS[name] ?? House }]),
 );
 
 export function BottomTabBar({ state, navigation }: BottomTabBarProps): ReactElement {
@@ -28,7 +28,7 @@ export function BottomTabBar({ state, navigation }: BottomTabBarProps): ReactEle
     <View style={[st.bar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
       {state.routes.map((route, i) => {
         const focused = state.index === i;
-        const meta = META[route.name] ?? { label: route.name, Icon: Home };
+        const meta = META[route.name] ?? { label: route.name, Icon: House };
         const color = focused ? palette.gold : palette.onNavyFaint;
         const onPress = (): void => {
           const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });

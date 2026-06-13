@@ -3,6 +3,7 @@
 // hex. Icons are passed in as nodes so the set stays swappable.
 import type { ReactNode } from "react";
 import {
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -112,21 +113,30 @@ const toneColor: Record<TextTone, string> = {
   onNavyFaint: palette.onNavyFaint,
   gold: palette.goldLo,
 };
+// Display serif (new design: Fraunces on web → closest native faces here).
+export const SERIF = Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" });
+
 export function T({
   variant = "body",
   tone = "ink",
+  serif = false,
   style,
   numberOfLines,
   children,
 }: {
   variant?: keyof typeof typ;
   tone?: TextTone;
+  /** Display serif for titles/scripture/big numerals (spec: Fraunces). */
+  serif?: boolean;
   style?: StyleProp<TextStyle>;
   numberOfLines?: number;
   children: ReactNode;
 }): ReactNode {
   return (
-    <Text numberOfLines={numberOfLines} style={[typ[variant], { color: toneColor[tone] }, style]}>
+    <Text
+      numberOfLines={numberOfLines}
+      style={[typ[variant], { color: toneColor[tone] }, serif && { fontFamily: SERIF }, style]}
+    >
       {children}
     </Text>
   );

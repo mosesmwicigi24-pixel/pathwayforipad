@@ -244,3 +244,30 @@ export interface MyReflection {
   submitted_at: string;
   reviewed_at: string | null;
 }
+
+// ---- Notification center + home extras (Design spec D1) ----
+export interface NotificationRow {
+  notification_id: string;
+  template: string;
+  payload: Record<string, unknown>;
+  status: string;
+  scheduled_for: string;
+  sent_at: string | null;
+  read_at: string | null;
+}
+
+export interface MyAnnouncement {
+  announcement_id: string;
+  title: string;
+  body: string;
+  sent_at: string | null;
+  banner_expires_at: string | null;
+  opened: boolean;
+}
+
+export interface ScripturePassage {
+  reference: string;
+  version: string;
+  text: string;
+  copyright?: string;
+}

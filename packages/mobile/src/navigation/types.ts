@@ -26,5 +26,6 @@ export type RootStackParamList = {
   Gifts: undefined; // spiritual-gifts assessment + results (M3)
   PrayerJournal: undefined; // private journal (M3)
   VerseLibrary: undefined; // saved verses (M3)
+  Notifications: undefined; // notification center (D1)
   EventDetail: { eventId: string; title: string; startAt: string; endAt?: string; location?: string | null };
 };

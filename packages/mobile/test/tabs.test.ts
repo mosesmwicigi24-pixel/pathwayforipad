@@ -3,8 +3,8 @@ import { describe, it, expect } from "vitest";
 import { TAB_ORDER, TAB_LABELS } from "../src/navigation/tabs";
 
 describe("tab structure (Contract Matrix M1)", () => {
-  it("is Home · Pathway · Give · Community · Profile, in that order", () => {
-    expect([...TAB_ORDER]).toEqual(["Home", "Pathway", "Give", "Community", "Profile"]);
+  it("is Home · Pathway · Community · Give · Profile, in that order (new design)", () => {
+    expect([...TAB_ORDER]).toEqual(["Home", "Pathway", "Community", "Give", "Profile"]);
   });
 
   it("retires the old destinations (Levels/Calendar/Portal/Chat)", () => {

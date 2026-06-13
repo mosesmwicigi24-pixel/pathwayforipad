@@ -11,8 +11,11 @@ import type {
   GivingRecord,
   GiftQuestion,
   GivingSchedule,
+  MyAnnouncement,
   MyGifts,
   MyReflection,
+  NotificationRow,
+  ScripturePassage,
   LevelModule,
   ModuleDetail,
   PathwaySummary,
@@ -40,6 +43,9 @@ export const queryKeys = {
   prayers: "prayers",
   verses: "verses",
   myReflection: (moduleId: string) => `myReflection:${moduleId}`,
+  notifications: "notifications",
+  myAnnouncements: "myAnnouncements",
+  scripture: (ref: string, version: string) => `scripture:${ref}:${version}`,
 };
 
 export function useMe(): QueryResult<MeResponse> {
@@ -121,5 +127,20 @@ export function useVerses(): QueryResult<SavedVerse[]> {
 export function useMyReflection(moduleId: string | null): QueryResult<MyReflection | null> {
   return useQuery(moduleId ? queryKeys.myReflection(moduleId) : null, () => NuruApi.myReflection(moduleId ?? ""), {
     staleMs: 15_000,
+  });
+}
+
+export function useNotifications(): QueryResult<{ data: NotificationRow[]; unread: number }> {
+  return useQuery(queryKeys.notifications, () => NuruApi.notifications(), { staleMs: 20_000 });
+}
+
+export function useMyAnnouncements(): QueryResult<MyAnnouncement[]> {
+  return useQuery(queryKeys.myAnnouncements, () => NuruApi.myAnnouncements(), { staleMs: 30_000 });
+}
+
+/** Verse of the day (WEB default per D-M4 — public-domain translation). */
+export function useScripture(ref: string, version = "WEB"): QueryResult<ScripturePassage> {
+  return useQuery(queryKeys.scripture(ref, version), () => NuruApi.scripture(ref, version), {
+    staleMs: 24 * 60 * 60 * 1000,
   });
 }
