@@ -7,7 +7,8 @@ describe("portal nav gating", () => {
     const sections = visibleSections("Admin");
     const ids = sections.flatMap((s) => s.items.map((i) => i.id));
     expect(ids).toContain("dashboard");
-    expect(ids).toContain("curriculum");
+    expect(ids).toContain("curriculum-levels");
+    expect(ids).toContain("cms");
     expect(ids).toContain("members");
     expect(ids).toContain("finance");
     expect(ids).toContain("audit");
