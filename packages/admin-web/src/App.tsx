@@ -22,6 +22,7 @@ import { Finance } from "./components/pages/Finance";
 import { Certificates } from "./components/pages/Certificates";
 import { Badges } from "./components/pages/Badges";
 import { MemberProfile } from "./components/pages/MemberProfile";
+import { Roles } from "./components/pages/Roles";
 import { Countries } from "./components/pages/Countries";
 import { Languages } from "./components/pages/Languages";
 import { Placeholder } from "./components/pages/Placeholder";
@@ -53,7 +54,7 @@ const router = createBrowserRouter([
       { path: "certificates", element: <Certificates /> },
       { path: "badges", element: <Badges /> },
       { path: "users", element: ph("System Users", "P4 — System") },
-      { path: "roles", element: ph("Roles & Permissions", "P4 — System") },
+      { path: "roles", element: <Roles /> },
       { path: "countries", element: <Countries /> },
       { path: "languages", element: <Languages /> },
       { path: "*", element: <Navigate to="/" replace /> },

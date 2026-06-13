@@ -481,6 +481,49 @@ paths:
         "200": { description: Deleted }
         "422": { $ref: "#/components/responses/Unprocessable" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/roles:
+    get:
+      tags: [system]
+      summary: RBAC. List roles with permission matrix + assigned-user counts (rolesAdmin:view, §5.4).
+      responses:
+        "200": { description: Roles }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [system]
+      summary: RBAC. Create a custom role (optionally copy permissions from another role) (rolesAdmin:create).
+      responses:
+        "201": { description: Created }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/roles/{key}:
+    put:
+      tags: [system]
+      summary: RBAC. Update a role's name/description/status (rolesAdmin:edit).
+      parameters: [{ name: key, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: Updated }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    delete:
+      tags: [system]
+      summary: RBAC. Delete a custom role (built-in roles are protected) (rolesAdmin:delete).
+      parameters: [{ name: key, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/roles/{key}/permissions:
+    put:
+      tags: [system]
+      summary: RBAC. Replace a role's permission matrix (Super Admin is always full) (rolesAdmin:edit).
+      parameters: [{ name: key, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: Permissions set }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
 
   # --- Progress, assessment & reflections (§3.3) ---
   /modules/{id}/complete:

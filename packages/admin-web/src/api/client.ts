@@ -220,6 +220,19 @@ export interface Language {
   coverage: number;
   status: "active" | "inactive";
 }
+export type Capability = "view" | "create" | "edit" | "delete" | "approve" | "export";
+export interface RolePermission { module_id: string; capability: Capability }
+export interface SystemRole {
+  role_key: string;
+  name: string;
+  role_type: "system" | "staff" | "field";
+  description: string;
+  is_system: boolean;
+  status: "active" | "inactive";
+  user_count: number;
+  permissions: RolePermission[];
+}
+
 export const SystemApi = {
   countries: () => unwrap(api.get<{ data: Country[] }>("/admin/countries")),
   createCountry: (body: Record<string, unknown>) => api.post<Country>("/admin/countries", body).then((r) => r.data),
@@ -228,6 +241,13 @@ export const SystemApi = {
   createLanguage: (body: Record<string, unknown>) => api.post<Language>("/admin/languages", body).then((r) => r.data),
   updateLanguage: (code: string, body: Record<string, unknown>) => api.put<Language>(`/admin/languages/${code}`, body).then((r) => r.data),
   deleteLanguage: (code: string) => api.delete<{ deleted: boolean }>(`/admin/languages/${code}`).then((r) => r.data),
+  roles: () => unwrap(api.get<{ data: SystemRole[] }>("/admin/roles")),
+  createRole: (body: { name: string; role_type?: string; description?: string; copy_from?: string }) =>
+    api.post<SystemRole>("/admin/roles", body).then((r) => r.data),
+  updateRole: (key: string, body: Record<string, unknown>) => api.put<SystemRole>(`/admin/roles/${key}`, body).then((r) => r.data),
+  setRolePermissions: (key: string, permissions: RolePermission[]) =>
+    api.put<{ role_key: string; count: number }>(`/admin/roles/${key}/permissions`, { permissions }).then((r) => r.data),
+  deleteRole: (key: string) => api.delete<{ deleted: boolean }>(`/admin/roles/${key}`).then((r) => r.data),
 };
 
 // ---- Curriculum CMS (Admin/SuperAdmin) ----

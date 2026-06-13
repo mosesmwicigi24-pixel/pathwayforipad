@@ -5,12 +5,38 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { AppContext } from "../../http/context.js";
-import { authenticate, requireRole } from "../../http/auth.js";
+import { authenticate, requireRole, requirePermission } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { many, one, maybeOne, tx, audit } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 
 export const systemRouter: Router = Router();
+
+// Fixed RBAC dimensions — mirrored in the web client (systemData). The matrix is
+// module × capability; only granted cells are stored.
+const PERM_MODULES = [
+  "dashboard", "levels", "cms", "quiz", "videos", "cells", "members",
+  "reflections", "events", "finance", "certificates", "badges",
+  "users", "rolesAdmin", "countries", "languages",
+] as const;
+const CAPABILITIES = ["view", "create", "edit", "delete", "approve", "export"] as const;
+
+const RoleInput = z.object({
+  name: z.string().min(1).max(120),
+  role_type: z.enum(["system", "staff", "field"]).optional(),
+  description: z.string().max(2000).optional(),
+  copy_from: z.string().max(60).optional(),
+});
+const PermsInput = z.object({
+  permissions: z.array(z.object({
+    module_id: z.enum(PERM_MODULES),
+    capability: z.enum(CAPABILITIES),
+  })).max(PERM_MODULES.length * CAPABILITIES.length),
+});
+
+function slugify(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
 
 const CountryInput = z.object({
   code: z.string().length(2),
@@ -41,6 +67,10 @@ export function registerSystem(ctx: AppContext): Router {
   const read = ctx.db.replica;
   const db = ctx.db.primary;
   const r = systemRouter;
+  // Fine-grained gate for the RBAC admin surface (legacy Admin/SuperAdmin bridge
+  // keeps existing portal admins fully able; granular roles extend access).
+  const perm = requirePermission(read);
+  const canViewRoles = [auth, perm("rolesAdmin", "view")] as const;
 
   // ── Countries ──
   r.get("/admin/countries", ...adminOnly, handler(async (_req, res) => {
@@ -122,6 +152,103 @@ export function registerSystem(ctx: AppContext): Router {
       if (lang.is_default) throw new ApiError("UNPROCESSABLE", "The default language cannot be removed");
       await c.query(`DELETE FROM languages WHERE code = $1`, [code]);
       await audit(c, requirePrincipal(req).userId, "language.deleted", "languages", code, {});
+    });
+    res.json({ deleted: true });
+  }));
+
+  // ── Roles & Permissions (RBAC) ──
+  r.get("/admin/roles", ...canViewRoles, handler(async (_req, res) => {
+    const roles = await many<Record<string, unknown>>(read,
+      `SELECT r.role_key, r.name, r.role_type, r.description, r.is_system, r.status,
+              (SELECT count(*)::int FROM rbac_user_roles ur WHERE ur.role_key = r.role_key) AS user_count
+         FROM rbac_roles r
+        ORDER BY r.is_system DESC,
+                 CASE r.role_type WHEN 'system' THEN 0 WHEN 'staff' THEN 1 ELSE 2 END,
+                 r.name`);
+    const perms = await many<{ role_key: string; module_id: string; capability: string }>(read,
+      `SELECT role_key, module_id, capability FROM rbac_role_permissions`);
+    const byRole = new Map<string, Array<{ module_id: string; capability: string }>>();
+    for (const p of perms) {
+      const arr = byRole.get(p.role_key) ?? [];
+      arr.push({ module_id: p.module_id, capability: p.capability });
+      byRole.set(p.role_key, arr);
+    }
+    res.json({ data: roles.map((role) => ({ ...role, permissions: byRole.get(role.role_key as string) ?? [] })) });
+  }));
+
+  r.post("/admin/roles", auth, perm("rolesAdmin", "create"), handler(async (req, res) => {
+    const input = parseBody(RoleInput, req.body);
+    const key = slugify(input.name);
+    if (!key) throw new ApiError("UNPROCESSABLE", "Role name must contain letters or numbers");
+    const row = await tx(db, async (c) => {
+      if (await maybeOne(c, `SELECT 1 FROM rbac_roles WHERE role_key = $1`, [key])) {
+        throw new ApiError("CONFLICT", "A role with this name already exists");
+      }
+      const created = await one(c,
+        `INSERT INTO rbac_roles (role_key, name, role_type, description, is_system)
+           VALUES ($1,$2,COALESCE($3,'staff'),COALESCE($4,''),FALSE)
+         RETURNING role_key, name, role_type, description, is_system, status`,
+        [key, input.name, input.role_type ?? null, input.description ?? null]);
+      if (input.copy_from) {
+        await c.query(
+          `INSERT INTO rbac_role_permissions (role_key, module_id, capability)
+             SELECT $1, module_id, capability FROM rbac_role_permissions WHERE role_key = $2
+           ON CONFLICT DO NOTHING`,
+          [key, input.copy_from]);
+      }
+      await audit(c, requirePrincipal(req).userId, "role.created", "rbac_roles", key, { copy_from: input.copy_from ?? null });
+      return created;
+    });
+    res.status(201).json(row);
+  }));
+
+  r.put("/admin/roles/:key", auth, perm("rolesAdmin", "edit"), handler(async (req, res) => {
+    const key = String(req.params.key);
+    const input = parseBody(RoleInput.partial().extend({ status: z.enum(["active", "inactive"]).optional() }), req.body);
+    const cols: Record<string, unknown> = { name: input.name, description: input.description, status: input.status };
+    const keys = Object.keys(cols).filter((k) => cols[k] !== undefined);
+    const row = await tx(db, async (c) => {
+      if (!await maybeOne(c, `SELECT 1 FROM rbac_roles WHERE role_key = $1`, [key])) {
+        throw new ApiError("NOT_FOUND", "Role not found");
+      }
+      if (keys.length) {
+        await c.query(`UPDATE rbac_roles SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(", ")}, updated_at = now() WHERE role_key = $1`,
+          [key, ...keys.map((k) => cols[k])]);
+      }
+      await audit(c, requirePrincipal(req).userId, "role.updated", "rbac_roles", key, { fields: keys });
+      return one(c, `SELECT role_key, name, role_type, description, is_system, status FROM rbac_roles WHERE role_key = $1`, [key]);
+    });
+    res.json(row);
+  }));
+
+  // Replace a role's permission matrix wholesale. super_admin is always full and
+  // cannot be restricted.
+  r.put("/admin/roles/:key/permissions", auth, perm("rolesAdmin", "edit"), handler(async (req, res) => {
+    const key = String(req.params.key);
+    const input = parseBody(PermsInput, req.body);
+    if (key === "super_admin") throw new ApiError("UNPROCESSABLE", "Super Admin always has full access");
+    await tx(db, async (c) => {
+      if (!await maybeOne(c, `SELECT 1 FROM rbac_roles WHERE role_key = $1`, [key])) {
+        throw new ApiError("NOT_FOUND", "Role not found");
+      }
+      await c.query(`DELETE FROM rbac_role_permissions WHERE role_key = $1`, [key]);
+      for (const p of input.permissions) {
+        await c.query(`INSERT INTO rbac_role_permissions (role_key, module_id, capability) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+          [key, p.module_id, p.capability]);
+      }
+      await audit(c, requirePrincipal(req).userId, "role.permissions_set", "rbac_roles", key, { count: input.permissions.length });
+    });
+    res.json({ role_key: key, count: input.permissions.length });
+  }));
+
+  r.delete("/admin/roles/:key", auth, perm("rolesAdmin", "delete"), handler(async (req, res) => {
+    const key = String(req.params.key);
+    await tx(db, async (c) => {
+      const role = await maybeOne<{ is_system: boolean }>(c, `SELECT is_system FROM rbac_roles WHERE role_key = $1`, [key]);
+      if (!role) throw new ApiError("NOT_FOUND", "Role not found");
+      if (role.is_system) throw new ApiError("UNPROCESSABLE", "Built-in roles cannot be deleted");
+      await c.query(`DELETE FROM rbac_roles WHERE role_key = $1`, [key]); // cascades perms + assignments
+      await audit(c, requirePrincipal(req).userId, "role.deleted", "rbac_roles", key, {});
     });
     res.json({ deleted: true });
   }));

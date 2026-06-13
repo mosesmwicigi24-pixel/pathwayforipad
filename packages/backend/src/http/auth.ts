@@ -56,6 +56,41 @@ export function requireRole(min: UserRole) {
 }
 
 /**
+ * Fine-grained permission gate (§5.4). A role grants (module_id, capability)
+ * cells via the RBAC matrix; this asserts the caller holds the given capability
+ * on the given module through any of their assigned *active* roles.
+ *
+ * Legacy bridge: the coarse portal admins (SuperAdmin, Admin) always pass — these
+ * endpoints were Admin-gated before RBAC, so their access is unchanged. Granular
+ * RBAC roles (assigned via rbac_user_roles) extend access to non-admin accounts.
+ * Returns a middleware bound to the given read pool.
+ */
+export function requirePermission(q: Queryable) {
+  return (moduleId: string, capability: string) =>
+    async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+      const p = req.principal;
+      if (!p) return next(new ApiError("AUTH_REQUIRED", "Authentication required"));
+      if (p.role === "SuperAdmin" || p.role === "Admin") return next();
+      try {
+        const rows = await many<{ ok: number }>(
+          q,
+          `SELECT 1 AS ok
+             FROM rbac_user_roles ur
+             JOIN rbac_roles r ON r.role_key = ur.role_key AND r.status = 'active'
+             JOIN rbac_role_permissions rp ON rp.role_key = ur.role_key
+            WHERE ur.user_id = $1 AND rp.module_id = $2 AND rp.capability = $3
+            LIMIT 1`,
+          [p.userId, moduleId, capability],
+        );
+        if (rows.length > 0) return next();
+        next(new ApiError("FORBIDDEN_SCOPE", "Missing permission for this action"));
+      } catch (err) {
+        next(err);
+      }
+    };
+}
+
+/**
  * Step-up MFA gate (§5.3): the presenting access token must carry a verified
  * second factor that is still fresh. Compose with requireRole for SuperAdmin /
  * financial-config actions, e.g. `r.post(path, auth, requireRole("SuperAdmin"),
