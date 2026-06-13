@@ -12,6 +12,7 @@ import { canSee, defaultScreen, SCREEN_TITLES, type ScreenId } from "./component
 import { Dashboard } from "./components/dashboard/Dashboard";
 import { CohortTable } from "./components/CohortTable";
 import { CurriculumAdmin } from "./components/curriculum/CurriculumAdmin";
+import { CurriculumLevels } from "./components/curriculum/CurriculumLevels";
 import { VideoLibrary } from "./components/curriculum/VideoLibrary";
 import { Members } from "./components/ops/Members";
 import { ReflectionQueue } from "./components/ops/ReflectionQueue";
@@ -52,7 +53,14 @@ export function App(): ReactElement {
     switch (active) {
       case "dashboard":
         return <Dashboard />;
+      case "curriculum-levels":
+        return <CurriculumLevels onOpenCms={() => setScreen("cms")} />;
       case "cms":
+      case "level-detail":
+      case "module-editor":
+      case "quiz-builder":
+        // One persistent hub instance backs the CMS sub-screens, so the selected
+        // level/module carries across these nav items (level → module → quiz).
         return <CurriculumAdmin />;
       case "videos":
         return <VideoLibrary />;
@@ -76,11 +84,6 @@ export function App(): ReactElement {
         return <Finance />;
       case "audit":
         return <AuditLog />;
-      case "curriculum-levels":
-      case "level-detail":
-      case "module-editor":
-      case "quiz-builder":
-        return <ComingSoon title={SCREEN_TITLES[active]} phase="WP2 (Curriculum CMS)" />;
       case "cohort-engagement":
       case "member-profile":
         return <ComingSoon title={SCREEN_TITLES[active]} phase="WP3 (Operations)" />;

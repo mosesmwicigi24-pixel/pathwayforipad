@@ -71,21 +71,25 @@ export function VideoLibrary(): ReactElement {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <section style={{ display: "flex", gap: 12, alignItems: "center" }}>
-        <div style={{ ...card, padding: 14, minWidth: 150 }}>
-          <div style={{ color: colors.textMuted, fontSize: font.size.sm }}>Total assets</div>
-          <div style={{ fontSize: font.size.kpi, fontWeight: 700 }}>{rows.length}</div>
+      <div className="flex items-end justify-between" style={{ gap: 16 }}>
+        <div>
+          <div className="nuru-eyebrow nuru-eyebrow-gold">CURRICULUM</div>
+          <h1 className="nuru-display" style={{ fontSize: 28 }}>Video Library</h1>
         </div>
-        <div style={{ ...card, padding: 14, minWidth: 150 }}>
-          <div style={{ color: colors.textMuted, fontSize: font.size.sm }}>Stuck encoding (&gt;30 min)</div>
-          <div style={{ fontSize: font.size.kpi, fontWeight: 700, color: stuck > 0 ? colors.danger : colors.text }}>
-            {stuck}
-          </div>
-        </div>
-        <div style={{ flex: 1 }} />
-        <button type="button" onClick={() => void startUpload()}>
+        <button type="button" onClick={() => void startUpload()} style={{ background: "var(--nuru-navy)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 600 }}>
           New upload
         </button>
+      </div>
+
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+        <div className="card-blue" style={{ borderRadius: 16, padding: 16 }}>
+          <div style={{ color: "var(--muted-foreground)", fontSize: 12 }}>Total assets</div>
+          <div className="nuru-numeric" style={{ fontSize: 26 }}>{rows.length}</div>
+        </div>
+        <div className={stuck > 0 ? "card-red" : "card-green"} style={{ borderRadius: 16, padding: 16 }}>
+          <div style={{ color: "var(--muted-foreground)", fontSize: 12 }}>Stuck encoding (&gt;30 min)</div>
+          <div className="nuru-numeric" style={{ fontSize: 26, color: stuck > 0 ? "#A8281F" : "#0F6B33" }}>{stuck}</div>
+        </div>
       </section>
 
       {error ? <p style={{ color: colors.danger, margin: 0 }}>{error}</p> : null}
