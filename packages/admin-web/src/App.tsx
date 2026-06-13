@@ -18,6 +18,7 @@ import { CellDetail } from "./components/pages/CellDetail";
 import { Members } from "./components/pages/Members";
 import { ReflectionQueue } from "./components/pages/ReflectionQueue";
 import { Events } from "./components/pages/Events";
+import { Finance } from "./components/pages/Finance";
 import { Placeholder } from "./components/pages/Placeholder";
 
 const ph = (title: string, phase: string): ReactElement => <Placeholder title={title} phase={phase} />;
@@ -43,7 +44,7 @@ const router = createBrowserRouter([
       { path: "member-profile", element: ph("Member Profile", "P7 — Operations") },
       { path: "reflection-queue", element: <ReflectionQueue /> },
       { path: "events", element: <Events /> },
-      { path: "finance", element: ph("Finance", "P7 — Operations") },
+      { path: "finance", element: <Finance /> },
       { path: "certificates", element: ph("Certificates & Badges", "P7 — Operations") },
       { path: "badges", element: ph("Badges Catalog", "P7 — Operations") },
       { path: "users", element: ph("System Users", "P4 — System") },
