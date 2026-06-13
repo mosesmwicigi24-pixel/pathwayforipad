@@ -12,10 +12,10 @@
       "Bash(git log:*)", "Bash(git checkout:*)", "Bash(git branch:*)", "Bash(git switch:*)",
       "Bash(ls:*)", "Bash(cat:*)", "Bash(grep:*)", "Bash(rg:*)", "Bash(find:*)",
       "Bash(mkdir:*)", "Bash(cp:*)", "Bash(mv:*)", "Bash(sed:*)", "Bash(echo:*)",
-      "Bash(curl:*)", "Bash(jq:*)", "Bash(react-native:*)", "Bash(redocly:*)"
+      "Bash(curl:*)", "Bash(jq:*)", "Bash(react-native:*)", "Bash(redocly:*)",
+      "Bash(git push:*)", "Bash(gh:*)"
     ],
     "deny": [
-      "Bash(git push:*)",
       "Read(./.env)",
       "Read(./**/.env)"
     ]
