@@ -20,6 +20,7 @@ import { ReflectionQueue } from "./components/pages/ReflectionQueue";
 import { Events } from "./components/pages/Events";
 import { Finance } from "./components/pages/Finance";
 import { Certificates } from "./components/pages/Certificates";
+import { Badges } from "./components/pages/Badges";
 import { Placeholder } from "./components/pages/Placeholder";
 
 const ph = (title: string, phase: string): ReactElement => <Placeholder title={title} phase={phase} />;
@@ -47,7 +48,7 @@ const router = createBrowserRouter([
       { path: "events", element: <Events /> },
       { path: "finance", element: <Finance /> },
       { path: "certificates", element: <Certificates /> },
-      { path: "badges", element: ph("Badges Catalog", "P7 — Operations") },
+      { path: "badges", element: <Badges /> },
       { path: "users", element: ph("System Users", "P4 — System") },
       { path: "roles", element: ph("Roles & Permissions", "P4 — System") },
       { path: "countries", element: ph("Countries", "P4 — System") },
