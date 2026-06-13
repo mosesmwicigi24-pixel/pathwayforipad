@@ -15,6 +15,7 @@ import { CurriculumAdmin } from "./components/curriculum/CurriculumAdmin";
 import { CurriculumLevels } from "./components/curriculum/CurriculumLevels";
 import { VideoLibrary } from "./components/curriculum/VideoLibrary";
 import { Members } from "./components/ops/Members";
+import { CohortEngagement } from "./components/ops/CohortEngagement";
 import { ReflectionQueue } from "./components/ops/ReflectionQueue";
 import { Attendance } from "./components/ops/Attendance";
 import { Events } from "./components/ops/Events";
@@ -85,8 +86,9 @@ export function App(): ReactElement {
       case "audit":
         return <AuditLog />;
       case "cohort-engagement":
+        return <CohortEngagement />;
       case "member-profile":
-        return <ComingSoon title={SCREEN_TITLES[active]} phase="WP3 (Operations)" />;
+        return <ComingSoon title={SCREEN_TITLES[active]} phase="WP3 (Member Profile detail)" />;
     }
   })();
 

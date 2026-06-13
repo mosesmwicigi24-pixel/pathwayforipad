@@ -31,45 +31,49 @@ export function ReflectionQueue(): ReactElement {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <section style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        {TABS.map((t) => (
-          <button key={t} type="button" onClick={() => setState(t)} disabled={t === state}>
-            {t}
-          </button>
-        ))}
-        <label style={{ marginLeft: 12, fontSize: font.size.md, color: colors.textMuted }}>
-          <input type="checkbox" checked={overdueOnly} onChange={(e) => setOverdueOnly(e.target.checked)} /> overdue
-          only (&gt;3 days)
+      <div>
+        <div className="nuru-eyebrow nuru-eyebrow-gold">OPERATIONS</div>
+        <h1 className="nuru-display" style={{ fontSize: 28 }}>Reflection Queue</h1>
+      </div>
+
+      <div className="flex items-center justify-between" style={{ flexWrap: "wrap", gap: 10 }}>
+        <div className="nuru-tabs">
+          {TABS.map((t) => (
+            <button key={t} type="button" onClick={() => setState(t)} data-active={t === state} className="nuru-tab" style={{ textTransform: "capitalize", background: "transparent" }}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <label className="flex items-center gap-2" style={{ fontSize: 12.5, color: "var(--muted-foreground)" }}>
+          <input type="checkbox" checked={overdueOnly} onChange={(e) => setOverdueOnly(e.target.checked)} /> Overdue only (&gt;3 days)
         </label>
-      </section>
+      </div>
 
-      {error ? <p style={{ color: colors.danger, margin: 0 }}>{error}</p> : null}
+      {error ? <p style={{ color: "var(--color-danger)", margin: 0 }}>{error}</p> : null}
 
-      <section style={card}>
+      <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {rows.length === 0 ? (
-          <p style={{ color: colors.textMuted, margin: 0 }}>Nothing in “{state}”.</p>
+          <div className="nuru-card" style={{ padding: 24, color: "var(--muted-foreground)", fontSize: 13 }}>{`Nothing in “${state}”.`}</div>
         ) : (
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {rows.map((r) => (
-              <li key={r.reflection_id} style={{ borderBottom: `1px solid ${colors.border}`, padding: "10px 4px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <strong>
-                    {r.full_name} · L{r.level_number} — {r.module_title}
-                  </strong>
-                  <span style={{ color: colors.textMuted, fontSize: font.size.sm }}>
-                    {new Date(r.submitted_at).toLocaleDateString()}
-                    {r.overdue ? <span style={{ color: colors.danger, marginLeft: 8 }}>⚠ overdue</span> : null}
-                  </span>
+          rows.map((r) => (
+            <div key={r.reflection_id} className="nuru-card" style={{ padding: 16 }}>
+              <div className="flex items-center justify-between" style={{ gap: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--nuru-navy)" }}>
+                  {`${r.full_name} · L${r.level_number} — ${r.module_title}`}
                 </div>
-                <p style={{ margin: "6px 0", fontSize: font.size.md, whiteSpace: "pre-wrap" }}>{r.body}</p>
-                {state === "pending" || state === "deferred" ? (
-                  <button type="button" onClick={() => setOpen(r)}>
-                    Review…
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+                <span style={{ color: "var(--muted-foreground)", fontSize: 12 }}>
+                  {new Date(r.submitted_at).toLocaleDateString()}
+                  {r.overdue ? <span style={{ color: "var(--color-danger)", marginLeft: 8, fontWeight: 600 }}>⚠ overdue</span> : null}
+                </span>
+              </div>
+              <p style={{ margin: "8px 0 0", fontSize: 13.5, color: "var(--foreground)", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{r.body}</p>
+              {state === "pending" || state === "deferred" ? (
+                <button type="button" onClick={() => setOpen(r)} style={{ marginTop: 12, background: "var(--nuru-navy)", color: "#fff", border: "none", borderRadius: 9, padding: "8px 14px", fontSize: 13, fontWeight: 600 }}>
+                  Review…
+                </button>
+              ) : null}
+            </div>
+          ))
         )}
       </section>
 

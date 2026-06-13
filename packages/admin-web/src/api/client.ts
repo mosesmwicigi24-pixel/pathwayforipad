@@ -142,9 +142,25 @@ export interface ConsentRow {
   renew_by: string;
 }
 
+export interface EngagementCellRow {
+  cell_group_id: string;
+  name: string;
+  members: number;
+  avg_engagement: number;
+  at_risk: number;
+}
+export interface EngagementReport {
+  bands: Record<string, number>;
+  cells: EngagementCellRow[];
+}
+
 export const AdminApi = {
   async overview(): Promise<OverviewKpis> {
     const { data } = await api.get<OverviewKpis>("/admin/reports/overview");
+    return data;
+  },
+  async engagementReport(): Promise<EngagementReport> {
+    const { data } = await api.get<EngagementReport>("/admin/reports/engagement");
     return data;
   },
   async attendanceReport(weeks = 8): Promise<{ trend: AttendanceTrendPoint[]; recent_events: RecentEventRow[] }> {

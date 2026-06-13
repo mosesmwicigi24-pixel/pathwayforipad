@@ -2,12 +2,16 @@
 // list with search/band/level filters, keyset "load more", and the Add-learner
 // flow (creates the Student + an L1 enrollment server-side, audited).
 import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { Plus } from "lucide-react";
 import { OpsApi, CurriculumApi, type MemberRow, type AdminLevel, type AdminModuleSummary } from "../../api/client";
 import { errorMessage } from "../../util/error";
 import { bandColor, bandLabel } from "../../util/engagement";
 import { colors, card, font } from "../../theme";
 
 const field = { display: "block", width: "100%", padding: 8, marginTop: 4, border: `1px solid ${colors.border}`, borderRadius: 6 } as const;
+const fieldFlat = { height: 40, borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--input-background)", padding: "0 12px", fontSize: 13, color: "var(--foreground)" } as const;
+const th = { padding: "10px 12px" } as const;
+const td = { padding: "11px 12px" } as const;
 
 /**
  * Starting-point picker: choose the level + entry module a member begins at.
@@ -109,73 +113,75 @@ export function Members(): ReactElement {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <section style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <div className="flex items-end justify-between" style={{ gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <div className="nuru-eyebrow nuru-eyebrow-gold">OPERATIONS</div>
+          <h1 className="nuru-display" style={{ fontSize: 28 }}>Members</h1>
+        </div>
+        <button type="button" onClick={() => setShowAdd(true)} className="flex items-center gap-2" style={{ background: "var(--nuru-navy)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 600 }}>
+          <Plus size={15} /> Add learner
+        </button>
+      </div>
+
+      <section className="flex items-center" style={{ gap: 8, flexWrap: "wrap" }}>
         <input
           placeholder="Search by name…"
           aria-label="Search members"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{ padding: 8, border: `1px solid ${colors.border}`, borderRadius: 6, width: 240 }}
+          style={{ ...fieldFlat, width: 240 }}
         />
-        <select value={band} onChange={(e) => setBand(e.target.value)} aria-label="Band filter">
+        <select value={band} onChange={(e) => setBand(e.target.value)} aria-label="Band filter" style={fieldFlat}>
           <option value="">All bands</option>
           {["thriving", "steady", "watch", "at_risk"].map((b) => (
-            <option key={b} value={b}>
-              {bandLabel(b)}
-            </option>
+            <option key={b} value={b}>{bandLabel(b)}</option>
           ))}
         </select>
-        <select value={level} onChange={(e) => setLevel(e.target.value)} aria-label="Level filter">
+        <select value={level} onChange={(e) => setLevel(e.target.value)} aria-label="Level filter" style={fieldFlat}>
           <option value="">All levels</option>
           {[1, 2, 3, 4, 5, 6].map((n) => (
-            <option key={n} value={n}>
-              Level {n}
-            </option>
+            <option key={n} value={n}>Level {n}</option>
           ))}
         </select>
-        <div style={{ flex: 1 }} />
-        <button type="button" onClick={() => setShowAdd(true)}>
-          Add learner
-        </button>
       </section>
 
-      {error ? <p style={{ color: colors.danger, margin: 0 }}>{error}</p> : null}
+      {error ? <p style={{ color: "var(--color-danger)", margin: 0 }}>{error}</p> : null}
 
-      <section style={card}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: font.size.md }}>
+      <section className="nuru-card" style={{ padding: 6 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
           <thead>
-            <tr style={{ textAlign: "left", color: colors.textMuted }}>
-              <th style={{ padding: "6px 4px" }}>Name</th>
-              <th style={{ padding: "6px 4px" }}>Cell</th>
-              <th style={{ padding: "6px 4px" }}>Level</th>
-              <th style={{ padding: "6px 4px" }}>Start</th>
-              <th style={{ padding: "6px 4px" }}>Engagement</th>
-              <th style={{ padding: "6px 4px" }}>Last activity</th>
-              <th style={{ padding: "6px 4px" }}>Contact</th>
-              <th style={{ padding: "6px 4px" }} />
+            <tr className="type-table-header" style={{ textAlign: "left", color: "var(--muted-foreground)" }}>
+              <th style={th}>Name</th>
+              <th style={th}>Cell</th>
+              <th style={th}>Level</th>
+              <th style={th}>Start</th>
+              <th style={th}>Engagement</th>
+              <th style={th}>Last activity</th>
+              <th style={th}>Contact</th>
+              <th style={th} />
             </tr>
           </thead>
           <tbody>
             {rows.map((m) => (
-              <tr key={m.user_id} style={{ borderTop: `1px solid ${colors.border}` }}>
-                <td style={{ padding: "8px 4px" }}>
+              <tr key={m.user_id} style={{ borderTop: "1px solid var(--border)" }}>
+                <td style={{ ...td, fontWeight: 600, color: "var(--nuru-navy)" }}>
                   {m.full_name}
-                  {m.is_minor ? <span style={{ color: colors.warningText, marginLeft: 6, fontSize: font.size.xs }}>minor</span> : null}
+                  {m.is_minor ? <span style={{ color: "#A87616", background: "rgba(245,158,11,0.15)", marginLeft: 8, fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999 }}>MINOR</span> : null}
                 </td>
-                <td style={{ padding: "8px 4px", color: colors.textMuted }}>{m.cell_name ?? "—"}</td>
-                <td style={{ padding: "8px 4px" }}>{m.current_level ?? "—"}</td>
-                <td style={{ padding: "8px 4px", color: colors.textMuted }}>
+                <td style={{ ...td, color: "var(--muted-foreground)" }}>{m.cell_name ?? "—"}</td>
+                <td style={td}>{m.current_level ?? "—"}</td>
+                <td style={{ ...td, color: "var(--muted-foreground)" }}>
                   {m.start_level ? `L${m.start_level}·M${m.start_module_sequence ?? 1}` : "—"}
                 </td>
-                <td style={{ padding: "8px 4px" }}>
-                  {m.band ? <span style={{ color: bandColor(m.band) }}>{bandLabel(m.band)}</span> : "—"}
+                <td style={td}>
+                  {m.band ? <span style={{ color: bandColor(m.band), fontWeight: 600 }}>{bandLabel(m.band)}</span> : "—"}
                 </td>
-                <td style={{ padding: "8px 4px", color: colors.textMuted }}>
+                <td style={{ ...td, color: "var(--muted-foreground)" }}>
                   {m.last_activity ? new Date(m.last_activity).toLocaleDateString() : "never"}
                 </td>
-                <td style={{ padding: "8px 4px", color: colors.textMuted }}>{m.email ?? m.phone_number}</td>
-                <td style={{ padding: "8px 4px", textAlign: "right" }}>
-                  <button type="button" onClick={() => setEditing(m)} style={{ fontSize: font.size.xs }}>
+                <td style={{ ...td, color: "var(--muted-foreground)" }}>{m.email ?? m.phone_number}</td>
+                <td style={{ ...td, textAlign: "right" }}>
+                  <button type="button" onClick={() => setEditing(m)} style={{ fontSize: 12, fontWeight: 600, color: "var(--nuru-gold)", background: "transparent", border: "none" }}>
                     Set start
                   </button>
                 </td>
@@ -183,15 +189,13 @@ export function Members(): ReactElement {
             ))}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ padding: 16, color: colors.textMuted }}>
-                  No members match.
-                </td>
+                <td colSpan={8} style={{ padding: 16, color: "var(--muted-foreground)" }}>No members match.</td>
               </tr>
             ) : null}
           </tbody>
         </table>
         {cursor ? (
-          <button type="button" onClick={() => void load(true, cursor)} style={{ marginTop: 10 }}>
+          <button type="button" onClick={() => void load(true, cursor)} style={{ margin: 10, padding: "8px 14px", borderRadius: 8, border: "1px solid var(--border)", background: "#fff", fontSize: 13 }}>
             Load more
           </button>
         ) : null}
