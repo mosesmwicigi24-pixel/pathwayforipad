@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { ChevronRight, ChevronDown, Plus, Pencil, Lock, BookOpen, X } from "lucide-react";
 import { CurriculumApi, type AdminLevel, type AdminModuleSummary, type EvaluationKind } from "../../api/client";
 import { errorMessage } from "../../util/error";
-import { ModuleEditor } from "./ModuleEditor";
+import { LevelModulePane } from "./LevelModulePane";
 import { LevelModal } from "./LevelModal";
 
 const navyDark = "var(--nuru-dark, #071629)";
@@ -152,7 +152,12 @@ export function LevelDetail(): ReactElement {
         {/* Right editor */}
         <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", background: "var(--background)" }}>
           {selected ? (
-            <ModuleEditor moduleId={selected} onChanged={() => void refreshAfterEdit()} />
+            <LevelModulePane
+              moduleId={selected}
+              level={levels.find((l) => (modulesByLevel[l.level_number] ?? []).some((m) => m.module_id === selected)) ?? null}
+              onChanged={() => void refreshAfterEdit()}
+              onArchived={() => { setSelected(null); void refreshAfterEdit(); }}
+            />
           ) : (
             <div className="flex flex-col items-center justify-center" style={{ height: "100%", color: "var(--muted-foreground)", gap: 8 }}>
               <BookOpen size={36} style={{ opacity: 0.25 }} />
