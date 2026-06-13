@@ -21,6 +21,7 @@ import { Events } from "./components/pages/Events";
 import { Finance } from "./components/pages/Finance";
 import { Certificates } from "./components/pages/Certificates";
 import { Badges } from "./components/pages/Badges";
+import { MemberProfile } from "./components/pages/MemberProfile";
 import { Countries } from "./components/pages/Countries";
 import { Languages } from "./components/pages/Languages";
 import { Placeholder } from "./components/pages/Placeholder";
@@ -45,7 +46,7 @@ const router = createBrowserRouter([
       { path: "cell-engagement", element: <CellEngagement /> },
       { path: "cell-engagement/:cellId", element: <CellDetail /> },
       { path: "members", element: <Members /> },
-      { path: "member-profile", element: ph("Member Profile", "P7 — Operations") },
+      { path: "member-profile", element: <MemberProfile /> },
       { path: "reflection-queue", element: <ReflectionQueue /> },
       { path: "events", element: <Events /> },
       { path: "finance", element: <Finance /> },

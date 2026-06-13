@@ -50,6 +50,11 @@ export function registerAdminOps(ctx: AppContext): Router {
     res.status(201).json(await svc.addMember(requirePrincipal(req).userId, input));
   }));
 
+  // Single-member aggregate for the Member Profile screen.
+  r.get("/admin/members/:id", ...adminOnly, handler(async (req, res) => {
+    res.json(await svc.memberDetail(req.params.id ?? ""));
+  }));
+
   // Admin placement: set the member's starting level + entry module (§1.9).
   r.patch("/admin/members/:id/enrollment", ...adminOnly, handler(async (req, res) => {
     const input = parseBody(AdminOpsService.SetStart, req.body);

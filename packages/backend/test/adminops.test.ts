@@ -126,6 +126,30 @@ describe("members administration", () => {
     const forbidden = await agent().get("/v1/admin/members").set(auth(studentTok));
     expect(forbidden.status).toBe(403);
   });
+
+  it("returns a single-member aggregate with metrics and nested sections", async () => {
+    const res = await agent().get(`/v1/admin/members/${studentId}`).set(auth(adminTok));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ user_id: studentId });
+    expect(res.body.enrollment.current_level).toBe(1);
+    // Shape: metrics + collections always present (possibly empty/zero).
+    expect(res.body.metrics).toMatchObject({
+      habits_pct: expect.any(Number),
+      curriculum_pct: expect.any(Number),
+      attendance_pct: expect.any(Number),
+    });
+    expect(Array.isArray(res.body.certificates)).toBe(true);
+    expect(Array.isArray(res.body.badges)).toBe(true);
+    expect(Array.isArray(res.body.timeline)).toBe(true);
+  });
+
+  it("404s an unknown member and forbids non-admins", async () => {
+    const missing = await agent().get("/v1/admin/members/00000000-0000-4000-8000-000000000000").set(auth(adminTok));
+    expect(missing.status).toBe(404);
+
+    const forbidden = await agent().get(`/v1/admin/members/${studentId}`).set(auth(studentTok));
+    expect(forbidden.status).toBe(403);
+  });
 });
 
 describe("audit viewer (SuperAdmin)", () => {

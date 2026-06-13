@@ -1264,6 +1264,16 @@ paths:
         "201": { description: Member created }
         "400": { description: Validation failed }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/members/{id}:
+    get:
+      tags: [portal]
+      summary: Admin. Single-member aggregate (identity, placement, engagement band, curriculum/attendance/habit metrics, guardian consent for minors, certificates, badges, recent activity). Reflection/prayer content is never returned (§5.4).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Member profile }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/members/{id}/enrollment:
     patch:
       tags: [portal]

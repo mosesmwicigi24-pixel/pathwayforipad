@@ -419,4 +419,192 @@ export class AdminOpsService {
     const last = page[page.length - 1];
     return { data: page, next_cursor: hasMore && last ? Number(last.audit_id) : null };
   }
+
+  // ---------------- Member profile (aggregate) ----------------
+
+  // Human labels for the interaction_events.kind feed. Activity is metadata only —
+  // reflection/prayer CONTENT is pastorally private and never surfaced here (§5.4).
+  private static readonly ACTIVITY_LABELS: Record<string, string> = {
+    lesson_open: "Opened a lesson",
+    scripture_read: "Read scripture",
+    video_75pct: "Watched a teaching video",
+    reflection_submitted: "Submitted a reflection",
+    quiz_passed: "Passed a quiz",
+    quiz_attempt: "Attempted a quiz",
+    module_completed: "Completed a module",
+    prayer_logged: "Logged a prayer",
+    check_in: "Daily check-in",
+  };
+
+  /**
+   * Single-member aggregate for the portal Member Profile screen. Pulls identity,
+   * placement, engagement band, curriculum/attendance/habit metrics, guardian
+   * consent (minors), certificates, badges and a recent activity feed — all from
+   * authoritative tables. No reflection/prayer content is ever returned (§5.4).
+   */
+  async memberDetail(userId: string): Promise<Record<string, unknown>> {
+    const m = await maybeOne<Record<string, unknown>>(
+      this.replica,
+      `SELECT u.user_id, u.full_name, u.email, u.phone_number, u.is_baptized, u.locale,
+              u.created_at, u.date_of_birth,
+              (u.date_of_birth > CURRENT_DATE - INTERVAL '18 years') AS is_minor,
+              cg.cell_group_id, cg.name AS cell_name,
+              lang.name AS language_name,
+              en.current_level, en.start_level, en.state AS enrollment_state,
+              en.started_at, en.completed_at,
+              lv.title AS level_title,
+              es.e_score::float AS e_score, es.band::text AS band,
+              st.current_streak_days, st.longest_streak_days, st.last_active_date,
+              (SELECT max(ie.occurred_at) FROM interaction_events ie WHERE ie.user_id = u.user_id) AS last_activity
+         FROM users u
+         LEFT JOIN cell_groups cg ON cg.cell_group_id = u.cell_group_id
+         LEFT JOIN languages lang ON lang.code = u.locale
+         LEFT JOIN enrollments en ON en.user_id = u.user_id
+         LEFT JOIN levels lv ON lv.level_number = en.current_level
+         LEFT JOIN engagement_scores es ON es.user_id = u.user_id
+         LEFT JOIN user_streaks st ON st.user_id = u.user_id
+        WHERE u.user_id = $1 AND u.role = 'Student' AND u.deleted_at IS NULL`,
+      [userId],
+    );
+    if (!m) throw new ApiError("NOT_FOUND", "Member not found");
+
+    const currentLevel = (m.current_level as number | null) ?? 1;
+
+    // Curriculum: completed modules vs. published modules in the current level.
+    const curr = await one<{ done: string; total: string }>(
+      this.replica,
+      `SELECT
+          (SELECT count(*) FROM module_progress mp
+             JOIN enrollments e ON e.enrollment_id = mp.enrollment_id
+             JOIN modules md ON md.module_id = mp.module_id
+            WHERE e.user_id = $1 AND mp.is_completed AND md.level_number = $2) AS done,
+          (SELECT count(*) FROM modules md
+            WHERE md.level_number = $2 AND md.status = 'published') AS total`,
+      [userId, currentLevel],
+    );
+    const modulesDone = Number(curr.done);
+    const modulesTotal = Number(curr.total);
+    const curriculumPct = modulesTotal > 0 ? Math.round((modulesDone / modulesTotal) * 100) : 0;
+
+    // Attendance: member check-ins vs. congregation events over the last 90 days.
+    const att = await one<{ attended: string; held: string }>(
+      this.replica,
+      `SELECT
+          (SELECT count(*) FROM attendance_logs al
+            WHERE al.user_id = $1 AND al.checked_in_at >= now() - INTERVAL '90 days') AS attended,
+          (SELECT count(DISTINCT al.event_id) FROM attendance_logs al
+            WHERE al.checked_in_at >= now() - INTERVAL '90 days') AS held`,
+      [userId],
+    );
+    const attended = Number(att.attended);
+    const held = Number(att.held);
+    const attendancePct = held > 0 ? Math.min(100, Math.round((attended / held) * 100)) : 0;
+
+    // Habits: distinct active days in the last 30 (derived from interaction_events).
+    const habit = await one<{ active_days: string }>(
+      this.replica,
+      `SELECT count(DISTINCT date_trunc('day', ie.occurred_at)) AS active_days
+         FROM interaction_events ie
+        WHERE ie.user_id = $1 AND ie.occurred_at >= now() - INTERVAL '30 days'`,
+      [userId],
+    );
+    const activeDays = Number(habit.active_days);
+    const habitsPct = Math.min(100, Math.round((activeDays / 30) * 100));
+
+    // Guardian consent (minors only) — name/relation/dates are admin-safe; the
+    // encrypted contact blob is intentionally not returned.
+    const guardian = (m.is_minor as boolean)
+      ? await maybeOne<Record<string, unknown>>(
+          this.replica,
+          `SELECT guardian_name, relationship, granted_at, revoked_at, consent_text_version
+             FROM guardian_consents
+            WHERE user_id = $1
+            ORDER BY (revoked_at IS NULL) DESC, granted_at DESC
+            LIMIT 1`,
+          [userId],
+        )
+      : null;
+
+    const certificates = await many<Record<string, unknown>>(
+      this.replica,
+      `SELECT c.certificate_id, c.level_number, c.verification_code, c.issued_at,
+              COALESCE(lv.title, 'Full Pathway') AS level_title
+         FROM certificates c LEFT JOIN levels lv ON lv.level_number = c.level_number
+        WHERE c.user_id = $1 ORDER BY c.issued_at DESC`,
+      [userId],
+    );
+
+    const badges = await many<Record<string, unknown>>(
+      this.replica,
+      `SELECT b.code, b.name, b.description, b.category::text, b.icon_key, ub.awarded_at
+         FROM user_badges ub JOIN badges b ON b.badge_id = ub.badge_id
+        WHERE ub.user_id = $1 AND ub.revoked_at IS NULL
+        ORDER BY ub.awarded_at DESC`,
+      [userId],
+    );
+
+    const events = await many<{ kind: string; occurred_at: string; module_title: string | null }>(
+      this.replica,
+      `SELECT ie.kind, ie.occurred_at, md.title AS module_title
+         FROM interaction_events ie LEFT JOIN modules md ON md.module_id = ie.module_id
+        WHERE ie.user_id = $1
+        ORDER BY ie.occurred_at DESC
+        LIMIT 12`,
+      [userId],
+    );
+    const timeline = events.map((e) => ({
+      kind: e.kind,
+      label: AdminOpsService.ACTIVITY_LABELS[e.kind] ?? e.kind.replace(/_/g, " "),
+      module_title: e.module_title,
+      occurred_at: e.occurred_at,
+    }));
+
+    return {
+      user_id: m.user_id,
+      full_name: m.full_name,
+      email: m.email,
+      phone_number: m.phone_number,
+      is_minor: m.is_minor,
+      is_baptized: m.is_baptized,
+      cell_group_id: m.cell_group_id,
+      cell_name: m.cell_name,
+      language: m.language_name ?? m.locale,
+      created_at: m.created_at,
+      last_activity: m.last_activity,
+      enrollment: {
+        current_level: currentLevel,
+        level_title: m.level_title,
+        start_level: m.start_level,
+        state: m.enrollment_state,
+        started_at: m.started_at,
+        completed_at: m.completed_at,
+      },
+      engagement: { e_score: m.e_score, band: m.band },
+      metrics: {
+        habits_pct: habitsPct,
+        active_days_30: activeDays,
+        curriculum_pct: curriculumPct,
+        modules_done: modulesDone,
+        modules_total: modulesTotal,
+        attendance_pct: attendancePct,
+        attended,
+        events_held: held,
+        current_streak_days: m.current_streak_days ?? 0,
+        longest_streak_days: m.longest_streak_days ?? 0,
+      },
+      guardian: guardian
+        ? {
+            name: guardian.guardian_name,
+            relationship: guardian.relationship,
+            consent: guardian.revoked_at ? "Revoked" : "Granted",
+            granted_at: guardian.granted_at,
+            revoked_at: guardian.revoked_at,
+            consent_version: guardian.consent_text_version,
+          }
+        : null,
+      certificates,
+      badges,
+      timeline,
+    };
+  }
 }

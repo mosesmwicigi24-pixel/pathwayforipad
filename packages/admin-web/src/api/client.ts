@@ -428,6 +428,52 @@ export interface MemberRow {
   last_activity: string | null;
 }
 
+export interface MemberDetail {
+  user_id: string;
+  full_name: string;
+  email: string | null;
+  phone_number: string;
+  is_minor: boolean;
+  is_baptized: boolean;
+  cell_group_id: string | null;
+  cell_name: string | null;
+  language: string | null;
+  created_at: string;
+  last_activity: string | null;
+  enrollment: {
+    current_level: number;
+    level_title: string | null;
+    start_level: number | null;
+    state: string | null;
+    started_at: string | null;
+    completed_at: string | null;
+  };
+  engagement: { e_score: number | null; band: string | null };
+  metrics: {
+    habits_pct: number;
+    active_days_30: number;
+    curriculum_pct: number;
+    modules_done: number;
+    modules_total: number;
+    attendance_pct: number;
+    attended: number;
+    events_held: number;
+    current_streak_days: number;
+    longest_streak_days: number;
+  };
+  guardian: {
+    name: string;
+    relationship: string;
+    consent: string;
+    granted_at: string | null;
+    revoked_at: string | null;
+    consent_version: string | null;
+  } | null;
+  certificates: Array<{ certificate_id: string; level_number: number | null; verification_code: string; issued_at: string; level_title: string }>;
+  badges: Array<{ code: string; name: string; description: string; category: string; icon_key: string | null; awarded_at: string }>;
+  timeline: Array<{ kind: string; label: string; module_title: string | null; occurred_at: string }>;
+}
+
 export interface ReflectionRow {
   reflection_id: string;
   user_id: string;
@@ -463,6 +509,7 @@ export type ReflectionState = "pending" | "approved" | "rejected" | "returned" |
 export const OpsApi = {
   members: (q: { search?: string; band?: string; level?: number; cursor?: string } = {}) =>
     api.get<{ data: MemberRow[]; next_cursor: string | null }>("/admin/members", { params: q }).then((r) => r.data),
+  memberDetail: (userId: string) => api.get<MemberDetail>(`/admin/members/${userId}`).then((r) => r.data),
   addMember: (body: { full_name: string; phone_number: string; email?: string; date_of_birth?: string; cell_group_id: string; start_level?: number; start_module_sequence?: number }) =>
     api.post<MemberRow>("/admin/members", body).then((r) => r.data),
   setMemberStart: (userId: string, body: { start_level: number; start_module_sequence: number }) =>
