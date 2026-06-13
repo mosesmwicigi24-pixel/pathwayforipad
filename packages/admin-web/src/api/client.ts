@@ -263,6 +263,82 @@ export const CurriculumApi = {
   deleteQuestion: (qid: string) => api.delete<{ deleted: boolean }>(`/admin/questions/${qid}`).then((r) => r.data),
 };
 
+// ---- Growth content authoring (Admin+, WP5 over B9) ----
+export interface DevotionalRow {
+  devotional_id: string;
+  day_number: number;
+  series: string | null;
+  title: string;
+  scripture_ref: string | null;
+  scripture_text: string | null;
+  body: string;
+  reflection_prompt: string | null;
+  audio_url: string | null;
+  video_url: string | null;
+  is_published: boolean;
+}
+export interface VerseRow {
+  memory_verse_id: string;
+  reference: string;
+  verse_text: string;
+  version: string;
+  week_number: number | null;
+  sort: number;
+  is_active: boolean;
+}
+export interface PlanRow {
+  plan_id: string;
+  code: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  day_count: number;
+  day_total?: number;
+  sort: number;
+  is_active: boolean;
+}
+export interface PlanDayRow {
+  plan_day_id?: string;
+  day_number: number;
+  reference: string;
+  title: string | null;
+  content: string | null;
+}
+export interface ResourceAdminRow {
+  resource_id: string;
+  title: string;
+  author: string | null;
+  kind: "book" | "audio" | "video" | "article";
+  duration_label: string | null;
+  url: string | null;
+  sort: number;
+  is_active: boolean;
+}
+
+const G = "/admin/growth";
+export const GrowthAdminApi = {
+  devotionals: () => unwrap(api.get<{ data: DevotionalRow[] }>(`${G}/devotionals`)),
+  createDevotional: (b: Record<string, unknown>) => api.post(`${G}/devotionals`, b).then((r) => r.data),
+  updateDevotional: (id: string, b: Record<string, unknown>) => api.put(`${G}/devotionals/${id}`, b).then((r) => r.data),
+  deleteDevotional: (id: string) => api.delete(`${G}/devotionals/${id}`).then((r) => r.data),
+
+  verses: () => unwrap(api.get<{ data: VerseRow[] }>(`${G}/memory-verses`)),
+  createVerse: (b: Record<string, unknown>) => api.post(`${G}/memory-verses`, b).then((r) => r.data),
+  updateVerse: (id: string, b: Record<string, unknown>) => api.put(`${G}/memory-verses/${id}`, b).then((r) => r.data),
+  deleteVerse: (id: string) => api.delete(`${G}/memory-verses/${id}`).then((r) => r.data),
+
+  plans: () => unwrap(api.get<{ data: PlanRow[] }>(`${G}/plans`)),
+  plan: (id: string) => api.get<PlanRow & { days: PlanDayRow[] }>(`${G}/plans/${id}`).then((r) => r.data),
+  createPlan: (b: Record<string, unknown>) => api.post(`${G}/plans`, b).then((r) => r.data),
+  updatePlan: (id: string, b: Record<string, unknown>) => api.put(`${G}/plans/${id}`, b).then((r) => r.data),
+  deletePlan: (id: string) => api.delete(`${G}/plans/${id}`).then((r) => r.data),
+
+  resources: () => unwrap(api.get<{ data: ResourceAdminRow[] }>(`${G}/resources`)),
+  createResource: (b: Record<string, unknown>) => api.post(`${G}/resources`, b).then((r) => r.data),
+  updateResource: (id: string, b: Record<string, unknown>) => api.put(`${G}/resources/${id}`, b).then((r) => r.data),
+  deleteResource: (id: string) => api.delete(`${G}/resources/${id}`).then((r) => r.data),
+};
+
 // ---- Operations (ERP, W3 over B1/B2/B3/B5) ----
 export interface MemberRow {
   user_id: string;

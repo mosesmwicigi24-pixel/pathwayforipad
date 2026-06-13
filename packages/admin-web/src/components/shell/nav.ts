@@ -20,6 +20,7 @@ import {
   Star,
   Megaphone,
   ShieldAlert,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import { isAdminRole } from "../../util/jwt";
@@ -32,6 +33,7 @@ export type ScreenId =
   | "module-editor"
   | "quiz-builder"
   | "videos"
+  | "growth-content"
   | "cohort-engagement"
   | "members"
   | "member-profile"
@@ -71,6 +73,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { id: "module-editor", label: "Module Editor", icon: Edit3, adminOnly: true },
       { id: "quiz-builder", label: "Quiz Builder", icon: HelpCircle, adminOnly: true },
       { id: "videos", label: "Video Library", icon: Video, adminOnly: true },
+      { id: "growth-content", label: "Growth Content", icon: Sparkles, adminOnly: true },
     ],
   },
   {
@@ -101,6 +104,7 @@ export const SCREEN_TITLES: Record<ScreenId, string> = {
   "module-editor": "Module Editor",
   "quiz-builder": "Quiz Builder",
   videos: "Video Library",
+  "growth-content": "Growth Content",
   "cohort-engagement": "Cohort Engagement",
   members: "Members",
   "member-profile": "Member Profile",

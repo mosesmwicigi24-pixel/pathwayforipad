@@ -14,6 +14,7 @@ import { CohortTable } from "./components/CohortTable";
 import { CurriculumAdmin } from "./components/curriculum/CurriculumAdmin";
 import { CurriculumLevels } from "./components/curriculum/CurriculumLevels";
 import { VideoLibrary } from "./components/curriculum/VideoLibrary";
+import { GrowthContent } from "./components/curriculum/GrowthContent";
 import { Members } from "./components/ops/Members";
 import { CohortEngagement } from "./components/ops/CohortEngagement";
 import { ReflectionQueue } from "./components/ops/ReflectionQueue";
@@ -65,6 +66,8 @@ export function App(): ReactElement {
         return <CurriculumAdmin />;
       case "videos":
         return <VideoLibrary />;
+      case "growth-content":
+        return <GrowthContent />;
       case "cohort":
         return <CohortTable />;
       case "reviews":
