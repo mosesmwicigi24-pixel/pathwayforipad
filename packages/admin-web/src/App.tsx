@@ -12,13 +12,14 @@ import { CmsCurriculum } from "./components/pages/CmsCurriculum";
 import { LevelDetail } from "./components/pages/LevelDetail";
 import { QuizBuilder } from "./components/pages/QuizBuilder";
 import { VideoLibrary } from "./components/pages/VideoLibrary";
+import { ModulePreview } from "./components/pages/ModulePreview";
 import { Placeholder } from "./components/pages/Placeholder";
 
 const ph = (title: string, phase: string): ReactElement => <Placeholder title={title} phase={phase} />;
 
 const router = createBrowserRouter([
   { path: "/login", element: <Login /> },
-  { path: "/preview/:moduleId", element: ph("Module Preview", "P6 — Curriculum") },
+  { path: "/preview/:moduleId", element: <ModulePreview /> },
   {
     path: "/",
     element: <Layout />,
