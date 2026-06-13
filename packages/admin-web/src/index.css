@@ -158,8 +158,12 @@
 }
 
 @layer utilities {
-  .type-display { font-family: var(--font-display); font-weight: 400; line-height: 1.15; letter-spacing: -0.02em; color: var(--nuru-navy); }
-  .type-section { font-family: var(--font-display); font-weight: 400; line-height: 1.25; letter-spacing: -0.01em; color: var(--nuru-navy); }
+  .type-display { font-family: var(--font-display); font-size: var(--ts-display-size); font-weight: 400; line-height: 1.15; letter-spacing: -0.02em; color: var(--nuru-navy); }
+  .type-section { font-family: var(--font-display); font-size: var(--ts-section-size); font-weight: 400; line-height: 1.25; letter-spacing: -0.01em; color: var(--nuru-navy); }
+  .type-card { font-family: var(--font-sans); font-size: var(--ts-card-size); font-weight: 600; line-height: 1.35; }
+  .type-body { font-family: var(--font-sans); font-size: var(--ts-body-size); font-weight: 400; line-height: 1.65; }
+  .type-small { font-family: var(--font-sans); font-size: var(--ts-small-size); font-weight: 400; line-height: 1.55; }
+  .type-button { font-family: var(--font-sans); font-size: var(--ts-button-size); font-weight: 600; line-height: 1; letter-spacing: 0.01em; }
   .nuru-display { font-family: var(--font-display); font-weight: 400; line-height: 1.1; letter-spacing: -0.015em; color: var(--nuru-navy); }
   .nuru-numeric { font-family: var(--font-display); font-weight: 400; line-height: 1; color: var(--nuru-navy); }
 
@@ -168,6 +172,18 @@
   .nuru-section-title { font-size: 14px; font-weight: 700; color: var(--nuru-navy); }
 
   .nuru-card { background: var(--card); border: 1px solid var(--border); border-radius: 1rem; }
+
+  .nuru-page-header { display: flex; flex-direction: column; gap: 1rem; }
+  @media (min-width: 768px) { .nuru-page-header { flex-direction: row; align-items: flex-end; justify-content: space-between; } }
+  .nuru-action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  @media (min-width: 768px) { .nuru-action-row { justify-content: flex-end; } }
+
+  /* Rotating pastel tints on direct children — keeps grids from going monotone */
+  .nuru-card-rotate > *:nth-child(5n+1) { background: #fdf9ef !important; border-color: #f0e2bd !important; }
+  .nuru-card-rotate > *:nth-child(5n+2) { background: #f4f6fb !important; border-color: #dbe2ef !important; }
+  .nuru-card-rotate > *:nth-child(5n+3) { background: #f3faf5 !important; border-color: #d6ecdf !important; }
+  .nuru-card-rotate > *:nth-child(5n+4) { background: #f7f3fc !important; border-color: #e2d7f2 !important; }
+  .nuru-card-rotate > *:nth-child(5n+5) { background: #fdf3f7 !important; border-color: #f2d7e3 !important; }
 
   .tint-amber { background: #fdf5e5; color: #8a6b1f; }
   .tint-blue { background: #eef1f8; color: #1f3a6b; }

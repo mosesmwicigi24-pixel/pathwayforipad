@@ -1,107 +1,48 @@
-// Nuru Pathway Web Portal — rebuilt to the Figma make (docs/WEB_PORTAL_DESIGN_SPEC.md).
-// Gated on a session, then the navy shell renders the active screen. Screens are
-// being rebuilt phase by phase (WP1–WP5); ones not yet rebuilt keep their working
-// implementation, and brand-new screens show a clearly-labelled placeholder so the
-// nav is the real product structure from day one.
-import { useState, type ReactElement } from "react";
-import { Hammer } from "lucide-react";
-import { useAppSelector } from "./store/hooks";
-import { DevLogin } from "./components/DevLogin";
-import { PortalShell } from "./components/shell/PortalShell";
-import { canSee, defaultScreen, SCREEN_TITLES, type ScreenId } from "./components/shell/nav";
-import { Dashboard } from "./components/dashboard/Dashboard";
-import { CohortTable } from "./components/CohortTable";
-import { CurriculumAdmin } from "./components/curriculum/CurriculumAdmin";
-import { CurriculumLevels } from "./components/curriculum/CurriculumLevels";
-import { VideoLibrary } from "./components/curriculum/VideoLibrary";
-import { GrowthContent } from "./components/curriculum/GrowthContent";
-import { LevelDetail } from "./components/curriculum/LevelDetail";
-import { ModuleEditorPage } from "./components/curriculum/ModuleEditorPage";
-import { QuizBuilder } from "./components/curriculum/QuizBuilder";
-import { Members } from "./components/ops/Members";
-import { CohortEngagement } from "./components/ops/CohortEngagement";
-import { ReflectionQueue } from "./components/ops/ReflectionQueue";
-import { Attendance } from "./components/ops/Attendance";
-import { Events } from "./components/ops/Events";
-import { Announcements } from "./components/ops/Announcements";
-import { Badges } from "./components/ops/Badges";
-import { Certificates } from "./components/ops/Certificates";
-import { Finance } from "./components/ops/Finance";
-import { AuditLog } from "./components/ops/AuditLog";
+// Nuru Pathway Web Portal — router, rebuilt to the "Final Pathway Portal" Figma
+// make (ZMEsnrOJCXXY7rHfTBautI). The shell (Layout) + nav are the real product
+// structure; each inner page is rebuilt to the make and replaces its placeholder
+// in a later phase (see docs / task list P4–P7).
+import { type ReactElement } from "react";
+import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom";
+import { Layout } from "./components/shell/Layout";
+import { Login } from "./components/pages/Login";
+import { Placeholder } from "./components/pages/Placeholder";
 
-function ComingSoon({ title, phase }: { title: string; phase: string }): ReactElement {
-  return (
-    <div className="nuru-card" style={{ padding: 32, maxWidth: 560, display: "flex", gap: 16, alignItems: "flex-start" }}>
-      <div style={{ width: 44, height: 44, borderRadius: 12, background: "#FDF5E5", color: "#8A6B1F", display: "grid", placeItems: "center" }}>
-        <Hammer size={20} />
-      </div>
-      <div>
-        <h2 className="type-section" style={{ fontSize: 20 }}>{title}</h2>
-        <p style={{ color: "var(--muted-foreground)", fontSize: 14, marginTop: 6 }}>
-          This screen is being rebuilt to the new design in <strong>{phase}</strong>. Its data and
-          actions are wired to the live backend and land in an upcoming pass.
-        </p>
-      </div>
-    </div>
-  );
-}
+const ph = (title: string, phase: string): ReactElement => <Placeholder title={title} phase={phase} />;
+
+const router = createBrowserRouter([
+  { path: "/login", element: <Login /> },
+  { path: "/preview/:moduleId", element: ph("Module Preview", "P6 — Curriculum") },
+  {
+    path: "/",
+    element: <Layout />,
+    children: [
+      { index: true, element: ph("Dashboard", "P5") },
+      { path: "dashboard", element: ph("Dashboard", "P5") },
+      { path: "curriculum-levels", element: ph("Curriculum Levels", "P6 — Curriculum") },
+      { path: "cms", element: ph("CMS — Curriculum", "P6 — Curriculum") },
+      { path: "cms/level/:id", element: ph("CMS — Level Detail", "P6 — Curriculum") },
+      { path: "level-detail", element: ph("CMS — Level Detail", "P6 — Curriculum") },
+      { path: "quiz-builder", element: ph("Level Quiz Builder", "P6 — Curriculum") },
+      { path: "video-library", element: ph("Video Library", "P6 — Curriculum") },
+      { path: "cell-engagement", element: ph("Cell Engagement", "P7 — Operations") },
+      { path: "cell-engagement/:cellId", element: ph("Cell Detail", "P7 — Operations") },
+      { path: "members", element: ph("Members", "P7 — Operations") },
+      { path: "member-profile", element: ph("Member Profile", "P7 — Operations") },
+      { path: "reflection-queue", element: ph("Reflection Queue", "P7 — Operations") },
+      { path: "events", element: ph("Events & Attendance", "P7 — Operations") },
+      { path: "finance", element: ph("Finance", "P7 — Operations") },
+      { path: "certificates", element: ph("Certificates & Badges", "P7 — Operations") },
+      { path: "badges", element: ph("Badges Catalog", "P7 — Operations") },
+      { path: "users", element: ph("System Users", "P4 — System") },
+      { path: "roles", element: ph("Roles & Permissions", "P4 — System") },
+      { path: "countries", element: ph("Countries", "P4 — System") },
+      { path: "languages", element: ph("Languages", "P4 — System") },
+      { path: "*", element: <Navigate to="/" replace /> },
+    ],
+  },
+]);
 
 export function App(): ReactElement {
-  const { accessToken, role } = useAppSelector((s) => s.auth);
-  const [screen, setScreen] = useState<ScreenId | null>(null);
-
-  if (!accessToken) return <DevLogin />;
-
-  const active: ScreenId = screen && canSee(role, screen) ? screen : defaultScreen(role);
-
-  const body = ((): ReactElement => {
-    switch (active) {
-      case "dashboard":
-        return <Dashboard onNavigate={setScreen} />;
-      case "curriculum-levels":
-        return <CurriculumLevels onOpenCms={() => setScreen("cms")} />;
-      case "level-detail":
-        return <LevelDetail />;
-      case "module-editor":
-        return <ModuleEditorPage onNavigate={setScreen} />;
-      case "quiz-builder":
-        return <QuizBuilder onNavigate={setScreen} />;
-      case "cms":
-        return <CurriculumAdmin />;
-      case "videos":
-        return <VideoLibrary />;
-      case "growth-content":
-        return <GrowthContent />;
-      case "cohort":
-        return <CohortTable />;
-      case "reviews":
-        return <ReflectionQueue />;
-      case "members":
-        return <Members />;
-      case "attendance":
-        return <Attendance />;
-      case "events":
-        return <Events />;
-      case "announcements":
-        return <Announcements />;
-      case "badges":
-        return <Badges />;
-      case "certificates":
-        return <Certificates />;
-      case "finance":
-        return <Finance />;
-      case "audit":
-        return <AuditLog />;
-      case "cohort-engagement":
-        return <CohortEngagement />;
-      case "member-profile":
-        return <ComingSoon title={SCREEN_TITLES[active]} phase="WP3 (Member Profile detail)" />;
-    }
-  })();
-
-  return (
-    <PortalShell active={active} onNavigate={setScreen} title={SCREEN_TITLES[active]}>
-      {body}
-    </PortalShell>
-  );
+  return <RouterProvider router={router} />;
 }
