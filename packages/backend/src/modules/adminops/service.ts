@@ -110,6 +110,81 @@ export class AdminOpsService {
     );
   }
 
+  /**
+   * Per-level curriculum analytics for the "Curriculum Levels" page: module
+   * counts, enrolled learners (by current_level), completion of published
+   * modules, certificates issued — plus a 6-month enrolment trend by level.
+   * Everything aggregated from authoritative tables.
+   */
+  async levelsReport(): Promise<Record<string, unknown>> {
+    const levels = await many(
+      this.replica,
+      `WITH mod AS (
+         SELECT level_number,
+                count(*)::int                                            AS modules_total,
+                count(*) FILTER (WHERE status = 'published')::int        AS modules_published,
+                count(*) FILTER (WHERE status = 'draft')::int            AS modules_draft,
+                count(*) FILTER (WHERE status = 'archived')::int         AS modules_archived
+           FROM modules GROUP BY level_number
+       ),
+       enr AS (
+         SELECT current_level AS level_number, count(*)::int AS learners
+           FROM enrollments GROUP BY current_level
+       ),
+       done AS (
+         SELECT m.level_number, count(*)::int AS completed
+           FROM module_progress mp
+           JOIN modules m       ON m.module_id = mp.module_id AND m.status = 'published'
+           JOIN enrollments e   ON e.enrollment_id = mp.enrollment_id AND e.current_level = m.level_number
+          WHERE mp.is_completed
+          GROUP BY m.level_number
+       ),
+       cert AS (
+         SELECT level_number, count(*)::int AS certificates
+           FROM certificates WHERE level_number IS NOT NULL AND revoked_at IS NULL
+          GROUP BY level_number
+       )
+       SELECT l.level_number, l.title, l.theme, l.duration, l.status, l.color,
+              COALESCE(mod.modules_total, 0)     AS modules_total,
+              COALESCE(mod.modules_published, 0) AS modules_published,
+              COALESCE(mod.modules_draft, 0)     AS modules_draft,
+              COALESCE(mod.modules_archived, 0)  AS modules_archived,
+              COALESCE(enr.learners, 0)          AS learners,
+              CASE WHEN COALESCE(enr.learners,0) > 0 AND COALESCE(mod.modules_published,0) > 0
+                   THEN round(COALESCE(done.completed,0)::numeric
+                              / (enr.learners * mod.modules_published) * 100)::int
+                   ELSE 0 END                    AS completion_pct,
+              COALESCE(cert.certificates, 0)     AS certificates
+         FROM levels l
+         LEFT JOIN mod  ON mod.level_number  = l.level_number
+         LEFT JOIN enr  ON enr.level_number  = l.level_number
+         LEFT JOIN done ON done.level_number = l.level_number
+         LEFT JOIN cert ON cert.level_number = l.level_number
+        ORDER BY l.level_number`,
+    );
+
+    const trendRows = await many<{ ym: string; mon: string; level_number: number; n: number }>(
+      this.replica,
+      `SELECT to_char(date_trunc('month', started_at), 'YYYY-MM') AS ym,
+              to_char(date_trunc('month', started_at), 'Mon')     AS mon,
+              current_level AS level_number,
+              count(*)::int AS n
+         FROM enrollments
+        WHERE started_at >= date_trunc('month', now()) - interval '5 months'
+        GROUP BY 1, 2, current_level
+        ORDER BY 1`,
+    );
+    const months = [...new Set(trendRows.map((r) => r.ym))].sort();
+    const trend = months.map((ym) => {
+      const mon = trendRows.find((r) => r.ym === ym)?.mon ?? ym;
+      const point: Record<string, string | number> = { month: mon };
+      for (const r of trendRows.filter((x) => x.ym === ym)) point[`L${r.level_number}`] = r.n;
+      return point;
+    });
+
+    return { levels, trend };
+  }
+
   // ---------------- Members administration ----------------
 
   static readonly ListMembers = z.object({

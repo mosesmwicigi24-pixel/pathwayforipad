@@ -31,6 +31,10 @@ export function registerAdminOps(ctx: AppContext): Router {
     res.json(await svc.attendanceReport(q.weeks));
   }));
 
+  r.get("/admin/reports/levels", ...adminOnly, handler(async (_req, res) => {
+    res.json(await svc.levelsReport());
+  }));
+
   r.get("/admin/reports/consents", ...adminOnly, handler(async (_req, res) => {
     res.json({ data: await svc.consentsReport() });
   }));

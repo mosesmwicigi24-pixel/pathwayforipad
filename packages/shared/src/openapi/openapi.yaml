@@ -1196,6 +1196,13 @@ paths:
       responses:
         "200": { description: Attendance report }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/reports/levels:
+    get:
+      tags: [portal]
+      summary: Admin. Per-level curriculum analytics (modules, learners, completion, certificates) + 6-month enrolment trend.
+      responses:
+        "200": { description: Level analytics }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
   /admin/reports/consents:
     get:
       tags: [portal]

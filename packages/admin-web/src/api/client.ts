@@ -174,7 +174,31 @@ export const AdminApi = {
     const { data } = await api.get<{ data: ConsentRow[] }>("/admin/reports/consents");
     return data.data;
   },
+  async levelsReport(): Promise<LevelsReport> {
+    const { data } = await api.get<LevelsReport>("/admin/reports/levels");
+    return data;
+  },
 };
+
+export interface LevelAnalyticsRow {
+  level_number: number;
+  title: string;
+  theme: string | null;
+  duration: string | null;
+  status: string;
+  color: string;
+  modules_total: number;
+  modules_published: number;
+  modules_draft: number;
+  modules_archived: number;
+  learners: number;
+  completion_pct: number;
+  certificates: number;
+}
+export interface LevelsReport {
+  levels: LevelAnalyticsRow[];
+  trend: Array<Record<string, string | number>>;
+}
 
 // ---- System reference data (Final Pathway Portal "System" section) ----
 export interface Country {
