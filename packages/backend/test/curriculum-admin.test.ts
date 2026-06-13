@@ -268,6 +268,26 @@ describe("question bank CRUD + per-type validation (§5.8)", () => {
     expect(after.body.data).toHaveLength(1);
     expect(after.body.data[0].question_text).toBe("Draft?");
   });
+
+  it("module editorial metadata round-trips (difficulty, objectives, tags, visibility, required)", async () => {
+    const id = await newModule(1);
+    const upd = await agent().put(`/v1/admin/modules/${id}`).set(auth(adminTok)).send({
+      difficulty: "advanced",
+      objectives: "Define new birth\nExplain repentance",
+      tags: "salvation, grace",
+      visibility: "leaders",
+      required: false,
+    });
+    expect(upd.status).toBe(200);
+    expect(upd.body).toMatchObject({ difficulty: "advanced", tags: "salvation, grace", visibility: "leaders", required: false });
+    expect(upd.body.objectives).toContain("repentance");
+    // GET reflects the persisted editorial fields.
+    const got = await agent().get(`/v1/admin/modules/${id}`).set(auth(adminTok));
+    expect(got.body).toMatchObject({ difficulty: "advanced", visibility: "leaders", required: false });
+    // Invalid enum is rejected.
+    const bad = await agent().put(`/v1/admin/modules/${id}`).set(auth(adminTok)).send({ difficulty: "expert" });
+    expect(bad.status).toBe(400);
+  });
 });
 
 describe("RBAC on admin curriculum routes (§5.4)", () => {

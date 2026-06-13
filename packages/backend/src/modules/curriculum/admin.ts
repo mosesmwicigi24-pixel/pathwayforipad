@@ -271,7 +271,9 @@ export class AdminCurriculumService {
       c,
       `SELECT module_id, level_number, module_sequence_number, title, summary, lesson_content,
               key_verses, status, is_published, evaluation_kind, quiz_pass_mark, estimated_minutes,
-              video_url, media_asset_id, time_limit_sec, max_attempts, quiz_shuffle, current_version, row_version, created_at, updated_at
+              video_url, media_asset_id, time_limit_sec, max_attempts, quiz_shuffle,
+              difficulty, objectives, tags, visibility, required,
+              current_version, row_version, created_at, updated_at
          FROM modules WHERE module_id = $1`,
       [moduleId],
     );
@@ -291,6 +293,12 @@ export class AdminCurriculumService {
       time_limit_sec: z.number().int().min(30).max(7200).nullable().optional(),
       max_attempts: z.number().int().min(1).max(50).nullable().optional(),
       quiz_shuffle: z.boolean().optional(),
+      /** Editorial metadata (Level Detail editor) — presentation only. */
+      difficulty: z.enum(["beginner", "intermediate", "advanced"]).optional(),
+      objectives: z.string().nullable().optional(),
+      tags: z.string().nullable().optional(),
+      visibility: z.enum(["members", "leaders", "public"]).optional(),
+      required: z.boolean().optional(),
       /** Optimistic-concurrency guard (§5.8): reject if the row changed since load. */
       expected_row_version: z.number().int().min(1).optional(),
     })
@@ -341,6 +349,11 @@ export class AdminCurriculumService {
         time_limit_sec: input.time_limit_sec,
         max_attempts: input.max_attempts,
         quiz_shuffle: input.quiz_shuffle,
+        difficulty: input.difficulty,
+        objectives: input.objectives,
+        tags: input.tags,
+        visibility: input.visibility,
+        required: input.required,
         key_verses: input.key_verses === undefined ? undefined : input.key_verses === null ? null : JSON.stringify(input.key_verses),
       };
       const keys = Object.keys(cols).filter((k) => cols[k] !== undefined);

@@ -266,6 +266,11 @@ export interface AdminModule extends AdminModuleSummary {
   time_limit_sec: number | null;
   max_attempts: number | null;
   quiz_shuffle: boolean;
+  difficulty: "beginner" | "intermediate" | "advanced";
+  objectives: string | null;
+  tags: string | null;
+  visibility: "members" | "leaders" | "public";
+  required: boolean;
   current_version: number;
   row_version: number;
 }
