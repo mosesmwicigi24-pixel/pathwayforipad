@@ -6,6 +6,7 @@ import { type ReactElement } from "react";
 import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom";
 import { Layout } from "./components/shell/Layout";
 import { Login } from "./components/pages/Login";
+import { Dashboard } from "./components/pages/Dashboard";
 import { Placeholder } from "./components/pages/Placeholder";
 
 const ph = (title: string, phase: string): ReactElement => <Placeholder title={title} phase={phase} />;
@@ -17,8 +18,8 @@ const router = createBrowserRouter([
     path: "/",
     element: <Layout />,
     children: [
-      { index: true, element: ph("Dashboard", "P5") },
-      { path: "dashboard", element: ph("Dashboard", "P5") },
+      { index: true, element: <Dashboard /> },
+      { path: "dashboard", element: <Dashboard /> },
       { path: "curriculum-levels", element: ph("Curriculum Levels", "P6 — Curriculum") },
       { path: "cms", element: ph("CMS — Curriculum", "P6 — Curriculum") },
       { path: "cms/level/:id", element: ph("CMS — Level Detail", "P6 — Curriculum") },

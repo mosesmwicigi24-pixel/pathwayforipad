@@ -176,6 +176,31 @@ export const AdminApi = {
   },
 };
 
+// ---- System reference data (Final Pathway Portal "System" section) ----
+export interface Country {
+  code: string;
+  name: string;
+  flag: string | null;
+  region: string | null;
+  subregion: string | null;
+  dial_code: string | null;
+  currency: string | null;
+  status: "active" | "inactive";
+}
+export interface Language {
+  code: string;
+  name: string;
+  native_name: string;
+  direction: "ltr" | "rtl";
+  is_default: boolean;
+  coverage: number;
+  status: "active" | "inactive";
+}
+export const SystemApi = {
+  countries: () => unwrap(api.get<{ data: Country[] }>("/admin/countries")),
+  languages: () => unwrap(api.get<{ data: Language[] }>("/admin/languages")),
+};
+
 // ---- Curriculum CMS (Admin/SuperAdmin) ----
 export type EvaluationKind = "none" | "reflection" | "quiz" | "exit_exam";
 export type ModuleStatus = "draft" | "published" | "archived";

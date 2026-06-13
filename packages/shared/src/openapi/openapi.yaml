@@ -426,6 +426,22 @@ paths:
         "200": { description: Sanitized HTML }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
 
+  # --- System reference data (Final Pathway Portal "System" section) ---
+  /admin/countries:
+    get:
+      tags: [system]
+      summary: Admin. List countries (reference data) for the System section + dashboard counts.
+      responses:
+        "200": { description: Countries }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/languages:
+    get:
+      tags: [system]
+      summary: Admin. List languages (reference data) for the System section + dashboard counts.
+      responses:
+        "200": { description: Languages }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+
   # --- Progress, assessment & reflections (§3.3) ---
   /modules/{id}/complete:
     post:
