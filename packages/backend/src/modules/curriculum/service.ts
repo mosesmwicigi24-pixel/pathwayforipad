@@ -43,9 +43,16 @@ export class CurriculumService {
       minutes: number;
     }>(
       this.pool,
+      // A module counts as done if the member completed it OR it sits before the
+      // admin-set entry point in their placed level (covered by placement, §1.9
+      // entry-point). Defaults (start_level 1, seq 1) make the covered clause inert.
       `SELECT l.level_number, l.title, l.theme,
               COUNT(m.module_id)::int AS total_modules,
-              COUNT(mp.progress_id)::int AS completed_modules,
+              COUNT(*) FILTER (
+                WHERE m.module_id IS NOT NULL
+                  AND (mp.progress_id IS NOT NULL
+                       OR (l.level_number = $2 AND m.module_sequence_number < $3))
+              )::int AS completed_modules,
               COALESCE(SUM(m.estimated_minutes), 0)::int AS minutes
          FROM levels l
          LEFT JOIN modules m
@@ -55,7 +62,7 @@ export class CurriculumService {
           AND mp.enrollment_id = $1
         GROUP BY l.level_number, l.title, l.theme
         ORDER BY l.level_number`,
-      [enrollment?.enrollment_id ?? null],
+      [enrollment?.enrollment_id ?? null, enrollment?.start_level ?? 1, enrollment?.start_module_sequence ?? 1],
     );
 
     const levels = rows.map((r) => {
@@ -122,7 +129,13 @@ export class CurriculumService {
           level_number: m.level_number,
           module_sequence_number: m.module_sequence_number,
         }));
-      const completed = completedSet.has(m.module_id);
+      // Modules before the admin-set entry point are "covered" by the placement —
+      // shown as completed (the member begins at the entry module).
+      const covered =
+        enrollment !== null &&
+        m.level_number === enrollment.start_level &&
+        m.module_sequence_number < enrollment.start_module_sequence;
+      const completed = completedSet.has(m.module_id) || covered;
       const status = completed ? "completed" : unlocked ? "next" : "locked";
       out.push({
         module_id: m.module_id,

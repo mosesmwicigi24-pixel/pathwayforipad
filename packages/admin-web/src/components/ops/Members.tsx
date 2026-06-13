@@ -2,10 +2,77 @@
 // list with search/band/level filters, keyset "load more", and the Add-learner
 // flow (creates the Student + an L1 enrollment server-side, audited).
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { OpsApi, type MemberRow } from "../../api/client";
+import { OpsApi, CurriculumApi, type MemberRow, type AdminLevel, type AdminModuleSummary } from "../../api/client";
 import { errorMessage } from "../../util/error";
 import { bandColor, bandLabel } from "../../util/engagement";
 import { colors, card, font } from "../../theme";
+
+const field = { display: "block", width: "100%", padding: 8, marginTop: 4, border: `1px solid ${colors.border}`, borderRadius: 6 } as const;
+
+/**
+ * Starting-point picker: choose the level + entry module a member begins at.
+ * Modules come from the published curriculum (CMS). The entry module and any
+ * before it in that level are opened on mobile; nothing above the level unlocks
+ * (the §1.9 hard-lock ceiling is enforced server-side).
+ */
+function StartPointPicker(props: {
+  level: number;
+  moduleSeq: number;
+  onChange: (level: number, moduleSeq: number) => void;
+}): ReactElement {
+  const [levels, setLevels] = useState<AdminLevel[]>([]);
+  const [modules, setModules] = useState<AdminModuleSummary[]>([]);
+
+  useEffect(() => {
+    CurriculumApi.levels().then(setLevels).catch(() => setLevels([]));
+  }, []);
+
+  useEffect(() => {
+    CurriculumApi.modules(props.level)
+      .then((ms) => setModules(ms.filter((m) => m.status === "published")))
+      .catch(() => setModules([]));
+  }, [props.level]);
+
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      <label style={{ flex: 1 }}>
+        Starting level
+        <select
+          value={props.level}
+          onChange={(e) => props.onChange(Number(e.target.value), 1)}
+          style={field}
+          aria-label="Starting level"
+        >
+          {(levels.length ? levels.map((l) => l.level_number) : [1, 2, 3, 4, 5, 6]).map((n) => (
+            <option key={n} value={n}>
+              Level {n}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label style={{ flex: 1 }}>
+        Entry module
+        <select
+          value={props.moduleSeq}
+          onChange={(e) => props.onChange(props.level, Number(e.target.value))}
+          style={field}
+          aria-label="Entry module"
+          disabled={modules.length === 0}
+        >
+          {modules.length === 0 ? (
+            <option value={1}>Module 1</option>
+          ) : (
+            modules.map((m) => (
+              <option key={m.module_id} value={m.module_sequence_number}>
+                {`M${m.module_sequence_number} · ${m.title}`}
+              </option>
+            ))
+          )}
+        </select>
+      </label>
+    </div>
+  );
+}
 
 export function Members(): ReactElement {
   const [rows, setRows] = useState<MemberRow[]>([]);
@@ -15,6 +82,7 @@ export function Members(): ReactElement {
   const [level, setLevel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<MemberRow | null>(null);
 
   const load = useCallback(
     async (append = false, fromCursor?: string) => {
@@ -80,9 +148,11 @@ export function Members(): ReactElement {
               <th style={{ padding: "6px 4px" }}>Name</th>
               <th style={{ padding: "6px 4px" }}>Cell</th>
               <th style={{ padding: "6px 4px" }}>Level</th>
+              <th style={{ padding: "6px 4px" }}>Start</th>
               <th style={{ padding: "6px 4px" }}>Engagement</th>
               <th style={{ padding: "6px 4px" }}>Last activity</th>
               <th style={{ padding: "6px 4px" }}>Contact</th>
+              <th style={{ padding: "6px 4px" }} />
             </tr>
           </thead>
           <tbody>
@@ -94,6 +164,9 @@ export function Members(): ReactElement {
                 </td>
                 <td style={{ padding: "8px 4px", color: colors.textMuted }}>{m.cell_name ?? "—"}</td>
                 <td style={{ padding: "8px 4px" }}>{m.current_level ?? "—"}</td>
+                <td style={{ padding: "8px 4px", color: colors.textMuted }}>
+                  {m.start_level ? `L${m.start_level}·M${m.start_module_sequence ?? 1}` : "—"}
+                </td>
                 <td style={{ padding: "8px 4px" }}>
                   {m.band ? <span style={{ color: bandColor(m.band) }}>{bandLabel(m.band)}</span> : "—"}
                 </td>
@@ -101,11 +174,16 @@ export function Members(): ReactElement {
                   {m.last_activity ? new Date(m.last_activity).toLocaleDateString() : "never"}
                 </td>
                 <td style={{ padding: "8px 4px", color: colors.textMuted }}>{m.email ?? m.phone_number}</td>
+                <td style={{ padding: "8px 4px", textAlign: "right" }}>
+                  <button type="button" onClick={() => setEditing(m)} style={{ fontSize: font.size.xs }}>
+                    Set start
+                  </button>
+                </td>
               </tr>
             ))}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ padding: 16, color: colors.textMuted }}>
+                <td colSpan={8} style={{ padding: 16, color: colors.textMuted }}>
                   No members match.
                 </td>
               </tr>
@@ -128,6 +206,68 @@ export function Members(): ReactElement {
           }}
         />
       ) : null}
+
+      {editing ? (
+        <SetStart
+          member={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            void load();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function SetStart(props: { member: MemberRow; onClose: () => void; onSaved: () => void }): ReactElement {
+  const [level, setLevel] = useState(props.member.start_level ?? props.member.current_level ?? 1);
+  const [seq, setSeq] = useState(props.member.start_module_sequence ?? 1);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(): Promise<void> {
+    setErr(null);
+    setBusy(true);
+    try {
+      await OpsApi.setMemberStart(props.member.user_id, { start_level: level, start_module_sequence: seq });
+      props.onSaved();
+    } catch (e) {
+      setErr(errorMessage(e, "Could not set the starting point."));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "grid", placeItems: "center" }}
+      onClick={props.onClose}
+    >
+      <div style={{ ...card, width: 460 }} onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ marginTop: 0, fontSize: font.size.lg }}>{`Starting point · ${props.member.full_name}`}</h2>
+        <p style={{ margin: "0 0 12px", fontSize: font.size.xs, color: colors.textMuted }}>
+          Sets where this member begins on mobile. Their level moves here and the entry module opens; content above the
+          level stays locked and the level exam + reflection still gate advancement.
+        </p>
+        <StartPointPicker
+          level={level}
+          moduleSeq={seq}
+          onChange={(l, s) => {
+            setLevel(l);
+            setSeq(s);
+          }}
+        />
+        {err ? <p style={{ color: colors.danger }}>{err}</p> : null}
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button type="button" onClick={() => void submit()} disabled={busy}>
+            {busy ? "Saving…" : `Place at L${level}·M${seq}`}
+          </button>
+          <button type="button" onClick={props.onClose}>
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -138,6 +278,8 @@ function AddLearner(props: { onClose: () => void; onAdded: () => void }): ReactE
   const [email, setEmail] = useState("");
   const [dob, setDob] = useState("");
   const [cellId, setCellId] = useState("");
+  const [startLevel, setStartLevel] = useState(1);
+  const [startSeq, setStartSeq] = useState(1);
   const [err, setErr] = useState<string | null>(null);
 
   async function submit(): Promise<void> {
@@ -149,14 +291,14 @@ function AddLearner(props: { onClose: () => void; onAdded: () => void }): ReactE
         ...(email ? { email } : {}),
         ...(dob ? { date_of_birth: dob } : {}),
         cell_group_id: cellId,
+        start_level: startLevel,
+        start_module_sequence: startSeq,
       });
       props.onAdded();
     } catch (e) {
       setErr(errorMessage(e, "Could not add the learner."));
     }
   }
-
-  const field = { display: "block", width: "100%", padding: 8, marginTop: 4, border: `1px solid ${colors.border}`, borderRadius: 6 } as const;
 
   return (
     <div
@@ -185,10 +327,21 @@ function AddLearner(props: { onClose: () => void; onAdded: () => void }): ReactE
           Cell group id
           <input value={cellId} onChange={(e) => setCellId(e.target.value)} style={field} placeholder="uuid" />
         </label>
+        <p style={{ margin: "12px 0 4px", fontSize: font.size.sm, color: colors.textMuted }}>
+          Starting point — defaults to Level 1 · Module 1.
+        </p>
+        <StartPointPicker
+          level={startLevel}
+          moduleSeq={startSeq}
+          onChange={(l, s) => {
+            setStartLevel(l);
+            setStartSeq(s);
+          }}
+        />
         {err ? <p style={{ color: colors.danger }}>{err}</p> : null}
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           <button type="button" onClick={() => void submit()} disabled={!fullName || !phone || !cellId}>
-            Create + enroll at Level 1
+            {`Create + enroll at L${startLevel}·M${startSeq}`}
           </button>
           <button type="button" onClick={props.onClose}>
             Cancel

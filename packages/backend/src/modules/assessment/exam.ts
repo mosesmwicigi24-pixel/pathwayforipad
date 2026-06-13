@@ -7,7 +7,7 @@ import type { Pool } from "pg";
 import { z } from "zod";
 import { many, maybeOne, one, tx, recordChange, audit, type Queryable } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
-import { loadEnrollment, modulePassedPredicate, type EnrollmentRef } from "../progress/gating.js";
+import { loadEnrollment, modulePassedPredicate, entryFloorSeq, type EnrollmentRef } from "../progress/gating.js";
 
 const normalize = (s: string): string => s.trim().toLowerCase();
 
@@ -38,18 +38,21 @@ export class ExamService {
     if (levelNumber > enrollment.current_level) {
       throw new ApiError("GATE_LOCKED", "Level is locked", { current_level: enrollment.current_level });
     }
+    // Modules before the admin-set entry point are covered by the placement and
+    // not required for exam readiness (defaults make the floor 1 — i.e. all).
     const pending = await one<{ n: number }>(
       c,
       `SELECT count(*)::int AS n
          FROM modules m
         WHERE m.level_number = $1 AND m.is_published
+          AND m.module_sequence_number >= $3
           AND NOT EXISTS (
             SELECT 1 FROM module_progress mp
               JOIN enrollments e ON e.enrollment_id = mp.enrollment_id
              WHERE e.user_id = $2 AND mp.module_id = m.module_id AND mp.is_completed
                AND ${modulePassedPredicate("m", "mp")}
           )`,
-      [levelNumber, userId],
+      [levelNumber, userId, entryFloorSeq(enrollment, levelNumber)],
     );
     if (pending.n > 0) {
       throw new ApiError("GATE_LOCKED", "Finish every module in this level before the exam", {

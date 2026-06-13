@@ -14,6 +14,19 @@ import { maybeOne } from "../../db/db.js";
 export interface EnrollmentRef {
   enrollment_id: string;
   current_level: number;
+  start_level: number;
+  start_module_sequence: number;
+}
+
+/**
+ * The first module sequence a member is responsible for in a given level. For
+ * the level they were placed at (start_level) this is start_module_sequence —
+ * modules before it are treated as covered by the placement. Every other level
+ * starts at 1. Drives both unlock (entry is open) and advancement (skipped
+ * modules aren't required). Defaults of (1, 1) make this always return 1.
+ */
+export function entryFloorSeq(enrollment: EnrollmentRef, levelNumber: number): number {
+  return levelNumber === enrollment.start_level ? enrollment.start_module_sequence : 1;
 }
 
 interface ModuleRow {
@@ -25,7 +38,8 @@ interface ModuleRow {
 export async function loadEnrollment(c: Queryable, userId: string): Promise<EnrollmentRef | null> {
   return maybeOne<EnrollmentRef>(
     c,
-    `SELECT enrollment_id, current_level FROM enrollments WHERE user_id = $1`,
+    `SELECT enrollment_id, current_level, start_level, start_module_sequence
+       FROM enrollments WHERE user_id = $1`,
     [userId],
   );
 }
@@ -77,8 +91,9 @@ export async function isModuleUnlocked(
   if (module.level_number > enrollment.current_level) return false;
   // Levels strictly below the current one are fully unlocked (already passed).
   if (module.level_number < enrollment.current_level) return true;
-  // First module of the active level is always open.
-  if (module.module_sequence_number === 1) return true;
+  // Admin-set entry point: the entry module and any modules before it in the
+  // placed level are open (the member begins here; defaults make this seq 1 only).
+  if (module.module_sequence_number <= entryFloorSeq(enrollment, module.level_number)) return true;
 
   const row = await maybeOne<{ unlocked: boolean }>(
     c,

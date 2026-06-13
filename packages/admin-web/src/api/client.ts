@@ -258,6 +258,8 @@ export interface MemberRow {
   cell_name: string | null;
   cell_group_id: string | null;
   current_level: number | null;
+  start_level: number | null;
+  start_module_sequence: number | null;
   e_score: number | null;
   band: string | null;
   last_activity: string | null;
@@ -298,8 +300,15 @@ export type ReflectionState = "pending" | "approved" | "rejected" | "returned" |
 export const OpsApi = {
   members: (q: { search?: string; band?: string; level?: number; cursor?: string } = {}) =>
     api.get<{ data: MemberRow[]; next_cursor: string | null }>("/admin/members", { params: q }).then((r) => r.data),
-  addMember: (body: { full_name: string; phone_number: string; email?: string; date_of_birth?: string; cell_group_id: string }) =>
+  addMember: (body: { full_name: string; phone_number: string; email?: string; date_of_birth?: string; cell_group_id: string; start_level?: number; start_module_sequence?: number }) =>
     api.post<MemberRow>("/admin/members", body).then((r) => r.data),
+  setMemberStart: (userId: string, body: { start_level: number; start_module_sequence: number }) =>
+    api
+      .patch<{ user_id: string; current_level: number; start_level: number; start_module_sequence: number }>(
+        `/admin/members/${userId}/enrollment`,
+        body,
+      )
+      .then((r) => r.data),
 
   reflections: (q: { state?: ReflectionState; overdue?: boolean } = {}) =>
     api.get<{ data: ReflectionRow[] }>("/admin/reflections", { params: q }).then((r) => r.data.data),

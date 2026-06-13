@@ -5,7 +5,7 @@
 // tables — nothing here is client-supplied.
 import type { Pool } from "pg";
 import { z } from "zod";
-import { many, one, maybeOne, tx, audit } from "../../db/db.js";
+import { many, one, maybeOne, tx, audit, type Queryable } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 
 export class AdminOpsService {
@@ -151,7 +151,8 @@ export class AdminOpsService {
       this.replica,
       `SELECT u.user_id, u.full_name, u.email, u.phone_number, u.is_minor, u.created_at,
               cg.name AS cell_name, u.cell_group_id,
-              en.current_level, es.e_score::float, es.band::text,
+              en.current_level, en.start_level, en.start_module_sequence,
+              es.e_score::float, es.band::text,
               (SELECT max(ie.occurred_at) FROM interaction_events ie WHERE ie.user_id = u.user_id) AS last_activity
          FROM users u
          LEFT JOIN cell_groups cg ON cg.cell_group_id = u.cell_group_id
@@ -175,10 +176,38 @@ export class AdminOpsService {
       email: z.string().email().optional(),
       date_of_birth: z.string().optional(), // ISO date
       cell_group_id: z.string().uuid(),
+      // Optional placement at registration; defaults to Level 1 · Module 1.
+      start_level: z.coerce.number().int().min(1).default(1),
+      start_module_sequence: z.coerce.number().int().min(1).default(1),
     })
     .strict();
 
-  /** "Add learner": create a Student in a cell + an enrollment at L1·M1. Audited. */
+  /**
+   * Validate an admin-set starting point: the level must exist and a published
+   * module must occupy that sequence. Used by both addMember and setEnrollmentStart
+   * so the gating engine never opens a non-existent entry (§1.9).
+   */
+  private async validateStart(c: Queryable, level: number, seq: number): Promise<void> {
+    // The canonical entry (Level 1 · Module 1) is always valid — the gating engine
+    // opens it unconditionally — so a default placement needs no curriculum yet.
+    if (level === 1 && seq === 1) return;
+    const lvl = await maybeOne(c, `SELECT 1 FROM levels WHERE level_number = $1`, [level]);
+    if (!lvl) throw new ApiError("VALIDATION_FAILED", "Unknown level");
+    const mod = await maybeOne(
+      c,
+      `SELECT 1 FROM modules WHERE level_number = $1 AND module_sequence_number = $2 AND is_published = TRUE`,
+      [level, seq],
+    );
+    if (!mod) {
+      throw new ApiError("VALIDATION_FAILED", "No published module at that level and position", {
+        start_level: level,
+        start_module_sequence: seq,
+      });
+    }
+  }
+
+  /** "Add learner": create a Student in a cell + an enrollment at the chosen
+   *  starting point (default L1·M1). Audited. */
   async addMember(adminId: string, input: z.infer<typeof AdminOpsService.AddMember>): Promise<unknown> {
     return tx(this.pool, async (c) => {
       const cell = await maybeOne<{ congregation_id: string }>(
@@ -187,6 +216,7 @@ export class AdminOpsService {
         [input.cell_group_id],
       );
       if (!cell) throw new ApiError("VALIDATION_FAILED", "Unknown cell group");
+      await this.validateStart(c, input.start_level, input.start_module_sequence);
 
       const user = await one<{ user_id: string }>(
         c,
@@ -201,13 +231,69 @@ export class AdminOpsService {
           cell.congregation_id,
         ],
       );
-      await c.query(`INSERT INTO enrollments (user_id, current_level) VALUES ($1, 1)`, [user.user_id]);
-      await audit(c, adminId, "member.added", "users", user.user_id, { cell_group_id: input.cell_group_id });
+      await c.query(
+        `INSERT INTO enrollments (user_id, current_level, start_level, start_module_sequence)
+         VALUES ($1, $2, $2, $3)`,
+        [user.user_id, input.start_level, input.start_module_sequence],
+      );
+      await audit(c, adminId, "member.added", "users", user.user_id, {
+        cell_group_id: input.cell_group_id,
+        start_level: input.start_level,
+        start_module_sequence: input.start_module_sequence,
+      });
       return one(
         c,
         `SELECT user_id, full_name, email, phone_number, cell_group_id, congregation_id, created_at
            FROM users WHERE user_id = $1`,
         [user.user_id],
+      );
+    });
+  }
+
+  static readonly SetStart = z
+    .object({
+      start_level: z.coerce.number().int().min(1),
+      start_module_sequence: z.coerce.number().int().min(1).default(1),
+    })
+    .strict();
+
+  /**
+   * Move a member's Pathway entry point (admin placement). Sets current_level to
+   * the chosen level and records the entry module sequence. The §1.9 hard-lock
+   * ceiling still applies — nothing above current_level unlocks — and the level
+   * exam + reflection gates still govern advancement (scoped to the entry point).
+   */
+  async setEnrollmentStart(
+    adminId: string,
+    userId: string,
+    input: z.infer<typeof AdminOpsService.SetStart>,
+  ): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const enrollment = await maybeOne<{ enrollment_id: string }>(
+        c,
+        `SELECT enrollment_id FROM enrollments WHERE user_id = $1`,
+        [userId],
+      );
+      if (!enrollment) throw new ApiError("NOT_FOUND", "Member has no enrollment");
+      await this.validateStart(c, input.start_level, input.start_module_sequence);
+
+      await c.query(
+        `UPDATE enrollments
+            SET current_level = $1, start_level = $1, start_module_sequence = $2
+          WHERE user_id = $3`,
+        [input.start_level, input.start_module_sequence, userId],
+      );
+      await audit(c, adminId, "enrollment.start_set", "enrollments", enrollment.enrollment_id, {
+        user_id: userId,
+        start_level: input.start_level,
+        start_module_sequence: input.start_module_sequence,
+      });
+      return one(
+        c,
+        `SELECT u.user_id, u.full_name, en.current_level, en.start_level, en.start_module_sequence
+           FROM users u JOIN enrollments en ON en.user_id = u.user_id
+          WHERE u.user_id = $1`,
+        [userId],
       );
     });
   }

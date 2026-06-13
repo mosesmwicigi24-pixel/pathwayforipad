@@ -1196,11 +1196,22 @@ paths:
         "403": { $ref: "#/components/responses/ForbiddenScope" }
     post:
       tags: [portal]
-      summary: Admin. Add a learner (creates Student + enrollment at L1). Audited.
+      summary: Admin. Add a learner (creates Student + enrollment; optional start_level/start_module_sequence, default L1·M1). Audited.
       responses:
         "201": { description: Member created }
         "400": { description: Validation failed }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/members/{id}/enrollment:
+    patch:
+      tags: [portal]
+      summary: Admin. Set a member's starting level + entry module (placement). current_level moves to start_level; the §1.9 hard-lock ceiling and advancement gates still apply. Audited.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Enrollment placement updated }
+        "400": { description: Validation failed (unknown level or no published module at that position) }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/audit:
     get:
       tags: [portal]

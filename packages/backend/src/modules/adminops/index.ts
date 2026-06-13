@@ -46,6 +46,13 @@ export function registerAdminOps(ctx: AppContext): Router {
     res.status(201).json(await svc.addMember(requirePrincipal(req).userId, input));
   }));
 
+  // Admin placement: set the member's starting level + entry module (§1.9).
+  r.patch("/admin/members/:id/enrollment", ...adminOnly, handler(async (req, res) => {
+    const input = parseBody(AdminOpsService.SetStart, req.body);
+    const userId = req.params.id ?? "";
+    res.json(await svc.setEnrollmentStart(requirePrincipal(req).userId, userId, input));
+  }));
+
   // ---- Audit viewer ----
   r.get("/admin/audit", ...superOnly, handler(async (req, res) => {
     const q = parseBody(AdminOpsService.ListAudit, req.query);

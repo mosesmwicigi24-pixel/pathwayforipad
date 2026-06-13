@@ -10,7 +10,7 @@ import { many, maybeOne, one, tx, recordChange, audit, enqueueOutbox } from "../
 import { ApiError } from "../../http/errors.js";
 import { assertCellInScope } from "../../http/auth.js";
 import type { Principal } from "../../http/http.js";
-import { loadEnrollment } from "../progress/gating.js";
+import { loadEnrollment, entryFloorSeq } from "../progress/gating.js";
 
 const MAX_LEVEL = 5;
 
@@ -50,6 +50,7 @@ export class ReflectionService {
         `SELECT count(*)::int AS n
            FROM modules m
           WHERE m.level_number = $1 AND m.is_published
+            AND m.module_sequence_number >= $3
             AND NOT EXISTS (
               SELECT 1 FROM module_progress mp
                 JOIN enrollments e ON e.enrollment_id = mp.enrollment_id
@@ -59,7 +60,7 @@ export class ReflectionService {
                    OR EXISTS (SELECT 1 FROM quiz_attempts qa WHERE qa.progress_id = mp.progress_id AND qa.is_passed)
                  )
             )`,
-        [levelNumber, userId],
+        [levelNumber, userId, entryFloorSeq(enrollment, levelNumber)],
       );
       if (pending.n > 0) {
         throw new ApiError("UNPROCESSABLE", "Finish and pass every module in this level first", {
