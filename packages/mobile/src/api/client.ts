@@ -25,6 +25,12 @@ import type {
   ScripturePassage,
   MyGifts,
   MyRsvp,
+  Devotional,
+  MemoryVerseRow,
+  ReadingPlanRow,
+  ReadingPlanDetail,
+  ResourceRow,
+  MentorInfo,
   MyReflection,
   PathwaySummary,
   PrayerEntry,
@@ -286,6 +292,44 @@ export const NuruApi = {
       params: { ref, ...(version ? { version } : {}) },
     });
     return data;
+  },
+
+  // ---- Growth content (D5 over B9) ----
+  async devotional(): Promise<Devotional> {
+    const { data } = await api.get("/growth/devotional");
+    return data as Devotional;
+  },
+  async memoryVerses(): Promise<MemoryVerseRow[]> {
+    const { data } = await api.get<{ data: MemoryVerseRow[] }>("/growth/memory-verses");
+    return data.data;
+  },
+  async practiceVerse(memory_verse_id: string, match_pct: number): Promise<unknown> {
+    const { data } = await api.post("/growth/memory-verses/practice", { memory_verse_id, match_pct });
+    return data;
+  },
+  async plans(): Promise<ReadingPlanRow[]> {
+    const { data } = await api.get<{ data: ReadingPlanRow[] }>("/growth/plans");
+    return data.data;
+  },
+  async plan(id: string): Promise<ReadingPlanDetail> {
+    const { data } = await api.get(`/growth/plans/${id}`);
+    return data as ReadingPlanDetail;
+  },
+  async startPlan(id: string): Promise<unknown> {
+    const { data } = await api.post(`/growth/plans/${id}/start`);
+    return data;
+  },
+  async completePlanDay(id: string, day_number: number): Promise<unknown> {
+    const { data } = await api.post(`/growth/plans/${id}/complete-day`, { day_number });
+    return data;
+  },
+  async resources(): Promise<ResourceRow[]> {
+    const { data } = await api.get<{ data: ResourceRow[] }>("/growth/resources");
+    return data.data;
+  },
+  async mentor(): Promise<MentorInfo> {
+    const { data } = await api.get("/growth/mentor");
+    return data as MentorInfo;
   },
 
   // ---- Module reflection review state (M3 over B3); null = none submitted ----

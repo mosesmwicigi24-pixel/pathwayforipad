@@ -7,9 +7,10 @@ import { Pressable, ScrollView, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
+import { Award, Flame, Sparkles } from "lucide-react-native";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { Glow, T } from "../theme/components";
-import { useMe } from "../api/hooks";
+import { useAchievements, useMe } from "../api/hooks";
 import { clearQueryCache } from "../api/query";
 import { getVault } from "../auth/vault";
 
@@ -31,6 +32,9 @@ function genderLabel(g?: string | null): string | null {
 export function ProfileScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: me } = useMe();
+  const { data: achievements } = useAchievements();
+  const badges = achievements?.badges ?? [];
+  const streak = achievements?.streak?.current ?? 0;
   const profile = me?.profile;
   const fullName = profile?.full_name ?? "Member";
   const level = me?.enrollment?.current_level ?? null;
@@ -119,6 +123,38 @@ export function ProfileScreen(): ReactElement {
             </View>
           </View>
 
+          {/* Achievements (real badges + streak from the engagement pipeline) */}
+          {badges.length > 0 || streak > 0 ? (
+            <View style={{ marginTop: spacing.lg }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm }}>
+                <T variant="overline" tone="secondary">ACHIEVEMENTS</T>
+                {streak > 0 ? (
+                  <View style={st.streakChip}>
+                    <Flame size={12} color={palette.goldLo} />
+                    <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700" }}>{`${streak}-day streak`}</T>
+                  </View>
+                ) : null}
+              </View>
+              {badges.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
+                  {badges.map((b) => (
+                    <View key={b.code} style={st.medallion}>
+                      <View style={st.medallionDisc}><Award size={20} color={palette.gold} /></View>
+                      <T variant="micro" style={{ marginTop: 6, textAlign: "center", fontWeight: "600" }} numberOfLines={2}>{b.name}</T>
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : (
+                <View style={st.group}>
+                  <View style={st.row}>
+                    <Sparkles size={16} color={palette.goldLo} />
+                    <T variant="caption" tone="secondary" style={{ flex: 1, marginLeft: spacing.sm }}>Keep up your rhythm — badges celebrate your growth, not competition.</T>
+                  </View>
+                </View>
+              )}
+            </View>
+          ) : null}
+
           {/* Pathway + church services */}
           <View style={{ marginTop: spacing.lg }}>
             <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>PATHWAY</T>
@@ -168,6 +204,9 @@ const st = {
   badge: { borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
   group: { backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.base, paddingVertical: 14 },
+  streakChip: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  medallion: { width: 84, alignItems: "center", backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.border, paddingVertical: spacing.md, paddingHorizontal: 6, ...shadow.card },
+  medallionDisc: { width: 44, height: 44, borderRadius: 22, backgroundColor: palette.goldTint, borderWidth: 1, borderColor: "rgba(201,162,39,0.4)", alignItems: "center", justifyContent: "center" },
   rowDivider: { borderBottomWidth: 1, borderBottomColor: "rgba(10,37,64,0.06)" },
   signOut: {
     marginTop: spacing.lg,

@@ -15,6 +15,12 @@ import type {
   MyGifts,
   MyReflection,
   MyRsvp,
+  Devotional,
+  MemoryVerseRow,
+  ReadingPlanRow,
+  ReadingPlanDetail,
+  ResourceRow,
+  MentorInfo,
   NotificationRow,
   ScripturePassage,
   LevelModule,
@@ -35,6 +41,12 @@ export const queryKeys = {
   calendar: (from: string, to: string) => `calendar:${from}:${to}`,
   event: (id: string) => `event:${id}`,
   myRsvps: "myRsvps",
+  devotional: "devotional",
+  memoryVerses: "memoryVerses",
+  plans: "plans",
+  plan: (id: string) => `plan:${id}`,
+  resources: "resources",
+  mentor: "mentor",
   giving: "giving",
   schedules: "schedules",
   achievements: "achievements",
@@ -149,4 +161,23 @@ export function useScripture(ref: string, version = "WEB"): QueryResult<Scriptur
 
 export function useMyRsvps(): QueryResult<MyRsvp[]> {
   return useQuery(queryKeys.myRsvps, () => NuruApi.myRsvps(), { staleMs: 30_000 });
+}
+
+export function useDevotional(): QueryResult<Devotional> {
+  return useQuery(queryKeys.devotional, () => NuruApi.devotional(), { staleMs: 60 * 60 * 1000 });
+}
+export function useMemoryVerses(): QueryResult<MemoryVerseRow[]> {
+  return useQuery(queryKeys.memoryVerses, () => NuruApi.memoryVerses(), { staleMs: 30_000 });
+}
+export function usePlans(): QueryResult<ReadingPlanRow[]> {
+  return useQuery(queryKeys.plans, () => NuruApi.plans(), { staleMs: 30_000 });
+}
+export function usePlan(planId: string | null): QueryResult<ReadingPlanDetail> {
+  return useQuery(planId ? queryKeys.plan(planId) : null, () => NuruApi.plan(planId ?? ""), { staleMs: 15_000 });
+}
+export function useResources(): QueryResult<ResourceRow[]> {
+  return useQuery(queryKeys.resources, () => NuruApi.resources(), { staleMs: 5 * 60_000 });
+}
+export function useMentor(): QueryResult<MentorInfo> {
+  return useQuery(queryKeys.mentor, () => NuruApi.mentor(), { staleMs: 60_000 });
 }

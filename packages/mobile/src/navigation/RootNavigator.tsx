@@ -23,6 +23,12 @@ import { GiftsScreen } from "../screens/GiftsScreen.js";
 import { PrayerJournalScreen } from "../screens/PrayerJournalScreen.js";
 import { VerseLibraryScreen } from "../screens/VerseLibraryScreen.js";
 import { NotificationsScreen } from "../screens/NotificationsScreen.js";
+import { DevotionalScreen } from "../screens/DevotionalScreen.js";
+import { MemoryVerseScreen } from "../screens/MemoryVerseScreen.js";
+import { ReadingPlansScreen } from "../screens/ReadingPlansScreen.js";
+import { PlanDetailScreen } from "../screens/PlanDetailScreen.js";
+import { MentorScreen } from "../screens/MentorScreen.js";
+import { ResourcesLibraryScreen } from "../screens/ResourcesLibraryScreen.js";
 import { ModuleScreen } from "../screens/ModuleScreen.js";
 import { QuizScreen } from "../screens/QuizScreen.js";
 import { GivingScreen } from "../screens/GivingScreen.js";
@@ -65,6 +71,12 @@ export function RootNavigator(): ReactElement {
         <Stack.Screen name="PrayerJournal" component={PrayerJournalScreen} />
         <Stack.Screen name="VerseLibrary" component={VerseLibraryScreen} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
+        <Stack.Screen name="Devotional" component={DevotionalScreen} />
+        <Stack.Screen name="MemoryVerses" component={MemoryVerseScreen} />
+        <Stack.Screen name="ReadingPlans" component={ReadingPlansScreen} />
+        <Stack.Screen name="PlanDetail" component={PlanDetailScreen} />
+        <Stack.Screen name="Mentor" component={MentorScreen} />
+        <Stack.Screen name="Resources" component={ResourcesLibraryScreen} />
         <Stack.Screen name="EventDetail" component={EventDetailScreen} />
       </Stack.Navigator>
     </NavigationContainer>

@@ -7,6 +7,7 @@
 import { useCallback, useState, type ReactElement } from "react";
 import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import {
+  BookMarked,
   BookOpen,
   Check,
   ChevronRight,
@@ -182,6 +183,20 @@ export function LevelsScreen(): ReactElement {
           </Pressable>
         ) : null}
 
+        {/* ── Devotional + Reading plan (2-up) ───────────────────────── */}
+        <View style={{ flexDirection: "row", gap: spacing.sm }}>
+          <Pressable accessibilityRole="button" onPress={() => nav.navigate("Devotional")} style={({ pressed }) => [st.featureCard, pressed && { opacity: 0.9 }]}>
+            <View style={[st.actionIcon, { backgroundColor: palette.goldTint }]}><Sun size={18} color={palette.goldLo} /></View>
+            <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", letterSpacing: 1.2, marginTop: spacing.sm }}>TODAY'S DEVOTIONAL</T>
+            <T serif style={{ fontSize: 15, color: palette.ink, marginTop: 2 }}>A daily word</T>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => nav.navigate("ReadingPlans")} style={({ pressed }) => [st.featureCard, pressed && { opacity: 0.9 }]}>
+            <View style={[st.actionIcon, { backgroundColor: "#E0E7FF" }]}><BookOpen size={18} color="#4338CA" /></View>
+            <T variant="micro" style={{ color: "#4338CA", fontWeight: "700", letterSpacing: 1.2, marginTop: spacing.sm }}>READING PLAN</T>
+            <T serif style={{ fontSize: 15, color: palette.ink, marginTop: 2 }}>Read through Scripture</T>
+          </Pressable>
+        </View>
+
         {/* ── Six-level pathway ──────────────────────────────────────── */}
         <View style={st.card}>
           <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", letterSpacing: 1.4 }}>SIX-LEVEL PATHWAY</T>
@@ -200,9 +215,11 @@ export function LevelsScreen(): ReactElement {
         {/* ── Action grid → growth screens ───────────────────────────── */}
         <View style={st.actionGrid}>
           <ActionTile label="Prayer journal" sub="Private to you" Icon={HandHeart} tint="#FEE2E2" fg="#B91C1C" onPress={() => nav.navigate("PrayerJournal")} />
-          <ActionTile label="Your discipler" sub="Mentor & cell" Icon={UserRoundCheck} tint={palette.successBg} fg={palette.successText} onPress={() => nav.navigate("Tabs", { screen: "Community" })} />
+          <ActionTile label="Your discipler" sub="Mentor & meetings" Icon={UserRoundCheck} tint={palette.successBg} fg={palette.successText} onPress={() => nav.navigate("Mentor")} />
           <ActionTile label="Spiritual gifts" sub="Take assessment" Icon={Sparkles} tint="#F3E8FF" fg="#7E22CE" onPress={() => nav.navigate("Gifts")} />
+          <ActionTile label="Memory verses" sub="Hide His Word" Icon={Quote} tint="#FEF3C7" fg="#92400E" onPress={() => nav.navigate("MemoryVerses")} />
           <ActionTile label="Verse library" sub="Saved scriptures" Icon={Library} tint="#E0F2FE" fg="#0369A1" onPress={() => nav.navigate("VerseLibrary")} />
+          <ActionTile label="Resources" sub="Books, audio, video" Icon={BookMarked} tint="#DBEAFE" fg="#1D4ED8" onPress={() => nav.navigate("Resources")} />
         </View>
 
       </View>
@@ -342,4 +359,13 @@ const st = {
     ...shadow.card,
   },
   actionIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  featureCard: {
+    flex: 1,
+    backgroundColor: palette.white,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: spacing.base,
+    ...shadow.card,
+  },
 } as const;

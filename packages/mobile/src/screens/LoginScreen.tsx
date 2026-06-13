@@ -10,7 +10,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, spacing } from "../theme/tokens";
-import { PButton, T } from "../theme/components";
+import { Glow, PButton, T } from "../theme/components";
 
 const DEV_STUDENT = "student1@dev.local";
 
@@ -35,6 +35,8 @@ export function LoginScreen(): ReactElement {
 
   return (
     <View style={st.root}>
+      <Glow size={340} color="rgba(201,162,39,0.12)" style={{ alignSelf: "center", top: -60 }} />
+      <Glow size={300} color="rgba(10,37,64,0.5)" style={{ alignSelf: "center", bottom: -40 }} />
       <View style={st.center}>
         <View style={st.logo}>
           <View style={st.crossV} />
@@ -90,7 +92,7 @@ export function LoginScreen(): ReactElement {
 }
 
 const st = {
-  root: { flex: 1, backgroundColor: "#081C36" },
+  root: { flex: 1, backgroundColor: "#081C36", overflow: "hidden" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl },
   logo: {
     width: 80,

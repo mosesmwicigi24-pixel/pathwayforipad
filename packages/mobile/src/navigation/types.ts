@@ -28,5 +28,11 @@ export type RootStackParamList = {
   PrayerJournal: undefined; // private journal (M3)
   VerseLibrary: undefined; // saved verses (M3)
   Notifications: undefined; // notification center (D1)
+  Devotional: undefined; // daily devotional (D5)
+  MemoryVerses: undefined; // memory-verse library (D5)
+  ReadingPlans: undefined; // reading plans list (D5)
+  PlanDetail: { planId: string; title?: string }; // reading-plan detail (D5)
+  Mentor: undefined; // discipler + meeting notes (D5)
+  Resources: undefined; // resource library (D5)
   EventDetail: { eventId: string; title: string; startAt: string; endAt?: string; location?: string | null };
 };

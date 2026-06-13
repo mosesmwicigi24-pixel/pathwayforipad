@@ -282,3 +282,66 @@ export interface MyRsvp {
   occurs_at: string;
   cell_group_id: string | null;
 }
+
+// ---- Growth content (Contract Matrix D5 over B9) ----
+export interface Devotional {
+  devotional_id: string;
+  day_number: number;
+  series: string | null;
+  title: string;
+  scripture_ref: string | null;
+  scripture_text: string | null;
+  body: string;
+  reflection_prompt: string | null;
+  audio_url: string | null;
+  video_url: string | null;
+}
+
+export interface MemoryVerseRow {
+  memory_verse_id: string;
+  reference: string;
+  verse_text: string;
+  version: string;
+  week_number: number | null;
+  status: "learning" | "mastered";
+  best_match_pct: number;
+}
+
+export interface ReadingPlanRow {
+  plan_id: string;
+  code: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  day_count: number;
+  current_day: number | null;
+  completed_days: number[] | null;
+  enrolled: boolean;
+  completed_at: string | null;
+}
+
+export interface ReadingPlanDay {
+  day_number: number;
+  reference: string;
+  title: string | null;
+  content: string | null;
+}
+
+export interface ReadingPlanDetail extends Omit<ReadingPlanRow, "code" | "completed_at"> {
+  days: ReadingPlanDay[];
+}
+
+export interface ResourceRow {
+  resource_id: string;
+  title: string;
+  author: string | null;
+  kind: "book" | "audio" | "video" | "article";
+  duration_label: string | null;
+  url: string | null;
+}
+
+export interface MentorInfo {
+  mentor: { mentor_user_id: string; full_name: string; cell_name: string | null; established_at: string } | null;
+  next_meeting_at: string | null;
+  notes: Array<{ note_id: string; topic: string; note: string | null; met_at: string; next_meeting_at: string | null }>;
+}
