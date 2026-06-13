@@ -1,39 +1,31 @@
-// Portal nav model (W1): role gating, landing screens, and section structure.
+// Portal v2 nav model — structure + title resolution. Role-based gating returns
+// with RBAC (P3); for now the shell shows the full nav and resolves page titles.
 import { describe, it, expect } from "vitest";
-import { visibleSections, defaultScreen, canSee } from "../src/components/shell/nav";
+import { navGroups, titleFor } from "../src/components/shell/nav";
 
-describe("portal nav gating", () => {
-  it("admins see Dashboard, Curriculum and all Operations screens", () => {
-    const sections = visibleSections("Admin");
-    const ids = sections.flatMap((s) => s.items.map((i) => i.id));
-    expect(ids).toContain("dashboard");
-    expect(ids).toContain("curriculum-levels");
-    expect(ids).toContain("cms");
-    expect(ids).toContain("members");
-    expect(ids).toContain("finance");
-    expect(ids).toContain("audit");
+describe("portal nav model", () => {
+  it("has the four Figma-make groups in order", () => {
+    expect(navGroups.map((g) => g.label)).toEqual(["Portal", "Curriculum", "Operations", "System"]);
   });
 
-  it("instructors see only the leader screens — no dashboard/finance/audit", () => {
-    const ids = visibleSections("Instructor").flatMap((s) => s.items.map((i) => i.id));
-    expect(ids).toEqual(["cohort", "reviews", "attendance", "events"]);
+  it("exposes the System section (Users, Roles, Countries, Languages)", () => {
+    const system = navGroups.find((g) => g.label === "System");
+    expect(system?.items.map((i) => i.path)).toEqual(["/users", "/roles", "/countries", "/languages"]);
   });
 
-  it("lands admins on the dashboard, leaders on their cohort", () => {
-    expect(defaultScreen("SuperAdmin")).toBe("dashboard");
-    expect(defaultScreen("Admin")).toBe("dashboard");
-    expect(defaultScreen("Instructor")).toBe("cohort");
-    expect(defaultScreen(null)).toBe("cohort");
+  it("every nav item has a unique path", () => {
+    const paths = navGroups.flatMap((g) => g.items.map((i) => i.path));
+    expect(new Set(paths).size).toBe(paths.length);
   });
 
-  it("canSee guards direct screen switches by role", () => {
-    expect(canSee("Instructor", "finance")).toBe(false);
-    expect(canSee("Instructor", "reviews")).toBe(true);
-    expect(canSee("Admin", "finance")).toBe(true);
+  it("resolves static and param-route titles", () => {
+    expect(titleFor("/")).toBe("Dashboard");
+    expect(titleFor("/cell-engagement")).toBe("Cell Engagement");
+    expect(titleFor("/cell-engagement/abc")).toBe("Cell Detail");
+    expect(titleFor("/cms/level/3")).toBe("CMS — Level Detail");
   });
 
-  it("drops sections that end up empty for the role", () => {
-    const titles = visibleSections("Instructor").map((s) => s.title);
-    expect(titles).not.toContain("Curriculum");
+  it("falls back to the brand name for unknown routes", () => {
+    expect(titleFor("/totally-unknown")).toBe("Nuru Pathway");
   });
 });
