@@ -94,7 +94,7 @@ export function PrayerJournalScreen(): ReactElement {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         {composing ? (
           <View style={[st.card, { gap: spacing.sm, marginBottom: spacing.base }]}>
             <TextInput

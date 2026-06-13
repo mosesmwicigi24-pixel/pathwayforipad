@@ -126,6 +126,8 @@ export function ModuleScreen(): ReactElement {
             showsVerticalScrollIndicator={false}
             onScroll={onScroll}
             scrollEventThrottle={64}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
           >
             {module.summary ? (
               <View style={st.summary}>
@@ -146,7 +148,7 @@ export function ModuleScreen(): ReactElement {
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <T variant="caption" style={{ fontWeight: "600" }}>Watch video</T>
-                  <T variant="micro" tone="tertiary">{proof.watch ? "Watched" : "9 min"}</T>
+                  <T variant="micro" tone="tertiary">{proof.watch ? "Watched" : "Tap to play"}</T>
                 </View>
                 {proof.watch ? <Check size={14} color={palette.successText} /> : null}
               </Pressable>
@@ -160,7 +162,7 @@ export function ModuleScreen(): ReactElement {
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <T variant="caption" style={{ fontWeight: "600" }}>Listen audio</T>
-                  <T variant="micro" tone="tertiary">{proof.listen ? "Listened" : "14 min"}</T>
+                  <T variant="micro" tone="tertiary">{proof.listen ? "Listened" : "Tap to play"}</T>
                 </View>
                 {proof.listen ? <Check size={14} color={palette.successText} /> : null}
               </Pressable>

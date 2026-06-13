@@ -2,15 +2,15 @@
 // cell-scoped discussion threads, pinned first — start a topic, tap into the
 // conversation. Client-generated ids make posting idempotent (§3.6); members
 // without a cell get a kind explainer instead of an error.
-import { useState, type ReactElement } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import { useCallback, useState, type ReactElement } from "react";
+import { Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import { MessageSquareText, Pin } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
-import { palette, radii, spacing, shadow } from "../theme/tokens";
+import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { Glow, PButton, T } from "../theme/components";
 import { useThreads } from "../api/hooks";
 import { errorMessage, invalidateQueries } from "../api/query";
@@ -34,6 +34,16 @@ export function CommunityScreen(): ReactElement {
   const [postError, setPostError] = useState<string | null>(null);
 
   const noCell = error && errorMessage(error).toLowerCase().includes("cell");
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
 
   async function post(): Promise<void> {
     setPosting(true);
@@ -59,7 +69,13 @@ export function CommunityScreen(): ReactElement {
 
   return (
     <View style={st.screen}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: tabBarSpace }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
+      >
         <View style={st.header}>
           <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -60, top: -60 }} />
           <T variant="micro" tone="gold" style={st.kicker}>YOUR COHORT</T>

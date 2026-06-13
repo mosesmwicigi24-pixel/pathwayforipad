@@ -7,7 +7,7 @@ import { Pressable, ScrollView, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
-import { palette, radii, spacing, shadow } from "../theme/tokens";
+import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { Glow, T } from "../theme/components";
 import { useMe } from "../api/hooks";
 import { clearQueryCache } from "../api/query";
@@ -36,6 +36,9 @@ export function ProfileScreen(): ReactElement {
   const level = me?.enrollment?.current_level ?? null;
   const subtitle = [level ? `Level ${level} learner` : null, profile?.email].filter(Boolean).join(" · ");
   const socials = Object.entries(profile?.socials ?? {});
+  // Real enrollment state (not a hardcoded "Active"): active / paused / completed / withdrawn.
+  const enrollmentState = me?.enrollment?.state ?? null;
+  const stateLabel = enrollmentState ? enrollmentState.charAt(0).toUpperCase() + enrollmentState.slice(1) : null;
 
   const details: Array<{ label: string; value: string }> = [
     ...(profile?.phone_number ? [{ label: "Phone", value: profile.phone_number }] : []),
@@ -58,7 +61,7 @@ export function ProfileScreen(): ReactElement {
 
   return (
     <View style={st.screen}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: tabBarSpace }}>
         <View style={st.header}>
           <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -60, top: -60 }} />
           <T variant="micro" tone="gold" style={st.kicker}>YOUR JOURNEY</T>
@@ -75,9 +78,11 @@ export function ProfileScreen(): ReactElement {
               <T variant="heading">{fullName}</T>
               {subtitle ? <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>{subtitle}</T> : null}
             </View>
-            <View style={[st.badge, { backgroundColor: palette.activeBadgeBg }]}>
-              <T variant="micro" style={{ color: palette.activeBadgeText }}>Active</T>
-            </View>
+            {stateLabel ? (
+              <View style={[st.badge, { backgroundColor: palette.activeBadgeBg }]}>
+                <T variant="micro" style={{ color: palette.activeBadgeText }}>{stateLabel}</T>
+              </View>
+            ) : null}
           </View>
 
           {/* Personal details (B6 profile extensions render when present) */}

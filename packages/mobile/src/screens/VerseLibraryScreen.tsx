@@ -71,7 +71,7 @@ export function VerseLibraryScreen(): ReactElement {
         <T variant="heading" tone="onNavy">Verse library</T>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         {adding ? (
           <View style={[st.card, { gap: spacing.sm, marginBottom: spacing.base }]}>
             <TextInput

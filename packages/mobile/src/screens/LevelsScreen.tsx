@@ -4,10 +4,9 @@
 // list, an action grid into the growth screens, and a listen banner. Real
 // pathway + scripture + achievements data; the server stays authoritative for
 // unlocking (§1.9).
-import { useState, type ReactElement } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { useCallback, useState, type ReactElement } from "react";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import {
-  BookMarked,
   BookOpen,
   Check,
   ChevronRight,
@@ -25,7 +24,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
-import { palette, radii, spacing, shadow } from "../theme/tokens";
+import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { Glow, T } from "../theme/components";
 import { useAchievements, usePathway, useScripture } from "../api/hooks";
 import { errorMessage } from "../api/query";
@@ -41,9 +40,19 @@ const RHYTHM: Array<{ key: string; label: string; Icon: LucideIcon }> = [
 export function LevelsScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: pathway, isLoading, error, refetch } = usePathway();
-  const { data: achievements } = useAchievements();
+  const { data: achievements, refetch: refetchAch } = useAchievements();
   const { data: verse } = useScripture("Romans 12:2");
   const [rhythm, setRhythm] = useState<Record<string, boolean>>({ prayer: false, word: false, reflection: false });
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([refetch(), refetchAch()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch, refetchAch]);
 
   if (isLoading) {
     return (
@@ -73,7 +82,12 @@ export function LevelsScreen(): ReactElement {
   const rhythmLeft = RHYTHM.filter((r) => !rhythm[r.key]).length;
 
   return (
-    <ScrollView style={st.screen} contentContainerStyle={{ paddingBottom: spacing.xl }} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={st.screen}
+      contentContainerStyle={{ paddingBottom: tabBarSpace }}
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
+    >
       {/* ── Navy header with progress ring + verse ──────────────────── */}
       <View style={st.header}>
         <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -70, top: -70 }} />
@@ -191,17 +205,6 @@ export function LevelsScreen(): ReactElement {
           <ActionTile label="Verse library" sub="Saved scriptures" Icon={Library} tint="#E0F2FE" fg="#0369A1" onPress={() => nav.navigate("VerseLibrary")} />
         </View>
 
-        {/* ── Listen banner ──────────────────────────────────────────── */}
-        <View style={st.listenBanner}>
-          <View style={st.listenTile}>
-            <BookMarked size={18} color={palette.goldLo} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <T variant="heading" style={{ fontSize: 14 }}>Listen on the go</T>
-            <T variant="micro" tone="tertiary">Today's devotional · 6 min audio</T>
-          </View>
-          <PlayCircle size={24} color={palette.goldLo} />
-        </View>
       </View>
     </ScrollView>
   );
@@ -339,16 +342,4 @@ const st = {
     ...shadow.card,
   },
   actionIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  listenBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    backgroundColor: palette.white,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: spacing.base,
-    ...shadow.card,
-  },
-  listenTile: { width: 40, height: 40, borderRadius: 12, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
 } as const;

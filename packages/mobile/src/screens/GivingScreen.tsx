@@ -12,7 +12,7 @@ import { useNavigation } from "@react-navigation/native";
 import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { assertOnlineForGiving, getConnectivity } from "../net/connectivity";
-import { palette, radii, spacing, shadow } from "../theme/tokens";
+import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 import { useGivingHistory, useMe, useSchedules } from "../api/hooks";
 import { invalidateQueries } from "../api/query";
@@ -124,7 +124,13 @@ export function GivingScreen(): ReactElement {
         <T variant="body" tone="onNavyDim">Sow into the Kingdom</T>
       </View>
 
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: spacing.screen, gap: spacing.base, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.screen, gap: spacing.base, paddingBottom: tabBarSpace }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         {/* Offline info card (kind, never red-shaming) */}
         {offline ? (
           <View style={st.offline}>

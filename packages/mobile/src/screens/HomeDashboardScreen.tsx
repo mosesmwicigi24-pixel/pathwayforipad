@@ -4,8 +4,8 @@
 // rhythm with streak, progress snapshot, story card, upcoming events, the
 // verse for today (WEB default per D-M4), encouragement, and announcements —
 // real data wherever the API serves it; spec demo content elsewhere.
-import { useMemo, useState, type ReactElement } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import {
   BadgeCheck,
   Bell,
@@ -25,7 +25,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
-import { palette, radii, spacing, shadow } from "../theme/tokens";
+import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { GradientBg, Glow, T } from "../theme/components";
 import {
   useAchievements,
@@ -69,11 +69,22 @@ const RHYTHM: Array<{ key: "prayer" | "word" | "reflection"; label: string }> = 
 export function HomeDashboardScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: pathway, isLoading, error, refetch } = usePathway();
-  const { data: me } = useMe();
-  const { data: achievements } = useAchievements();
-  const { data: notifications } = useNotifications();
+  const { data: me, refetch: refetchMe } = useMe();
+  const { data: achievements, refetch: refetchAch } = useAchievements();
+  const { data: notifications, refetch: refetchNotifs } = useNotifications();
   const { data: announcements, refetch: refetchAnnouncements } = useMyAnnouncements();
   const { data: verse } = useScripture("Psalm 119:105");
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Pull-to-refresh re-pulls every Home data source from the backend.
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([refetch(), refetchMe(), refetchAch(), refetchNotifs(), refetchAnnouncements()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch, refetchMe, refetchAch, refetchNotifs, refetchAnnouncements]);
   const [fromIso, toIso] = useMemo(() => {
     const now = new Date();
     return [now.toISOString(), new Date(now.getTime() + 7 * 86_400_000).toISOString()];
@@ -124,7 +135,12 @@ export function HomeDashboardScreen(): ReactElement {
   };
 
   return (
-    <ScrollView style={st.screen} contentContainerStyle={{ paddingBottom: spacing.xl }} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={st.screen}
+      contentContainerStyle={{ paddingBottom: tabBarSpace }}
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
+    >
       {/* ── Navy header ─────────────────────────────────────────────── */}
       <View style={st.header}>
         <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -70, top: -70 }} />
@@ -180,9 +196,6 @@ export function HomeDashboardScreen(): ReactElement {
             <GradientBg colors={[palette.navy, palette.navy700, palette.gold]} radius={16} />
             <View style={st.playBtn}>
               <Play size={24} color={palette.navy} fill={palette.navy} />
-            </View>
-            <View style={st.durBadge}>
-              <T variant="micro" style={{ color: "rgba(255,255,255,0.9)" }}>12:40</T>
             </View>
           </Pressable>
           <T variant="heading" style={{ marginTop: spacing.md, fontSize: 17 }}>Welcome to the Pathway</T>
@@ -306,23 +319,6 @@ export function HomeDashboardScreen(): ReactElement {
             </View>
           ) : null}
         </View>
-
-        {/* ── This week at Nuru (story) ──────────────────────────────── */}
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => nav.navigate("Tabs", { screen: "Community" })}
-          style={({ pressed }) => [st.card, pressed && { transform: [{ scale: 0.99 }] }]}
-        >
-          <View style={st.storyImage}>
-            <GradientBg colors={[palette.navy700, palette.navy, palette.goldLo]} radius={16} />
-          </View>
-          <T variant="micro" style={[st.resumeKicker, { marginTop: spacing.md }]}>THIS WEEK AT NURU</T>
-          <T serif style={{ fontSize: 18, color: palette.ink, marginTop: 4 }}>Cohort gathered for a new beginning</T>
-          <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>
-            A glimpse of grace as the journey continues — see what your community shared this week.
-          </T>
-          <T variant="micro" style={{ color: palette.goldLo, fontWeight: "600", marginTop: spacing.sm }}>Read more ›</T>
-        </Pressable>
 
         {/* ── Upcoming (real calendar) ───────────────────────────────── */}
         {(occurrences ?? []).length > 0 ? (
@@ -536,15 +532,6 @@ const st = {
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.6)",
   },
-  durBadge: {
-    position: "absolute",
-    right: 12,
-    bottom: 12,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    borderRadius: radii.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
   chip: { backgroundColor: palette.white, borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: palette.border },
   resumeTile: { width: 44, height: 44, borderRadius: 14, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
   resumeKicker: { color: palette.goldLo, fontWeight: "700", letterSpacing: 1.8 },
@@ -581,7 +568,6 @@ const st = {
     marginTop: spacing.md,
   },
   targetTile: { width: 28, height: 28, borderRadius: 9, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
-  storyImage: { height: 150, borderRadius: 16, overflow: "hidden" },
   eventRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.md },
   eventDate: { width: 46, height: 46, borderRadius: 14, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
   verseCard: {

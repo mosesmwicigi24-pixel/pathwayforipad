@@ -78,6 +78,11 @@ export const gradients = {
 // 8pt grid (with 4 + 20 as the Figma screen padding).
 export const spacing = { xs: 4, sm: 8, md: 12, base: 16, screen: 20, lg: 24, xl: 32, xxl: 48 } as const;
 
+// Bottom-scroll clearance so the last card never hides behind the ~70px custom
+// tab bar (plus a comfortable touch margin). Use on every tab screen's
+// ScrollView contentContainerStyle.
+export const tabBarSpace = 96;
+
 export const radii = { control: 14, button: 14, card: 24, hero: 30, pill: 999 } as const;
 
 // Type scale (system font: SF on iOS, Roboto on Android). size / lineHeight.
