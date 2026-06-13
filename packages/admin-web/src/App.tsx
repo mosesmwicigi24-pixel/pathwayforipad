@@ -55,7 +55,7 @@ export function App(): ReactElement {
   const body = ((): ReactElement => {
     switch (active) {
       case "dashboard":
-        return <Dashboard />;
+        return <Dashboard onNavigate={setScreen} />;
       case "curriculum-levels":
         return <CurriculumLevels onOpenCms={() => setScreen("cms")} />;
       case "level-detail":
