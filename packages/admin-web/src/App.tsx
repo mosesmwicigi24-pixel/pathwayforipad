@@ -8,6 +8,7 @@ import { Layout } from "./components/shell/Layout";
 import { Login } from "./components/pages/Login";
 import { Dashboard } from "./components/pages/Dashboard";
 import { CurriculumLevels } from "./components/pages/CurriculumLevels";
+import { CmsCurriculum } from "./components/pages/CmsCurriculum";
 import { Placeholder } from "./components/pages/Placeholder";
 
 const ph = (title: string, phase: string): ReactElement => <Placeholder title={title} phase={phase} />;
@@ -22,7 +23,7 @@ const router = createBrowserRouter([
       { index: true, element: <Dashboard /> },
       { path: "dashboard", element: <Dashboard /> },
       { path: "curriculum-levels", element: <CurriculumLevels /> },
-      { path: "cms", element: ph("CMS — Curriculum", "P6 — Curriculum") },
+      { path: "cms", element: <CmsCurriculum /> },
       { path: "cms/level/:id", element: ph("CMS — Level Detail", "P6 — Curriculum") },
       { path: "level-detail", element: ph("CMS — Level Detail", "P6 — Curriculum") },
       { path: "quiz-builder", element: ph("Level Quiz Builder", "P6 — Curriculum") },
