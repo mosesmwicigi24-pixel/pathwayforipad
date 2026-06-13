@@ -1,0 +1,198 @@
+/* Nuru Pathway Web Portal — design tokens (ported from the Figma make
+   `Mdaaz36GGxSqXvXUHDb6ra` theme.css). Tailwind v4 + named type styles +
+   Nuru brand tokens + pastel card utilities. See docs/WEB_PORTAL_DESIGN_SPEC.md. */
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=DM+Serif+Display&family=DM+Mono:wght@400;500&display=swap");
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+
+  /* Page surfaces */
+  --background: #f6f4ee;
+  --foreground: #111827;
+  --card: #fbf8f1;
+  --card-foreground: #111827;
+  --popover: #ffffff;
+  --popover-foreground: #111827;
+
+  /* Interactive */
+  --primary: #0b1f33;
+  --primary-foreground: #ffffff;
+  --secondary: #eef0f3;
+  --secondary-foreground: #0b1f33;
+
+  /* Neutrals */
+  --muted: #eef0f3;
+  --muted-foreground: #6b7280;
+  --border: #e5e7eb;
+  --input: transparent;
+  --input-background: #f3f4f6;
+  --switch-background: #d1d5db;
+
+  /* Accent — gold */
+  --accent: #c89b3c;
+  --accent-foreground: #ffffff;
+
+  /* Status */
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+
+  --ring: #c89b3c;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+
+  /* Charts */
+  --chart-1: #0b1f33;
+  --chart-2: #c89b3c;
+  --chart-3: #16a34a;
+  --chart-4: #f59e0b;
+  --chart-5: #6366f1;
+
+  --radius: 0.625rem;
+
+  /* Sidebar — deep navy */
+  --sidebar: #0b1f33;
+  --sidebar-foreground: #e8eff5;
+  --sidebar-primary: #c89b3c;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #132840;
+  --sidebar-accent-foreground: #e8eff5;
+  --sidebar-border: rgba(255, 255, 255, 0.07);
+  --sidebar-ring: #c89b3c;
+
+  /* Nuru brand tokens */
+  --nuru-navy: #0b1f33;
+  --nuru-gold: #c89b3c;
+  --nuru-light-gold: #f5e7c5;
+  --nuru-dark: #071629;
+  --nuru-teal: #16a34a;
+  --nuru-amber: #c89b3c;
+
+  /* Semantic aliases */
+  --color-success: #16a34a;
+  --color-success-bg: #f0fdf4;
+  --color-warning: #f59e0b;
+  --color-warning-bg: #fffbeb;
+  --color-danger: #dc2626;
+  --color-danger-bg: #fef2f2;
+
+  /* Fonts */
+  --font-sans: "Manrope", system-ui, sans-serif;
+  --font-display: "DM Serif Display", Georgia, serif;
+  --font-mono: "DM Mono", "Courier New", monospace;
+
+  /* Type scale */
+  --ts-display-size: 32px;
+  --ts-section-size: 24px;
+  --ts-card-size: 18px;
+  --ts-body-size: 15px;
+  --ts-small-size: 13px;
+  --ts-button-size: 14px;
+  --ts-table-size: 12px;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-nuru-navy: var(--nuru-navy);
+  --color-nuru-gold: var(--nuru-gold);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    font-size: 16px;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: var(--ts-body-size);
+    line-height: 1.65;
+    margin: 0;
+  }
+  h1 { font-size: var(--ts-display-size); font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; color: var(--foreground); margin: 0; }
+  h2 { font-size: var(--ts-section-size); font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; color: var(--foreground); margin: 0; }
+  h3 { font-size: var(--ts-card-size); font-weight: 600; line-height: 1.35; color: var(--foreground); margin: 0; }
+  p { margin: 0; }
+  button { font-family: var(--font-sans); font-size: var(--ts-button-size); font-weight: 600; }
+  input, textarea, select { font-family: var(--font-sans); font-size: var(--ts-body-size); }
+  button:not(:disabled), [role="button"]:not(:disabled), a[href] { cursor: pointer; }
+}
+
+@layer utilities {
+  .type-display { font-family: var(--font-display); font-weight: 400; line-height: 1.15; letter-spacing: -0.02em; color: var(--nuru-navy); }
+  .type-section { font-family: var(--font-display); font-weight: 400; line-height: 1.25; letter-spacing: -0.01em; color: var(--nuru-navy); }
+  .nuru-display { font-family: var(--font-display); font-weight: 400; line-height: 1.1; letter-spacing: -0.015em; color: var(--nuru-navy); }
+  .nuru-numeric { font-family: var(--font-display); font-weight: 400; line-height: 1; color: var(--nuru-navy); }
+
+  .nuru-eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted-foreground); }
+  .nuru-eyebrow-gold { color: #8a6b1f; }
+  .nuru-section-title { font-size: 14px; font-weight: 700; color: var(--nuru-navy); }
+
+  .nuru-card { background: var(--card); border: 1px solid var(--border); border-radius: 1rem; }
+
+  .tint-amber { background: #fdf5e5; color: #8a6b1f; }
+  .tint-blue { background: #eef1f8; color: #1f3a6b; }
+  .tint-red { background: #fdecec; color: #a8281f; }
+  .tint-green { background: #e8f6ee; color: #0f6b33; }
+  .tint-violet { background: #f0ebfa; color: #5b2bb8; }
+  .tint-rose { background: #fcebf1; color: #a8246b; }
+
+  .card-amber { background: #fdf9ef !important; border: 1px solid #f0e2bd !important; }
+  .card-blue { background: #f4f6fb !important; border: 1px solid #dbe2ef !important; }
+  .card-green { background: #f3faf5 !important; border: 1px solid #d6ecdf !important; }
+  .card-violet { background: #f7f3fc !important; border: 1px solid #e2d7f2 !important; }
+  .card-rose { background: #fdf3f7 !important; border: 1px solid #f2d7e3 !important; }
+  .card-red { background: #fdf4f4 !important; border: 1px solid #f2d6d6 !important; }
+
+  .nuru-date-pill { display: inline-flex; align-items: center; gap: 6px; background: #fdf5e5; color: #8a6b1f; border: 1px solid #f2e2bd; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px; }
+
+  .nuru-tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--border); }
+  .nuru-tab { padding: 8px 12px; font-size: 12.5px; font-weight: 600; color: var(--muted-foreground); border-bottom: 2px solid transparent; margin-bottom: -1px; background: transparent; }
+  .nuru-tab[data-active="true"] { color: var(--nuru-navy); border-bottom-color: var(--nuru-gold); }
+
+  .nuru-footnote { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px dashed var(--border); font-size: 11px; color: var(--muted-foreground); line-height: 1.4; }
+
+  .type-table-header { font-size: 12px; font-weight: 600; line-height: 1; letter-spacing: 0.07em; text-transform: uppercase; }
+
+  /* hide scrollbars on scroll containers (matches the make) */
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+}

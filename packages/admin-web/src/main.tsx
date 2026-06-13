@@ -1,6 +1,7 @@
 // Admin web portal entry (spec §1.3). Online-only, read-optimised. Defining
 // screen is the cohort table sorted ascending by engagement score — a single
 // indexed query against the engagement_scores snapshot (§2.5), not a live compute.
+import "./index.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Provider } from "react-redux";
