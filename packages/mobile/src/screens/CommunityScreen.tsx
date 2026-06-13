@@ -1,170 +1,205 @@
-// Community (new design, Contract Matrix M2 over B8). Your cohort's board:
-// cell-scoped discussion threads, pinned first — start a topic, tap into the
-// conversation. Client-generated ids make posting idempotent (§3.6); members
-// without a cell get a kind explainer instead of an error.
-import { useCallback, useState, type ReactElement } from "react";
-import { Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
-import { MessageSquareText, Pin } from "lucide-react-native";
+// Community (new design, spec §10 — event-centric). Navy header, segment pills
+// (Today / Upcoming / My RSVPs), photo-forward event cards, an entry to the
+// cohort discussions board, and real announcements. Every section is bound to
+// the database: useCalendar (occurrences), useMyRsvps, useMyAnnouncements,
+// useNotifications (bell badge). Tapping an event opens EventDetail (real RSVP).
+import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Bell, CalendarDays, ChevronRight, Clock, MapPin, MessageSquareText, Users } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
-import { NuruApi } from "../api/client";
-import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
-import { Glow, PButton, T } from "../theme/components";
-import { useThreads } from "../api/hooks";
+import { GradientBg, Glow, T } from "../theme/components";
+import { useCalendar, useMyAnnouncements, useMyRsvps, useNotifications } from "../api/hooks";
+import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries } from "../api/query";
 import { Loading } from "../components/states";
+import type { CalendarOccurrence } from "../api/types";
 
-function ago(iso: string): string {
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days <= 0) return "today";
-  if (days === 1) return "yesterday";
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+type Segment = "today" | "upcoming" | "rsvps";
+
+function sameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+function timeLabel(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
 export function CommunityScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { data: threads, isLoading, error, refetch } = useThreads();
-  const [composing, setComposing] = useState(false);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [posting, setPosting] = useState(false);
-  const [postError, setPostError] = useState<string | null>(null);
-
-  const noCell = error && errorMessage(error).toLowerCase().includes("cell");
+  const [fromIso, toIso] = useMemo(() => {
+    const now = new Date();
+    return [now.toISOString(), new Date(now.getTime() + 30 * 86_400_000).toISOString()];
+  }, []);
+  const { data: occurrences, isLoading, error, refetch } = useCalendar(fromIso, toIso);
+  const { data: rsvps, refetch: refetchRsvps } = useMyRsvps();
+  const { data: announcements, refetch: refetchAnnouncements } = useMyAnnouncements();
+  const { data: notifications } = useNotifications();
+  const [segment, setSegment] = useState<Segment>("today");
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await refetch();
+      await Promise.all([refetch(), refetchRsvps(), refetchAnnouncements()]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetch]);
+  }, [refetch, refetchRsvps, refetchAnnouncements]);
 
-  async function post(): Promise<void> {
-    setPosting(true);
-    setPostError(null);
-    try {
-      await NuruApi.createThread({
-        thread_id: uuidv4(),
-        title: title.trim(),
-        body: body.trim(),
-        client_mutation_id: uuidv4(),
-      });
-      setTitle("");
-      setBody("");
-      setComposing(false);
-      invalidateQueries("threads");
-      void refetch();
-    } catch (e) {
-      setPostError(errorMessage(e));
-    } finally {
-      setPosting(false);
-    }
+  const all = occurrences ?? [];
+  const today = new Date();
+  const todayEvents = all.filter((e) => sameDay(new Date(e.start_at), today));
+  const upcoming = all.filter((e) => new Date(e.start_at).getTime() > today.getTime());
+  const rsvpList = (rsvps ?? []).filter((r) => r.status !== "declined");
+  const unread = notifications?.unread ?? 0;
+
+  const counts = { today: todayEvents.length, upcoming: upcoming.length, rsvps: rsvpList.length };
+  const SEGMENTS: Array<{ key: Segment; label: string }> = [
+    { key: "today", label: "Today" },
+    { key: "upcoming", label: "Upcoming" },
+    { key: "rsvps", label: "My RSVPs" },
+  ];
+
+  const openOccurrence = (e: CalendarOccurrence): void =>
+    nav.navigate("EventDetail", { eventId: e.occurrence_id, title: e.title, startAt: e.start_at, endAt: e.end_at, location: e.location });
+
+  function openAnnouncement(id: string): void {
+    void NuruApi.openAnnouncement(id)
+      .then(() => {
+        invalidateQueries("myAnnouncements");
+        void refetchAnnouncements();
+      })
+      .catch(() => undefined);
   }
+
+  const list = segment === "today" ? todayEvents : segment === "upcoming" ? upcoming : null;
 
   return (
     <View style={st.screen}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: tabBarSpace }}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
       >
+        {/* Navy header */}
         <View style={st.header}>
-          <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -60, top: -60 }} />
-          <T variant="micro" tone="gold" style={st.kicker}>YOUR COHORT</T>
-          <T variant="display" tone="onNavy" style={{ marginTop: spacing.sm, fontSize: 34 }}>Community</T>
-          <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.md, maxWidth: 330 }}>
-            Walk the pathway together — discussions stay inside your cell group.
-          </T>
-        </View>
-
-        <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.lg }}>
-          {isLoading ? <Loading label="Loading your cohort…" /> : null}
-
-          {noCell ? (
-            <View style={st.card}>
-              <T variant="heading">Join a cell group first</T>
-              <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>
-                Community lives inside your cell. Ask your leader to add you, and this space comes alive.
+          <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -70, top: -70 }} />
+          <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T variant="micro" tone="gold" style={st.kicker}>COMMUNITY</T>
+              <T serif tone="onNavy" style={st.h1}>Gathered together</T>
+              <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }}>
+                {today.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })} · EAT
               </T>
             </View>
-          ) : null}
+            <Pressable accessibilityRole="button" accessibilityLabel="Notifications" onPress={() => nav.navigate("Notifications")} style={st.bellBtn}>
+              <Bell size={20} color={palette.onNavy} strokeWidth={1.8} />
+              {unread > 0 ? <View style={st.bellDot} /> : null}
+            </Pressable>
+          </View>
+        </View>
 
-          {!isLoading && !noCell ? (
-            <>
-              {composing ? (
-                <View style={[st.card, { gap: spacing.sm }]}>
-                  <TextInput
-                    value={title}
-                    onChangeText={setTitle}
-                    placeholder="Topic title"
-                    placeholderTextColor={palette.ink400}
-                    accessibilityLabel="Thread title"
-                    style={st.input}
-                  />
-                  <TextInput
-                    value={body}
-                    onChangeText={setBody}
-                    placeholder="What's on your heart?"
-                    placeholderTextColor={palette.ink400}
-                    accessibilityLabel="Thread body"
-                    multiline
-                    style={[st.input, { height: 96, textAlignVertical: "top", paddingTop: spacing.md }]}
-                  />
-                  {postError ? <T variant="caption" style={{ color: palette.error }}>{postError}</T> : null}
-                  <View style={{ flexDirection: "row", gap: spacing.sm }}>
-                    <View style={{ flex: 1 }}>
-                      <PButton variant="gold" onPress={() => void post()} disabled={posting || title.trim().length < 3 || body.trim().length === 0}>
-                        {posting ? "Posting…" : "Post to cohort"}
-                      </PButton>
+        <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.base, gap: spacing.base }}>
+          {/* Segment pills */}
+          <View style={st.segment}>
+            {SEGMENTS.map((s) => {
+              const on = segment === s.key;
+              return (
+                <Pressable key={s.key} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setSegment(s.key)} style={[st.segItem, on && { backgroundColor: palette.navy }]}>
+                  <T variant="caption" style={{ fontWeight: on ? "600" : "400", color: on ? palette.white : palette.ink600 }}>{s.label}</T>
+                  {counts[s.key] > 0 ? (
+                    <View style={[st.segBadge, { backgroundColor: on ? "rgba(201,162,39,0.25)" : palette.surface }]}>
+                      <T variant="micro" style={{ color: on ? palette.goldGlow : palette.ink600, fontWeight: "700" }}>{counts[s.key]}</T>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <PButton variant="ghost" onPress={() => setComposing(false)}>Cancel</PButton>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Event list */}
+          {isLoading ? (
+            <Loading label="Loading gatherings…" />
+          ) : error ? (
+            <View style={st.card}>
+              <T variant="heading">Couldn't load events</T>
+              <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>{errorMessage(error)}</T>
+            </View>
+          ) : segment === "rsvps" ? (
+            rsvpList.length > 0 ? (
+              rsvpList.map((r) => (
+                <Pressable
+                  key={r.rsvp_id}
+                  onPress={() => nav.navigate("EventDetail", { eventId: r.event_id, title: r.title, startAt: r.occurs_at })}
+                  style={({ pressed }) => [st.eventCard, pressed && { transform: [{ scale: 0.99 }] }]}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+                    <View style={st.dateChip}>
+                      <T variant="micro" style={{ color: palette.gold, fontWeight: "700" }}>{new Date(r.occurs_at).toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}</T>
+                      <T serif tone="onNavy" style={{ fontSize: 18 }}>{String(new Date(r.occurs_at).getDate())}</T>
                     </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <T variant="heading" style={{ fontSize: 15 }} numberOfLines={1}>{r.title}</T>
+                      <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>{`${timeLabel(r.occurs_at)} · You're ${r.status}`}</T>
+                    </View>
+                    <ChevronRight size={16} color={palette.ink300} />
                   </View>
-                </View>
-              ) : (
-                <PButton variant="gold" onPress={() => setComposing(true)}>Start a discussion</PButton>
-              )}
+                </Pressable>
+              ))
+            ) : (
+              <EmptyState icon={<CalendarDays size={22} color={palette.gold} />} title="No RSVPs yet" sub="Tap an event under Today or Upcoming to say you'll be there." />
+            )
+          ) : (list ?? []).length > 0 ? (
+            (list ?? []).map((e) => <EventCard key={e.occurrence_id} occ={e} onPress={() => openOccurrence(e)} />)
+          ) : (
+            <EmptyState
+              icon={<CalendarDays size={22} color={palette.gold} />}
+              title={segment === "today" ? "Nothing today" : "Nothing coming up"}
+              sub={segment === "today" ? "Check Upcoming for what's ahead this month." : "New gatherings will appear here as they're scheduled."}
+            />
+          )}
 
-              <View style={{ marginTop: spacing.base, gap: spacing.sm }}>
-                {(threads ?? []).map((t) => (
-                  <Pressable
-                    key={t.thread_id}
-                    onPress={() => nav.navigate("Thread", { threadId: t.thread_id, title: t.title })}
-                    style={({ pressed }) => [st.threadCard, pressed && { transform: [{ scale: 0.99 }] }]}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-                      {t.is_pinned ? <Pin size={14} color={palette.gold} /> : null}
-                      <T variant="heading" style={{ flex: 1, fontSize: 15 }} numberOfLines={1}>{t.title}</T>
-                    </View>
-                    <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>{t.body}</T>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm }}>
-                      <MessageSquareText size={13} color={palette.ink400} />
-                      <T variant="micro" tone="tertiary">
-                        {`${t.comment_count} ${t.comment_count === 1 ? "comment" : "comments"} · ${t.author_name} · ${ago(t.created_at)}`}
-                        {t.is_locked ? " · locked" : ""}
-                      </T>
-                    </View>
-                  </Pressable>
-                ))}
-                {(threads ?? []).length === 0 ? (
-                  <View style={st.card}>
-                    <T variant="heading">A quiet room, for now</T>
-                    <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>
-                      Be the first — share what this week's module stirred in you.
+          {/* Cohort discussions entry */}
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => nav.navigate("CohortDiscussions")}
+            style={({ pressed }) => [st.discussCard, pressed && { transform: [{ scale: 0.99 }] }]}
+          >
+            <View style={st.discussTile}>
+              <MessageSquareText size={20} color={palette.gold} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T variant="heading" tone="onNavy" style={{ fontSize: 15 }}>Cohort discussions</T>
+              <T variant="micro" tone="onNavyDim" style={{ marginTop: 2 }}>Talk with your cell between gatherings</T>
+            </View>
+            <ChevronRight size={18} color={palette.gold} />
+          </Pressable>
+
+          {/* Announcements (real) */}
+          {(announcements ?? []).length > 0 ? (
+            <View style={st.card}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: spacing.sm }}>
+                <Users size={13} color={palette.goldLo} />
+                <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", letterSpacing: 1.4 }}>ANNOUNCEMENTS</T>
+              </View>
+              {(announcements ?? []).slice(0, 4).map((a, i, arr) => (
+                <Pressable
+                  key={a.announcement_id}
+                  onPress={() => openAnnouncement(a.announcement_id)}
+                  style={({ pressed }) => [st.annRow, i < arr.length - 1 && st.annDivider, pressed && { opacity: 0.85 }]}
+                >
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <T variant="heading" style={{ fontSize: 14 }} numberOfLines={1}>{a.title}</T>
+                    <T variant="micro" tone="tertiary" numberOfLines={1}>
+                      {a.sent_at ? new Date(a.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}
                     </T>
                   </View>
-                ) : null}
-              </View>
-            </>
+                  {!a.opened ? <View style={st.unreadDot} /> : null}
+                </Pressable>
+              ))}
+            </View>
           ) : null}
         </View>
       </ScrollView>
@@ -172,34 +207,66 @@ export function CommunityScreen(): ReactElement {
   );
 }
 
+function EventCard({ occ, onPress }: { occ: CalendarOccurrence; onPress: () => void }): ReactElement {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [st.eventCardPhoto, pressed && { transform: [{ scale: 0.99 }] }]}>
+      <View style={st.eventCover}>
+        <GradientBg colors={[palette.navy700, palette.navy, palette.goldLo]} radius={0} />
+        <View style={st.coverDate}>
+          <T variant="micro" style={{ color: palette.navy, fontWeight: "700" }}>{new Date(occ.start_at).toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}</T>
+          <T serif style={{ fontSize: 20, color: palette.navy }}>{String(new Date(occ.start_at).getDate())}</T>
+        </View>
+      </View>
+      <View style={{ padding: spacing.base }}>
+        <T serif style={{ fontSize: 17, color: palette.ink }} numberOfLines={1}>{occ.title}</T>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.sm }}>
+          <View style={st.metaRow}>
+            <Clock size={12} color={palette.ink600} />
+            <T variant="micro" tone="secondary">{timeLabel(occ.start_at)}</T>
+          </View>
+          {occ.location ? (
+            <View style={st.metaRow}>
+              <MapPin size={12} color={palette.ink600} />
+              <T variant="micro" tone="secondary" numberOfLines={1}>{occ.location}</T>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+function EmptyState({ icon, title, sub }: { icon: ReactElement; title: string; sub: string }): ReactElement {
+  return (
+    <View style={[st.card, { alignItems: "center", paddingVertical: spacing.xl }]}>
+      <View style={st.emptyTile}>{icon}</View>
+      <T variant="heading" style={{ marginTop: spacing.md }}>{title}</T>
+      <T variant="caption" tone="secondary" style={{ marginTop: 4, textAlign: "center", maxWidth: 260 }}>{sub}</T>
+    </View>
+  );
+}
+
 const st = {
-  screen: { flex: 1, backgroundColor: palette.coolPaper },
-  header: { backgroundColor: palette.navy, paddingHorizontal: spacing.lg, paddingTop: 54, paddingBottom: spacing.xl, overflow: "hidden" },
-  kicker: { letterSpacing: 1.8, textTransform: "uppercase" },
-  card: {
-    backgroundColor: palette.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: spacing.base,
-    ...shadow.card,
-  },
-  threadCard: {
-    backgroundColor: palette.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: spacing.base,
-    ...shadow.card,
-  },
-  input: {
-    backgroundColor: palette.coolPaper,
-    borderRadius: radii.control,
-    borderWidth: 1,
-    borderColor: palette.border,
-    paddingHorizontal: spacing.base,
-    height: 48,
-    fontSize: 15,
-    color: palette.ink,
-  },
+  screen: { flex: 1, backgroundColor: "#F6F4EE" },
+  header: { backgroundColor: palette.navy, paddingHorizontal: spacing.screen, paddingTop: 58, paddingBottom: spacing.lg, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, overflow: "hidden" },
+  kicker: { letterSpacing: 2.4, fontWeight: "600" },
+  h1: { fontSize: 26, lineHeight: 32, marginTop: spacing.sm, fontWeight: "600" },
+  bellBtn: { width: 44, height: 44, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center" },
+  bellDot: { position: "absolute", top: 10, right: 10, width: 9, height: 9, borderRadius: 5, backgroundColor: palette.gold },
+  segment: { flexDirection: "row", gap: 4, backgroundColor: palette.white, borderRadius: radii.control, padding: 5, borderWidth: 1, borderColor: palette.border, ...shadow.card },
+  segItem: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 40, borderRadius: 10 },
+  segBadge: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
+  card: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
+  eventCard: { backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
+  eventCardPhoto: { backgroundColor: palette.white, borderRadius: radii.card, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
+  eventCover: { height: 96, overflow: "hidden" },
+  coverDate: { position: "absolute", top: 12, left: 12, backgroundColor: palette.white, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6, alignItems: "center" },
+  dateChip: { width: 46, height: 46, borderRadius: 14, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 },
+  discussCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: palette.navyDeep, borderRadius: 20, borderWidth: 1, borderColor: "rgba(201,162,39,0.33)", padding: spacing.base, ...shadow.card },
+  discussTile: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(201,162,39,0.15)", alignItems: "center", justifyContent: "center" },
+  annRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.sm },
+  annDivider: { borderBottomWidth: 1, borderBottomColor: palette.border },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.gold },
+  emptyTile: { width: 56, height: 56, borderRadius: 18, backgroundColor: palette.surface, alignItems: "center", justifyContent: "center" },
 } as const;

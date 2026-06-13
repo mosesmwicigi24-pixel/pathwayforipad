@@ -14,6 +14,7 @@ import type {
   MyAnnouncement,
   MyGifts,
   MyReflection,
+  MyRsvp,
   NotificationRow,
   ScripturePassage,
   LevelModule,
@@ -33,6 +34,7 @@ export const queryKeys = {
   quiz: (id: string) => `quiz:${id}`,
   calendar: (from: string, to: string) => `calendar:${from}:${to}`,
   event: (id: string) => `event:${id}`,
+  myRsvps: "myRsvps",
   giving: "giving",
   schedules: "schedules",
   achievements: "achievements",
@@ -143,4 +145,8 @@ export function useScripture(ref: string, version = "WEB"): QueryResult<Scriptur
   return useQuery(queryKeys.scripture(ref, version), () => NuruApi.scripture(ref, version), {
     staleMs: 24 * 60 * 60 * 1000,
   });
+}
+
+export function useMyRsvps(): QueryResult<MyRsvp[]> {
+  return useQuery(queryKeys.myRsvps, () => NuruApi.myRsvps(), { staleMs: 30_000 });
 }

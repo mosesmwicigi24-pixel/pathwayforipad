@@ -23,6 +23,7 @@ export type RootStackParamList = {
   Giving: undefined; // legacy push target (Profile rows); the Give tab is primary
   Calendar: undefined; // full browse, pushed from Home's Upcoming section
   Thread: { threadId: string; title?: string }; // cohort discussion detail (M2)
+  CohortDiscussions: undefined; // cohort thread board (D3, pushed from Community)
   Gifts: undefined; // spiritual-gifts assessment + results (M3)
   PrayerJournal: undefined; // private journal (M3)
   VerseLibrary: undefined; // saved verses (M3)

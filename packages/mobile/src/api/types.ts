@@ -271,3 +271,14 @@ export interface ScripturePassage {
   text: string;
   copyright?: string;
 }
+
+// ---- My RSVPs (Community 'My RSVPs' segment, D3 over B2/B/calendar) ----
+export interface MyRsvp {
+  rsvp_id: string;
+  status: "going" | "maybe" | "declined";
+  updated_at: string;
+  event_id: string;
+  title: string;
+  occurs_at: string;
+  cell_group_id: string | null;
+}

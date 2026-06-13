@@ -24,6 +24,7 @@ import type {
   NotificationRow,
   ScripturePassage,
   MyGifts,
+  MyRsvp,
   MyReflection,
   PathwaySummary,
   PrayerEntry,
@@ -123,6 +124,10 @@ export const NuruApi = {
   async event(eventId: string): Promise<EventDetail> {
     const { data } = await api.get<EventDetail>(`/events/${eventId}`);
     return data;
+  },
+  async myRsvps(): Promise<MyRsvp[]> {
+    const { data } = await api.get<{ data: MyRsvp[] }>("/me/rsvps");
+    return data.data;
   },
   async rsvp(eventId: string, status: "going" | "maybe" | "declined"): Promise<unknown> {
     const { data } = await api.post(`/events/${eventId}/rsvp`, { status });

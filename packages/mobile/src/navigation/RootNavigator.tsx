@@ -18,6 +18,7 @@ import { EventDetailScreen } from "../screens/EventDetailScreen.js";
 import { ProfileScreen } from "../screens/ProfileScreen.js";
 import { CommunityScreen } from "../screens/CommunityScreen.js";
 import { ThreadScreen } from "../screens/ThreadScreen.js";
+import { CohortDiscussionsScreen } from "../screens/CohortDiscussionsScreen.js";
 import { GiftsScreen } from "../screens/GiftsScreen.js";
 import { PrayerJournalScreen } from "../screens/PrayerJournalScreen.js";
 import { VerseLibraryScreen } from "../screens/VerseLibraryScreen.js";
@@ -59,6 +60,7 @@ export function RootNavigator(): ReactElement {
         <Stack.Screen name="Giving" component={GivingScreen} />
         <Stack.Screen name="Calendar" component={CalendarScreen} />
         <Stack.Screen name="Thread" component={ThreadScreen} />
+        <Stack.Screen name="CohortDiscussions" component={CohortDiscussionsScreen} />
         <Stack.Screen name="Gifts" component={GiftsScreen} />
         <Stack.Screen name="PrayerJournal" component={PrayerJournalScreen} />
         <Stack.Screen name="VerseLibrary" component={VerseLibraryScreen} />
