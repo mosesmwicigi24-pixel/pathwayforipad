@@ -5,17 +5,21 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { AppContext } from "../../http/context.js";
-import { authenticate } from "../../http/auth.js";
+import { authenticate, requireRole } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { GrowthContentService } from "./service.js";
+import { AdminGrowthService } from "./admin.js";
 
 const PlanIdParam = z.object({ id: z.string().uuid() });
+const idOf = (req: { params: Record<string, string | undefined> }, k = "id"): string => req.params[k] ?? "";
 
 export const growthContentRouter: Router = Router();
 
 export function registerGrowthContent(ctx: AppContext): Router {
   const svc = new GrowthContentService(ctx.db.primary);
+  const adminSvc = new AdminGrowthService(ctx.db.primary);
   const auth = authenticate(ctx.env);
+  const adminOnly = [auth, requireRole("Admin")] as const;
   const r = growthContentRouter;
 
   r.get("/growth/devotional", auth, handler(async (_req, res) => {
@@ -54,6 +58,34 @@ export function registerGrowthContent(ctx: AppContext): Router {
   r.get("/growth/mentor", auth, handler(async (req, res) => {
     res.json(await svc.mentor(requirePrincipal(req).userId));
   }));
+
+  // ───────────────── Admin authoring (Admin+) — every mobile growth element
+  // is editable from the portal. Audited; member reads above are unaffected.
+
+  // Devotionals
+  r.get("/admin/growth/devotionals", ...adminOnly, handler(async (_req, res) => res.json({ data: await adminSvc.listDevotionals() })));
+  r.post("/admin/growth/devotionals", ...adminOnly, handler(async (req, res) => res.status(201).json(await adminSvc.createDevotional(requirePrincipal(req).userId, parseBody(AdminGrowthService.Devotional, req.body)))));
+  r.put("/admin/growth/devotionals/:id", ...adminOnly, handler(async (req, res) => res.json(await adminSvc.updateDevotional(requirePrincipal(req).userId, idOf(req), parseBody(AdminGrowthService.Devotional.partial(), req.body)))));
+  r.delete("/admin/growth/devotionals/:id", ...adminOnly, handler(async (req, res) => res.json(await adminSvc.deleteDevotional(requirePrincipal(req).userId, idOf(req)))));
+
+  // Memory verses
+  r.get("/admin/growth/memory-verses", ...adminOnly, handler(async (_req, res) => res.json({ data: await adminSvc.listVerses() })));
+  r.post("/admin/growth/memory-verses", ...adminOnly, handler(async (req, res) => res.status(201).json(await adminSvc.createVerse(requirePrincipal(req).userId, parseBody(AdminGrowthService.Verse, req.body)))));
+  r.put("/admin/growth/memory-verses/:id", ...adminOnly, handler(async (req, res) => res.json(await adminSvc.updateVerse(requirePrincipal(req).userId, idOf(req), parseBody(AdminGrowthService.Verse.partial(), req.body)))));
+  r.delete("/admin/growth/memory-verses/:id", ...adminOnly, handler(async (req, res) => res.json(await adminSvc.deleteVerse(requirePrincipal(req).userId, idOf(req)))));
+
+  // Reading plans (+ days)
+  r.get("/admin/growth/plans", ...adminOnly, handler(async (_req, res) => res.json({ data: await adminSvc.listPlans() })));
+  r.get("/admin/growth/plans/:id", ...adminOnly, handler(async (req, res) => res.json(await adminSvc.planDetail(idOf(req)))));
+  r.post("/admin/growth/plans", ...adminOnly, handler(async (req, res) => res.status(201).json(await adminSvc.createPlan(requirePrincipal(req).userId, parseBody(AdminGrowthService.Plan, req.body)))));
+  r.put("/admin/growth/plans/:id", ...adminOnly, handler(async (req, res) => res.json(await adminSvc.updatePlan(requirePrincipal(req).userId, idOf(req), parseBody(AdminGrowthService.Plan.partial(), req.body)))));
+  r.delete("/admin/growth/plans/:id", ...adminOnly, handler(async (req, res) => res.json(await adminSvc.deletePlan(requirePrincipal(req).userId, idOf(req)))));
+
+  // Resources
+  r.get("/admin/growth/resources", ...adminOnly, handler(async (_req, res) => res.json({ data: await adminSvc.listResources() })));
+  r.post("/admin/growth/resources", ...adminOnly, handler(async (req, res) => res.status(201).json(await adminSvc.createResource(requirePrincipal(req).userId, parseBody(AdminGrowthService.Resource, req.body)))));
+  r.put("/admin/growth/resources/:id", ...adminOnly, handler(async (req, res) => res.json(await adminSvc.updateResource(requirePrincipal(req).userId, idOf(req), parseBody(AdminGrowthService.Resource.partial(), req.body)))));
+  r.delete("/admin/growth/resources/:id", ...adminOnly, handler(async (req, res) => res.json(await adminSvc.deleteResource(requirePrincipal(req).userId, idOf(req)))));
 
   return r;
 }

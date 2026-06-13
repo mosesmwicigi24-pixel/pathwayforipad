@@ -1572,6 +1572,93 @@ paths:
         "200": { description: Mentor }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  # --- Growth-content authoring (Admin+) — every mobile growth element editable ---
+  /admin/growth/devotionals:
+    get:
+      tags: [portal]
+      summary: Admin. List all devotionals (incl. unpublished).
+      responses: { "200": { description: Devotionals }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+    post:
+      tags: [portal]
+      summary: Admin. Create a devotional. Audited.
+      responses: { "201": { description: Created }, "400": { description: Validation failed }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+  /admin/growth/devotionals/{id}:
+    put:
+      tags: [portal]
+      summary: Admin. Update a devotional. Audited.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses: { "200": { description: Updated }, "403": { $ref: "#/components/responses/ForbiddenScope" }, "404": { $ref: "#/components/responses/NotFound" } }
+    delete:
+      tags: [portal]
+      summary: Admin. Delete a devotional. Audited.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses: { "200": { description: Deleted }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+  /admin/growth/memory-verses:
+    get:
+      tags: [portal]
+      summary: Admin. List all memory verses.
+      responses: { "200": { description: Verses }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+    post:
+      tags: [portal]
+      summary: Admin. Create a memory verse. Audited.
+      responses: { "201": { description: Created }, "400": { description: Validation failed }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+  /admin/growth/memory-verses/{id}:
+    put:
+      tags: [portal]
+      summary: Admin. Update a memory verse. Audited.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses: { "200": { description: Updated }, "403": { $ref: "#/components/responses/ForbiddenScope" }, "404": { $ref: "#/components/responses/NotFound" } }
+    delete:
+      tags: [portal]
+      summary: Admin. Delete a memory verse. Audited.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses: { "200": { description: Deleted }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+  /admin/growth/plans:
+    get:
+      tags: [portal]
+      summary: Admin. List all reading plans (with day counts).
+      responses: { "200": { description: Plans }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+    post:
+      tags: [portal]
+      summary: Admin. Create a reading plan with its days. Audited.
+      responses: { "201": { description: Created }, "400": { description: Validation failed }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+  /admin/growth/plans/{id}:
+    get:
+      tags: [portal]
+      summary: Admin. Reading plan with its days.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses: { "200": { description: Plan }, "403": { $ref: "#/components/responses/ForbiddenScope" }, "404": { $ref: "#/components/responses/NotFound" } }
+    put:
+      tags: [portal]
+      summary: Admin. Update a reading plan (and replace its days when provided). Audited.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses: { "200": { description: Updated }, "403": { $ref: "#/components/responses/ForbiddenScope" }, "404": { $ref: "#/components/responses/NotFound" } }
+    delete:
+      tags: [portal]
+      summary: Admin. Delete a reading plan. Audited.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses: { "200": { description: Deleted }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+  /admin/growth/resources:
+    get:
+      tags: [portal]
+      summary: Admin. List all resources.
+      responses: { "200": { description: Resources }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+    post:
+      tags: [portal]
+      summary: Admin. Create a resource. Audited.
+      responses: { "201": { description: Created }, "400": { description: Validation failed }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+  /admin/growth/resources/{id}:
+    put:
+      tags: [portal]
+      summary: Admin. Update a resource. Audited.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses: { "200": { description: Updated }, "403": { $ref: "#/components/responses/ForbiddenScope" }, "404": { $ref: "#/components/responses/NotFound" } }
+    delete:
+      tags: [portal]
+      summary: Admin. Delete a resource. Audited.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses: { "200": { description: Deleted }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+
   # --- Community: cohort discussions (Contract Matrix B8) ---
   /community/threads:
     get:
