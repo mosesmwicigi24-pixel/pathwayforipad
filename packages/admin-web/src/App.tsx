@@ -15,6 +15,7 @@ import { CurriculumAdmin } from "./components/curriculum/CurriculumAdmin";
 import { CurriculumLevels } from "./components/curriculum/CurriculumLevels";
 import { VideoLibrary } from "./components/curriculum/VideoLibrary";
 import { GrowthContent } from "./components/curriculum/GrowthContent";
+import { LevelDetail } from "./components/curriculum/LevelDetail";
 import { Members } from "./components/ops/Members";
 import { CohortEngagement } from "./components/ops/CohortEngagement";
 import { ReflectionQueue } from "./components/ops/ReflectionQueue";
@@ -57,8 +58,9 @@ export function App(): ReactElement {
         return <Dashboard />;
       case "curriculum-levels":
         return <CurriculumLevels onOpenCms={() => setScreen("cms")} />;
-      case "cms":
       case "level-detail":
+        return <LevelDetail />;
+      case "cms":
       case "module-editor":
       case "quiz-builder":
         // One persistent hub instance backs the CMS sub-screens, so the selected

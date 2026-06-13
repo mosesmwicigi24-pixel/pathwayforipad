@@ -49,6 +49,7 @@ export class AdminCurriculumService {
     return many(
       this.pool,
       `SELECT l.level_number, l.title, l.theme, l.required_exam_pass_mark, l.exam_question_count,
+              l.duration, l.status, l.locked, l.color,
               COUNT(m.module_id) FILTER (WHERE m.status = 'published') AS published_count,
               COUNT(m.module_id) FILTER (WHERE m.status = 'draft')     AS draft_count,
               COUNT(m.module_id) FILTER (WHERE m.status = 'archived')  AS archived_count
@@ -63,6 +64,10 @@ export class AdminCurriculumService {
       title: z.string().min(1).max(255),
       theme: z.string().optional(),
       required_exam_pass_mark: z.number().min(0).max(100).optional(),
+      duration: z.string().max(40).optional(),
+      status: z.enum(["published", "draft", "in_review"]).optional(),
+      locked: z.boolean().optional(),
+      color: z.string().max(9).optional(),
     })
     .strict();
 
@@ -73,9 +78,9 @@ export class AdminCurriculumService {
       const next = max.n + 1;
       const row = await one(
         c,
-        `INSERT INTO levels (level_number, title, theme, required_exam_pass_mark)
-         VALUES ($1,$2,$3,COALESCE($4, 80.00)) RETURNING *`,
-        [next, input.title, input.theme ?? null, input.required_exam_pass_mark ?? null],
+        `INSERT INTO levels (level_number, title, theme, required_exam_pass_mark, duration, status, locked, color)
+         VALUES ($1,$2,$3,COALESCE($4, 80.00),$5,COALESCE($6,'draft'),COALESCE($7,FALSE),COALESCE($8,'#0B84E8')) RETURNING *`,
+        [next, input.title, input.theme ?? null, input.required_exam_pass_mark ?? null, input.duration ?? null, input.status ?? null, input.locked ?? null, input.color ?? null],
       );
       await audit(c, editorId, "level.created", "levels", String(next), { title: input.title });
       return row;
@@ -87,6 +92,10 @@ export class AdminCurriculumService {
       title: z.string().min(1).max(255).optional(),
       theme: z.string().nullable().optional(),
       required_exam_pass_mark: z.number().min(0).max(100).optional(),
+      duration: z.string().max(40).nullable().optional(),
+      status: z.enum(["published", "draft", "in_review"]).optional(),
+      locked: z.boolean().optional(),
+      color: z.string().max(9).optional(),
     })
     .strict();
 

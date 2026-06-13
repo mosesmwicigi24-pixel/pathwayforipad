@@ -180,12 +180,17 @@ export const AdminApi = {
 export type EvaluationKind = "none" | "reflection" | "quiz" | "exit_exam";
 export type ModuleStatus = "draft" | "published" | "archived";
 
+export type LevelStatus = "published" | "draft" | "in_review";
 export interface AdminLevel {
   level_number: number;
   title: string;
   theme: string | null;
   required_exam_pass_mark: string;
   exam_question_count: number | null;
+  duration: string | null;
+  status: LevelStatus;
+  locked: boolean;
+  color: string;
   published_count: string;
   draft_count: string;
   archived_count: string;
@@ -237,8 +242,10 @@ const unwrap = <T>(p: Promise<{ data: { data: T } }>): Promise<T> => p.then((r) 
 
 export const CurriculumApi = {
   levels: () => unwrap(api.get<{ data: AdminLevel[] }>("/admin/levels")),
-  createLevel: (body: { title: string; theme?: string; required_exam_pass_mark?: number }) =>
+  createLevel: (body: Record<string, unknown>) =>
     api.post<AdminLevel>("/admin/levels", body).then((r) => r.data),
+  updateLevel: (n: number, body: Record<string, unknown>) =>
+    api.put<AdminLevel>(`/admin/levels/${n}`, body).then((r) => r.data),
   updateExam: (n: number, body: { required_exam_pass_mark: number; exam_question_count?: number | null }) =>
     api.put<AdminLevel>(`/admin/levels/${n}/exam`, body).then((r) => r.data),
 
