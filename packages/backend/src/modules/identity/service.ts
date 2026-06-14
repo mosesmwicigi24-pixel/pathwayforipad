@@ -5,7 +5,7 @@ import type { Pool } from "pg";
 import { z } from "zod";
 import type { Env } from "../../config/env.js";
 import { ApiError } from "../../http/errors.js";
-import { maybeOne, one, tx, recordChange, audit } from "../../db/db.js";
+import { many, maybeOne, one, tx, recordChange, audit } from "../../db/db.js";
 import {
   signAccessToken,
   issueRefreshToken,
@@ -200,10 +200,14 @@ export class IdentityService {
   async getMe(userId: string): Promise<unknown> {
     const profile = await one(
       this.pool,
-      `SELECT user_id, email, full_name, phone_number, date_of_birth, year_of_salvation,
-              is_baptized, cell_group_id, congregation_id, role, timezone, locale, is_minor,
-              gender, city, socials, row_version
-         FROM users WHERE user_id = $1 AND deleted_at IS NULL`,
+      `SELECT u.user_id, u.email, u.full_name, u.phone_number, u.date_of_birth, u.year_of_salvation,
+              u.is_baptized, u.cell_group_id, u.congregation_id, u.role, u.timezone, u.locale, u.is_minor,
+              u.gender, u.city, u.socials, u.row_version, u.created_at, u.account_status, u.require_2fa,
+              COALESCE(array_agg(ur.role_key) FILTER (WHERE ur.role_key IS NOT NULL), '{}') AS role_keys
+         FROM users u
+         LEFT JOIN rbac_user_roles ur ON ur.user_id = u.user_id
+        WHERE u.user_id = $1 AND u.deleted_at IS NULL
+        GROUP BY u.user_id`,
       [userId],
     );
     const enrollment = await maybeOne(
@@ -214,8 +218,20 @@ export class IdentityService {
     return { profile, enrollment };
   }
 
+  /** The caller's own recent portal actions (Profile ▸ My Activity), from the audit log. */
+  async myActivity(userId: string): Promise<unknown[]> {
+    return many(
+      this.pool,
+      `SELECT audit_id, action, entity, entity_id, occurred_at
+         FROM audit_log WHERE actor_id = $1
+        ORDER BY audit_id DESC LIMIT 20`,
+      [userId],
+    );
+  }
+
   static readonly UpdateMeSchema = z
     .object({
+      full_name: z.string().min(1).max(255).optional(),
       phone_number: z.string().min(3).max(32).optional(),
       cell_group_id: z.string().uuid().nullable().optional(),
       timezone: z.string().max(64).optional(),
@@ -233,7 +249,7 @@ export class IdentityService {
       const sets: string[] = [];
       const params: unknown[] = [];
       let i = 1;
-      for (const field of ["phone_number", "cell_group_id", "timezone", "locale", "gender", "city", "socials"] as const) {
+      for (const field of ["full_name", "phone_number", "cell_group_id", "timezone", "locale", "gender", "city", "socials"] as const) {
         if (field in input && input[field] !== undefined) {
           sets.push(`${field} = $${i++}`);
           params.push(field === "socials" ? JSON.stringify(input[field]) : input[field]);

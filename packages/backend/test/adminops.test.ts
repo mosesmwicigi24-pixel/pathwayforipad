@@ -150,6 +150,18 @@ describe("members administration", () => {
     const forbidden = await agent().get(`/v1/admin/members/${studentId}`).set(auth(studentTok));
     expect(forbidden.status).toBe(403);
   });
+
+  it("synthesizes a notifications feed from real events (Admin); denies students", async () => {
+    const res = await agent().get("/v1/admin/notifications").set(auth(adminTok));
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    // The seeded Student surfaces as a "New member added" feed item.
+    const member = res.body.data.find((n: { id: string }) => n.id === `mbr-${studentId}`);
+    expect(member).toMatchObject({ category: "info", href: "/members" });
+
+    const denied = await agent().get("/v1/admin/notifications").set(auth(studentTok));
+    expect(denied.status).toBe(403);
+  });
 });
 
 describe("audit viewer (SuperAdmin)", () => {

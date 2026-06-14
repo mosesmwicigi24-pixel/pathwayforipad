@@ -22,10 +22,13 @@ import { Finance } from "./components/pages/Finance";
 import { Certificates } from "./components/pages/Certificates";
 import { Badges } from "./components/pages/Badges";
 import { MemberProfile } from "./components/pages/MemberProfile";
+import { Profile } from "./components/pages/Profile";
+import { Notifications } from "./components/pages/Notifications";
 import { Users } from "./components/pages/Users";
 import { Roles } from "./components/pages/Roles";
 import { Countries } from "./components/pages/Countries";
 import { Languages } from "./components/pages/Languages";
+import { NotificationsProvider } from "./components/notifications/NotificationsProvider";
 const router = createBrowserRouter([
   { path: "/login", element: <Login /> },
   { path: "/preview/:moduleId", element: <ModulePreview /> },
@@ -45,6 +48,8 @@ const router = createBrowserRouter([
       { path: "cell-engagement/:cellId", element: <CellDetail /> },
       { path: "members", element: <Members /> },
       { path: "member-profile", element: <MemberProfile /> },
+      { path: "profile", element: <Profile /> },
+      { path: "notifications", element: <Notifications /> },
       { path: "reflection-queue", element: <ReflectionQueue /> },
       { path: "events", element: <Events /> },
       { path: "finance", element: <Finance /> },
@@ -60,5 +65,9 @@ const router = createBrowserRouter([
 ]);
 
 export function App(): ReactElement {
-  return <RouterProvider router={router} />;
+  return (
+    <NotificationsProvider>
+      <RouterProvider router={router} />
+    </NotificationsProvider>
+  );
 }

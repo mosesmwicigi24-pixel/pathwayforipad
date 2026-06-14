@@ -178,6 +178,42 @@ export const AdminApi = {
     const { data } = await api.get<LevelsReport>("/admin/reports/levels");
     return data;
   },
+  async notifications(): Promise<NotificationFeedItem[]> {
+    const { data } = await api.get<{ data: NotificationFeedItem[] }>("/admin/notifications");
+    return data.data;
+  },
+};
+
+export interface NotificationFeedItem {
+  id: string;
+  title: string;
+  message: string | null;
+  category: "success" | "info" | "warning" | "security";
+  at: string; // ISO timestamp
+  href: string | null;
+}
+
+export interface MeProfile {
+  user_id: string;
+  email: string | null;
+  full_name: string;
+  phone_number: string;
+  role: string;
+  locale: string | null;
+  created_at: string;
+  account_status: string;
+  require_2fa: boolean;
+  role_keys: string[];
+  row_version: number;
+}
+export interface MeActivityRow { audit_id: number; action: string; entity: string; entity_id: string | null; occurred_at: string }
+
+export const MeApi = {
+  me: () => api.get<{ profile: MeProfile; enrollment: unknown }>("/me").then((r) => r.data),
+  updateMe: (body: Record<string, unknown>) => api.patch<{ user_id: string; row_version: number }>("/me", body).then((r) => r.data),
+  changePassword: (current_password: string, new_password: string) =>
+    api.post<{ changed: boolean }>("/me/password", { current_password, new_password }).then((r) => r.data),
+  activity: () => api.get<{ data: MeActivityRow[] }>("/me/activity").then((r) => r.data.data),
 };
 
 export interface LevelAnalyticsRow {

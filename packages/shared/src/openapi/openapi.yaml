@@ -1328,6 +1328,13 @@ paths:
       responses:
         "200": { description: Expiring consents }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/notifications:
+    get:
+      tags: [portal]
+      summary: Portal activity feed (top-bar bell + Notifications page), synthesized from real events (dashboard:view).
+      responses:
+        "200": { description: Notifications feed }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
   /admin/members:
     get:
       tags: [portal]
@@ -1541,6 +1548,13 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "422": { $ref: "#/components/responses/Unprocessable" }
+  /me/activity:
+    get:
+      tags: [auth]
+      summary: My recent portal actions (Profile ▸ My Activity), from the audit log.
+      responses:
+        "200": { description: Activity }
+        "401": { $ref: "#/components/responses/Unauthorized" }
 
   # --- Announcements (Contract Matrix B5) ---
   /admin/announcements:

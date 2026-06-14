@@ -39,6 +39,11 @@ export function registerAdminOps(ctx: AppContext): Router {
     res.json({ data: await svc.consentsReport() });
   }));
 
+  // Portal activity feed (top-bar bell + Notifications page).
+  r.get("/admin/notifications", auth, perm("dashboard", "view"), handler(async (_req, res) => {
+    res.json({ data: await svc.notificationsFeed() });
+  }));
+
   // ---- Members administration ----
   r.get("/admin/members", auth, perm("members", "view"), handler(async (req, res) => {
     const q = parseBody(AdminOpsService.ListMembers, req.query);

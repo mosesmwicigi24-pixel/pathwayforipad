@@ -2,7 +2,7 @@
 // rebuilt to the "Final Pathway Portal" Figma make. Routes drive react-router.
 import {
   BookOpen, LayoutDashboard, Users, CalendarDays, Wallet, Award, Layers,
-  TrendingUp, MessageSquare, Video, Star, HelpCircle, AlignLeft,
+  TrendingUp, MessageSquare, Video, Star, HelpCircle, AlignLeft, Bell,
   Shield, Globe, Languages as LanguagesIcon, UserCog, type LucideIcon,
 } from "lucide-react";
 
@@ -12,7 +12,10 @@ export interface NavGroup { label: string; items: NavItem[] }
 export const navGroups: NavGroup[] = [
   {
     label: "Portal",
-    items: [{ path: "/", label: "Dashboard", icon: LayoutDashboard }],
+    items: [
+      { path: "/", label: "Dashboard", icon: LayoutDashboard },
+      { path: "/notifications", label: "Notifications", icon: Bell },
+    ],
   },
   {
     label: "Curriculum",
@@ -59,6 +62,8 @@ export const pageTitles: Record<string, string> = {
   "/cell-engagement": "Cell Engagement",
   "/members": "Members",
   "/member-profile": "Member Profile",
+  "/profile": "My Profile",
+  "/notifications": "Notifications",
   "/reflection-queue": "Reflection Queue",
   "/events": "Events & Attendance",
   "/finance": "Finance",

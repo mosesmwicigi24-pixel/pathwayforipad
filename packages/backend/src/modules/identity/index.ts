@@ -120,6 +120,14 @@ export function registerIdentity(ctx: AppContext): Router {
     }),
   );
 
+  r.get(
+    "/me/activity",
+    auth,
+    handler(async (req, res) => {
+      res.json({ data: await svc.myActivity(requirePrincipal(req).userId) });
+    }),
+  );
+
   r.post(
     "/me/onboarding",
     auth,

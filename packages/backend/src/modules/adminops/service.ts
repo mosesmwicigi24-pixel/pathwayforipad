@@ -420,6 +420,53 @@ export class AdminOpsService {
     return { data: page, next_cursor: hasMore && last ? Number(last.audit_id) : null };
   }
 
+  // ---------------- Notifications feed ----------------
+
+  /**
+   * Portal activity feed for the top-bar bell + Notifications page. Synthesized
+   * from real events (pending reflections, issued certificates, new members,
+   * at-risk engagement, and RBAC audit entries) — never invented. Read/dismiss
+   * state is tracked per-admin on the client; this is the authoritative content.
+   */
+  async notificationsFeed(): Promise<unknown[]> {
+    return many(
+      this.replica,
+      `SELECT * FROM (
+         SELECT 'rfl-' || mr.reflection_id::text AS id,
+                'New reflection submitted' AS title,
+                u.full_name || ' submitted a reflection for review.' AS message,
+                'info' AS category, mr.submitted_at AS at, '/reflection-queue' AS href
+           FROM module_reflections mr JOIN users u ON u.user_id = mr.user_id
+          WHERE mr.state = 'pending'
+         UNION ALL
+         SELECT 'cert-' || c.certificate_id::text, 'Certificate issued',
+                'A completion certificate was issued to ' || u.full_name || '.',
+                'success', c.issued_at, '/certificates'
+           FROM certificates c JOIN users u ON u.user_id = c.user_id
+         UNION ALL
+         SELECT 'mbr-' || u.user_id::text, 'New member added',
+                u.full_name || ' joined the pathway.', 'info', u.created_at, '/members'
+           FROM users u WHERE u.role = 'Student' AND u.deleted_at IS NULL
+         UNION ALL
+         SELECT 'eng-' || es.user_id::text, 'Engagement alert',
+                u.full_name || ' is flagged ' || es.band::text || '.',
+                'warning', es.window_end::timestamptz, '/cell-engagement'
+           FROM engagement_scores es JOIN users u ON u.user_id = es.user_id
+          WHERE es.band IN ('at_risk','watch')
+         UNION ALL
+         SELECT 'aud-' || a.audit_id::text,
+                CASE WHEN a.action LIKE 'role.%' THEN 'Roles & permissions updated'
+                     WHEN a.action LIKE 'user.%' THEN 'User account updated'
+                     ELSE a.action END,
+                a.action, 'security', a.occurred_at,
+                CASE WHEN a.action LIKE 'role.%' THEN '/roles' ELSE '/users' END
+           FROM audit_log a WHERE a.action LIKE 'role.%' OR a.action LIKE 'user.%'
+       ) feed
+       ORDER BY at DESC
+       LIMIT 60`,
+    );
+  }
+
   // ---------------- Member profile (aggregate) ----------------
 
   // Human labels for the interaction_events.kind feed. Activity is metadata only —

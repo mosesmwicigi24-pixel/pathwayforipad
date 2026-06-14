@@ -5,23 +5,17 @@ import { useEffect, useState, type ReactElement } from "react";
 import { NavLink, Outlet, Navigate, useLocation, useNavigate } from "react-router-dom";
 import {
   Bell, Search, User, LogOut, ChevronDown, ChevronUp,
-  ChevronLeft, ChevronRight, Menu,
+  ChevronLeft, ChevronRight, Menu, Check, Trash2, X, ArrowRight,
 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { logout } from "../../store/authSlice";
 import { useIsMobile } from "./useIsMobile";
 import { navGroups, titleFor } from "./nav";
+import { useNotifications, notifTimeAgo, CATEGORY_META } from "../notifications/NotificationsProvider";
 
 const SIDEBAR_FULL = 260;
 const SIDEBAR_MINI = 68;
 const TOPBAR_H = 72;
-
-const notifications = [
-  { id: 1, text: "New reflection submitted by Kofi Mensah", time: "2 min ago", unread: true },
-  { id: 2, text: "Module 'Faith & Identity' published", time: "1 hr ago", unread: true },
-  { id: 3, text: "Northgate Cell engagement dropped below 60%", time: "3 hr ago", unread: false },
-  { id: 4, text: "Certificate issued to Amara Dede", time: "Yesterday", unread: false },
-];
 
 export function Layout(): ReactElement {
   const dispatch = useAppDispatch();
@@ -44,7 +38,7 @@ export function Layout(): ReactElement {
   const initials = (name.replace(/[^a-zA-Z]/g, "").slice(0, 2) || "NU").toUpperCase();
   const roleLabel = (role ?? "member").toUpperCase();
   const pageTitle = titleFor(location.pathname);
-  const unreadCount = notifications.filter((n) => n.unread).length;
+  const { notifications, unreadCount, markRead, markAllRead, remove, clearAll } = useNotifications();
 
   const signOut = (): void => { dispatch(logout()); navigate("/login"); };
 
@@ -106,8 +100,20 @@ export function Layout(): ReactElement {
                     textDecoration: "none",
                   })}
                 >
-                  <Icon size={15} strokeWidth={2} style={{ flexShrink: 0 }} />
-                  {!collapsed && <span style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>}
+                  <span className="relative" style={{ display: "flex", flexShrink: 0 }}>
+                    <Icon size={15} strokeWidth={2} />
+                    {collapsed && path === "/notifications" && unreadCount > 0 && (
+                      <span className="absolute rounded-full" style={{ top: -3, right: -4, width: 8, height: 8, background: "var(--nuru-gold)", border: "2px solid var(--nuru-navy)" }} />
+                    )}
+                  </span>
+                  {!collapsed && (
+                    <span className="flex items-center" style={{ flex: 1, minWidth: 0, gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{label}</span>
+                      {path === "/notifications" && unreadCount > 0 && (
+                        <span className="flex items-center justify-center rounded-full shrink-0" style={{ minWidth: 18, height: 18, padding: "0 5px", background: "var(--nuru-gold)", color: "#fff", fontSize: 10, fontWeight: 700 }}>{unreadCount > 9 ? "9+" : unreadCount}</span>
+                      )}
+                    </span>
+                  )}
                 </NavLink>
               ))}
             </div>
@@ -127,7 +133,7 @@ export function Layout(): ReactElement {
                       <span className="inline-flex items-center rounded-full" style={{ padding: "3px 10px", fontSize: 11, fontWeight: 700, color: "var(--nuru-gold)", background: "rgba(200,155,60,0.18)", letterSpacing: "0.04em", textTransform: "uppercase" }}>{roleLabel}</span>
                     </div>
                     <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-                      <button onClick={() => { setProfileMenuOpen(false); navigate("/member-profile"); }} className="flex items-center gap-2.5 w-full transition-colors hover:bg-white/5" style={{ padding: "12px 16px", color: "#fff", fontSize: 13, background: "none", border: "none" }}>
+                      <button onClick={() => { setProfileMenuOpen(false); navigate("/profile"); }} className="flex items-center gap-2.5 w-full transition-colors hover:bg-white/5" style={{ padding: "12px 16px", color: "#fff", fontSize: 13, background: "none", border: "none" }}>
                         <User size={15} style={{ color: "rgba(232,239,245,0.7)" }} /> My Profile
                       </button>
                     </div>
@@ -196,21 +202,44 @@ export function Layout(): ReactElement {
                 )}
               </button>
               {notifOpen && (
-                <div className="absolute right-0 mt-2 rounded-2xl overflow-hidden" style={{ top: "100%", width: 320, background: "#fff", boxShadow: "0 12px 48px rgba(0,0,0,0.14), 0 0 0 1px var(--border)", zIndex: 50 }}>
+                <div className="absolute right-0 mt-2 rounded-2xl overflow-hidden flex flex-col" style={{ top: "100%", width: 360, maxWidth: "calc(100vw - 24px)", background: "#fff", boxShadow: "0 12px 48px rgba(0,0,0,0.14), 0 0 0 1px var(--border)", zIndex: 50 }}>
                   <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "var(--nuru-navy)" }}>Notifications</span>
-                    <span className="rounded-full px-2 py-0.5" style={{ fontSize: 10, fontWeight: 700, background: "rgba(200,155,60,0.12)", color: "var(--nuru-gold)" }}>{unreadCount} new</span>
-                  </div>
-                  {notifications.map((n) => (
-                    <div key={n.id} className="flex gap-3 px-4 py-3 transition-colors hover:bg-gray-50" style={{ borderBottom: "1px solid var(--border)", cursor: "pointer" }}>
-                      <div className="rounded-full shrink-0" style={{ width: 7, height: 7, background: n.unread ? "var(--nuru-gold)" : "transparent", border: n.unread ? "none" : "1.5px solid var(--border)", marginTop: 5 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 12.5, color: "var(--foreground)", lineHeight: 1.45, fontWeight: n.unread ? 500 : 400 }}>{n.text}</p>
-                        <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{n.time}</span>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "var(--nuru-navy)" }}>Notifications</span>
+                      {unreadCount > 0 && <span className="rounded-full px-2 py-0.5" style={{ fontSize: 10, fontWeight: 700, background: "rgba(200,155,60,0.12)", color: "var(--nuru-gold)" }}>{unreadCount} new</span>}
                     </div>
-                  ))}
-                  <button onClick={() => { setNotifOpen(false); navigate("/reflection-queue"); }} className="w-full text-center py-2.5" style={{ fontSize: 12, color: "var(--nuru-gold)", fontWeight: 600, background: "none", border: "none" }}>View reflection queue</button>
+                    {unreadCount > 0 && <button onClick={markAllRead} className="flex items-center gap-1" style={{ fontSize: 11.5, fontWeight: 600, color: "var(--nuru-gold)", background: "none", border: "none" }}><Check size={12} /> Mark all read</button>}
+                  </div>
+                  <div className="overflow-y-auto no-scrollbar" style={{ maxHeight: 380 }}>
+                    {notifications.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center" style={{ padding: "44px 24px", color: "var(--muted-foreground)" }}>
+                        <Bell size={26} style={{ opacity: 0.35, marginBottom: 10 }} />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--nuru-navy)" }}>You're all caught up</span>
+                        <span style={{ fontSize: 12, marginTop: 2 }}>No notifications right now.</span>
+                      </div>
+                    ) : notifications.slice(0, 6).map((n) => {
+                      const cat = CATEGORY_META[n.category];
+                      const CatIcon = cat.icon;
+                      return (
+                        <div key={n.id} onClick={() => { markRead(n.id); if (n.href) { setNotifOpen(false); navigate(n.href); } }} className="group flex gap-3 px-4 py-3 transition-colors hover:bg-gray-50" style={{ borderBottom: "1px solid var(--border)", cursor: "pointer", background: n.read ? "#fff" : "rgba(200,155,60,0.05)" }}>
+                          <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 32, height: 32, background: cat.bg, color: cat.color, marginTop: 1 }}><CatIcon size={16} /></div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="flex items-center gap-1.5">
+                              <p style={{ fontSize: 12.5, color: "var(--nuru-navy)", lineHeight: 1.35, fontWeight: n.read ? 500 : 700 }}>{n.title}</p>
+                              {!n.read && <span className="rounded-full shrink-0" style={{ width: 6, height: 6, background: "var(--nuru-gold)" }} />}
+                            </div>
+                            {n.message && <p style={{ fontSize: 12, color: "var(--muted-foreground)", lineHeight: 1.4, marginTop: 2 }}>{n.message}</p>}
+                            <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{notifTimeAgo(n.at)}</span>
+                          </div>
+                          <button onClick={(e) => { e.stopPropagation(); remove(n.id); }} className="shrink-0 self-start rounded-md p-1 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-gray-200" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }} aria-label="Dismiss"><X size={13} /></button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center" style={{ borderTop: "1px solid var(--border)" }}>
+                    <button onClick={() => { setNotifOpen(false); navigate("/notifications"); }} className="flex items-center justify-center gap-1.5 flex-1 py-2.5" style={{ fontSize: 12, color: "var(--nuru-gold)", fontWeight: 700, background: "none", border: "none" }}>View all notifications <ArrowRight size={13} /></button>
+                    {notifications.length > 0 && <button onClick={clearAll} className="flex items-center justify-center gap-1.5 py-2.5 px-4" style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: 600, borderLeft: "1px solid var(--border)", background: "none", border: "none" }}><Trash2 size={13} /> Clear</button>}
+                  </div>
                 </div>
               )}
             </div>
@@ -228,7 +257,7 @@ export function Layout(): ReactElement {
                 <>
                   <div className="fixed inset-0" style={{ zIndex: 40 }} onClick={() => setProfileMenuOpen(false)} />
                   <div className="absolute right-0 rounded-xl overflow-hidden" style={{ top: "calc(100% + 8px)", minWidth: 200, background: "#fff", border: "1px solid var(--border)", boxShadow: "0 18px 40px -12px rgba(11,31,51,0.18)", zIndex: 50 }}>
-                    <button onClick={() => { setProfileMenuOpen(false); navigate("/member-profile"); }} className="flex items-center gap-2.5 w-full transition-colors hover:bg-gray-50" style={{ padding: "11px 14px", fontSize: 13, color: "var(--foreground)", background: "none", border: "none" }}>
+                    <button onClick={() => { setProfileMenuOpen(false); navigate("/profile"); }} className="flex items-center gap-2.5 w-full transition-colors hover:bg-gray-50" style={{ padding: "11px 14px", fontSize: 13, color: "var(--foreground)", background: "none", border: "none" }}>
                       <User size={15} style={{ color: "var(--muted-foreground)" }} /> My Profile
                     </button>
                     <div style={{ borderTop: "1px solid var(--border)" }}>
