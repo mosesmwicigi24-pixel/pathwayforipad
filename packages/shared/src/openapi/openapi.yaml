@@ -73,6 +73,30 @@ paths:
               schema: { $ref: "#/components/schemas/TokenPair" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Email + password sign-in (argon2id verify). Generic error on bad credentials; 403 if suspended.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Access + refresh pair
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
   /auth/token/refresh:
     post:
       tags: [auth]

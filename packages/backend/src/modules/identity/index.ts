@@ -44,6 +44,14 @@ export function registerIdentity(ctx: AppContext): Router {
   );
 
   r.post(
+    "/auth/login",
+    handler(async (req, res) => {
+      const input = parseBody(IdentityService.LoginSchema, req.body);
+      res.status(200).json(await svc.loginWithPassword(input));
+    }),
+  );
+
+  r.post(
     "/auth/token/refresh",
     handler(async (req, res) => {
       const { refresh_token } = parseBody(z.object({ refresh_token: z.string().min(1) }), req.body);

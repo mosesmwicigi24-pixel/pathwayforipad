@@ -74,6 +74,11 @@ export interface ReviewItem {
 }
 
 export const PortalApi = {
+  /** Email + password sign-in (argon2 verified server-side). */
+  async login(email: string, password: string): Promise<DevSession> {
+    const { data } = await api.post<DevSession>("/auth/login", { email, password });
+    return data;
+  },
   /** DEV ONLY: mint a session by email (no OAuth). 404s in production. */
   async devLogin(email: string): Promise<DevSession> {
     const { data } = await api.post<DevSession>("/auth/dev-login", { email });

@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Sparkles, Loader2 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
-import { devLogin } from "../../store/authSlice";
+import { devLogin, login } from "../../store/authSlice";
 
 type Mode = "signin" | "register";
 
@@ -40,7 +40,9 @@ export function Login(): ReactElement {
     setLocalError("");
     if (mode === "signin" && !canSignIn) { setLocalError("Enter a valid email and password to continue."); return; }
     if (mode === "register" && !canRegister) { setLocalError("Please complete every field and accept the terms."); return; }
-    void dispatch(devLogin(email.trim()));
+    // Register has no self-serve backend yet; fall back to the dev email session.
+    if (mode === "register") { void dispatch(devLogin(email.trim())); return; }
+    void dispatch(login({ email: email.trim(), password }));
   };
 
   const shownError = localError || error || "";

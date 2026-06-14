@@ -119,6 +119,30 @@ export class IdentityService {
    * (issueSession → signAccessToken + issueRefreshToken) — no parallel logic. The
    * route is hard-gated to NODE_ENV !== 'production' and never mounted there.
    */
+  static readonly LoginSchema = z
+    .object({ email: z.string().email(), password: z.string().min(1).max(200) })
+    .strict();
+
+  /**
+   * Email + password sign-in (argon2id verify, §5.5). Errors are intentionally
+   * generic to avoid user enumeration; suspended accounts are blocked. SSO-only
+   * accounts (no stored secret) cannot password-login. Mints a normal session.
+   */
+  async loginWithPassword(input: z.infer<typeof IdentityService.LoginSchema>): Promise<SessionTokens> {
+    const row = await maybeOne<UserAuthRow & { password_hash: string | null; account_status: string }>(
+      this.pool,
+      `SELECT user_id, role, congregation_id, password_hash, account_status
+         FROM users WHERE email = $1 AND deleted_at IS NULL`,
+      [input.email],
+    );
+    if (!row || !row.password_hash) throw new ApiError("AUTH_REQUIRED", "Invalid email or password");
+    if (row.account_status === "suspended") throw new ApiError("FORBIDDEN_SCOPE", "This account is suspended");
+    if (!(await verifyPassword(row.password_hash, input.password))) {
+      throw new ApiError("AUTH_REQUIRED", "Invalid email or password");
+    }
+    return this.issueSession({ user_id: row.user_id, role: row.role, congregation_id: row.congregation_id });
+  }
+
   async devLogin(input: { email?: string | undefined; user_id?: string | undefined }): Promise<SessionTokens> {
     const byId = Boolean(input.user_id);
     const key = input.user_id ?? input.email;

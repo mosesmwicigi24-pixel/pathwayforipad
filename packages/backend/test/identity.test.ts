@@ -114,4 +114,36 @@ describe("identity / auth", () => {
       .expect(200);
     expect(res.body.profile.full_name).toBe("Mara");
   });
+
+  // ---- Email + password login (POST /auth/login) ----
+  async function makePwUser(email: string, password: string, status = "active") {
+    const cong = await createCongregation();
+    const u = await createUser({ congregationId: cong, role: "Admin", email });
+    const argon2 = (await import("argon2")).default;
+    const ph = await argon2.hash(password, { type: argon2.argon2id });
+    await testPool().query("UPDATE users SET password_hash=$2, account_status=$3 WHERE user_id=$1", [u.user_id, ph, status]);
+    return u.user_id;
+  }
+
+  it("signs in with the correct password and mints a session", async () => {
+    await makePwUser("pw@dev.local", "s3cret-pass");
+    const res = await agent().post("/v1/auth/login").send({ email: "pw@dev.local", password: "s3cret-pass" });
+    expect(res.status).toBe(200);
+    expect(res.body.access_token).toBeTruthy();
+    expect(res.body.refresh_token).toBeTruthy();
+  });
+
+  it("rejects a wrong password and an unknown email with a generic 401", async () => {
+    await makePwUser("pw2@dev.local", "right-pass");
+    const wrong = await agent().post("/v1/auth/login").send({ email: "pw2@dev.local", password: "nope" });
+    expect(wrong.status).toBe(401);
+    const unknown = await agent().post("/v1/auth/login").send({ email: "ghost@dev.local", password: "whatever1" });
+    expect(unknown.status).toBe(401);
+  });
+
+  it("blocks a suspended account (403)", async () => {
+    await makePwUser("susp@dev.local", "right-pass", "suspended");
+    const res = await agent().post("/v1/auth/login").send({ email: "susp@dev.local", password: "right-pass" });
+    expect(res.status).toBe(403);
+  });
 });
