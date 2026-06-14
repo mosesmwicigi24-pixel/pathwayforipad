@@ -11,8 +11,15 @@ import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 import { usePrayers } from "../api/hooks";
-import { errorMessage, invalidateQueries } from "../api/query";
+import { errorMessage, invalidateQueries, setQueryData } from "../api/query";
+import { writeThrough } from "../sync/offlineWrite";
+import { getSyncEngine } from "../sync/engineProvider";
+import { getConnectivity } from "../net/connectivity";
+import type { PrayerEntry } from "../api/types";
 import { Loading, ErrorState } from "../components/states";
+
+const PRAYERS_KEY = "prayers";
+const nowIso = (): string => new Date().toISOString();
 
 function when(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -35,17 +42,28 @@ export function PrayerJournalScreen(): ReactElement {
   async function save(): Promise<void> {
     setBusy(true);
     setActionError(null);
+    const entry_id = uuidv4();
+    const payload = { entry_id, title: title.trim() || null, body: body.trim(), client_mutation_id: uuidv4() };
     try {
-      await NuruApi.upsertPrayer({
-        entry_id: uuidv4(),
-        title: title.trim() || null,
-        body: body.trim(),
-        client_mutation_id: uuidv4(),
+      const { queued } = await writeThrough({
+        engine: getSyncEngine(),
+        connectivity: getConnectivity(),
+        online: () => NuruApi.upsertPrayer(payload),
+        queued: { domain: "prayer_entries", op: "upsert", payload },
       });
       setTitle("");
       setBody("");
       setComposing(false);
-      refresh();
+      if (queued) {
+        // Offline: show it immediately; the queued mutation replays on reconnect.
+        const optimistic: PrayerEntry = {
+          entry_id, title: payload.title, body: payload.body, is_answered: false,
+          answered_note: null, answered_at: null, created_at: nowIso(), updated_at: nowIso(),
+        };
+        setQueryData<PrayerEntry[]>(PRAYERS_KEY, (prev) => [optimistic, ...(prev ?? [])]);
+      } else {
+        refresh();
+      }
     } catch (e) {
       setActionError(errorMessage(e));
     } finally {
@@ -54,15 +72,21 @@ export function PrayerJournalScreen(): ReactElement {
   }
 
   async function markAnswered(entryId: string, entryBody: string, entryTitle: string | null): Promise<void> {
+    const payload = { entry_id: entryId, title: entryTitle, body: entryBody, is_answered: true, client_mutation_id: uuidv4() };
     try {
-      await NuruApi.upsertPrayer({
-        entry_id: entryId,
-        title: entryTitle,
-        body: entryBody,
-        is_answered: true,
-        client_mutation_id: uuidv4(),
+      const { queued } = await writeThrough({
+        engine: getSyncEngine(),
+        connectivity: getConnectivity(),
+        online: () => NuruApi.upsertPrayer(payload),
+        queued: { domain: "prayer_entries", op: "upsert", payload },
       });
-      refresh();
+      if (queued) {
+        setQueryData<PrayerEntry[]>(PRAYERS_KEY, (prev) =>
+          (prev ?? []).map((p) => (p.entry_id === entryId ? { ...p, is_answered: true, answered_at: nowIso() } : p)),
+        );
+      } else {
+        refresh();
+      }
     } catch (e) {
       setActionError(errorMessage(e));
     }
@@ -70,8 +94,17 @@ export function PrayerJournalScreen(): ReactElement {
 
   async function remove(entryId: string): Promise<void> {
     try {
-      await NuruApi.deletePrayer(entryId);
-      refresh();
+      const { queued } = await writeThrough({
+        engine: getSyncEngine(),
+        connectivity: getConnectivity(),
+        online: () => NuruApi.deletePrayer(entryId),
+        queued: { domain: "prayer_entries", op: "delete", payload: { entry_id: entryId } },
+      });
+      if (queued) {
+        setQueryData<PrayerEntry[]>(PRAYERS_KEY, (prev) => (prev ?? []).filter((p) => p.entry_id !== entryId));
+      } else {
+        refresh();
+      }
     } catch (e) {
       setActionError(errorMessage(e));
     }

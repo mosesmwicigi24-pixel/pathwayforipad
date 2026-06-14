@@ -64,6 +64,15 @@ export function invalidateQueries(prefix: string): void {
   }
 }
 
+/** Optimistically set a query's data (e.g. an offline write the screen should
+ *  show immediately). Marks it fresh so the optimistic value isn't refetched away
+ *  until the next explicit refresh/invalidate. */
+export function setQueryData<T>(key: string, updater: (prev: T | undefined) => T): void {
+  const prev = cache.get(key) as Entry<T> | undefined;
+  cache.set(key, { status: "success", data: updater(prev?.data), fetchedAt: Date.now() });
+  emit(key);
+}
+
 /** Wipe all cached data (used on sign-out so a new session never sees stale data). */
 export function clearQueryCache(): void {
   const keys = [...cache.keys()];
