@@ -17,6 +17,10 @@ import { CalendarScreen } from "../screens/CalendarScreen.js";
 import { EventDetailScreen } from "../screens/EventDetailScreen.js";
 import { ProfileScreen } from "../screens/ProfileScreen.js";
 import { CommunityScreen } from "../screens/CommunityScreen.js";
+import { ChatScreen } from "../screens/ChatScreen.js";
+import { ChatThreadScreen } from "../screens/ChatThreadScreen.js";
+import { SpacePreviewScreen } from "../screens/SpacePreviewScreen.js";
+import { NuruAssistantScreen } from "../screens/NuruAssistantScreen.js";
 import { ThreadScreen } from "../screens/ThreadScreen.js";
 import { CohortDiscussionsScreen } from "../screens/CohortDiscussionsScreen.js";
 import { GiftsScreen } from "../screens/GiftsScreen.js";
@@ -47,6 +51,7 @@ function Tabs(): ReactElement {
       <Tab.Screen name="Home" component={HomeDashboardScreen} />
       <Tab.Screen name="Pathway" component={LevelsScreen} />
       <Tab.Screen name="Community" component={CommunityScreen} />
+      <Tab.Screen name="Chat" component={ChatScreen} />
       <Tab.Screen name="Give" component={GivingScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
@@ -66,6 +71,9 @@ export function RootNavigator(): ReactElement {
         <Stack.Screen name="Giving" component={GivingScreen} />
         <Stack.Screen name="Calendar" component={CalendarScreen} />
         <Stack.Screen name="Thread" component={ThreadScreen} />
+        <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
+        <Stack.Screen name="SpacePreview" component={SpacePreviewScreen} />
+        <Stack.Screen name="Nuru" component={NuruAssistantScreen} />
         <Stack.Screen name="CohortDiscussions" component={CohortDiscussionsScreen} />
         <Stack.Screen name="Gifts" component={GiftsScreen} />
         <Stack.Screen name="PrayerJournal" component={PrayerJournalScreen} />

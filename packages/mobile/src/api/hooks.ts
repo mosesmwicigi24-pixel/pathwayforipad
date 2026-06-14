@@ -30,6 +30,8 @@ import type {
   SavedVerse,
   ThreadDetail,
   ThreadSummary,
+  ChatInbox,
+  ChatThreadDetail,
 } from "./types";
 
 export const queryKeys = {
@@ -52,6 +54,8 @@ export const queryKeys = {
   achievements: "achievements",
   threads: "threads",
   thread: (id: string) => `thread:${id}`,
+  chatInbox: "chatInbox",
+  chatConvo: (id: string) => `chatConvo:${id}`,
   giftQuestions: "giftQuestions",
   myGifts: "myGifts",
   prayers: "prayers",
@@ -119,6 +123,18 @@ export function useThread(threadId: string | null): QueryResult<ThreadDetail> {
   return useQuery(threadId ? queryKeys.thread(threadId) : null, () => NuruApi.thread(threadId ?? ""), {
     staleMs: 10_000,
   });
+}
+
+export function useChatInbox(): QueryResult<ChatInbox> {
+  return useQuery(queryKeys.chatInbox, () => NuruApi.chatInbox(), { staleMs: 10_000 });
+}
+
+export function useChatConversation(conversationId: string | null): QueryResult<ChatThreadDetail> {
+  return useQuery(
+    conversationId ? queryKeys.chatConvo(conversationId) : null,
+    () => NuruApi.chatConversation(conversationId ?? ""),
+    { staleMs: 5_000 },
+  );
 }
 
 export function useGiftQuestions(): QueryResult<GiftQuestion[]> {

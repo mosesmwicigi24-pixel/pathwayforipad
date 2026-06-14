@@ -39,6 +39,9 @@ import type {
   SavedVerse,
   ThreadDetail,
   ThreadSummary,
+  ChatInbox,
+  ChatThreadDetail,
+  NuruTurn,
 } from "./types";
 
 export const api: AxiosInstance = axios.create({
@@ -211,6 +214,45 @@ export const NuruApi = {
     body: { comment_id: string; body: string; client_mutation_id: string },
   ): Promise<unknown> {
     const { data } = await api.post(`/community/threads/${threadId}/comments`, body);
+    return data;
+  },
+
+  // ---- Chat: DMs, cell groups, public spaces (mobile Chat make) ----
+  async chatInbox(): Promise<ChatInbox> {
+    const { data } = await api.get<ChatInbox>("/chat/conversations");
+    return data;
+  },
+  async chatConversation(id: string): Promise<ChatThreadDetail> {
+    const { data } = await api.get<ChatThreadDetail>(`/chat/conversations/${id}`);
+    return data;
+  },
+  async sendChatMessage(
+    conversationId: string,
+    body: { message_id: string; body: string; reply_to_id?: string; client_mutation_id: string },
+  ): Promise<unknown> {
+    const { data } = await api.post(`/chat/conversations/${conversationId}/messages`, body);
+    return data;
+  },
+  async markChatRead(conversationId: string): Promise<unknown> {
+    const { data } = await api.post(`/chat/conversations/${conversationId}/read`, {});
+    return data;
+  },
+  async toggleChatReaction(messageId: string, emoji: string): Promise<{ on: boolean }> {
+    const { data } = await api.post<{ on: boolean }>(`/chat/messages/${messageId}/reactions`, { emoji });
+    return data;
+  },
+  async createDm(userId: string): Promise<{ conversation_id: string }> {
+    const { data } = await api.post<{ conversation_id: string }>("/chat/dms", { user_id: userId });
+    return data;
+  },
+  async joinSpace(conversationId: string): Promise<{ conversation_id: string; joined: boolean }> {
+    const { data } = await api.post<{ conversation_id: string; joined: boolean }>(`/chat/spaces/${conversationId}/join`, {});
+    return data;
+  },
+
+  // ---- Nuru AI assistant (server-side proxy; key never on device) ----
+  async assistantChat(body: { messages: NuruTurn[]; conversation_id?: string }): Promise<{ reply: string }> {
+    const { data } = await api.post<{ reply: string }>("/assistant/chat", body);
     return data;
   },
 

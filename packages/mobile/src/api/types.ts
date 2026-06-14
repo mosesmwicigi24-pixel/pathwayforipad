@@ -186,6 +186,74 @@ export interface ThreadDetail {
   comments: ThreadComment[];
 }
 
+// ---- Chat: DMs, cell groups, public spaces (mobile Chat make) ----
+export type ChatKind = "dm" | "group" | "space";
+
+export interface ChatConversation {
+  conversation_id: string;
+  kind: ChatKind;
+  is_public: boolean;
+  title: string | null;
+  topic: string | null;
+  member_count: number;
+  last_body: string | null;
+  last_type: string | null;
+  last_at: string | null;
+  last_author: string | null;
+  unread: number;
+}
+
+export interface DiscoverSpace {
+  conversation_id: string;
+  title: string | null;
+  topic: string | null;
+  member_count: number;
+}
+
+export interface ChatInbox {
+  conversations: ChatConversation[];
+  discover_spaces: DiscoverSpace[];
+}
+
+export interface ChatReaction {
+  emoji: string;
+  count: number;
+  mine: boolean;
+}
+
+export interface ChatMessage {
+  message_id: string;
+  author_user_id: string;
+  author_name: string;
+  body: string;
+  msg_type: "text" | "voice" | "image" | "file" | "video";
+  attachment_url: string | null;
+  attachment_meta: Record<string, unknown> | null;
+  reply_to_id: string | null;
+  reply_body: string | null;
+  reply_author: string | null;
+  ai_tag: "prayer" | "action" | "important" | null;
+  is_edited: boolean;
+  created_at: string;
+  mine: boolean;
+  reactions: ChatReaction[];
+}
+
+export interface ChatThreadDetail {
+  conversation_id: string;
+  kind: ChatKind;
+  is_public: boolean;
+  title: string | null;
+  topic: string | null;
+  joined: boolean;
+  messages: ChatMessage[];
+}
+
+export interface NuruTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
 // ---- Growth domains (Contract Matrix M3 over B6) ----
 export interface GiftQuestion {
   question_id: string;

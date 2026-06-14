@@ -1,15 +1,16 @@
-// M1 retab: the app's five primary destinations are the new design's, in order.
+// Tab structure: the new design's primary destinations, in order. The Chat make
+// adds a sixth tab (Chat) between Community and Give.
 import { describe, it, expect } from "vitest";
 import { TAB_ORDER, TAB_LABELS } from "../src/navigation/tabs";
 
-describe("tab structure (Contract Matrix M1)", () => {
-  it("is Home · Pathway · Community · Give · Profile, in that order (new design)", () => {
-    expect([...TAB_ORDER]).toEqual(["Home", "Pathway", "Community", "Give", "Profile"]);
+describe("tab structure (Contract Matrix M1 + Chat make)", () => {
+  it("is Home · Pathway · Community · Chat · Give · Profile, in that order", () => {
+    expect([...TAB_ORDER]).toEqual(["Home", "Pathway", "Community", "Chat", "Give", "Profile"]);
   });
 
-  it("retires the old destinations (Levels/Calendar/Portal/Chat)", () => {
+  it("retires the old destinations (Levels/Calendar/Portal)", () => {
     const labels = Object.values(TAB_LABELS);
-    for (const gone of ["Levels", "Calendar", "Portal", "Chat"]) {
+    for (const gone of ["Levels", "Calendar", "Portal"]) {
       expect(labels).not.toContain(gone);
     }
   });

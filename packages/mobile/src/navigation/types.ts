@@ -8,8 +8,9 @@ import type { NavigatorScreenParams } from "@react-navigation/native";
 export type TabParamList = {
   Home: undefined;
   Pathway: undefined;
-  Give: undefined;
   Community: undefined;
+  Chat: undefined;
+  Give: undefined;
   Profile: undefined;
 };
 
@@ -28,6 +29,9 @@ export type RootStackParamList = {
   PrayerJournal: undefined; // private journal (M3)
   VerseLibrary: undefined; // saved verses (M3)
   Notifications: undefined; // notification center (D1)
+  ChatThread: { conversationId: string; title?: string }; // DM/group/space thread (Chat make)
+  SpacePreview: { conversationId: string; title?: string }; // public space preview + join
+  Nuru: undefined; // AI assistant (Chat make)
   Devotional: undefined; // daily devotional (D5)
   MemoryVerses: undefined; // memory-verse library (D5)
   ReadingPlans: undefined; // reading plans list (D5)

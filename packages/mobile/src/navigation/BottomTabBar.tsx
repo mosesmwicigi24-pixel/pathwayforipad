@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import { BookOpen, HandHeart, House, User, Users, type LucideIcon } from "lucide-react-native";
+import { BookOpen, HandHeart, House, MessageCircle, User, Users, type LucideIcon } from "lucide-react-native";
 import { palette, spacing } from "../theme/tokens";
 import { T } from "../theme/components";
 import { TAB_LABELS } from "./tabs";
@@ -15,6 +15,7 @@ const ICONS: Record<string, LucideIcon> = {
   Pathway: BookOpen,
   Give: HandHeart,
   Community: Users,
+  Chat: MessageCircle,
   Profile: User,
 };
 
