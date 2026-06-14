@@ -235,6 +235,9 @@ importers:
       react-native:
         specifier: ^0.74.3
         version: 0.74.7(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.31)(react@18.3.1)
+      react-native-aes-crypto:
+        specifier: ^3.3.0
+        version: 3.3.0
       react-native-keychain:
         specifier: ^10.0.0
         version: 10.0.0
@@ -4878,6 +4881,9 @@ packages:
       '@types/react': '>=18'
       react: '>=18'
 
+  react-native-aes-crypto@3.3.0:
+    resolution: {integrity: sha512-8QW/1HAxecVOHzMwWc+f9wXnBKDs0Q2tIIlLy2EZjcmf4kgPLIX19Fxq+c69KeNWwzHJwW3NYAWP+ETbql6PxQ==}
+
   react-native-keychain@10.0.0:
     resolution: {integrity: sha512-YzPKSAnSzGEJ12IK6CctNLU79T1W15WDrElRQ+1/FsOazGX9ucFPTQwgYe8Dy8jiSEDJKM4wkVa3g4lD2Z+Pnw==}
     engines: {node: '>=16'}
@@ -7625,9 +7631,7 @@ snapshots:
     transitivePeerDependencies:
       - '@babel/core'
       - '@babel/preset-env'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.74.89': {}
 
@@ -11161,6 +11165,8 @@ snapshots:
       vfile: 6.0.3
     transitivePeerDependencies:
       - supports-color
+
+  react-native-aes-crypto@3.3.0: {}
 
   react-native-keychain@10.0.0: {}
 

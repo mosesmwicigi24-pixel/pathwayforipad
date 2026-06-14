@@ -14,6 +14,9 @@ import { apiBaseUrl } from "./config";
 import { getVault } from "./auth/vault";
 import { setLocalStore } from "./db/localStoreProvider";
 import { AsyncStorageLocalStore } from "./db/asyncStorageLocalStore";
+import type { KeyValueStore } from "./db/keyValueStore";
+import { EncryptedKeyValueStore } from "./db/encryptedKeyValueStore";
+import { createKeychainCipher } from "./db/keychainCipher";
 import { getSyncEngine } from "./sync/engineProvider";
 import { getConnectivity, setConnectivity } from "./net/connectivity";
 import { NetInfoConnectivity, onReconnect } from "./net/netInfoConnectivity";
@@ -22,19 +25,39 @@ import { startSyncLifecycle } from "./sync/syncLifecycle";
 export function App(): ReactElement {
   useEffect(() => {
     configureApiBase(apiBaseUrl(Platform.OS)); // env override → platform default (Android 10.0.2.2)
-    setLocalStore(new AsyncStorageLocalStore(AsyncStorage)); // durable offline queue + cache
     setConnectivity(new NetInfoConnectivity()); // real online/offline detection
     installAuth(getVault()); // attach Bearer + 401-refresh-retry against the vault
-    // Reconcile on startup + on foreground, and the instant a connection returns.
-    const stopSync = startSyncLifecycle({
-      engine: getSyncEngine(),
-      connectivity: getConnectivity(),
-      appState: AppState,
-    });
-    const stopReconnect = onReconnect(() => {
-      void getSyncEngine().syncIfOnline(getConnectivity());
-    });
+
+    let cancelled = false;
+    let stopSync = (): void => {};
+    let stopReconnect = (): void => {};
+
+    // Encryption-at-rest (§5.7): seal the offline store under an AES-256 key in the
+    // keychain. The cipher loads async, so the store + sync are wired only once it's
+    // ready. If encryption is unavailable, fall back to plaintext so the app still
+    // works offline (auth tokens stay in the keychain regardless).
+    void (async () => {
+      let kv: KeyValueStore = AsyncStorage;
+      try {
+        kv = new EncryptedKeyValueStore(AsyncStorage, await createKeychainCipher());
+      } catch {
+        kv = AsyncStorage;
+      }
+      if (cancelled) return;
+      setLocalStore(new AsyncStorageLocalStore(kv)); // durable offline queue + cache
+      // Reconcile on startup + on foreground, and the instant a connection returns.
+      stopSync = startSyncLifecycle({
+        engine: getSyncEngine(),
+        connectivity: getConnectivity(),
+        appState: AppState,
+      });
+      stopReconnect = onReconnect(() => {
+        void getSyncEngine().syncIfOnline(getConnectivity());
+      });
+    })();
+
     return () => {
+      cancelled = true;
       stopSync();
       stopReconnect();
     };
