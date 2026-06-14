@@ -13,6 +13,9 @@ import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 import { useThread, queryKeys } from "../api/hooks";
 import { errorMessage, invalidateQueries } from "../api/query";
+import { writeThrough } from "../sync/offlineWrite";
+import { getSyncEngine } from "../sync/engineProvider";
+import { getConnectivity } from "../net/connectivity";
 import { Loading, ErrorState } from "../components/states";
 
 function when(iso: string): string {
@@ -32,10 +35,12 @@ export function ThreadScreen(): ReactElement {
     setPosting(true);
     setPostError(null);
     try {
-      await NuruApi.addComment(threadId, {
-        comment_id: uuidv4(),
-        body: comment.trim(),
-        client_mutation_id: uuidv4(),
+      const payload = { comment_id: uuidv4(), body: comment.trim(), client_mutation_id: uuidv4() };
+      await writeThrough({
+        engine: getSyncEngine(),
+        connectivity: getConnectivity(),
+        online: () => NuruApi.addComment(threadId, payload),
+        queued: { domain: "discussion_comments", op: "create", payload: { thread_id: threadId, ...payload } },
       });
       setComment("");
       invalidateQueries(queryKeys.thread(threadId));

@@ -14,6 +14,9 @@ import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { Glow, PButton, T } from "../theme/components";
 import { useThreads } from "../api/hooks";
 import { errorMessage, invalidateQueries } from "../api/query";
+import { writeThrough } from "../sync/offlineWrite";
+import { getSyncEngine } from "../sync/engineProvider";
+import { getConnectivity } from "../net/connectivity";
 import { Loading } from "../components/states";
 
 function ago(iso: string): string {
@@ -49,7 +52,13 @@ export function CohortDiscussionsScreen(): ReactElement {
     setPosting(true);
     setPostError(null);
     try {
-      await NuruApi.createThread({ thread_id: uuidv4(), title: title.trim(), body: body.trim(), client_mutation_id: uuidv4() });
+      const payload = { thread_id: uuidv4(), title: title.trim(), body: body.trim(), client_mutation_id: uuidv4() };
+      await writeThrough({
+        engine: getSyncEngine(),
+        connectivity: getConnectivity(),
+        online: () => NuruApi.createThread(payload),
+        queued: { domain: "discussion_threads", op: "create", payload },
+      });
       setTitle("");
       setBody("");
       setComposing(false);

@@ -15,21 +15,29 @@ import { getVault } from "./auth/vault";
 import { setLocalStore } from "./db/localStoreProvider";
 import { AsyncStorageLocalStore } from "./db/asyncStorageLocalStore";
 import { getSyncEngine } from "./sync/engineProvider";
-import { getConnectivity } from "./net/connectivity";
+import { getConnectivity, setConnectivity } from "./net/connectivity";
+import { NetInfoConnectivity, onReconnect } from "./net/netInfoConnectivity";
 import { startSyncLifecycle } from "./sync/syncLifecycle";
 
 export function App(): ReactElement {
   useEffect(() => {
     configureApiBase(apiBaseUrl(Platform.OS)); // env override → platform default (Android 10.0.2.2)
     setLocalStore(new AsyncStorageLocalStore(AsyncStorage)); // durable offline queue + cache
+    setConnectivity(new NetInfoConnectivity()); // real online/offline detection
     installAuth(getVault()); // attach Bearer + 401-refresh-retry against the vault
-    // Reconcile on startup and whenever the app returns to the foreground.
+    // Reconcile on startup + on foreground, and the instant a connection returns.
     const stopSync = startSyncLifecycle({
       engine: getSyncEngine(),
       connectivity: getConnectivity(),
       appState: AppState,
     });
-    return () => stopSync();
+    const stopReconnect = onReconnect(() => {
+      void getSyncEngine().syncIfOnline(getConnectivity());
+    });
+    return () => {
+      stopSync();
+      stopReconnect();
+    };
   }, []);
 
   return (

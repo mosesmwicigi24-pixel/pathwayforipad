@@ -12,6 +12,9 @@ import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, ProgressBar, T } from "../theme/components";
 import { useGiftQuestions, useMyGifts } from "../api/hooks";
 import { errorMessage, invalidateQueries } from "../api/query";
+import { writeThrough } from "../sync/offlineWrite";
+import { getSyncEngine } from "../sync/engineProvider";
+import { getConnectivity } from "../net/connectivity";
 import { Loading, ErrorState } from "../components/states";
 
 const LIKERT = [
@@ -142,9 +145,15 @@ function Assessment({ onDone }: { onDone: () => void }): ReactElement {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await NuruApi.submitGifts({
+      const payload = {
         client_mutation_id: uuidv4(),
         answers: Object.entries(answers).map(([question_id, value]) => ({ question_id, value })),
+      };
+      await writeThrough({
+        engine: getSyncEngine(),
+        connectivity: getConnectivity(),
+        online: () => NuruApi.submitGifts(payload),
+        queued: { domain: "gift_assessments", op: "submit", payload },
       });
       onDone();
     } catch (e) {
