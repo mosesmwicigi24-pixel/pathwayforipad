@@ -40,8 +40,19 @@ export function registerAdminOps(ctx: AppContext): Router {
   }));
 
   // Portal activity feed (top-bar bell + Notifications page).
-  r.get("/admin/notifications", auth, perm("dashboard", "view"), handler(async (_req, res) => {
-    res.json({ data: await svc.notificationsFeed() });
+  r.get("/admin/notifications", auth, perm("dashboard", "view"), handler(async (req, res) => {
+    res.json({ data: await svc.notificationsFeed(requirePrincipal(req).userId) });
+  }));
+
+  // Per-admin read/unread/dismiss state (follows the user across devices).
+  r.post("/admin/notifications/:action", auth, perm("dashboard", "view"), handler(async (req, res) => {
+    const action = String(req.params.action);
+    if (action !== "read" && action !== "unread" && action !== "dismiss") {
+      res.status(404).json({ error: { code: "NOT_FOUND", message: "Unknown notification action" } });
+      return;
+    }
+    const body = parseBody(z.object({ ids: z.array(z.string().max(80)).max(500) }), req.body);
+    res.json(await svc.markNotifications(requirePrincipal(req).userId, body.ids, action));
   }));
 
   // ---- Members administration ----

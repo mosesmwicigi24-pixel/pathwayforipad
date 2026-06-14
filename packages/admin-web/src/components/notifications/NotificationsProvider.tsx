@@ -1,8 +1,8 @@
-// Notifications context — the portal bell + Notifications page. The feed itself is
-// REAL: AdminApi.notifications() synthesizes it from live events (pending
-// reflections, issued certificates, new members, at-risk engagement, RBAC audit).
-// We don't have a per-admin read-state table, so read/dismissed flags are tracked
-// client-side in localStorage and overlaid on the fetched feed.
+// Notifications context — the portal bell + Notifications page. The feed is REAL:
+// AdminApi.notifications() synthesizes it from live events (pending reflections,
+// issued certificates, new members, at-risk engagement, RBAC audit). Read/dismiss
+// state is now SERVER-PERSISTED per admin (notification_states) so it follows the
+// user across devices; mutations update optimistically and POST to the API.
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, type ReactElement, type ReactNode } from "react";
 import { CheckCircle2, Info, AlertTriangle, ShieldCheck, type LucideIcon } from "lucide-react";
 import { AdminApi, type NotificationFeedItem } from "../../api/client";
@@ -39,55 +39,48 @@ interface NotificationsContextValue {
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null);
 
-const LS_READ = "np_notif_read";       // ids the admin has read
-const LS_DISMISSED = "np_notif_dismissed"; // ids the admin has dismissed
-
-function loadSet(key: string): Set<string> {
-  try {
-    const raw = localStorage.getItem(key);
-    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
-  } catch {
-    return new Set();
-  }
-}
-function saveSet(key: string, set: Set<string>): void {
-  try { localStorage.setItem(key, JSON.stringify([...set])); } catch { /* ignore */ }
-}
-
 export function NotificationsProvider({ children }: { children: ReactNode }): ReactElement {
   const [feed, setFeed] = useState<NotificationFeedItem[]>([]);
-  const [readIds, setReadIds] = useState<Set<string>>(() => loadSet(LS_READ));
-  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => loadSet(LS_DISMISSED));
 
   const refresh = useCallback(() => {
     AdminApi.notifications().then(setFeed).catch(() => { /* unauthenticated / offline */ });
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
-  useEffect(() => { saveSet(LS_READ, readIds); }, [readIds]);
-  useEffect(() => { saveSet(LS_DISMISSED, dismissedIds); }, [dismissedIds]);
 
   const notifications = useMemo<AppNotification[]>(() =>
     feed
-      .filter((n) => !dismissedIds.has(n.id))
       .map((n) => ({
         id: n.id,
         title: n.title,
         ...(n.message ? { message: n.message } : {}),
         category: n.category,
-        read: readIds.has(n.id),
+        read: n.read,
         at: Date.parse(n.at) || 0,
         ...(n.href ? { href: n.href } : {}),
       }))
       .sort((a, b) => b.at - a.at),
-    [feed, readIds, dismissedIds]);
+    [feed]);
 
   const unreadCount = notifications.reduce((acc, n) => acc + (n.read ? 0 : 1), 0);
 
-  const markRead = useCallback((id: string) => setReadIds((p) => new Set(p).add(id)), []);
-  const markUnread = useCallback((id: string) => setReadIds((p) => { const n = new Set(p); n.delete(id); return n; }), []);
-  const markAllRead = useCallback(() => setReadIds(() => new Set(feed.map((n) => n.id))), [feed]);
-  const remove = useCallback((id: string) => setDismissedIds((p) => new Set(p).add(id)), []);
-  const clearAll = useCallback(() => setDismissedIds(() => new Set(feed.map((n) => n.id))), [feed]);
+  const setRead = useCallback((ids: string[], read: boolean) => {
+    if (ids.length === 0) return;
+    setFeed((prev) => prev.map((n) => (ids.includes(n.id) ? { ...n, read } : n)));
+    void AdminApi.markNotifications(read ? "read" : "unread", ids).catch(() => refresh());
+  }, [refresh]);
+
+  const markRead = useCallback((id: string) => setRead([id], true), [setRead]);
+  const markUnread = useCallback((id: string) => setRead([id], false), [setRead]);
+  const markAllRead = useCallback(() => setRead(feed.filter((n) => !n.read).map((n) => n.id), true), [feed, setRead]);
+
+  const dismiss = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    setFeed((prev) => prev.filter((n) => !ids.includes(n.id)));
+    void AdminApi.markNotifications("dismiss", ids).catch(() => refresh());
+  }, [refresh]);
+
+  const remove = useCallback((id: string) => dismiss([id]), [dismiss]);
+  const clearAll = useCallback(() => dismiss(feed.map((n) => n.id)), [feed, dismiss]);
 
   return (
     <NotificationsContext.Provider value={{ notifications, unreadCount, markRead, markUnread, markAllRead, remove, clearAll, refresh }}>

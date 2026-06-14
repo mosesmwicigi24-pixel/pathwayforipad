@@ -1331,10 +1331,19 @@ paths:
   /admin/notifications:
     get:
       tags: [portal]
-      summary: Portal activity feed (top-bar bell + Notifications page), synthesized from real events (dashboard:view).
+      summary: Portal activity feed (top-bar bell + Notifications page), synthesized from real events; each item carries the caller's read flag (dashboard:view).
       responses:
         "200": { description: Notifications feed }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/notifications/{action}:
+    post:
+      tags: [portal]
+      summary: Set the caller's notification state — action is read|unread|dismiss — for a set of feed ids (persists across devices, dashboard:view).
+      parameters: [{ name: action, in: path, required: true, schema: { type: string, enum: [read, unread, dismiss] } }]
+      responses:
+        "200": { description: Updated }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/members:
     get:
       tags: [portal]

@@ -182,6 +182,8 @@ export const AdminApi = {
     const { data } = await api.get<{ data: NotificationFeedItem[] }>("/admin/notifications");
     return data.data;
   },
+  markNotifications: (action: "read" | "unread" | "dismiss", ids: string[]) =>
+    api.post<{ updated: number }>(`/admin/notifications/${action}`, { ids }).then((r) => r.data),
 };
 
 export interface NotificationFeedItem {
@@ -191,6 +193,7 @@ export interface NotificationFeedItem {
   category: "success" | "info" | "warning" | "security";
   at: string; // ISO timestamp
   href: string | null;
+  read: boolean;
 }
 
 export interface MeProfile {

@@ -162,6 +162,27 @@ describe("members administration", () => {
     const denied = await agent().get("/v1/admin/notifications").set(auth(studentTok));
     expect(denied.status).toBe(403);
   });
+
+  it("persists per-admin notification read + dismiss state across requests", async () => {
+    const before = await agent().get("/v1/admin/notifications").set(auth(adminTok));
+    const item = before.body.data.find((n: { id: string }) => n.id === `mbr-${studentId}`);
+    expect(item.read).toBe(false);
+
+    // Mark read → reflected on the next fetch.
+    const marked = await agent().post("/v1/admin/notifications/read").set(auth(adminTok)).send({ ids: [`mbr-${studentId}`] });
+    expect(marked.status).toBe(200);
+    expect(marked.body).toEqual({ updated: 1 });
+    const afterRead = await agent().get("/v1/admin/notifications").set(auth(adminTok));
+    expect(afterRead.body.data.find((n: { id: string }) => n.id === `mbr-${studentId}`).read).toBe(true);
+
+    // Dismiss → drops out of the feed entirely.
+    await agent().post("/v1/admin/notifications/dismiss").set(auth(adminTok)).send({ ids: [`mbr-${studentId}`] });
+    const afterDismiss = await agent().get("/v1/admin/notifications").set(auth(adminTok));
+    expect(afterDismiss.body.data.some((n: { id: string }) => n.id === `mbr-${studentId}`)).toBe(false);
+
+    const badAction = await agent().post("/v1/admin/notifications/bogus").set(auth(adminTok)).send({ ids: [] });
+    expect(badAction.status).toBe(404);
+  });
 });
 
 describe("audit viewer (SuperAdmin)", () => {

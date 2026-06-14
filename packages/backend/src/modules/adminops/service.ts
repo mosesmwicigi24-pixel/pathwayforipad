@@ -425,13 +425,16 @@ export class AdminOpsService {
   /**
    * Portal activity feed for the top-bar bell + Notifications page. Synthesized
    * from real events (pending reflections, issued certificates, new members,
-   * at-risk engagement, and RBAC audit entries) — never invented. Read/dismiss
-   * state is tracked per-admin on the client; this is the authoritative content.
+   * at-risk engagement, and RBAC audit entries) — never invented. Each item
+   * carries the caller's own read flag from notification_states; dismissed items
+   * are excluded so read-state follows the user across devices.
    */
-  async notificationsFeed(): Promise<unknown[]> {
+  async notificationsFeed(userId: string): Promise<unknown[]> {
     return many(
       this.replica,
-      `SELECT * FROM (
+      `SELECT feed.id, feed.title, feed.message, feed.category, feed.at, feed.href,
+              (ns.read_at IS NOT NULL) AS read
+         FROM (
          SELECT 'rfl-' || mr.reflection_id::text AS id,
                 'New reflection submitted' AS title,
                 u.full_name || ' submitted a reflection for review.' AS message,
@@ -462,9 +465,42 @@ export class AdminOpsService {
                 CASE WHEN a.action LIKE 'role.%' THEN '/roles' ELSE '/users' END
            FROM audit_log a WHERE a.action LIKE 'role.%' OR a.action LIKE 'user.%'
        ) feed
-       ORDER BY at DESC
-       LIMIT 60`,
+       LEFT JOIN notification_states ns ON ns.user_id = $1 AND ns.notification_id = feed.id
+      WHERE ns.dismissed_at IS NULL
+      ORDER BY feed.at DESC
+      LIMIT 60`,
+      [userId],
     );
+  }
+
+  /**
+   * Record the caller's read / unread / dismissed state for a set of feed ids
+   * (Notifications bell + page). Upsert keyed on (user_id, notification_id);
+   * dismiss is sticky so a cleared item stays gone across devices.
+   */
+  async markNotifications(userId: string, ids: string[], action: "read" | "unread" | "dismiss"): Promise<{ updated: number }> {
+    if (ids.length === 0) return { updated: 0 };
+    const setClause =
+      action === "read" ? "read_at = now()"
+        : action === "unread" ? "read_at = NULL"
+          : "dismissed_at = now()";
+    const initial =
+      action === "read" ? "now()"
+        : action === "unread" ? "NULL"
+          : "NULL"; // read_at initial value
+    const dismissedInitial = action === "dismiss" ? "now()" : "NULL";
+    await tx(this.pool, async (c) => {
+      for (const id of ids) {
+        await c.query(
+          `INSERT INTO notification_states (user_id, notification_id, read_at, dismissed_at, updated_at)
+             VALUES ($1, $2, ${initial}, ${dismissedInitial}, now())
+           ON CONFLICT (user_id, notification_id)
+           DO UPDATE SET ${setClause}, updated_at = now()`,
+          [userId, id],
+        );
+      }
+    });
+    return { updated: ids.length };
   }
 
   // ---------------- Member profile (aggregate) ----------------
