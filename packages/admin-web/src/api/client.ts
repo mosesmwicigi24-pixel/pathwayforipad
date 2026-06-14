@@ -579,6 +579,14 @@ export interface EventRoster {
 
 export type ReflectionState = "pending" | "approved" | "rejected" | "returned" | "deferred";
 
+export interface ReflectionHistoryRow {
+  audit_id: number;
+  actor_id: string | null;
+  actor_name: string | null;
+  action: string;
+  occurred_at: string;
+}
+
 export const OpsApi = {
   members: (q: { search?: string; band?: string; level?: number; cursor?: string } = {}) =>
     api.get<{ data: MemberRow[]; next_cursor: string | null }>("/admin/members", { params: q }).then((r) => r.data),
@@ -597,6 +605,8 @@ export const OpsApi = {
     api.get<{ data: ReflectionRow[] }>("/admin/reflections", { params: q }).then((r) => r.data.data),
   decideReflection: (id: string, body: { decision: "approve" | "return" | "defer"; feedback_notes?: string; pastoral_note?: string }) =>
     api.post<{ state: string }>(`/admin/reflections/${id}/decision`, body).then((r) => r.data),
+  reflectionHistory: (id: string) =>
+    api.get<{ data: ReflectionHistoryRow[] }>(`/admin/reflections/${id}/history`).then((r) => r.data.data),
 
   calendar: (fromIso: string, toIso: string) =>
     api.get<{ data: CalendarOccurrence[] }>("/calendar", { params: { from: fromIso, to: toIso } }).then((r) => r.data.data),
