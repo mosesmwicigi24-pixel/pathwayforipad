@@ -4,7 +4,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { AppContext } from "../../http/context.js";
-import { authenticate, requireRole } from "../../http/auth.js";
+import { authenticate, requirePermission } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { CurriculumService } from "./service.js";
 import { AdminCurriculumService } from "./admin.js";
@@ -22,7 +22,7 @@ export function registerCurriculum(ctx: AppContext): Router {
   const admin = new AdminCurriculumService(ctx.db.primary);
   const scripture = new ScriptureService(buildScriptureProvider(ctx.env), ctx.env.YOUVERSION_LANGUAGE_RANGES);
   const auth = authenticate(ctx.env);
-  const adminOnly = [auth, requireRole("Admin")] as const;
+  const perm = requirePermission(ctx.db.replica); // RBAC: curriculum modules levels/cms/quiz (§5.4)
   const r = curriculumRouter;
 
   // Bust the read-through caches whenever the catalog or a lesson body changes.
@@ -82,16 +82,16 @@ export function registerCurriculum(ctx: AppContext): Router {
   // =================================================================
 
   // ---- Levels ----
-  r.get("/admin/levels", ...adminOnly, handler(async (_req, res) => {
+  r.get("/admin/levels", auth, perm("levels", "view"), handler(async (_req, res) => {
     res.json({ data: await admin.listLevels() });
   }));
 
-  r.post("/admin/levels", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/levels", auth, perm("levels", "create"), handler(async (req, res) => {
     const input = parseBody(AdminCurriculumService.CreateLevel, req.body);
     res.status(201).json(await admin.createLevel(requirePrincipal(req).userId, input));
   }));
 
-  r.put("/admin/levels/:n", ...adminOnly, handler(async (req, res) => {
+  r.put("/admin/levels/:n", auth, perm("levels", "edit"), handler(async (req, res) => {
     const n = parseBody(levelParam, req.params.n);
     const input = parseBody(AdminCurriculumService.UpdateLevel, req.body);
     const out = await admin.updateLevel(n, requirePrincipal(req).userId, input);
@@ -99,66 +99,66 @@ export function registerCurriculum(ctx: AppContext): Router {
     res.json(out);
   }));
 
-  r.put("/admin/levels/:n/exam", ...adminOnly, handler(async (req, res) => {
+  r.put("/admin/levels/:n/exam", auth, perm("levels", "edit"), handler(async (req, res) => {
     const n = parseBody(levelParam, req.params.n);
     const input = parseBody(AdminCurriculumService.UpdateExam, req.body);
     res.json(await admin.updateLevelExam(n, requirePrincipal(req).userId, input));
   }));
 
-  r.get("/admin/levels/:n/modules", ...adminOnly, handler(async (req, res) => {
+  r.get("/admin/levels/:n/modules", auth, perm("cms", "view"), handler(async (req, res) => {
     const n = parseBody(levelParam, req.params.n);
     res.json({ data: await admin.listModulesForLevel(n) });
   }));
 
   // ---- Modules ----
-  r.post("/admin/modules", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/modules", auth, perm("cms", "create"), handler(async (req, res) => {
     const input = parseBody(AdminCurriculumService.CreateModule, req.body);
     const out = await admin.createModule(requirePrincipal(req).userId, input);
     await bust();
     res.status(201).json(out);
   }));
 
-  r.get("/admin/modules/:id", ...adminOnly, handler(async (req, res) => {
+  r.get("/admin/modules/:id", auth, perm("cms", "view"), handler(async (req, res) => {
     res.json(await admin.getModule(idOf(req, "id")));
   }));
 
-  r.put("/admin/modules/:id", ...adminOnly, handler(async (req, res) => {
+  r.put("/admin/modules/:id", auth, perm("cms", "edit"), handler(async (req, res) => {
     const input = parseBody(AdminCurriculumService.UpdateModule, req.body);
     const out = await admin.updateModule(idOf(req, "id"), requirePrincipal(req).userId, input);
     await bust(idOf(req, "id"));
     res.json(out);
   }));
 
-  r.post("/admin/modules/:id/publish", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/modules/:id/publish", auth, perm("cms", "approve"), handler(async (req, res) => {
     const out = await admin.publish(idOf(req, "id"), requirePrincipal(req).userId);
     await bust(idOf(req, "id"));
     res.json(out);
   }));
 
-  r.post("/admin/modules/:id/unpublish", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/modules/:id/unpublish", auth, perm("cms", "approve"), handler(async (req, res) => {
     const out = await admin.unpublish(idOf(req, "id"), requirePrincipal(req).userId);
     await bust(idOf(req, "id"));
     res.json(out);
   }));
 
-  r.post("/admin/modules/:id/reorder", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/modules/:id/reorder", auth, perm("cms", "edit"), handler(async (req, res) => {
     const input = parseBody(AdminCurriculumService.Reorder, req.body);
     const out = await admin.reorder(idOf(req, "id"), requirePrincipal(req).userId, input.to_sequence);
     await bust(idOf(req, "id"));
     res.json({ data: out });
   }));
 
-  r.delete("/admin/modules/:id", ...adminOnly, handler(async (req, res) => {
+  r.delete("/admin/modules/:id", auth, perm("cms", "delete"), handler(async (req, res) => {
     const out = await admin.archive(idOf(req, "id"), requirePrincipal(req).userId);
     await bust(idOf(req, "id"));
     res.json(out);
   }));
 
-  r.get("/admin/modules/:id/versions", ...adminOnly, handler(async (req, res) => {
+  r.get("/admin/modules/:id/versions", auth, perm("cms", "view"), handler(async (req, res) => {
     res.json({ data: await admin.listVersions(idOf(req, "id")) });
   }));
 
-  r.post("/admin/modules/:id/revert", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/modules/:id/revert", auth, perm("cms", "edit"), handler(async (req, res) => {
     const input = parseBody(AdminCurriculumService.Revert, req.body);
     const out = await admin.revert(idOf(req, "id"), requirePrincipal(req).userId, input.version_number);
     await bust(idOf(req, "id"));
@@ -166,26 +166,26 @@ export function registerCurriculum(ctx: AppContext): Router {
   }));
 
   // ---- Question bank ----
-  r.get("/admin/modules/:id/questions", ...adminOnly, handler(async (req, res) => {
+  r.get("/admin/modules/:id/questions", auth, perm("quiz", "view"), handler(async (req, res) => {
     res.json({ data: await admin.listQuestions(idOf(req, "id")) });
   }));
 
-  r.post("/admin/modules/:id/questions", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/modules/:id/questions", auth, perm("quiz", "create"), handler(async (req, res) => {
     const input = parseBody(AdminCurriculumService.AddQuestions, req.body);
     res.status(201).json(await admin.addQuestions(idOf(req, "id"), requirePrincipal(req).userId, input));
   }));
 
-  r.put("/admin/questions/:qid", ...adminOnly, handler(async (req, res) => {
+  r.put("/admin/questions/:qid", auth, perm("quiz", "edit"), handler(async (req, res) => {
     const input = parseBody(AdminCurriculumService.UpdateQuestion, req.body);
     res.json(await admin.updateQuestion(idOf(req, "qid"), requirePrincipal(req).userId, input));
   }));
 
-  r.delete("/admin/questions/:qid", ...adminOnly, handler(async (req, res) => {
+  r.delete("/admin/questions/:qid", auth, perm("quiz", "delete"), handler(async (req, res) => {
     res.json(await admin.deleteQuestion(idOf(req, "qid"), requirePrincipal(req).userId));
   }));
 
   // ---- Authoring helper: sanitized Markdown preview (§5.8, Phase D) ----
-  r.post("/admin/preview", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/preview", auth, perm("cms", "view"), handler(async (req, res) => {
     const input = parseBody(z.object({ markdown: z.string() }), req.body);
     res.json({ html: renderSafeMarkdown(input.markdown) });
   }));

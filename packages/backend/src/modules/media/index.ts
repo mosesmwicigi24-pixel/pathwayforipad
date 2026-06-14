@@ -4,7 +4,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { AppContext } from "../../http/context.js";
-import { authenticate, requireRole } from "../../http/auth.js";
+import { authenticate, requirePermission } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { MediaService } from "./service.js";
 import { VideoService } from "./video.js";
@@ -16,7 +16,7 @@ export function registerMedia(ctx: AppContext): Router {
   const media = new MediaService(ctx.env.CLOUDINARY_URL);
   const video = new VideoService(ctx.db.primary, media, buildVideoPipeline(ctx.env));
   const auth = authenticate(ctx.env);
-  const adminOnly = [auth, requireRole("Admin")] as const;
+  const perm = requirePermission(ctx.db.replica); // RBAC: videos module (Video Library, §5.4)
   const r = mediaRouter;
 
   // Broker a signed URL for an object key the caller already holds a reference to.
@@ -41,7 +41,7 @@ export function registerMedia(ctx: AppContext): Router {
   // Admin: direct-to-storage upload sessions + transcode lifecycle.
   r.post(
     "/admin/media/uploads",
-    ...adminOnly,
+    auth, perm("videos", "create"),
     handler(async (req, res) => {
       const input = parseBody(VideoService.CreateUpload, req.body ?? {});
       res.status(201).json(await video.createUploadSession(requirePrincipal(req).userId, input));
@@ -50,7 +50,7 @@ export function registerMedia(ctx: AppContext): Router {
 
   r.post(
     "/admin/media/uploads/:id/complete",
-    ...adminOnly,
+    auth, perm("videos", "create"),
     handler(async (req, res) => {
       const input = parseBody(VideoService.CompleteUpload, req.body ?? {});
       res.json(await video.completeUpload(requirePrincipal(req).userId, req.params.id ?? "", input));
@@ -59,7 +59,7 @@ export function registerMedia(ctx: AppContext): Router {
 
   r.get(
     "/admin/media",
-    ...adminOnly,
+    auth, perm("videos", "view"),
     handler(async (_req, res) => {
       res.json(await video.listAssets());
     }),
@@ -67,7 +67,7 @@ export function registerMedia(ctx: AppContext): Router {
 
   r.get(
     "/admin/media/:id",
-    ...adminOnly,
+    auth, perm("videos", "view"),
     handler(async (req, res) => {
       res.json(await video.getAsset(req.params.id ?? ""));
     }),
@@ -75,7 +75,7 @@ export function registerMedia(ctx: AppContext): Router {
 
   r.delete(
     "/admin/media/:id",
-    ...adminOnly,
+    auth, perm("videos", "delete"),
     handler(async (req, res) => {
       res.json(await video.archiveAsset(requirePrincipal(req).userId, req.params.id ?? ""));
     }),

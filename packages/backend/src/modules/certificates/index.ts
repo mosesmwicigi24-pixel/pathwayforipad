@@ -4,7 +4,7 @@
 // register (list / manual issue / revoke-with-reason).
 import { Router } from "express";
 import type { AppContext } from "../../http/context.js";
-import { authenticate, requireRole } from "../../http/auth.js";
+import { authenticate, requirePermission } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { CertificateService } from "./service.js";
 
@@ -13,7 +13,7 @@ export const certificatesRouter: Router = Router();
 export function registerCertificates(ctx: AppContext): Router {
   const svc = new CertificateService(ctx.db.primary, ctx.env.CERT_SIGNING_KEY ?? ctx.env.JWT_SIGNING_KEY);
   const auth = authenticate(ctx.env);
-  const adminOnly = [auth, requireRole("Admin")] as const;
+  const perm = requirePermission(ctx.db.replica); // RBAC: certificates module (§5.4)
   const r = certificatesRouter;
 
   r.get(
@@ -33,17 +33,18 @@ export function registerCertificates(ctx: AppContext): Router {
   );
 
   // ---- Admin register (ERP) ----
-  r.get("/admin/certificates", ...adminOnly, handler(async (req, res) => {
+  r.get("/admin/certificates", auth, perm("certificates", "view"), handler(async (req, res) => {
     const q = parseBody(CertificateService.ListAdmin, req.query);
     res.json(await svc.listAll(q));
   }));
 
-  r.post("/admin/certificates", ...adminOnly, handler(async (req, res) => {
+  // Issuing a credential maps to the "approve" capability (§ issue/approve/publish).
+  r.post("/admin/certificates", auth, perm("certificates", "approve"), handler(async (req, res) => {
     const input = parseBody(CertificateService.AdminIssue, req.body);
     res.status(201).json(await svc.adminIssue(requirePrincipal(req).userId, input));
   }));
 
-  r.post("/admin/certificates/:id/revoke", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/certificates/:id/revoke", auth, perm("certificates", "delete"), handler(async (req, res) => {
     const input = parseBody(CertificateService.Revoke, req.body);
     res.json(await svc.revoke(requirePrincipal(req).userId, req.params.id ?? "", input.reason));
   }));

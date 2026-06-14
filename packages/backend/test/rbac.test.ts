@@ -155,3 +155,27 @@ describe("RBAC system users (portal accounts)", () => {
     expect(denied.status).toBe(403);
   });
 });
+
+describe("RBAC enforcement on migrated endpoints (matrix governs, not just the bridge)", () => {
+  it("grants a granular role its module capability and denies others", async () => {
+    // A legacy Instructor with no RBAC role is denied the Admin curriculum surface.
+    const before = await agent().get("/v1/admin/levels").set(auth(instructorTok));
+    expect(before.status).toBe(403);
+
+    // Assign curriculum_editor (levels:full) → the same account can now read + author.
+    await testPool().query(`INSERT INTO rbac_user_roles (user_id, role_key) VALUES ($1, 'curriculum_editor')`, [instructorId]);
+    const levels = await agent().get("/v1/admin/levels").set(auth(instructorTok));
+    expect(levels.status).toBe(200);
+
+    // curriculum_editor has no finance permission → still denied there.
+    const finance = await agent().get("/v1/admin/finance/summary").set(auth(instructorTok));
+    expect(finance.status).toBe(403);
+  });
+
+  it("keeps the legacy Admin bridge working for every migrated endpoint", async () => {
+    for (const path of ["/v1/admin/levels", "/v1/admin/finance/summary", "/v1/admin/certificates", "/v1/admin/media", "/v1/admin/members", "/v1/admin/countries"]) {
+      const res = await agent().get(path).set(auth(adminTok));
+      expect(res.status, `Admin should still reach ${path}`).toBe(200);
+    }
+  });
+});

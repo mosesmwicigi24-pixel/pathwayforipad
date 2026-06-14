@@ -3,7 +3,7 @@
 // are server-derived (read via sync pull). Aggregate-only cell encouragement.
 import { Router } from "express";
 import type { AppContext } from "../../http/context.js";
-import { authenticate, requireRole } from "../../http/auth.js";
+import { authenticate, requirePermission } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { GamificationService } from "./service.js";
 
@@ -12,7 +12,7 @@ export const gamificationRouter: Router = Router();
 export function registerGamification(ctx: AppContext): Router {
   const svc = new GamificationService(ctx.db.primary);
   const auth = authenticate(ctx.env);
-  const adminOnly = [auth, requireRole("Admin")] as const;
+  const perm = requirePermission(ctx.db.replica); // RBAC: badges module (§5.4)
   const r = gamificationRouter;
 
   r.get("/me/achievements", auth, handler(async (req, res) => {
@@ -32,16 +32,16 @@ export function registerGamification(ctx: AppContext): Router {
   }));
 
   // Admin catalog (audited). Deactivation never revokes earned badges.
-  r.post("/admin/badges", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/badges", auth, perm("badges", "create"), handler(async (req, res) => {
     const input = parseBody(GamificationService.BadgeInput, req.body ?? {});
     res.status(201).json(await svc.createBadge(requirePrincipal(req).userId, input));
   }));
 
-  r.delete("/admin/badges/:code", ...adminOnly, handler(async (req, res) => {
+  r.delete("/admin/badges/:code", auth, perm("badges", "delete"), handler(async (req, res) => {
     res.json(await svc.deactivateBadge(requirePrincipal(req).userId, req.params.code ?? ""));
   }));
 
-  r.post("/admin/members/:id/badges/:code/revoke", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/members/:id/badges/:code/revoke", auth, perm("badges", "delete"), handler(async (req, res) => {
     const input = parseBody(GamificationService.Revoke, req.body ?? {});
     res.json(await svc.revokeBadge(requirePrincipal(req).userId, req.params.id ?? "", req.params.code ?? "", input.reason));
   }));

@@ -1,11 +1,12 @@
-// Module: system (Final Pathway Portal "System" section — reference data).
-// Countries + languages: read for the dashboard counts and the System admin pages,
-// plus admin CRUD (create / update / language default + delete). Admin+. Full RBAC
-// (roles, permissions, users) arrives in a later phase; this is the reference slice.
+// Module: system (Final Pathway Portal "System" section).
+// Countries + languages reference CRUD, the RBAC roles/permission matrix, and
+// portal-user (account) administration. Every route is gated by the fine-grained
+// permission matrix via requirePermission (countries/languages/rolesAdmin/users),
+// with the legacy SuperAdmin/Admin bridge (§5.4).
 import { Router } from "express";
 import { z } from "zod";
 import type { AppContext } from "../../http/context.js";
-import { authenticate, requireRole, requirePermission } from "../../http/auth.js";
+import { authenticate, requirePermission } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { many, one, maybeOne, tx, audit } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
@@ -84,7 +85,6 @@ const LANG_COLS = "code, name, native_name, direction, is_default, coverage, sta
 
 export function registerSystem(ctx: AppContext): Router {
   const auth = authenticate(ctx.env);
-  const adminOnly = [auth, requireRole("Admin")] as const;
   const read = ctx.db.replica;
   const db = ctx.db.primary;
   const r = systemRouter;
@@ -94,11 +94,11 @@ export function registerSystem(ctx: AppContext): Router {
   const canViewRoles = [auth, perm("rolesAdmin", "view")] as const;
 
   // ── Countries ──
-  r.get("/admin/countries", ...adminOnly, handler(async (_req, res) => {
+  r.get("/admin/countries", auth, perm("countries", "view"), handler(async (_req, res) => {
     res.json({ data: await many(read, `SELECT ${COUNTRY_COLS} FROM countries ORDER BY name`) });
   }));
 
-  r.post("/admin/countries", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/countries", auth, perm("countries", "create"), handler(async (req, res) => {
     const input = parseBody(CountryInput, req.body);
     const code = input.code.toUpperCase();
     const row = await tx(db, async (c) => {
@@ -113,7 +113,7 @@ export function registerSystem(ctx: AppContext): Router {
     res.status(201).json(row);
   }));
 
-  r.put("/admin/countries/:code", ...adminOnly, handler(async (req, res) => {
+  r.put("/admin/countries/:code", auth, perm("countries", "edit"), handler(async (req, res) => {
     const code = String(req.params.code).toUpperCase();
     const input = parseBody(CountryInput.partial().omit({ code: true }), req.body);
     const cols: Record<string, unknown> = { name: input.name, flag: input.flag, region: input.region, subregion: input.subregion, dial_code: input.dial_code, currency: input.currency, status: input.status };
@@ -129,11 +129,11 @@ export function registerSystem(ctx: AppContext): Router {
   }));
 
   // ── Languages ──
-  r.get("/admin/languages", ...adminOnly, handler(async (_req, res) => {
+  r.get("/admin/languages", auth, perm("languages", "view"), handler(async (_req, res) => {
     res.json({ data: await many(read, `SELECT ${LANG_COLS} FROM languages ORDER BY is_default DESC, name`) });
   }));
 
-  r.post("/admin/languages", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/languages", auth, perm("languages", "create"), handler(async (req, res) => {
     const input = parseBody(LanguageInput, req.body);
     const code = input.code.toLowerCase();
     const row = await tx(db, async (c) => {
@@ -149,7 +149,7 @@ export function registerSystem(ctx: AppContext): Router {
     res.status(201).json(row);
   }));
 
-  r.put("/admin/languages/:code", ...adminOnly, handler(async (req, res) => {
+  r.put("/admin/languages/:code", auth, perm("languages", "edit"), handler(async (req, res) => {
     const code = String(req.params.code).toLowerCase();
     const input = parseBody(LanguageInput.partial().omit({ code: true }), req.body);
     const row = await tx(db, async (c) => {
@@ -165,7 +165,7 @@ export function registerSystem(ctx: AppContext): Router {
     res.json(row);
   }));
 
-  r.delete("/admin/languages/:code", ...adminOnly, handler(async (req, res) => {
+  r.delete("/admin/languages/:code", auth, perm("languages", "delete"), handler(async (req, res) => {
     const code = String(req.params.code).toLowerCase();
     await tx(db, async (c) => {
       const lang = await maybeOne<{ is_default: boolean }>(c, `SELECT is_default FROM languages WHERE code = $1`, [code]);

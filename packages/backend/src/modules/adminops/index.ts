@@ -4,7 +4,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { AppContext } from "../../http/context.js";
-import { authenticate, requireRole } from "../../http/auth.js";
+import { authenticate, requireRole, requirePermission } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { AdminOpsService } from "./service.js";
 
@@ -13,50 +13,50 @@ export const adminOpsRouter: Router = Router();
 export function registerAdminOps(ctx: AppContext): Router {
   const svc = new AdminOpsService(ctx.db.primary, ctx.db.replica);
   const auth = authenticate(ctx.env);
-  const adminOnly = [auth, requireRole("Admin")] as const;
-  const superOnly = [auth, requireRole("SuperAdmin")] as const;
+  const perm = requirePermission(ctx.db.replica); // RBAC: dashboard + members modules (§5.4)
+  const superOnly = [auth, requireRole("SuperAdmin")] as const; // audit stays SuperAdmin-only
   const r = adminOpsRouter;
 
   // ---- Dashboard reports ----
-  r.get("/admin/reports/overview", ...adminOnly, handler(async (_req, res) => {
+  r.get("/admin/reports/overview", auth, perm("dashboard", "view"), handler(async (_req, res) => {
     res.json(await svc.overview());
   }));
 
-  r.get("/admin/reports/engagement", ...adminOnly, handler(async (_req, res) => {
+  r.get("/admin/reports/engagement", auth, perm("dashboard", "view"), handler(async (_req, res) => {
     res.json(await svc.engagementReport());
   }));
 
-  r.get("/admin/reports/attendance", ...adminOnly, handler(async (req, res) => {
+  r.get("/admin/reports/attendance", auth, perm("dashboard", "view"), handler(async (req, res) => {
     const q = parseBody(z.object({ weeks: z.coerce.number().int().min(1).max(52).default(8) }), req.query);
     res.json(await svc.attendanceReport(q.weeks));
   }));
 
-  r.get("/admin/reports/levels", ...adminOnly, handler(async (_req, res) => {
+  r.get("/admin/reports/levels", auth, perm("dashboard", "view"), handler(async (_req, res) => {
     res.json(await svc.levelsReport());
   }));
 
-  r.get("/admin/reports/consents", ...adminOnly, handler(async (_req, res) => {
+  r.get("/admin/reports/consents", auth, perm("dashboard", "view"), handler(async (_req, res) => {
     res.json({ data: await svc.consentsReport() });
   }));
 
   // ---- Members administration ----
-  r.get("/admin/members", ...adminOnly, handler(async (req, res) => {
+  r.get("/admin/members", auth, perm("members", "view"), handler(async (req, res) => {
     const q = parseBody(AdminOpsService.ListMembers, req.query);
     res.json(await svc.listMembers(q));
   }));
 
-  r.post("/admin/members", ...adminOnly, handler(async (req, res) => {
+  r.post("/admin/members", auth, perm("members", "create"), handler(async (req, res) => {
     const input = parseBody(AdminOpsService.AddMember, req.body);
     res.status(201).json(await svc.addMember(requirePrincipal(req).userId, input));
   }));
 
   // Single-member aggregate for the Member Profile screen.
-  r.get("/admin/members/:id", ...adminOnly, handler(async (req, res) => {
+  r.get("/admin/members/:id", auth, perm("members", "view"), handler(async (req, res) => {
     res.json(await svc.memberDetail(req.params.id ?? ""));
   }));
 
   // Admin placement: set the member's starting level + entry module (§1.9).
-  r.patch("/admin/members/:id/enrollment", ...adminOnly, handler(async (req, res) => {
+  r.patch("/admin/members/:id/enrollment", auth, perm("members", "edit"), handler(async (req, res) => {
     const input = parseBody(AdminOpsService.SetStart, req.body);
     const userId = req.params.id ?? "";
     res.json(await svc.setEnrollmentStart(requirePrincipal(req).userId, userId, input));
