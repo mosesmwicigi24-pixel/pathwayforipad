@@ -45,6 +45,9 @@ const EnvSchema = z.object({
   // only (§5.10); absent → a deterministic offline fake responder is used. ---
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default("gemini-2.0-flash"),
+  // Groq — free tier, no billing; preferred when set. Open models (Llama 3.3).
+  GROQ_API_KEY: z.string().optional(),
+  GROQ_MODEL: z.string().default("llama-3.3-70b-versatile"),
 
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
