@@ -9,8 +9,8 @@
 import { useCallback, useRef, useState, type ReactElement } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import {
-  ArrowLeft, BadgeCheck, BookOpen, Check, ChevronDown, CreditCard, Delete, Gift, Globe,
-  HandHeart, Landmark, Loader, Lock, Percent, Quote, Repeat, RotateCcw, ShieldCheck, Smartphone,
+  ArrowLeft, BadgeCheck, BookOpen, Check, ChevronDown, ChevronUp, CreditCard, Delete, Gift, Globe,
+  GripVertical, HandHeart, Landmark, Loader, Lock, Percent, Quote, Repeat, RotateCcw, ShieldCheck, Smartphone,
   Wallet, X, type LucideIcon,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -78,6 +78,7 @@ export function GivingScreen(): ReactElement {
   const [fundCode, setFundCode] = useState("tithe");
   const [amount, setAmount] = useState(1000);
   const [method, setMethod] = useState<UIMethod>("mpesa");
+  const [methodOrder, setMethodOrder] = useState<UIMethod[]>(METHODS.map((m) => m.key));
   const [freq, setFreq] = useState<Freq>("once");
   const [coverFee, setCoverFee] = useState(false);
   const [sheet, setSheet] = useState<"none" | "keypad" | "method" | "details">("none");
@@ -161,6 +162,18 @@ export function GivingScreen(): ReactElement {
     if (f) setFundCode(f.code);
     setAmount(Math.round(lastGift.amount_minor / 100));
     setFreq("once");
+  }
+  function moveMethod(key: UIMethod, dir: -1 | 1): void {
+    setMethodOrder((cur) => {
+      const i = cur.indexOf(key);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= cur.length) return cur;
+      const next = [...cur];
+      const a = next[i]!;
+      next[i] = next[j]!;
+      next[j] = a;
+      return next;
+    });
   }
   function dismiss(): void { pollRef.current = false; setCeremony(null); }
   async function cancelSchedule(id: string): Promise<void> { try { await NuruApi.cancelSchedule(id); } finally { void refetchSchedules(); } }
@@ -347,7 +360,7 @@ export function GivingScreen(): ReactElement {
         <KeypadSheet fundLabel={fund.label} initial={amount} onClose={() => setSheet("none")} onSubmit={(v) => { setAmount(v); setSheet("none"); }} />
       ) : null}
       {sheet === "method" ? (
-        <MethodSheet current={method} phoneHint={phoneHint} onPick={(m) => { setMethod(m); setSheet("details"); }} onClose={() => setSheet("none")} />
+        <MethodSheet current={method} order={methodOrder} phoneHint={phoneHint} onMove={moveMethod} onPick={(m) => { setMethod(m); setSheet("details"); }} onClose={() => setSheet("none")} />
       ) : null}
       {sheet === "details" ? (
         <PaymentDetailsSheet method={method} phoneHint={phoneHint} onClose={() => setSheet("none")} onGive={() => { setSheet("none"); void give(); }} />
@@ -389,30 +402,45 @@ function KeypadSheet({ fundLabel, initial, onClose, onSubmit }: { fundLabel: str
   );
 }
 
-/* ---------- method picker (6) ---------- */
-function MethodSheet({ current, phoneHint, onPick, onClose }: { current: UIMethod; phoneHint: string | null; onPick: (m: UIMethod) => void; onClose: () => void }): ReactElement {
+/* ---------- method picker (6, reorderable) ---------- */
+function MethodSheet({ current, order, phoneHint, onMove, onPick, onClose }: { current: UIMethod; order: UIMethod[]; phoneHint: string | null; onMove: (m: UIMethod, dir: -1 | 1) => void; onPick: (m: UIMethod) => void; onClose: () => void }): ReactElement {
   return (
     <View style={st.sheetWrap}>
       <Pressable style={st.scrim} onPress={onClose} accessibilityLabel="Close" />
       <View style={st.sheet}>
         <View style={st.grab} />
-        <T variant="micro" tone="secondary" style={{ letterSpacing: 1.2, marginBottom: spacing.sm }}>CHOOSE HOW TO PAY</T>
-        <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
-          {METHODS.map((m) => {
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm }}>
+          <T variant="micro" tone="secondary" style={{ letterSpacing: 1.2 }}>CHOOSE HOW TO PAY</T>
+          <T variant="micro" tone="tertiary">Reorder ↑↓</T>
+        </View>
+        <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+          {order.map((key, i) => {
+            const m = METHODS.find((x) => x.key === key)!;
             const on = m.key === current;
             const sub = (m.key === "mpesa" || m.key === "airtel") && phoneHint ? phoneHint : m.sub;
             const soon = !PROVIDER[m.key];
             return (
-              <Pressable key={m.key} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => onPick(m.key)} style={[st.methodOpt, on && st.methodOptOn]}>
-                <View style={[st.methodTileLg, { backgroundColor: m.badgeBg }]}>
-                  {m.key === "equity" ? <Landmark size={18} color={palette.white} /> : m.key === "card" ? <CreditCard size={18} color={palette.white} /> : m.key === "wallet" ? <Wallet size={18} color={palette.white} /> : <T variant="micro" style={{ color: palette.white, fontWeight: "800", fontSize: m.badge.length > 3 ? 8 : 11 }}>{m.badge}</T>}
+              <View key={m.key} style={[st.methodOpt, on && st.methodOptOn]}>
+                <Pressable accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => onPick(m.key)} style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+                  <View style={[st.methodTileLg, { backgroundColor: m.badgeBg }]}>
+                    {m.key === "equity" ? <Landmark size={18} color={palette.white} /> : m.key === "card" ? <CreditCard size={18} color={palette.white} /> : m.key === "wallet" ? <Wallet size={18} color={palette.white} /> : <T variant="micro" style={{ color: palette.white, fontWeight: "800", fontSize: m.badge.length > 3 ? 8 : 11 }}>{m.badge}</T>}
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <T variant="heading" style={{ fontSize: 14 }}>{`Pay with ${m.label}`}</T>
+                    <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{sub}</T>
+                  </View>
+                  {soon ? <View style={st.soonChip}><T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", fontSize: 9 }}>SOON</T></View> : on ? <View style={st.checkDisc}><Check size={12} color={palette.white} /></View> : null}
+                </Pressable>
+                <View style={st.moveCol}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Move ${m.label} up`} disabled={i === 0} onPress={() => onMove(m.key, -1)} hitSlop={6} style={i === 0 && { opacity: 0.25 }}>
+                    <ChevronUp size={16} color={palette.ink400} />
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Move ${m.label} down`} disabled={i === order.length - 1} onPress={() => onMove(m.key, 1)} hitSlop={6} style={i === order.length - 1 && { opacity: 0.25 }}>
+                    <ChevronDown size={16} color={palette.ink400} />
+                  </Pressable>
                 </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <T variant="heading" style={{ fontSize: 14 }}>{`Pay with ${m.label}`}</T>
-                  <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{sub}</T>
-                </View>
-                {soon ? <View style={st.soonChip}><T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", fontSize: 9 }}>SOON</T></View> : on ? <View style={st.checkDisc}><Check size={12} color={palette.white} /></View> : null}
-              </Pressable>
+                <GripVertical size={16} color={palette.ink300} />
+              </View>
             );
           })}
         </ScrollView>
@@ -583,6 +611,7 @@ const st = {
   methodOpt: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderRadius: 14, borderWidth: 1, borderColor: palette.border, padding: spacing.md, marginBottom: spacing.sm },
   methodOptOn: { borderColor: palette.gold, backgroundColor: palette.priorityBg },
   checkDisc: { width: 22, height: 22, borderRadius: 11, backgroundColor: palette.gold, alignItems: "center", justifyContent: "center" },
+  moveCol: { alignItems: "center", justifyContent: "center", paddingHorizontal: 2 },
   inputRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 16, paddingHorizontal: spacing.base, marginTop: spacing.sm },
   inputFlex: { flex: 1, paddingVertical: 12, fontSize: 16, color: palette.navy, fontWeight: "600" },
   soonDisc: { width: 64, height: 64, borderRadius: 32, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
