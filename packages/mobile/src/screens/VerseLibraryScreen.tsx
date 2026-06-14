@@ -10,8 +10,14 @@ import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 import { useVerses } from "../api/hooks";
-import { errorMessage, invalidateQueries } from "../api/query";
+import { errorMessage, invalidateQueries, setQueryData } from "../api/query";
+import { writeThrough } from "../sync/offlineWrite";
+import { getSyncEngine } from "../sync/engineProvider";
+import { getConnectivity } from "../net/connectivity";
+import type { SavedVerse } from "../api/types";
 import { Loading, ErrorState } from "../components/states";
+
+const VERSES_KEY = "verses";
 
 export function VerseLibraryScreen(): ReactElement {
   const nav = useNavigation();
@@ -30,17 +36,32 @@ export function VerseLibraryScreen(): ReactElement {
   async function save(): Promise<void> {
     setBusy(true);
     setActionError(null);
+    const saved_verse_id = uuidv4();
+    const payload = {
+      saved_verse_id,
+      reference: reference.trim(),
+      ...(note.trim() ? { note: note.trim() } : {}),
+      client_mutation_id: uuidv4(),
+    };
     try {
-      await NuruApi.saveVerse({
-        saved_verse_id: uuidv4(),
-        reference: reference.trim(),
-        ...(note.trim() ? { note: note.trim() } : {}),
-        client_mutation_id: uuidv4(),
+      const { queued } = await writeThrough({
+        engine: getSyncEngine(),
+        connectivity: getConnectivity(),
+        online: () => NuruApi.saveVerse(payload),
+        queued: { domain: "saved_verses", op: "save", payload },
       });
       setReference("");
       setNote("");
       setAdding(false);
-      refresh();
+      if (queued) {
+        const optimistic: SavedVerse = {
+          saved_verse_id, reference: payload.reference, version: "KJV", verse_text: null,
+          note: note.trim() || null, created_at: new Date().toISOString(),
+        };
+        setQueryData<SavedVerse[]>(VERSES_KEY, (prev) => [optimistic, ...(prev ?? [])]);
+      } else {
+        refresh();
+      }
     } catch (e) {
       setActionError(errorMessage(e));
     } finally {
@@ -50,8 +71,17 @@ export function VerseLibraryScreen(): ReactElement {
 
   async function remove(id: string): Promise<void> {
     try {
-      await NuruApi.deleteVerse(id);
-      refresh();
+      const { queued } = await writeThrough({
+        engine: getSyncEngine(),
+        connectivity: getConnectivity(),
+        online: () => NuruApi.deleteVerse(id),
+        queued: { domain: "saved_verses", op: "delete", payload: { saved_verse_id: id } },
+      });
+      if (queued) {
+        setQueryData<SavedVerse[]>(VERSES_KEY, (prev) => (prev ?? []).filter((v) => v.saved_verse_id !== id));
+      } else {
+        refresh();
+      }
     } catch (e) {
       setActionError(errorMessage(e));
     }

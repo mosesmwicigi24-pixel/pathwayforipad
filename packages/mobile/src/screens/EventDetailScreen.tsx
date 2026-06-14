@@ -14,6 +14,10 @@ import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { GradientBg, Glow, T } from "../theme/components";
 import { useEvent } from "../api/hooks";
 import { NuruApi } from "../api/client";
+import { uuidv4 } from "../util/uuid";
+import { writeThrough } from "../sync/offlineWrite";
+import { getSyncEngine } from "../sync/engineProvider";
+import { getConnectivity } from "../net/connectivity";
 import { invalidateQueries } from "../api/query";
 
 type RsvpStatus = "going" | "maybe" | "declined";
@@ -51,11 +55,20 @@ export function EventDetailScreen(): ReactElement {
     setRsvp(status); // optimistic
     setSaving(true);
     setError(null);
+    const payload = { event_id: eventId, status, client_mutation_id: uuidv4() };
     try {
-      await NuruApi.rsvp(eventId, status);
-      invalidateQueries(`event:${eventId}`);
-      invalidateQueries("myRsvps");
-      void refetch();
+      const { queued } = await writeThrough({
+        engine: getSyncEngine(),
+        connectivity: getConnectivity(),
+        online: () => NuruApi.rsvp(eventId, status),
+        queued: { domain: "event_rsvps", op: "set", payload },
+      });
+      if (!queued) {
+        invalidateQueries(`event:${eventId}`);
+        invalidateQueries("myRsvps");
+        void refetch();
+      }
+      // Offline: the optimistic rsvp stays; the queued mutation replays on reconnect.
     } catch {
       setError("Couldn't save your RSVP — check your connection and try again.");
     } finally {

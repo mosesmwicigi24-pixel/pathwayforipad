@@ -16,6 +16,9 @@ import { Loading, ErrorState } from "../components/states";
 import { useModule, useMyReflection, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries, useMutation } from "../api/query";
+import { writeThrough } from "../sync/offlineWrite";
+import { getSyncEngine } from "../sync/engineProvider";
+import { getConnectivity } from "../net/connectivity";
 import { REVIEW_BANNER, showReflectionComposer } from "./reflectionStates";
 
 export function ModuleScreen(): ReactElement {
@@ -23,7 +26,20 @@ export function ModuleScreen(): ReactElement {
   const { moduleId } = useRoute<RouteProp<RootStackParamList, "Module">>().params;
   const { data: module, isLoading, error, refetch } = useModule(moduleId);
   const [reflection, setReflection] = useState("");
-  const complete = useMutation((body?: { reflection_text?: string }) => NuruApi.completeModule(moduleId, body));
+  // Completion is online-first; offline it queues a module_progress:complete
+  // mutation that replays on reconnect (server stays authoritative for gating).
+  const complete = useMutation((body?: { reflection_text?: string }) =>
+    writeThrough({
+      engine: getSyncEngine(),
+      connectivity: getConnectivity(),
+      online: () => NuruApi.completeModule(moduleId, body),
+      queued: {
+        domain: "module_progress",
+        op: "complete",
+        payload: { module_id: moduleId, ...(body?.reflection_text ? { reflection_text: body.reflection_text } : {}) },
+      },
+    }),
+  );
 
   const needsReflection = module?.evaluation_kind === "reflection";
   const { data: myReflection, refetch: refetchReflection } = useMyReflection(needsReflection ? moduleId : null);
@@ -54,7 +70,7 @@ export function ModuleScreen(): ReactElement {
   async function onComplete(): Promise<void> {
     if (!module) return;
     try {
-      const res = await complete.mutate(showComposer ? { reflection_text: reflection.trim() } : undefined);
+      const out = await complete.mutate(showComposer ? { reflection_text: reflection.trim() } : undefined);
       // Refresh everything completion affects so the next module unlocks instantly.
       invalidateQueries("pathway");
       invalidateQueries(`levelModules:${module.level_number}`);
@@ -65,9 +81,14 @@ export function ModuleScreen(): ReactElement {
         void refetchReflection(); // a resubmission resets the state to pending
         setReflection("");
       }
+      if (out.queued) {
+        nav.goBack(); // offline: completion will reconcile on reconnect
+        return;
+      }
+      const res = out.result;
       if (module.evaluation_kind === "quiz") {
         nav.navigate("Quiz", { moduleId });
-      } else if (res.next_module_unlocked || res.is_completed) {
+      } else if (res && (res.next_module_unlocked || res.is_completed)) {
         nav.goBack();
       }
     } catch {
