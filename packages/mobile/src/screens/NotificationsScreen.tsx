@@ -1,8 +1,8 @@
 // Notification center (Design spec D1 §13). White top bar with "Mark all
 // read", typed rows (icon tile by template family), gold unread dots, and
 // deep-link routing per D-M9. Read-state is display-only server state.
-import { useCallback, type ReactElement } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { useCallback, useState, type ReactElement } from "react";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import {
   Award,
   BadgeCheck,
@@ -64,6 +64,16 @@ export function NotificationsScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data, isLoading, refetch } = useNotifications();
   const unread = data?.unread ?? 0;
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
 
   const markAll = useCallback(async () => {
     await NuruApi.markNotificationsRead().catch(() => undefined);
@@ -80,11 +90,17 @@ export function NotificationsScreen(): ReactElement {
         })
         .catch(() => undefined);
     }
-    // Deep-link routing (D-M9): announcements → Community; events → Calendar;
-    // reflections live in the Pathway flow.
+    // Deep-link routing (D-M9 / Chat make's routeTarget): every notification
+    // family lands somewhere sensible.
     if (n.template.startsWith("announcement")) nav.navigate("Tabs", { screen: "Community" });
     else if (n.template.startsWith("event")) nav.navigate("Calendar");
     else if (n.template.startsWith("reflection")) nav.navigate("Tabs", { screen: "Pathway" });
+    else if (
+      n.template.startsWith("level") ||
+      n.template.startsWith("certificate") ||
+      n.template.startsWith("badge")
+    )
+      nav.navigate("Tabs", { screen: "Profile" }); // achievements live on Profile
   }
 
   return (
@@ -111,7 +127,11 @@ export function NotificationsScreen(): ReactElement {
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: spacing.xxl }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
+      >
         {isLoading ? (
           <View style={{ paddingTop: spacing.xl }}>
             <Loading label="Loading…" />

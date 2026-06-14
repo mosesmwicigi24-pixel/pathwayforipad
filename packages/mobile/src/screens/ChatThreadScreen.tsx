@@ -3,7 +3,7 @@
 // react affordance. Sends go through writeThrough — online they post immediately,
 // offline they queue (chat_messages:create) and replay on reconnect (§1.7).
 // Opening the thread marks it read.
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { ArrowLeft, Hash, Users } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
@@ -35,6 +35,7 @@ export function ChatThreadScreen(): ReactElement {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [reactingId, setReactingId] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   // Mark read on open; refresh the inbox so the unread badge clears.
   useEffect(() => {
@@ -95,7 +96,13 @@ export function ChatThreadScreen(): ReactElement {
         <View style={st.center}><ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /></View>
       ) : (
         <>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.lg }} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            ref={scrollRef}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.lg }}
+            showsVerticalScrollIndicator={false}
+            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+          >
             {convo.messages.map((m) => (
               <Bubble key={m.message_id} m={m} onLongPress={() => setReactingId(m.message_id)} reacting={reactingId === m.message_id} onReact={(e) => void react(m.message_id, e)} />
             ))}
