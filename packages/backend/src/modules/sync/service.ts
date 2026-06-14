@@ -22,6 +22,7 @@ import { CloudinaryProvider } from "../media/pipeline.js";
 import { CalendarService } from "../calendar/service.js";
 import { GrowthService } from "../growth/service.js";
 import { CommunityService } from "../community/service.js";
+import { ChatService } from "../chat/service.js";
 
 interface DomainSpec {
   table: string;
@@ -107,6 +108,7 @@ export class SyncService {
   private readonly calendar: CalendarService;
   private readonly growth: GrowthService;
   private readonly community: CommunityService;
+  private readonly chat: ChatService;
 
   constructor(private readonly pool: Pool) {
     this.progress = new ProgressService(pool);
@@ -118,6 +120,7 @@ export class SyncService {
     this.calendar = new CalendarService(pool);
     this.growth = new GrowthService(pool);
     this.community = new CommunityService(pool);
+    this.chat = new ChatService(pool);
   }
 
   /** Delta pull: changed rows + tombstones + new cursors since the client's cursors. */
@@ -308,6 +311,24 @@ export class SyncService {
           parseBody(CommunityService.CreateComment, { ...p, client_mutation_id: m.mutation_id }),
         );
         return r.duplicate;
+      }
+      case "chat_messages:create": {
+        // Chat send queued offline (mobile Chat make). Idempotent on the mutation id.
+        const r = await this.chat.sendMessage(
+          userId,
+          String(p.conversation_id ?? ""),
+          parseBody(ChatService.SendMessage, { ...p, client_mutation_id: m.mutation_id }),
+        );
+        return r.duplicate;
+      }
+      case "chat_reactions:toggle": {
+        // Reaction toggles are last-write-wins; replaying the same emoji is harmless.
+        await this.chat.toggleReaction(userId, parseBody(ChatService.ToggleReaction, p));
+        return false;
+      }
+      case "chat_reads:set": {
+        await this.chat.markRead(userId, String(p.conversation_id ?? ""));
+        return false;
       }
       case "gift_assessments:submit": {
         // Server-scored (§1.1) even when queued offline; replays return the original.

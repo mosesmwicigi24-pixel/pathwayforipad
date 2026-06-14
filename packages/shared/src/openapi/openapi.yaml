@@ -1935,6 +1935,82 @@ paths:
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # --- Chat: DMs, cell groups, public spaces (mobile Chat make) ---
+  /chat/conversations:
+    get:
+      tags: [progress]
+      summary: My chat inbox — DMs, cell groups, joined spaces (with unread + preview) plus discoverable spaces.
+      responses:
+        "200": { description: Conversations }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /chat/conversations/{id}:
+    get:
+      tags: [progress]
+      summary: A conversation's messages (reactions, reply previews); 404 outside my membership/scope (no existence leak).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Conversation }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /chat/conversations/{id}/messages:
+    post:
+      tags: [progress]
+      summary: Send a message (client-generated id; offline-queueable; idempotent on client_mutation_id).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "201": { description: Created }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /chat/conversations/{id}/read:
+    post:
+      tags: [progress]
+      summary: Mark a conversation read (clears unread); offline-queueable.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Read }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /chat/messages/{id}/reactions:
+    post:
+      tags: [progress]
+      summary: Toggle a reaction emoji on a message; offline-queueable.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Toggled }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /chat/dms:
+    post:
+      tags: [progress]
+      summary: Open (or fetch) a 1:1 DM with another member; minor-safe (D-M6); same congregation.
+      responses:
+        "201": { description: Conversation }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /chat/spaces:
+    post:
+      tags: [progress]
+      summary: Leader curates a public space for the congregation (Instructor+).
+      responses:
+        "201": { description: Created }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /chat/spaces/{id}/join:
+    post:
+      tags: [progress]
+      summary: Join a public space in my congregation.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Joined }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # --- Webhooks & sync (system) (§3.3) ---
   /webhooks/stripe:
     post:
