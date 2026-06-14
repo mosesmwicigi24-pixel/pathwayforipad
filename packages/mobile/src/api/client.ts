@@ -6,6 +6,7 @@ import axios, { type AxiosInstance } from "axios";
 import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 import type { MeResponse, PendingMutation, SyncPullResponse, SyncPushResponse, TokenPair } from "@nuru/shared";
 import type { TokenVault } from "../auth/tokenVault";
+import { apiBaseUrl } from "../config";
 import type {
   Achievements,
   AssembledQuiz,
@@ -41,7 +42,7 @@ import type {
 } from "./types";
 
 export const api: AxiosInstance = axios.create({
-  baseURL: "http://localhost:8080/v1",
+  baseURL: apiBaseUrl(), // env override → localhost default; App.tsx re-applies with Platform.OS
   timeout: 15_000,
 });
 
