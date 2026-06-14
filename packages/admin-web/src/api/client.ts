@@ -233,6 +233,19 @@ export interface SystemRole {
   permissions: RolePermission[];
 }
 
+export interface SystemUser {
+  user_id: string;
+  full_name: string;
+  email: string | null;
+  phone_number: string;
+  country_code: string | null;
+  locale: string | null;
+  account_status: "active" | "invited" | "suspended";
+  require_2fa: boolean;
+  last_active: string | null;
+  role_keys: string[];
+}
+
 export const SystemApi = {
   countries: () => unwrap(api.get<{ data: Country[] }>("/admin/countries")),
   createCountry: (body: Record<string, unknown>) => api.post<Country>("/admin/countries", body).then((r) => r.data),
@@ -248,6 +261,10 @@ export const SystemApi = {
   setRolePermissions: (key: string, permissions: RolePermission[]) =>
     api.put<{ role_key: string; count: number }>(`/admin/roles/${key}/permissions`, { permissions }).then((r) => r.data),
   deleteRole: (key: string) => api.delete<{ deleted: boolean }>(`/admin/roles/${key}`).then((r) => r.data),
+  users: () => unwrap(api.get<{ data: SystemUser[] }>("/admin/users")),
+  createUser: (body: Record<string, unknown>) => api.post<SystemUser>("/admin/users", body).then((r) => r.data),
+  updateUser: (id: string, body: Record<string, unknown>) => api.put<SystemUser>(`/admin/users/${id}`, body).then((r) => r.data),
+  deleteUser: (id: string) => api.delete<{ deleted: boolean }>(`/admin/users/${id}`).then((r) => r.data),
 };
 
 // ---- Curriculum CMS (Admin/SuperAdmin) ----

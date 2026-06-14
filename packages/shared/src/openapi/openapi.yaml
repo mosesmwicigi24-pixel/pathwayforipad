@@ -524,6 +524,41 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/Unprocessable" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/users:
+    get:
+      tags: [system]
+      summary: RBAC. List portal accounts with assigned roles, country, language and status (users:view, §5.4).
+      responses:
+        "200": { description: Users }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [system]
+      summary: RBAC. Create a portal account (argon2 password, role assignments) (users:create).
+      responses:
+        "201": { description: Created }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/users/{id}:
+    put:
+      tags: [system]
+      summary: RBAC. Update a portal account (details, roles, status, 2FA, optional new password) (users:edit).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Updated }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    delete:
+      tags: [system]
+      summary: RBAC. Soft-delete a portal account (cannot delete your own) (users:delete).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
 
   # --- Progress, assessment & reflections (§3.3) ---
   /modules/{id}/complete:

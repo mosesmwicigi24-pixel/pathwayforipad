@@ -9,6 +9,7 @@ import { authenticate, requireRole, requirePermission } from "../../http/auth.js
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { many, one, maybeOne, tx, audit } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
+import { hashPassword } from "../identity/passwords.js";
 
 export const systemRouter: Router = Router();
 
@@ -36,6 +37,26 @@ const PermsInput = z.object({
 
 function slugify(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+const UserInput = z.object({
+  full_name: z.string().min(1).max(255),
+  email: z.string().email(),
+  phone_number: z.string().max(32).optional(),
+  password: z.string().min(8).max(200).optional(),
+  country_code: z.string().length(2).nullable().optional(),
+  locale: z.string().max(12).optional(),
+  account_status: z.enum(["active", "invited", "suspended"]).optional(),
+  require_2fa: z.boolean().optional(),
+  role_keys: z.array(z.string().max(60)).optional(),
+});
+
+// Map assigned RBAC roles to the coarse legacy enum so the auth bridge and any
+// not-yet-migrated requireRole endpoints stay coherent (§5.4, P3 migration).
+function legacyRoleFor(roleKeys: string[]): "SuperAdmin" | "Admin" | "Instructor" {
+  if (roleKeys.includes("super_admin")) return "SuperAdmin";
+  if (roleKeys.includes("system_admin")) return "Admin";
+  return "Instructor";
 }
 
 const CountryInput = z.object({
@@ -249,6 +270,97 @@ export function registerSystem(ctx: AppContext): Router {
       if (role.is_system) throw new ApiError("UNPROCESSABLE", "Built-in roles cannot be deleted");
       await c.query(`DELETE FROM rbac_roles WHERE role_key = $1`, [key]); // cascades perms + assignments
       await audit(c, requirePrincipal(req).userId, "role.deleted", "rbac_roles", key, {});
+    });
+    res.json({ deleted: true });
+  }));
+
+  // ── System users (portal accounts) ──
+  const USER_SELECT = `
+    SELECT u.user_id, u.full_name, u.email, u.phone_number, u.country_code, u.locale,
+           u.account_status, u.require_2fa,
+           (SELECT max(ie.occurred_at) FROM interaction_events ie WHERE ie.user_id = u.user_id) AS last_active,
+           COALESCE(array_agg(ur.role_key) FILTER (WHERE ur.role_key IS NOT NULL), '{}') AS role_keys
+      FROM users u
+      LEFT JOIN rbac_user_roles ur ON ur.user_id = u.user_id`;
+
+  r.get("/admin/users", auth, perm("users", "view"), handler(async (_req, res) => {
+    const rows = await many<Record<string, unknown>>(read,
+      `${USER_SELECT}
+        WHERE u.deleted_at IS NULL AND (u.role <> 'Student' OR ur.role_key IS NOT NULL)
+        GROUP BY u.user_id
+        ORDER BY u.full_name`);
+    res.json({ data: rows });
+  }));
+
+  r.post("/admin/users", auth, perm("users", "create"), handler(async (req, res) => {
+    const input = parseBody(UserInput, req.body);
+    if (!input.password) throw new ApiError("UNPROCESSABLE", "A password is required for a new account");
+    const principal = requirePrincipal(req);
+    const roleKeys = input.role_keys ?? [];
+    const password_hash = await hashPassword(input.password);
+    const row = await tx(db, async (c) => {
+      if (await maybeOne(c, `SELECT 1 FROM users WHERE email = $1 AND deleted_at IS NULL`, [input.email])) {
+        throw new ApiError("CONFLICT", "A user with this email already exists");
+      }
+      const created = await one<{ user_id: string }>(c,
+        `INSERT INTO users (full_name, email, password_hash, phone_number, date_of_birth, congregation_id,
+                            role, country_code, locale, account_status, require_2fa)
+           VALUES ($1,$2,$3,$4,'1990-01-01',$5,$6,$7,COALESCE($8,'en'),COALESCE($9,'active'),COALESCE($10,FALSE))
+         RETURNING user_id`,
+        [input.full_name, input.email, password_hash, input.phone_number ?? "", principal.congregationId,
+         legacyRoleFor(roleKeys), input.country_code ?? null, input.locale ?? null, input.account_status ?? null, input.require_2fa ?? null]);
+      for (const rk of roleKeys) {
+        await c.query(`INSERT INTO rbac_user_roles (user_id, role_key, assigned_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+          [created.user_id, rk, principal.userId]);
+      }
+      await audit(c, principal.userId, "user.created", "users", created.user_id, { roles: roleKeys });
+      return one(c, `${USER_SELECT} WHERE u.user_id = $1 GROUP BY u.user_id`, [created.user_id]);
+    });
+    res.status(201).json(row);
+  }));
+
+  r.put("/admin/users/:id", auth, perm("users", "edit"), handler(async (req, res) => {
+    const id = String(req.params.id);
+    const input = parseBody(UserInput.partial().omit({ email: true }), req.body);
+    const principal = requirePrincipal(req);
+    const row = await tx(db, async (c) => {
+      if (!await maybeOne(c, `SELECT 1 FROM users WHERE user_id = $1 AND deleted_at IS NULL`, [id])) {
+        throw new ApiError("NOT_FOUND", "User not found");
+      }
+      const cols: Record<string, unknown> = {
+        full_name: input.full_name, phone_number: input.phone_number,
+        country_code: input.country_code, locale: input.locale,
+        account_status: input.account_status, require_2fa: input.require_2fa,
+      };
+      if (input.password) cols.password_hash = await hashPassword(input.password);
+      if (input.role_keys) cols.role = legacyRoleFor(input.role_keys);
+      const keys = Object.keys(cols).filter((k) => cols[k] !== undefined);
+      if (keys.length) {
+        await c.query(`UPDATE users SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(", ")}, updated_at = now() WHERE user_id = $1`,
+          [id, ...keys.map((k) => cols[k])]);
+      }
+      if (input.role_keys) {
+        await c.query(`DELETE FROM rbac_user_roles WHERE user_id = $1`, [id]);
+        for (const rk of input.role_keys) {
+          await c.query(`INSERT INTO rbac_user_roles (user_id, role_key, assigned_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+            [id, rk, principal.userId]);
+        }
+      }
+      await audit(c, principal.userId, "user.updated", "users", id, { fields: keys, roles_changed: !!input.role_keys });
+      return one(c, `${USER_SELECT} WHERE u.user_id = $1 GROUP BY u.user_id`, [id]);
+    });
+    res.json(row);
+  }));
+
+  r.delete("/admin/users/:id", auth, perm("users", "delete"), handler(async (req, res) => {
+    const id = String(req.params.id);
+    const principal = requirePrincipal(req);
+    if (id === principal.userId) throw new ApiError("UNPROCESSABLE", "You cannot delete your own account");
+    await tx(db, async (c) => {
+      const found = await maybeOne(c, `SELECT 1 FROM users WHERE user_id = $1 AND deleted_at IS NULL`, [id]);
+      if (!found) throw new ApiError("NOT_FOUND", "User not found");
+      await c.query(`UPDATE users SET deleted_at = now() WHERE user_id = $1`, [id]);
+      await audit(c, principal.userId, "user.deleted", "users", id, {});
     });
     res.json({ deleted: true });
   }));

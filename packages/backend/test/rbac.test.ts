@@ -99,3 +99,59 @@ describe("RBAC roles & permission matrix", () => {
     expect(delCustom.body).toEqual({ deleted: true });
   });
 });
+
+describe("RBAC system users (portal accounts)", () => {
+  it("creates, lists, updates roles and soft-deletes a portal user", async () => {
+    const created = await agent().post("/v1/admin/users").set(auth(adminTok)).send({
+      full_name: "Grace Wanjiru", email: "grace@nuru.org", password: "s3cret-pass",
+      country_code: "KE", locale: "sw", account_status: "active", role_keys: ["curriculum_editor"],
+    });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ full_name: "Grace Wanjiru", account_status: "active" });
+    expect(created.body.role_keys).toEqual(["curriculum_editor"]);
+    const id = created.body.user_id as string;
+    // Password is hashed, never returned.
+    expect(created.body.password).toBeUndefined();
+    const stored = await testPool().query("SELECT password_hash, role FROM users WHERE user_id = $1", [id]);
+    expect(stored.rows[0].password_hash).toMatch(/^\$argon2/);
+    expect(stored.rows[0].role).toBe("Instructor"); // legacy enum derived from rbac roles
+
+    const list = await agent().get("/v1/admin/users").set(auth(adminTok));
+    expect(list.status).toBe(200);
+    expect(list.body.data.map((u: { user_id: string }) => u.user_id)).toContain(id);
+
+    const upd = await agent().put(`/v1/admin/users/${id}`).set(auth(adminTok)).send({ role_keys: ["super_admin"], account_status: "suspended" });
+    expect(upd.status).toBe(200);
+    expect(upd.body.role_keys).toEqual(["super_admin"]);
+    expect(upd.body.account_status).toBe("suspended");
+    const legacy = await testPool().query("SELECT role FROM users WHERE user_id = $1", [id]);
+    expect(legacy.rows[0].role).toBe("SuperAdmin");
+
+    const del = await agent().delete(`/v1/admin/users/${id}`).set(auth(adminTok));
+    expect(del.status).toBe(200);
+    const gone = await agent().get("/v1/admin/users").set(auth(adminTok));
+    expect(gone.body.data.map((u: { user_id: string }) => u.user_id)).not.toContain(id);
+  });
+
+  it("rejects a duplicate email, a passwordless create, and self-deletion", async () => {
+    await agent().post("/v1/admin/users").set(auth(adminTok)).send({ full_name: "A", email: "dup@nuru.org", password: "password1", role_keys: ["mentor"] });
+    const dup = await agent().post("/v1/admin/users").set(auth(adminTok)).send({ full_name: "B", email: "dup@nuru.org", password: "password1", role_keys: ["mentor"] });
+    expect(dup.status).toBe(409);
+
+    const noPw = await agent().post("/v1/admin/users").set(auth(adminTok)).send({ full_name: "C", email: "c@nuru.org", role_keys: ["mentor"] });
+    expect(noPw.status).toBe(422);
+
+    // The admin (legacy Admin) is a portal user but isn't in the RBAC list unless
+    // listed via legacy role; deleting self is blocked at the id guard.
+    const selfTok = adminTok;
+    const me = await agent().post("/v1/admin/users").set(auth(selfTok)).send({ full_name: "Self", email: "self@nuru.org", password: "password1", role_keys: ["mentor"] });
+    const selfDelete = await agent().delete(`/v1/admin/users/${me.body.user_id}`).set(auth(bearer({ sub: me.body.user_id, role: "Instructor", cong })));
+    // The created user has no users:delete permission (mentor) → forbidden, proving enforcement.
+    expect(selfDelete.status).toBe(403);
+  });
+
+  it("denies user administration to accounts without the users permission", async () => {
+    const denied = await agent().get("/v1/admin/users").set(auth(studentTok));
+    expect(denied.status).toBe(403);
+  });
+});

@@ -22,13 +22,10 @@ import { Finance } from "./components/pages/Finance";
 import { Certificates } from "./components/pages/Certificates";
 import { Badges } from "./components/pages/Badges";
 import { MemberProfile } from "./components/pages/MemberProfile";
+import { Users } from "./components/pages/Users";
 import { Roles } from "./components/pages/Roles";
 import { Countries } from "./components/pages/Countries";
 import { Languages } from "./components/pages/Languages";
-import { Placeholder } from "./components/pages/Placeholder";
-
-const ph = (title: string, phase: string): ReactElement => <Placeholder title={title} phase={phase} />;
-
 const router = createBrowserRouter([
   { path: "/login", element: <Login /> },
   { path: "/preview/:moduleId", element: <ModulePreview /> },
@@ -53,7 +50,7 @@ const router = createBrowserRouter([
       { path: "finance", element: <Finance /> },
       { path: "certificates", element: <Certificates /> },
       { path: "badges", element: <Badges /> },
-      { path: "users", element: ph("System Users", "P4 — System") },
+      { path: "users", element: <Users /> },
       { path: "roles", element: <Roles /> },
       { path: "countries", element: <Countries /> },
       { path: "languages", element: <Languages /> },
