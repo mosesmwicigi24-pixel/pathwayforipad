@@ -18,7 +18,9 @@
     "migrate:create": "node-pg-migrate create -m migrations -j sql",
     "seed": "node scripts/seed.mjs",
     "seed:dev": "node scripts/seed-dev.mjs",
-    "import:curriculum": "node scripts/import-curriculum.mjs"
+    "import:curriculum": "node scripts/import-curriculum.mjs",
+    "seed:curriculum": "node scripts/seed-curriculum.mjs",
+    "seed:dev-disciples": "node scripts/seed-dev-disciples.mjs"
   },
   "dependencies": {
     "@nuru/shared": "workspace:*",
