@@ -8,6 +8,7 @@ import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { FinancialService } from "./service.js";
 import { buildPaymentGateway, type PaymentGateway } from "./gateway.js";
 import { buildMobileMoneyProviders, type MobileMoneyProviders } from "./providers.js";
+import { buildPayPalGateway, type PayPalGateway } from "./paypal.js";
 
 export const financialRouter: Router = Router();
 
@@ -15,10 +16,12 @@ export function registerFinancial(
   ctx: AppContext,
   gatewayOverride?: PaymentGateway,
   mobileMoneyOverride?: MobileMoneyProviders,
+  paypalOverride?: PayPalGateway,
 ): Router {
   const gateway = gatewayOverride ?? buildPaymentGateway(ctx.env);
   const mobileMoney = mobileMoneyOverride ?? buildMobileMoneyProviders(ctx.env);
-  const svc = new FinancialService(ctx.db.primary, gateway, mobileMoney);
+  const paypal = paypalOverride ?? buildPayPalGateway(ctx.env);
+  const svc = new FinancialService(ctx.db.primary, gateway, mobileMoney, paypal);
   const auth = authenticate(ctx.env);
   const r = financialRouter;
 
@@ -28,6 +31,16 @@ export function registerFinancial(
     handler(async (req, res) => {
       const body = parseBody(FinancialService.GivingIntent, req.body);
       res.status(201).json(await svc.createGivingIntent(requirePrincipal(req).userId, body));
+    }),
+  );
+
+  // Capture a PayPal order the member approved in the PayPal flow; settles the ledger.
+  r.post(
+    "/giving/paypal/capture",
+    auth,
+    handler(async (req, res) => {
+      const body = parseBody(z.object({ order_id: z.string().min(1).max(120) }), req.body);
+      res.json(await svc.capturePayPal(requirePrincipal(req).userId, body.order_id));
     }),
   );
 

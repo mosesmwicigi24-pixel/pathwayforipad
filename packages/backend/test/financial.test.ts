@@ -5,6 +5,7 @@ import { createCongregation, createUser } from "./helpers/factories.js";
 import { FinancialService } from "../src/modules/financial/service.js";
 import { ApiError } from "../src/http/errors.js";
 import type { PaymentGateway, WebhookEvent } from "../src/modules/financial/gateway.js";
+import { FakePayPalGateway } from "../src/modules/financial/paypal.js";
 
 // Deterministic fake gateway: no real Stripe. The webhook "signature" is the raw
 // JSON body; "bad" fails verification.
@@ -62,6 +63,23 @@ describe("financial / giving (§1.10 C, §3.5)", () => {
 
     const { rows } = await testPool().query("SELECT count(*)::int n FROM transactions");
     expect(rows[0].n).toBe(1);
+  });
+
+  it("PayPal: creates a USD order, then settles on capture (COMPLETED)", async () => {
+    const pp = new FakePayPalGateway("completed");
+    const s = new FinancialService(testPool(), gw, undefined, pp);
+    const intent = (await s.createGivingIntent(user, {
+      fund: "tithe", amount_minor: 5000, currency: "kes", method: "paypal", idempotency_key: "pp-1",
+    })) as { transaction_id: string; provider: string; provider_ref: string; approve_url: string };
+    expect(intent.provider).toBe("paypal");
+    expect(intent.approve_url).toContain("paypal.com");
+    expect(pp.created).toHaveLength(1);
+
+    const cap = await s.capturePayPal(user, intent.provider_ref);
+    expect(cap.status).toBe("succeeded");
+    const { rows } = await testPool().query("SELECT status, currency FROM transactions WHERE transaction_id = $1", [intent.transaction_id]);
+    expect(rows[0].status).toBe("succeeded");
+    expect(rows[0].currency).toBe("USD"); // PayPal settles in USD, not KES
   });
 
   it("settles on payment_intent.succeeded with a balanced double-entry post", async () => {

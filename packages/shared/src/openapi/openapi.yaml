@@ -2018,6 +2018,23 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /giving/paypal/capture:
+    post:
+      tags: [progress]
+      summary: Capture a PayPal order the member approved (USD); settles the ledger on COMPLETED.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order_id]
+              properties: { order_id: { type: string } }
+      responses:
+        "200": { description: Capture status }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # --- Nuru AI assistant (mobile make) ---
   /assistant/chat:
     post:

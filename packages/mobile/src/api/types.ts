@@ -130,14 +130,15 @@ export interface Achievements {
 }
 
 // ---- Give v2 (Contract Matrix M2 over B7) ----
-export type GivingMethod = "card" | "mpesa" | "airtel";
+export type GivingMethod = "card" | "mpesa" | "airtel" | "paypal";
 
 export interface GivingIntentResult {
   transaction_id: string;
   status: string;
   client_secret?: string; // card path
-  provider?: string; // mobile-money path
+  provider?: string; // mobile-money / paypal
   provider_ref?: string;
+  approve_url?: string; // paypal: open this for the member to approve, then capture
   reused: boolean;
 }
 

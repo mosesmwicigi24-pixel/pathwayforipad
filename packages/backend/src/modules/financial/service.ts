@@ -11,6 +11,7 @@ import { maybeOne, one, many, tx, audit, enqueueOutbox } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 import type { PaymentGateway } from "./gateway.js";
 import type { MobileMoneyKey, MobileMoneyProviders } from "./providers.js";
+import type { PayPalGateway } from "./paypal.js";
 
 const sha256 = (b: Buffer | string): string => createHash("sha256").update(b).digest("hex");
 
@@ -19,13 +20,14 @@ export class FinancialService {
     private readonly pool: Pool,
     private readonly gateway: PaymentGateway,
     private readonly mobileMoney?: MobileMoneyProviders,
+    private readonly paypal?: PayPalGateway,
   ) {}
 
   static readonly GivingIntent = z.object({
     fund: z.string().min(2).max(40), // validated against the funds table (data-driven, B7)
     amount_minor: z.number().int().positive(),
     currency: z.string().length(3),
-    method: z.enum(["card", "mpesa", "airtel"]).default("card"),
+    method: z.enum(["card", "mpesa", "airtel", "paypal"]).default("card"),
     phone_number: z.string().min(7).max(32).optional(), // mobile money; defaults to the profile phone
     idempotency_key: z.string().min(8).max(255).optional(),
   });
@@ -34,6 +36,11 @@ export class FinancialService {
     const p = this.mobileMoney?.[key];
     if (!p) throw new ApiError("UPSTREAM_UNAVAILABLE", `${key} payments are not configured`);
     return p;
+  }
+
+  private paypalGw(): PayPalGateway {
+    if (!this.paypal) throw new ApiError("UPSTREAM_UNAVAILABLE", "PayPal is not configured");
+    return this.paypal;
   }
 
   /** Create a payment intent (card via Stripe, or an STK push via mobile money)
@@ -99,6 +106,30 @@ export class FinancialService {
       };
     }
 
+    if (input.method === "paypal") {
+      // PayPal can't transact KES — gifts settle in USD (amount treated as USD).
+      const order = await this.paypalGw().createOrder({ amountMinor: input.amount_minor, reference: `${userId}:${input.fund}` });
+      const txn = await one<{ transaction_id: string; status: string }>(
+        this.pool,
+        `INSERT INTO transactions (user_id, fund_id, amount_minor, currency, status, provider, provider_ref, idempotency_key, schedule_id)
+         VALUES ($1, $2, $3, 'USD', 'processing', 'paypal', $4, $5, $6)
+         RETURNING transaction_id, status`,
+        [userId, fund.fund_id, input.amount_minor, order.orderId, key, scheduleId ?? null],
+      );
+      await audit(this.pool, userId, "giving.intent_created", "transactions", txn.transaction_id, {
+        amount_minor: input.amount_minor, currency: "USD", fund: input.fund, method: "paypal",
+      });
+      return {
+        transaction_id: txn.transaction_id,
+        provider: "paypal",
+        provider_ref: order.orderId,
+        approve_url: order.approveUrl, // open this; member approves on PayPal, then capture
+        status: txn.status,
+        idempotency_key: key,
+        reused: false,
+      };
+    }
+
     const intent = await this.gateway.createIntent({
       amountMinor: input.amount_minor,
       currency,
@@ -125,6 +156,28 @@ export class FinancialService {
       idempotency_key: key,
       reused: false,
     };
+  }
+
+  /** Capture a PayPal order the member approved; settle the ledger on COMPLETED
+   *  (§5.6 — money moves only here). Idempotent: an already-settled order is a no-op. */
+  async capturePayPal(userId: string, orderId: string): Promise<{ status: string }> {
+    const txn = await maybeOne<{ status: string }>(
+      this.pool,
+      `SELECT status FROM transactions WHERE provider = 'paypal' AND provider_ref = $1 AND user_id = $2`,
+      [orderId, userId],
+    );
+    if (!txn) throw new ApiError("NOT_FOUND", "Order not found");
+    if (txn.status === "succeeded" || txn.status === "settled") return { status: "succeeded" };
+    const result = await this.paypalGw().captureOrder(orderId);
+    if (result.status === "completed") {
+      await tx(this.pool, async (c) => { await this.settle(c, { provider_ref: orderId }); });
+      return { status: "succeeded" };
+    }
+    if (result.status === "failed") {
+      await this.pool.query(`UPDATE transactions SET status = 'failed' WHERE provider_ref = $1 AND status <> 'succeeded'`, [orderId]);
+      return { status: "failed" };
+    }
+    return { status: "processing" };
   }
 
   /**
@@ -311,7 +364,7 @@ export class FinancialService {
     amount_minor: z.number().int().positive(),
     currency: z.string().length(3),
     frequency: z.enum(["weekly", "monthly"]),
-    method: z.enum(["card", "mpesa", "airtel"]).default("card"),
+    method: z.enum(["card", "mpesa", "airtel", "paypal"]).default("card"),
     idempotency_key: z.string().min(8).max(255).optional(),
   });
 

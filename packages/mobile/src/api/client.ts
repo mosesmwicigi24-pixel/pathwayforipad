@@ -167,11 +167,15 @@ export const NuruApi = {
     fund: string;
     amount_minor: number;
     currency: string;
-    method?: "card" | "mpesa" | "airtel";
+    method?: "card" | "mpesa" | "airtel" | "paypal";
     phone_number?: string;
     idempotency_key: string;
   }): Promise<GivingIntentResult> {
     const { data } = await api.post<GivingIntentResult>("/giving/intents", body);
+    return data;
+  },
+  async capturePayPalGift(orderId: string): Promise<{ status: string }> {
+    const { data } = await api.post<{ status: string }>("/giving/paypal/capture", { order_id: orderId });
     return data;
   },
 

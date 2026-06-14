@@ -7,7 +7,7 @@
 // real intent (or schedule) and watch the ledger; we NEVER fake a gift. Methods
 // without a live provider (Equity/PayPal/wallet) are shown but flagged "soon".
 import { useCallback, useRef, useState, type ReactElement } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import { Linking, Pressable, ScrollView, TextInput, View } from "react-native";
 import {
   ArrowLeft, BadgeCheck, BookOpen, Check, ChevronDown, ChevronUp, CreditCard, Delete, Gift, Globe,
   GripVertical, HandHeart, Landmark, Loader, Lock, Percent, Quote, Repeat, RotateCcw, ShieldCheck, Smartphone,
@@ -63,7 +63,7 @@ const METHODS: MethodDef[] = [
   { key: "paypal", label: "PayPal", sub: "PayPal balance / linked", badge: "PP", badgeBg: "#0070BA" },
 ];
 // Only these have a live backend provider; the rest are shown but flagged "soon".
-const PROVIDER: Record<UIMethod, GivingMethod | null> = { mpesa: "mpesa", airtel: "airtel", card: "card", equity: null, wallet: null, paypal: null };
+const PROVIDER: Record<UIMethod, GivingMethod | null> = { mpesa: "mpesa", airtel: "airtel", card: "card", paypal: "paypal", equity: null, wallet: null };
 
 type Freq = "once" | "weekly" | "monthly";
 type Phase = "stk" | "success" | "failed";
@@ -128,6 +128,20 @@ export function GivingScreen(): ReactElement {
       setCeremony({ phase: "failed", amount: total, fund: fund.label, method, ref: "", note: "offline" });
       return;
     }
+    // PayPal: one-time USD order → member approves on PayPal → we capture (§5.6).
+    if (providerMethod === "paypal") {
+      let order: { transaction_id: string; provider_ref?: string; approve_url?: string };
+      try {
+        order = await NuruApi.giving({ fund: fund.code, amount_minor: total * 100, currency: "USD", method: "paypal", idempotency_key: uuidv4() });
+      } catch {
+        setCeremony({ phase: "failed", amount: total, fund: fund.label, method, ref: "" });
+        return;
+      }
+      if (order.approve_url) void Linking.openURL(order.approve_url).catch(() => undefined);
+      setCeremony({ phase: "stk", amount: total, fund: fund.label, method: "paypal", ref: order.provider_ref ?? "", note: "paypal" });
+      return;
+    }
+
     const base = { amount: total, fund: fund.label, method, ref: "" };
     if (recurring) {
       try {
@@ -154,6 +168,24 @@ export function GivingScreen(): ReactElement {
     const withRef = { ...base, ref: res.provider_ref ?? res.transaction_id };
     setCeremony({ ...withRef, phase: "stk" });
     void watchSettlement(res.transaction_id, withRef);
+  }
+
+  async function confirmPayPal(orderId: string): Promise<void> {
+    if (!orderId) return;
+    setCeremony((c) => (c ? { ...c, note: "paypal-capturing" } : c));
+    try {
+      const r = await NuruApi.capturePayPalGift(orderId);
+      if (r.status === "succeeded") {
+        invalidateQueries("giving");
+        setCeremony((c) => (c ? { ...c, phase: "success" } : c));
+      } else if (r.status === "failed") {
+        setCeremony((c) => (c ? { ...c, phase: "failed" } : c));
+      } else {
+        setCeremony((c) => (c ? { ...c, note: "paypal" } : c)); // still pending
+      }
+    } catch {
+      setCeremony((c) => (c ? { ...c, phase: "failed" } : c));
+    }
   }
 
   function repeatLast(): void {
@@ -365,7 +397,7 @@ export function GivingScreen(): ReactElement {
       {sheet === "details" ? (
         <PaymentDetailsSheet method={method} phoneHint={phoneHint} onClose={() => setSheet("none")} onGive={() => { setSheet("none"); void give(); }} />
       ) : null}
-      {ceremony ? <CeremonyOverlay c={ceremony} onDismiss={dismiss} onRetry={() => { setCeremony(null); void give(); }} /> : null}
+      {ceremony ? <CeremonyOverlay c={ceremony} onDismiss={dismiss} onRetry={() => { setCeremony(null); void give(); }} onConfirmPayPal={(id) => void confirmPayPal(id)} /> : null}
     </View>
   );
 }
@@ -519,8 +551,27 @@ function PaymentDetailsSheet({ method, phoneHint, onClose, onGive }: { method: U
 }
 
 /* ---------- ceremony ---------- */
-function CeremonyOverlay({ c, onDismiss, onRetry }: { c: Ceremony; onDismiss: () => void; onRetry: () => void }): ReactElement {
+function CeremonyOverlay({ c, onDismiss, onRetry, onConfirmPayPal }: { c: Ceremony; onDismiss: () => void; onRetry: () => void; onConfirmPayPal: (orderId: string) => void }): ReactElement {
   const mm = c.method === "mpesa" || c.method === "airtel";
+  const paypal = c.note === "paypal" || c.note === "paypal-capturing";
+  if (c.phase === "stk" && paypal) {
+    const capturing = c.note === "paypal-capturing";
+    return (
+      <View style={st.ceremonyNavy}>
+        <Glow size={260} color="rgba(201,162,39,0.14)" style={{ alignSelf: "center", top: 80 }} />
+        <View style={st.stkDisc}>{capturing ? <Loader size={30} color={palette.gold} /> : <T serif style={{ fontSize: 22, color: palette.gold, fontWeight: "800" }}>PP</T>}</View>
+        <T serif tone="onNavy" style={{ fontSize: 24, marginTop: spacing.xl, textAlign: "center" }}>Approve in PayPal</T>
+        <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.sm, textAlign: "center", maxWidth: 290 }}>
+          {`We've opened PayPal to approve $${c.amount.toLocaleString()} to ${c.fund}. Once you've approved, tap Confirm to complete it.`}
+        </T>
+        <T variant="micro" tone="onNavyFaint" style={{ marginTop: spacing.lg }}>{capturing ? "Confirming with PayPal…" : "PayPal gifts are charged in US$"}</T>
+        <View style={{ position: "absolute", left: spacing.lg, right: spacing.lg, bottom: 48, gap: spacing.sm }}>
+          <PButton variant="gold" onPress={() => onConfirmPayPal(c.ref)} disabled={capturing}>{capturing ? "Confirming…" : "I've approved — Confirm"}</PButton>
+          <PButton variant="ghostDark" onPress={onDismiss}>Cancel</PButton>
+        </View>
+      </View>
+    );
+  }
   if (c.phase === "stk") {
     return (
       <View style={st.ceremonyNavy}>

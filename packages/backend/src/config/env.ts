@@ -43,6 +43,12 @@ const EnvSchema = z.object({
   MPESA_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
   MPESA_TX_TYPE: z.enum(["CustomerPayBillOnline", "CustomerBuyGoodsOnline"]).default("CustomerPayBillOnline"),
   MPESA_CALLBACK_URL: z.string().optional(), // public HTTPS https://<host>/v1/webhooks/mobilemoney/mpesa
+  // --- PayPal (Orders v2). PayPal can't transact KES, so PayPal gifts settle in
+  // USD (the entered amount is treated as USD). Secrets by name only (§5.10). ---
+  PAYPAL_CLIENT_ID: z.string().optional(),
+  PAYPAL_SECRET: z.string().optional(),
+  PAYPAL_ENV: z.enum(["sandbox", "live"]).default("sandbox"),
+  PAYPAL_RETURN_URL: z.string().default("https://app.nurupathway.org/giving/paypal/return"),
 
   YOUVERSION_APP_KEY: z.string().optional(),
   YOUVERSION_LANGUAGE_RANGES: z.string().default("en"),
