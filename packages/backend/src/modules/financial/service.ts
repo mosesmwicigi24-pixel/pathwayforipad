@@ -539,7 +539,8 @@ export class FinancialService {
     const rows = await many<Record<string, unknown>>(
       this.pool,
       `SELECT t.transaction_id, u.full_name, t.amount_minor, t.currency, t.status,
-              f.code AS fund, t.created_at, t.settled_at
+              f.code AS fund, t.created_at, t.settled_at,
+              COALESCE(t.provider, CASE WHEN t.stripe_payment_intent IS NOT NULL THEN 'card' END) AS method
          FROM transactions t
          LEFT JOIN funds f ON f.fund_id = t.fund_id
          LEFT JOIN users u ON u.user_id = t.user_id

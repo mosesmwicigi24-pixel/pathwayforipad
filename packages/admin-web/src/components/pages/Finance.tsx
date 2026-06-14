@@ -12,9 +12,12 @@ import { errorMessage } from "../../util/error";
 const TONES = ["#C89B3C", "#16A34A", "#0B84E8", "#7C3AED", "#DC2626", "#0D9488"];
 const money = (minor: number, currency: string | null): string => `${currency ?? "KES"} ${Math.round((minor ?? 0) / 100).toLocaleString()}`;
 const statusChip: Record<string, { bg: string; color: string }> = {
-  confirmed: { bg: "#E8F6EC", color: "#0F6B33" }, settled: { bg: "#E8F6EC", color: "#0F6B33" },
-  pending: { bg: "#FFFBEB", color: "#A87616" }, failed: { bg: "#FDECEC", color: "#DC2626" }, refunded: { bg: "#EEF1F8", color: "#1F3A6B" },
+  confirmed: { bg: "#E8F6EC", color: "#0F6B33" }, settled: { bg: "#E8F6EC", color: "#0F6B33" }, succeeded: { bg: "#E8F6EC", color: "#0F6B33" },
+  pending: { bg: "#FFFBEB", color: "#A87616" }, processing: { bg: "#FFFBEB", color: "#A87616" },
+  failed: { bg: "#FDECEC", color: "#DC2626" }, refunded: { bg: "#EEF1F8", color: "#1F3A6B" },
 };
+const METHOD_LABEL: Record<string, string> = { mpesa: "M-Pesa", airtel: "Airtel", paypal: "PayPal", card: "Card", stripe: "Card" };
+const methodLabel = (m: string | null): string => (m ? METHOD_LABEL[m] ?? m.charAt(0).toUpperCase() + m.slice(1) : "—");
 const fmtDate = (iso: string): string => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); };
 const STATUS_FILTERS = ["All", "confirmed", "pending", "failed", "refunded"] as const;
 
@@ -116,18 +119,19 @@ export function Finance(): ReactElement {
               </div>
             </div>
             <div className="overflow-x-auto"><table className="w-full" style={{ borderCollapse: "collapse" }}>
-              <thead><tr style={{ background: "var(--secondary)" }}>{["Member", "Fund", "Amount", "Status", "Date"].map((h) => <th key={h} style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6, textAlign: "left", padding: "10px 16px" }}>{h}</th>)}</tr></thead>
+              <thead><tr style={{ background: "var(--secondary)" }}>{["Member", "Fund", "Method", "Amount", "Status", "Date"].map((h) => <th key={h} style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6, textAlign: "left", padding: "10px 16px" }}>{h}</th>)}</tr></thead>
               <tbody>
                 {txns.map((t) => { const sc = statusChip[t.status] ?? statusChip.pending!; return (
                   <tr key={t.transaction_id} style={{ borderTop: "1px solid var(--border)" }}>
                     <td style={{ padding: "10px 16px", fontSize: 13, fontWeight: 600, color: "var(--nuru-navy)" }}>{t.full_name ?? "Anonymous"}</td>
                     <td style={{ padding: "10px 16px", fontSize: 12, color: "var(--muted-foreground)" }}>{t.fund ?? "—"}</td>
+                    <td style={{ padding: "10px 16px", fontSize: 12, color: "var(--muted-foreground)" }}>{methodLabel(t.method)}</td>
                     <td style={{ padding: "10px 16px", fontSize: 13, fontWeight: 700, color: "var(--nuru-navy)", fontFamily: "var(--font-mono)" }}>{money(t.amount_minor, t.currency)}</td>
                     <td style={{ padding: "10px 16px" }}><span className="rounded-full px-2.5 py-0.5" style={{ fontSize: 11, fontWeight: 700, textTransform: "capitalize", ...sc }}>{t.status}</span></td>
                     <td style={{ padding: "10px 16px", fontSize: 12, color: "var(--muted-foreground)" }}>{fmtDate(t.created_at)}</td>
                   </tr>
                 ); })}
-                {txns.length === 0 ? <tr><td colSpan={5} style={{ padding: "24px 16px", textAlign: "center", fontSize: 13, color: "var(--muted-foreground)" }}>No transactions match.</td></tr> : null}
+                {txns.length === 0 ? <tr><td colSpan={6} style={{ padding: "24px 16px", textAlign: "center", fontSize: 13, color: "var(--muted-foreground)" }}>No transactions match.</td></tr> : null}
               </tbody>
             </table></div>
           </div>

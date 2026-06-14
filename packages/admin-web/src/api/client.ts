@@ -702,6 +702,7 @@ export interface TransactionRow {
   currency: string;
   status: string;
   fund: string | null;
+  method: string | null;
   created_at: string;
   settled_at: string | null;
 }
