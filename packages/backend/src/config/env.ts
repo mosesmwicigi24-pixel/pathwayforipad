@@ -33,6 +33,16 @@ const EnvSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   MPESA_CALLBACK_SECRET: z.string().optional(),
   AIRTEL_CALLBACK_SECRET: z.string().optional(),
+  // --- M-Pesa Daraja (Lipa na M-Pesa Online / STK push). Secrets by name only,
+  // git-ignored (§5.10) — never stored in the DB. When all four are present the
+  // real Daraja adapter is used; otherwise the HMAC fake. ---
+  MPESA_CONSUMER_KEY: z.string().optional(),
+  MPESA_CONSUMER_SECRET: z.string().optional(),
+  MPESA_PASSKEY: z.string().optional(),
+  MPESA_SHORTCODE: z.string().optional(),
+  MPESA_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+  MPESA_TX_TYPE: z.enum(["CustomerPayBillOnline", "CustomerBuyGoodsOnline"]).default("CustomerPayBillOnline"),
+  MPESA_CALLBACK_URL: z.string().optional(), // public HTTPS https://<host>/v1/webhooks/mobilemoney/mpesa
 
   YOUVERSION_APP_KEY: z.string().optional(),
   YOUVERSION_LANGUAGE_RANGES: z.string().default("en"),
