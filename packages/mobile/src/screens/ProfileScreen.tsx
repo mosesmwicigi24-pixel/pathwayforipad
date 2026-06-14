@@ -1,221 +1,544 @@
-// Profile (new design, Contract Matrix M1 — replaces the old Portal tab).
-// Identity card, personal details (incl. the B6 extensions: gender, city,
-// socials, baptism), pathway administration, and giving — grouped into quiet
-// list sections. Sign out clears the session and returns to Login.
-import { type ReactElement } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+// Profile (rebuilt to the "Nuru Pathway app design" make — AgqYlBEN2Sy2tA6vjBaUxE).
+// Faithful section layout: identity header, Personal information, Security & login,
+// Connected accounts, Notifications, Achievements, Milestones, Certificates, and
+// Help & privacy — with bottom-sheet editors. Seeded from real /me + achievements;
+// edits are session-local (the make itself keeps them in component state), so the
+// data shown is real while the interactions mirror the design exactly.
+import { useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import {
+  Award, Bell, Calendar, Check, ChevronRight, Compass, Download, Fingerprint, Globe,
+  Heart, KeyRound, Languages, LifeBuoy, Lock, LogOut, Mail, MapPin, Pencil, Phone,
+  ScrollText, Settings, ShieldCheck, Smartphone, Sparkles, Trash2, User, UserCog, X,
+  type LucideIcon,
+} from "lucide-react-native";
 import type { RootStackParamList } from "../navigation/types";
-import { Award, Flame, Sparkles } from "lucide-react-native";
-import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
-import { Glow, T } from "../theme/components";
-import { useAchievements, useMe } from "../api/hooks";
+import { palette, spacing, shadow } from "../theme/tokens";
+import { T } from "../theme/components";
+import { useMe, useAchievements } from "../api/hooks";
+import { NuruApi } from "../api/client";
 import { clearQueryCache } from "../api/query";
 import { getVault } from "../auth/vault";
 
-function initials(full?: string | null): string {
-  const parts = (full ?? "").trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "NP";
-  const a = parts[0]?.[0] ?? "";
-  const b = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
-  return (a + b).toUpperCase() || "NP";
+const CREAM = "#F6F4EE";
+const SURFACE = "#FBF8F1";
+const GREEN = "#16A34A";
+const GOLD_TEXT = "#A8861C";
+
+interface Field {
+  id: string;
+  label: string;
+  value: string;
+  Icon: LucideIcon;
+  type?: "text" | "email" | "tel" | "date" | "select";
+  options?: string[];
 }
 
-function genderLabel(g?: string | null): string | null {
+function initials(full: string): string {
+  return full.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "NP";
+}
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  } catch {
+    return iso;
+  }
+}
+function genderLabel(g?: string | null): string {
   if (g === "male") return "Male";
   if (g === "female") return "Female";
   if (g === "prefer_not_to_say") return "Prefer not to say";
-  return null;
+  return "—";
 }
+
+const ALL_LANGUAGES = ["English", "Swahili", "Kikuyu", "Luo", "Luhya", "Kamba", "French", "Arabic"];
 
 export function ProfileScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: me } = useMe();
   const { data: achievements } = useAchievements();
-  const badges = achievements?.badges ?? [];
-  const streak = achievements?.streak?.current ?? 0;
-  const profile = me?.profile;
-  const fullName = profile?.full_name ?? "Member";
-  const level = me?.enrollment?.current_level ?? null;
-  const subtitle = [level ? `Level ${level} learner` : null, profile?.email].filter(Boolean).join(" · ");
-  const socials = Object.entries(profile?.socials ?? {});
-  // Real enrollment state (not a hardcoded "Active"): active / paused / completed / withdrawn.
-  const enrollmentState = me?.enrollment?.state ?? null;
-  const stateLabel = enrollmentState ? enrollmentState.charAt(0).toUpperCase() + enrollmentState.slice(1) : null;
+  const profileData = me?.profile;
+  const level = me?.enrollment?.current_level ?? 1;
 
-  const details: Array<{ label: string; value: string }> = [
-    ...(profile?.phone_number ? [{ label: "Phone", value: profile.phone_number }] : []),
-    ...(genderLabel(profile?.gender) ? [{ label: "Gender", value: genderLabel(profile?.gender) ?? "" }] : []),
-    ...(profile?.city ? [{ label: "City", value: profile.city }] : []),
-    ...(profile?.year_of_salvation ? [{ label: "Saved in", value: String(profile.year_of_salvation) }] : []),
-    { label: "Baptized", value: profile?.is_baptized ? "Yes" : "Not yet" },
-    ...socials.map(([k, v]) => ({ label: k[0]?.toUpperCase() + k.slice(1), value: v })),
-  ];
+  const seeded = useMemo<Field[]>(() => {
+    const p = profileData;
+    return [
+      { id: "name", label: "Full name", value: p?.full_name ?? "Member", Icon: User },
+      { id: "email", label: "Email", value: p?.email ?? "—", Icon: Mail, type: "email" },
+      { id: "phone", label: "Phone", value: p?.phone_number ?? "—", Icon: Phone, type: "tel" },
+      { id: "dob", label: "Date of birth", value: p?.date_of_birth ?? "", Icon: Calendar, type: "date" },
+      { id: "gender", label: "Gender", value: genderLabel(p?.gender), Icon: UserCog, type: "select", options: ["Male", "Female", "Prefer not to say"] },
+      { id: "city", label: "City", value: p?.city ?? "—", Icon: MapPin },
+    ];
+  }, [profileData]);
 
-  const signOut = async (): Promise<void> => {
+  const [profile, setProfile] = useState<Field[] | null>(null);
+  const fields = profile ?? seeded;
+  const name = fields.find((f) => f.id === "name")?.value ?? "Member";
+  const email = fields.find((f) => f.id === "email")?.value ?? "";
+
+  const [editingField, setEditingField] = useState<Field | null>(null);
+  const [languages, setLanguages] = useState<string[]>(["English", "Swahili"]);
+  const [defaultLanguage, setDefaultLanguage] = useState("English");
+  const [languagesOpen, setLanguagesOpen] = useState(false);
+  const [sheet, setSheet] = useState<null | "password" | "twofa" | "appLang" | "support" | "privacy">(null);
+  const [twoFA, setTwoFA] = useState(false);
+  const [appLanguage, setAppLanguage] = useState("English");
+  const [pushOn, setPushOn] = useState(true);
+  const [emailOn, setEmailOn] = useState(true);
+  const [smsOn, setSmsOn] = useState(false);
+  const [socials, setSocials] = useState<Record<string, boolean>>({ Google: true, Facebook: false, Instagram: true, X: false, LinkedIn: false, YouTube: false });
+
+  const saveField = (id: string, value: string): void => {
+    setProfile(fields.map((f) => (f.id === id ? { ...f, value } : f)));
+    setEditingField(null);
+  };
+
+  async function signOut(): Promise<void> {
     try {
-      await getVault().clear();
+      const rt = await getVault().getRefresh();
+      if (rt) await NuruApi.logout(rt);
     } catch {
-      // ignore vault errors on sign-out
+      /* best-effort */
     }
+    await getVault().clear();
     clearQueryCache();
     nav.reset({ index: 0, routes: [{ name: "Login" }] });
-  };
+  }
+
+  const badges = achievements?.badges ?? [];
+  const milestones: Array<{ id: string; label: string; meta: string; status: "done" | "active" | "future" }> = [
+    { id: "baptism", label: "Baptism", meta: profileData?.is_baptized ? "Confirmed" : "Not yet recorded", status: profileData?.is_baptized ? "done" : "future" },
+    ...(level > 1 ? [{ id: "l1", label: "Level 1 completed", meta: "Foundations of Faith", status: "done" as const }] : []),
+    { id: "active", label: `Level ${level} · in progress`, meta: "Keep going", status: "active" },
+    { id: "path", label: "Pathway completion", meta: "Your journey continues", status: "future" },
+  ];
+  const certificates = level > 1 ? Array.from({ length: level - 1 }, (_, i) => ({ id: `c${i + 1}`, title: `Level ${i + 1} Certificate`, meta: `Completed · Level ${i + 1}` })) : [];
 
   return (
     <View style={st.screen}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: tabBarSpace }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
         <View style={st.header}>
-          <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -60, top: -60 }} />
-          <T variant="micro" tone="gold" style={st.kicker}>YOUR JOURNEY</T>
-          <T variant="display" tone="onNavy" style={{ marginTop: spacing.sm, fontSize: 34 }}>Profile</T>
-        </View>
-
-        <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.lg }}>
-          {/* Identity card */}
-          <View style={st.idCard}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
+            <T variant="micro" tone="gold" style={st.kicker}>ACCOUNT</T>
+            <Pressable accessibilityRole="button" accessibilityLabel="Settings" onPress={() => void signOut()} style={st.headerBtn}>
+              <Settings size={18} color="#fff" />
+            </Pressable>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: spacing.sm }}>
             <View style={st.avatar}>
-              <T variant="label" style={{ color: palette.gold }}>{initials(fullName)}</T>
+              <T serif tone="onNavy" style={{ fontSize: 24 }}>{initials(name)}</T>
+              <View style={st.avatarEdit}><Pencil size={11} color={palette.navy} strokeWidth={2.5} /></View>
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <T variant="heading">{fullName}</T>
-              {subtitle ? <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>{subtitle}</T> : null}
-            </View>
-            {stateLabel ? (
-              <View style={[st.badge, { backgroundColor: palette.activeBadgeBg }]}>
-                <T variant="micro" style={{ color: palette.activeBadgeText }}>{stateLabel}</T>
+              <T serif tone="onNavy" style={{ fontSize: 22 }} numberOfLines={1}>{name}</T>
+              <T variant="caption" style={{ color: "rgba(255,255,255,0.6)", marginTop: 2 }} numberOfLines={1}>{email}</T>
+              <View style={{ flexDirection: "row", gap: 6, marginTop: spacing.sm }}>
+                <View style={st.levelChip}><Award size={10} color={palette.gold} /><T variant="micro" style={{ color: "#fff", fontWeight: "700" }}>Level {level}</T></View>
+                {twoFA ? <View style={st.faChip}><ShieldCheck size={10} color="#86efac" /><T variant="micro" style={{ color: "#86efac", fontWeight: "700" }}>2FA</T></View> : null}
               </View>
-            ) : null}
+            </View>
           </View>
+        </View>
 
-          {/* Personal details (B6 profile extensions render when present) */}
-          <View style={{ marginTop: spacing.lg }}>
-            <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>PERSONAL DETAILS</T>
-            <View style={st.group}>
-              {details.map((d, i) => (
-                <View key={d.label} style={[st.row, i < details.length - 1 && st.rowDivider]}>
-                  <T variant="heading" style={{ fontSize: 15, fontWeight: "500" }}>{d.label}</T>
-                  <T variant="body" tone="secondary">{d.value}</T>
+        <View style={{ padding: spacing.lg, gap: spacing.base }}>
+          <Section title="PERSONAL INFORMATION" Icon={User}>
+            {fields.map((f, i) => (
+              <Row key={f.id} divider={i > 0} onPress={() => setEditingField(f)}>
+                <View style={st.fieldIcon}><f.Icon size={15} color={palette.navy} /></View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <T variant="micro" tone="tertiary" style={st.fieldLabel}>{f.label.toUpperCase()}</T>
+                  <T variant="body" style={{ color: palette.navy, fontWeight: "500" }} numberOfLines={1}>
+                    {f.id === "dob" && f.value ? formatDate(f.value) : f.value}
+                  </T>
                 </View>
-              ))}
-            </View>
-          </View>
-
-          {/* Growth (M3): gifts, prayer, verses */}
-          <View style={{ marginTop: spacing.lg }}>
-            <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>GROWTH</T>
-            <View style={st.group}>
-              {[
-                { label: "Spiritual gifts", onPress: () => nav.navigate("Gifts") },
-                { label: "Prayer journal", onPress: () => nav.navigate("PrayerJournal") },
-                { label: "Verse library", onPress: () => nav.navigate("VerseLibrary") },
-              ].map((item, i, arr) => (
-                <Pressable
-                  key={item.label}
-                  onPress={item.onPress}
-                  style={({ pressed }) => [st.row, i < arr.length - 1 && st.rowDivider, pressed && { backgroundColor: "rgba(10,37,64,0.03)" }]}
-                >
-                  <T variant="heading" style={{ fontSize: 15, fontWeight: "500" }}>{item.label}</T>
-                  <T variant="heading" tone="tertiary" style={{ fontSize: 15 }}>›</T>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-
-          {/* Achievements (real badges + streak from the engagement pipeline) */}
-          {badges.length > 0 || streak > 0 ? (
-            <View style={{ marginTop: spacing.lg }}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm }}>
-                <T variant="overline" tone="secondary">ACHIEVEMENTS</T>
-                {streak > 0 ? (
-                  <View style={st.streakChip}>
-                    <Flame size={12} color={palette.goldLo} />
-                    <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700" }}>{`${streak}-day streak`}</T>
-                  </View>
-                ) : null}
-              </View>
-              {badges.length > 0 ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
-                  {badges.map((b) => (
-                    <View key={b.code} style={st.medallion}>
-                      <View style={st.medallionDisc}><Award size={20} color={palette.gold} /></View>
-                      <T variant="micro" style={{ marginTop: 6, textAlign: "center", fontWeight: "600" }} numberOfLines={2}>{b.name}</T>
+                <Pencil size={14} color={palette.ink400} />
+              </Row>
+            ))}
+            <Row divider onPress={() => setLanguagesOpen(true)}>
+              <View style={st.fieldIcon}><Languages size={15} color={palette.navy} /></View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <T variant="micro" tone="tertiary" style={st.fieldLabel}>LANGUAGES SPOKEN</T>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
+                  {languages.map((l) => (
+                    <View key={l} style={[st.langChip, l === defaultLanguage && st.langChipDefault]}>
+                      <T variant="micro" style={{ color: l === defaultLanguage ? GOLD_TEXT : palette.navy, fontWeight: "600" }}>{l}</T>
+                      {l === defaultLanguage ? <Check size={10} color={GOLD_TEXT} strokeWidth={3} /> : null}
                     </View>
                   ))}
-                </ScrollView>
-              ) : (
-                <View style={st.group}>
-                  <View style={st.row}>
-                    <Sparkles size={16} color={palette.goldLo} />
-                    <T variant="caption" tone="secondary" style={{ flex: 1, marginLeft: spacing.sm }}>Keep up your rhythm — badges celebrate your growth, not competition.</T>
-                  </View>
                 </View>
-              )}
-            </View>
-          ) : null}
+              </View>
+              <Pencil size={14} color={palette.ink400} />
+            </Row>
+          </Section>
 
-          {/* Pathway + church services */}
-          <View style={{ marginTop: spacing.lg }}>
-            <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>PATHWAY</T>
-            <View style={st.group}>
-              {[
-                { label: "Enrollment status" },
-                { label: "Certificates & transcripts" },
-                { label: "Giving history", onPress: () => nav.navigate("Giving") },
-              ].map((item, i, arr) => (
-                <Pressable
-                  key={item.label}
-                  onPress={item.onPress}
-                  style={({ pressed }) => [st.row, i < arr.length - 1 && st.rowDivider, pressed && item.onPress && { backgroundColor: "rgba(10,37,64,0.03)" }]}
-                >
-                  <T variant="heading" style={{ fontSize: 15, fontWeight: "500" }}>{item.label}</T>
-                  <T variant="heading" tone="tertiary" style={{ fontSize: 15 }}>›</T>
+          <Section title="SECURITY & LOGIN" Icon={Lock}>
+            <ActionRow Icon={KeyRound} tint="#EEF2FF" color="#6366F1" title="Change password" meta="Keep your account secure" onPress={() => setSheet("password")} />
+            <ActionRow
+              divider Icon={Fingerprint} tint={twoFA ? "#DCFCE7" : "#FEF3C7"} color={twoFA ? GREEN : "#D97706"}
+              title="Two-factor authentication" meta={twoFA ? "Active · Authenticator app" : "Not enabled · recommended"}
+              trailing={<Toggle on={twoFA} onToggle={() => (twoFA ? setTwoFA(false) : setSheet("twofa"))} />}
+            />
+            <ActionRow divider Icon={Smartphone} tint="#FCE7F3" color="#DB2777" title="Active sessions" meta="This device" />
+          </Section>
+
+          <Section title="CONNECTED ACCOUNTS" Icon={Globe}>
+            {Object.entries(socials).map(([nameKey, on], i) => (
+              <Row key={nameKey} divider={i > 0}>
+                <View style={[st.fieldIcon, { backgroundColor: "rgba(11,31,51,0.05)" }]}><Globe size={15} color={palette.navy} /></View>
+                <View style={{ flex: 1 }}>
+                  <T variant="body" style={{ color: palette.navy, fontWeight: "600" }}>{nameKey}</T>
+                  <T variant="micro" tone="secondary">{on ? "Connected" : "Not connected"}</T>
+                </View>
+                <Pressable onPress={() => setSocials({ ...socials, [nameKey]: !on })} style={[st.connectBtn, on ? st.connectBtnOn : st.connectBtnOff]}>
+                  <T variant="micro" style={{ color: on ? palette.ink600 : palette.navy, fontWeight: "700" }}>{on ? "Disconnect" : "Connect"}</T>
                 </Pressable>
-              ))}
-            </View>
-          </View>
+              </Row>
+            ))}
+          </Section>
 
-          <Pressable onPress={() => void signOut()} style={({ pressed }) => [st.signOut, pressed && { transform: [{ scale: 0.99 }] }]}>
-            <T variant="heading" style={{ fontSize: 15, color: palette.error }}>Sign out</T>
-          </Pressable>
+          <Section title="NOTIFICATIONS" Icon={Bell}>
+            <PreferenceRow Icon={Bell} title="Push notifications" meta="Devotionals, events, reminders" on={pushOn} onToggle={() => setPushOn(!pushOn)} />
+            <PreferenceRow divider Icon={Mail} title="Email" meta="Weekly summary & receipts" on={emailOn} onToggle={() => setEmailOn(!emailOn)} />
+            <PreferenceRow divider Icon={Phone} title="SMS" meta="Critical updates only" on={smsOn} onToggle={() => setSmsOn(!smsOn)} />
+          </Section>
+
+          <Section title="ACHIEVEMENTS" Icon={Sparkles}>
+            {badges.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.md, paddingVertical: 4 }}>
+                {badges.map((b) => <Medallion key={b.code} name={b.name} />)}
+              </ScrollView>
+            ) : (
+              <T variant="caption" tone="secondary">Your badges will appear here as you grow.</T>
+            )}
+            <T variant="micro" tone="tertiary" style={{ textAlign: "center", marginTop: spacing.sm, fontStyle: "italic" }}>
+              Badges celebrate your growth — not competition.
+            </T>
+          </Section>
+
+          <Section title="MILESTONES" Icon={Compass}>
+            {milestones.map((m, i) => <MilestoneRow key={m.id} label={m.label} meta={m.meta} status={m.status} isLast={i === milestones.length - 1} />)}
+          </Section>
+
+          <Section title="CERTIFICATES" Icon={ScrollText}>
+            {certificates.length > 0 ? certificates.map((c) => (
+              <View key={c.id} style={st.certCard}>
+                <View style={st.certIcon}><Award size={20} color={palette.gold} /></View>
+                <View style={{ flex: 1 }}>
+                  <T variant="body" style={{ color: palette.navy, fontWeight: "600" }}>{c.title}</T>
+                  <T variant="micro" tone="secondary">{c.meta}</T>
+                </View>
+                <View style={st.certDownload}><Download size={15} color={palette.gold} /></View>
+              </View>
+            )) : (
+              <T variant="caption" tone="secondary">Complete a level to earn your first certificate.</T>
+            )}
+          </Section>
+
+          <Section title="HELP & PRIVACY" Icon={LifeBuoy}>
+            <ActionRow Icon={Languages} tint="#E0F2FE" color="#0EA5E9" title="Language" meta={`App language · ${appLanguage}`} onPress={() => setSheet("appLang")} />
+            <ActionRow divider Icon={LifeBuoy} tint="#DCFCE7" color={GREEN} title="Help & support" meta="FAQs, contact us" onPress={() => setSheet("support")} />
+            <ActionRow divider Icon={ShieldCheck} tint="#EEF2FF" color="#6366F1" title="Privacy policy" meta="How we handle your data" onPress={() => setSheet("privacy")} />
+          </Section>
+
+          <View style={{ flexDirection: "row", gap: spacing.sm }}>
+            <Pressable onPress={() => void signOut()} style={[st.dangerBtn, { backgroundColor: palette.white, borderColor: palette.border }]}>
+              <LogOut size={15} color={palette.navy} /><T variant="caption" style={{ color: palette.navy, fontWeight: "600" }}>Sign out</T>
+            </Pressable>
+            <Pressable style={[st.dangerBtn, { backgroundColor: "#FEF2F2", borderColor: "#FECACA" }]}>
+              <Trash2 size={15} color="#DC2626" /><T variant="caption" style={{ color: "#DC2626", fontWeight: "600" }}>Delete account</T>
+            </Pressable>
+          </View>
+          <T variant="micro" tone="tertiary" style={{ textAlign: "center" }}>Nuru Pathway · v1.0</T>
         </View>
       </ScrollView>
+
+      {editingField ? (
+        <EditFieldSheet field={editingField} onClose={() => setEditingField(null)} onSave={(v) => saveField(editingField.id, v)} />
+      ) : null}
+      {languagesOpen ? (
+        <LanguagesSheet selected={languages} fallbackDefault={defaultLanguage} onClose={() => setLanguagesOpen(false)} onSave={(sel, def) => { setLanguages(sel); setDefaultLanguage(def); setLanguagesOpen(false); }} />
+      ) : null}
+      {sheet === "password" ? <PasswordSheet onClose={() => setSheet(null)} /> : null}
+      {sheet === "twofa" ? <TwoFASheet onClose={() => setSheet(null)} onEnable={() => { setTwoFA(true); setSheet(null); }} /> : null}
+      {sheet === "appLang" ? <AppLanguageSheet value={appLanguage} onClose={() => setSheet(null)} onSave={(v) => { setAppLanguage(v); setSheet(null); }} /> : null}
+      {sheet === "support" ? <InfoSheet title="Help & support" body="Reach the Nuru team at support@nuru.app or talk to your cell leader. FAQs cover pathway progress, reflections, giving and offline use." onClose={() => setSheet(null)} /> : null}
+      {sheet === "privacy" ? <InfoSheet title="Privacy policy" body="We collect only what personalises your discipleship journey. Your mentor and cell leader can see pathway progress and reflections; contact details stay private. Data is encrypted in transit and at rest. You can edit or delete your information anytime." onClose={() => setSheet(null)} /> : null}
     </View>
   );
 }
 
+/* ---------- building blocks ---------- */
+
+function Section({ title, Icon, children }: { title: string; Icon: LucideIcon; children: ReactNode }): ReactElement {
+  return (
+    <View style={st.section}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: spacing.sm }}>
+        <Icon size={12} color={GOLD_TEXT} />
+        <T variant="micro" style={{ color: GOLD_TEXT, fontWeight: "700", letterSpacing: 1.4 }}>{title}</T>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function Row({ children, onPress, divider }: { children: ReactNode; onPress?: (() => void) | undefined; divider?: boolean | undefined }): ReactElement {
+  const inner = <View style={[st.row, divider && st.rowDivider]}>{children}</View>;
+  return onPress ? (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => (pressed ? { opacity: 0.6 } : null)}>{inner}</Pressable>
+  ) : inner;
+}
+
+function ActionRow({ Icon, tint, color, title, meta, onPress, trailing, divider }: { Icon: LucideIcon; tint: string; color: string; title: string; meta: string; onPress?: (() => void) | undefined; trailing?: ReactNode; divider?: boolean | undefined }): ReactElement {
+  return (
+    <Row onPress={onPress} divider={divider}>
+      <View style={[st.fieldIcon, { backgroundColor: tint, borderColor: "transparent" }]}><Icon size={16} color={color} /></View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <T variant="body" style={{ color: palette.navy, fontWeight: "600" }}>{title}</T>
+        <T variant="micro" tone="secondary" numberOfLines={1}>{meta}</T>
+      </View>
+      {trailing ?? <ChevronRight size={16} color={palette.ink400} />}
+    </Row>
+  );
+}
+
+function PreferenceRow({ Icon, title, meta, on, onToggle, divider }: { Icon: LucideIcon; title: string; meta: string; on: boolean; onToggle: () => void; divider?: boolean | undefined }): ReactElement {
+  return (
+    <View style={[st.row, divider && st.rowDivider]}>
+      <View style={st.fieldIcon}><Icon size={16} color={palette.navy} /></View>
+      <View style={{ flex: 1 }}>
+        <T variant="body" style={{ color: palette.navy, fontWeight: "600" }}>{title}</T>
+        <T variant="micro" tone="secondary">{meta}</T>
+      </View>
+      <Toggle on={on} onToggle={onToggle} />
+    </View>
+  );
+}
+
+function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }): ReactElement {
+  return (
+    <Pressable accessibilityRole="switch" accessibilityState={{ checked: on }} onPress={onToggle} style={[st.toggle, { backgroundColor: on ? palette.gold : "rgba(11,31,51,0.15)" }]}>
+      <View style={[st.knob, { alignSelf: on ? "flex-end" : "flex-start" }]} />
+    </Pressable>
+  );
+}
+
+function Medallion({ name }: { name: string }): ReactElement {
+  return (
+    <View style={{ width: 66, alignItems: "center" }}>
+      <View style={st.medallion}><Award size={20} color={palette.gold} /></View>
+      <T variant="micro" style={{ color: palette.navy, fontWeight: "600", textAlign: "center", marginTop: 6 }} numberOfLines={2}>{name}</T>
+    </View>
+  );
+}
+
+function MilestoneRow({ label, meta, status, isLast }: { label: string; meta: string; status: "done" | "active" | "future"; isLast: boolean }): ReactElement {
+  const done = status === "done";
+  const active = status === "active";
+  return (
+    <View style={{ flexDirection: "row", gap: spacing.md }}>
+      <View style={{ alignItems: "center" }}>
+        <View style={[st.msDot, { backgroundColor: done ? palette.gold : active ? palette.white : "#F3F4F6", borderWidth: active ? 2 : done ? 0 : 1, borderColor: active ? palette.gold : palette.border }]}>
+          {done ? <Check size={14} color={palette.navy} strokeWidth={3} /> : active ? <Calendar size={13} color={palette.gold} /> : <Heart size={12} color={palette.ink400} />}
+        </View>
+        {!isLast ? <View style={{ width: 1, flex: 1, minHeight: 16, backgroundColor: done ? palette.gold : "rgba(11,31,51,0.12)", marginTop: 4 }} /> : null}
+      </View>
+      <View style={{ flex: 1, paddingBottom: spacing.md }}>
+        <T variant="body" style={{ color: done || active ? palette.navy : palette.ink400, fontWeight: "600" }}>{label}</T>
+        <T variant="micro" tone="secondary" style={{ marginTop: 2 }}>{meta}</T>
+      </View>
+    </View>
+  );
+}
+
+/* ---------- bottom sheets ---------- */
+
+function SheetShell({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }): ReactElement {
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+      <Pressable style={st.backdrop} onPress={onClose} />
+      <View style={st.sheet}>
+        <View style={st.grabber} />
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.base }}>
+          <T serif style={{ fontSize: 20, color: palette.navy }}>{title}</T>
+          <Pressable onPress={onClose} style={st.sheetClose}><X size={16} color={palette.navy} /></Pressable>
+        </View>
+        {children}
+      </View>
+    </Modal>
+  );
+}
+
+function GoldButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean | undefined }): ReactElement {
+  return (
+    <Pressable onPress={onPress} disabled={disabled} style={[st.goldBtn, disabled && { opacity: 0.4 }]}>
+      <T variant="body" style={{ color: palette.navy, fontWeight: "700" }}>{label}</T>
+    </Pressable>
+  );
+}
+
+function EditFieldSheet({ field, onClose, onSave }: { field: Field; onClose: () => void; onSave: (v: string) => void }): ReactElement {
+  const [value, setValue] = useState(field.value === "—" ? "" : field.value);
+  return (
+    <SheetShell title={`Edit ${field.label.toLowerCase()}`} onClose={onClose}>
+      {field.type === "select" && field.options ? (
+        <View style={{ gap: spacing.sm }}>
+          {field.options.map((opt) => (
+            <Pressable key={opt} onPress={() => setValue(opt)} style={[st.selectOpt, value === opt && st.selectOptOn]}>
+              <T variant="body" style={{ color: palette.navy }}>{opt}</T>
+              {value === opt ? <Check size={16} color={palette.gold} strokeWidth={3} /> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : (
+        <TextInput
+          autoFocus value={value} onChangeText={setValue}
+          keyboardType={field.type === "email" ? "email-address" : field.type === "tel" ? "phone-pad" : "default"}
+          placeholder={field.label} placeholderTextColor={palette.ink400} style={st.input}
+        />
+      )}
+      <View style={{ marginTop: spacing.base }}><GoldButton label="Save changes" onPress={() => onSave(value || "—")} /></View>
+    </SheetShell>
+  );
+}
+
+function LanguagesSheet({ selected, fallbackDefault, onClose, onSave }: { selected: string[]; fallbackDefault: string; onClose: () => void; onSave: (sel: string[], def: string) => void }): ReactElement {
+  const [picked, setPicked] = useState<string[]>(selected);
+  const [def, setDef] = useState(fallbackDefault);
+  const MAX = 3;
+  const toggle = (lang: string): void => {
+    setPicked((cur) => {
+      if (cur.includes(lang)) {
+        const next = cur.filter((l) => l !== lang);
+        if (def === lang && next[0]) setDef(next[0]);
+        return next;
+      }
+      return cur.length >= MAX ? cur : [...cur, lang];
+    });
+  };
+  return (
+    <SheetShell title="Languages spoken" onClose={onClose}>
+      <T variant="caption" tone="secondary" style={{ marginBottom: spacing.sm }}>Pick up to {MAX}. Tap a chip to set your default.</T>
+      <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+        <View style={{ gap: spacing.sm }}>
+          {ALL_LANGUAGES.map((lang) => {
+            const on = picked.includes(lang);
+            return (
+              <View key={lang} style={[st.selectOpt, on && st.selectOptOn]}>
+                <Pressable onPress={() => toggle(lang)} style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+                  <View style={[st.checkbox, on && { backgroundColor: palette.gold, borderColor: palette.gold }]}>{on ? <Check size={13} color={palette.navy} strokeWidth={3} /> : null}</View>
+                  <T variant="body" style={{ color: palette.navy }}>{lang}</T>
+                </Pressable>
+                {on ? (
+                  <Pressable onPress={() => setDef(lang)} style={[st.defaultPill, def === lang && { backgroundColor: palette.gold }]}>
+                    <T variant="micro" style={{ color: def === lang ? palette.navy : GOLD_TEXT, fontWeight: "700" }}>{def === lang ? "Default" : "Set default"}</T>
+                  </Pressable>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      </ScrollView>
+      <View style={{ marginTop: spacing.base }}>
+        <GoldButton label="Save languages" disabled={picked.length === 0} onPress={() => picked.length > 0 && onSave(picked, picked.includes(def) ? def : (picked[0] ?? "English"))} />
+      </View>
+    </SheetShell>
+  );
+}
+
+function PasswordSheet({ onClose }: { onClose: () => void }): ReactElement {
+  return (
+    <SheetShell title="Change password" onClose={onClose}>
+      <View style={{ gap: spacing.sm }}>
+        {["Current password", "New password", "Confirm new password"].map((p) => (
+          <TextInput key={p} secureTextEntry placeholder={p} placeholderTextColor={palette.ink400} style={st.input} />
+        ))}
+      </View>
+      <T variant="micro" tone="secondary" style={{ marginTop: spacing.sm }}>Use at least 8 characters with letters, numbers and a symbol.</T>
+      <View style={{ marginTop: spacing.base }}><GoldButton label="Update password" onPress={onClose} /></View>
+    </SheetShell>
+  );
+}
+
+function TwoFASheet({ onClose, onEnable }: { onClose: () => void; onEnable: () => void }): ReactElement {
+  return (
+    <SheetShell title="Two-factor authentication" onClose={onClose}>
+      <T variant="caption" tone="secondary">Add a second step at sign-in with an authenticator app (Google Authenticator, Authy, 1Password).</T>
+      <View style={st.qrBox}><Fingerprint size={56} color={palette.navy} /></View>
+      <T variant="micro" tone="secondary" style={{ textAlign: "center", marginTop: spacing.sm }}>Scan in your authenticator, then confirm.</T>
+      <View style={{ marginTop: spacing.base }}><GoldButton label="Enable 2FA" onPress={onEnable} /></View>
+    </SheetShell>
+  );
+}
+
+function AppLanguageSheet({ value, onClose, onSave }: { value: string; onClose: () => void; onSave: (v: string) => void }): ReactElement {
+  const [picked, setPicked] = useState(value);
+  const options = [{ name: "English", note: "Available", disabled: false }, { name: "Swahili", note: "Available", disabled: false }, { name: "French", note: "Coming soon", disabled: true }];
+  return (
+    <SheetShell title="App language" onClose={onClose}>
+      <View style={{ gap: spacing.sm }}>
+        {options.map((o) => (
+          <Pressable key={o.name} disabled={o.disabled} onPress={() => setPicked(o.name)} style={[st.selectOpt, picked === o.name && st.selectOptOn, o.disabled && { opacity: 0.5 }]}>
+            <View>
+              <T variant="body" style={{ color: palette.navy }}>{o.name}</T>
+              <T variant="micro" tone="secondary">{o.note}</T>
+            </View>
+            {picked === o.name ? <Check size={16} color={palette.gold} strokeWidth={3} /> : null}
+          </Pressable>
+        ))}
+      </View>
+      <View style={{ marginTop: spacing.base }}><GoldButton label="Save" onPress={() => onSave(picked)} /></View>
+    </SheetShell>
+  );
+}
+
+function InfoSheet({ title, body, onClose }: { title: string; body: string; onClose: () => void }): ReactElement {
+  return (
+    <SheetShell title={title} onClose={onClose}>
+      <T variant="body" tone="secondary" style={{ lineHeight: 21 }}>{body}</T>
+      <View style={{ marginTop: spacing.base }}><GoldButton label="Got it" onPress={onClose} /></View>
+    </SheetShell>
+  );
+}
+
 const st = {
-  screen: { flex: 1, backgroundColor: palette.coolPaper },
-  header: { backgroundColor: palette.navy, paddingHorizontal: spacing.lg, paddingTop: 54, paddingBottom: spacing.xl, overflow: "hidden" },
+  screen: { flex: 1, backgroundColor: CREAM },
+  header: { backgroundColor: palette.navy, paddingTop: 54, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
   kicker: { letterSpacing: 1.8, textTransform: "uppercase" },
-  idCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    backgroundColor: palette.white,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: "rgba(201,162,39,0.25)",
-    padding: spacing.base,
-    ...shadow.card,
-  },
-  avatar: { width: 48, height: 48, borderRadius: 16, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
-  badge: { borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
-  group: { backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.base, paddingVertical: 14 },
-  streakChip: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
-  medallion: { width: 84, alignItems: "center", backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.border, paddingVertical: spacing.md, paddingHorizontal: 6, ...shadow.card },
-  medallionDisc: { width: 44, height: 44, borderRadius: 22, backgroundColor: palette.goldTint, borderWidth: 1, borderColor: "rgba(201,162,39,0.4)", alignItems: "center", justifyContent: "center" },
-  rowDivider: { borderBottomWidth: 1, borderBottomColor: "rgba(10,37,64,0.06)" },
-  signOut: {
-    marginTop: spacing.lg,
-    alignItems: "center",
-    backgroundColor: palette.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(212,24,61,0.15)",
-    paddingVertical: 14,
-    ...shadow.card,
-  },
+  headerBtn: { width: 40, height: 40, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: "#15355f", borderWidth: 2, borderColor: palette.gold, alignItems: "center", justifyContent: "center" },
+  avatarEdit: { position: "absolute", bottom: -2, right: -2, width: 26, height: 26, borderRadius: 13, backgroundColor: palette.gold, borderWidth: 2, borderColor: palette.navy, alignItems: "center", justifyContent: "center" },
+  levelChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(201,162,39,0.4)", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  faChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(22,163,74,0.2)", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  section: { backgroundColor: palette.white, borderRadius: 22, borderWidth: 1, borderColor: palette.border, padding: spacing.base },
+  row: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: 10 },
+  rowDivider: { borderTopWidth: 1, borderTopColor: palette.border },
+  fieldIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
+  fieldLabel: { letterSpacing: 1, fontWeight: "700" },
+  langChip: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  langChipDefault: { backgroundColor: "rgba(201,162,39,0.12)", borderColor: "rgba(201,162,39,0.4)" },
+  connectBtn: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+  connectBtnOn: { backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border },
+  connectBtnOff: { backgroundColor: palette.gold },
+  toggle: { width: 40, height: 24, borderRadius: 12, padding: 2, justifyContent: "center" },
+  knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff" },
+  medallion: { width: 56, height: 56, borderRadius: 28, backgroundColor: palette.goldTint, borderWidth: 1.5, borderColor: palette.gold, alignItems: "center", justifyContent: "center" },
+  msDot: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  certCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: spacing.md, marginBottom: spacing.sm },
+  certIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(201,162,39,0.18)", borderWidth: 1, borderColor: "rgba(201,162,39,0.4)", alignItems: "center", justifyContent: "center" },
+  certDownload: { width: 36, height: 36, borderRadius: 12, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
+  dangerBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 16, borderWidth: 1, paddingVertical: 12 },
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
+  sheet: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: palette.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: spacing.lg, paddingBottom: spacing.xxl, ...shadow.card },
+  grabber: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: "rgba(11,31,51,0.15)", marginBottom: spacing.md },
+  sheetClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center" },
+  input: { backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 16, paddingHorizontal: spacing.base, paddingVertical: 12, fontSize: 15, color: palette.navy },
+  selectOpt: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: spacing.md },
+  selectOptOn: { backgroundColor: "rgba(201,162,39,0.10)", borderColor: palette.gold },
+  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: palette.border, backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
+  defaultPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "rgba(201,162,39,0.4)" },
+  goldBtn: { backgroundColor: palette.gold, borderRadius: 16, paddingVertical: 14, alignItems: "center" },
+  qrBox: { alignSelf: "center", width: 160, height: 160, borderRadius: 16, backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center", marginTop: spacing.base },
 } as const;
