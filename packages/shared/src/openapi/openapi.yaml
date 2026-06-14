@@ -2011,6 +2011,33 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # --- Nuru AI assistant (mobile make) ---
+  /assistant/chat:
+    post:
+      tags: [progress]
+      summary: Ask Nuru — AI companion (summarize a chat, draft an encouragement, find prayer, plan quiet time). Grounds only on conversations the member can access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    required: [role, text]
+                    properties:
+                      role: { type: string, enum: [user, assistant] }
+                      text: { type: string }
+                conversation_id: { type: string, format: uuid }
+      responses:
+        "200": { description: Reply }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # --- Webhooks & sync (system) (§3.3) ---
   /webhooks/stripe:
     post:

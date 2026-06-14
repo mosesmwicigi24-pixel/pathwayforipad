@@ -41,6 +41,11 @@ const EnvSchema = z.object({
   CERT_SIGNING_KEY: z.string().optional(),
   PUSH_PROVIDER_KEY: z.string().optional(),
 
+  // --- Nuru AI assistant (free tier: Google AI Studio / Gemini). Key by name
+  // only (§5.10); absent → a deterministic offline fake responder is used. ---
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_MODEL: z.string().default("gemini-2.0-flash"),
+
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
 

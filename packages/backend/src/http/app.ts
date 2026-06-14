@@ -39,6 +39,7 @@ import { registerGrowth } from "../modules/growth/index.js";
 import { registerCommunity } from "../modules/community/index.js";
 import { registerGrowthContent } from "../modules/growth-content/index.js";
 import { registerChat } from "../modules/chat/index.js";
+import { registerAssistant } from "../modules/assistant/index.js";
 import { registerSystem } from "../modules/system/index.js";
 
 export function createApp(ctx: AppContext): Express {
@@ -123,6 +124,7 @@ export function createApp(ctx: AppContext): Express {
   app.use("/v1/auth", rateLimit({ store: rl, name: "auth", capacity: 20, refillPerSec: 0.5, keyBy: byIp }));
   app.use("/v1/giving", rateLimit({ store: rl, name: "pay", capacity: 30, refillPerSec: 1, keyBy: byUserOrIp }));
   app.use("/v1/sync", rateLimit({ store: rl, name: "sync", capacity: 120, refillPerSec: 4, keyBy: byUserOrIp }));
+  app.use("/v1/assistant", rateLimit({ store: rl, name: "ai", capacity: 20, refillPerSec: 0.2, keyBy: byUserOrIp }));
 
   // Mount the ten logical modules under the versioned base path (§3.1).
   const v1 = express.Router();
@@ -144,6 +146,7 @@ export function createApp(ctx: AppContext): Express {
   v1.use(registerGrowth(ctx));
   v1.use(registerCommunity(ctx));
   v1.use(registerChat(ctx));
+  v1.use(registerAssistant(ctx));
   v1.use(registerGrowthContent(ctx));
   v1.use(registerSystem(ctx));
   app.use("/v1", v1);
