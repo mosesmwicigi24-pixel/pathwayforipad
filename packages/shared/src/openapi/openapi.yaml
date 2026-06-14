@@ -2000,6 +2000,13 @@ paths:
         "201": { description: Created }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /chat/attachments/sign:
+    post:
+      tags: [progress]
+      summary: Broker a signed direct-upload URL for a chat attachment (bytes go to Cloudinary, never our server). Returns object_key to reference in a message.
+      responses:
+        "201": { description: Signed upload }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /chat/spaces/{id}/join:
     post:
       tags: [progress]

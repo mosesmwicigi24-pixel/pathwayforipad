@@ -958,6 +958,27 @@ PODS:
     - React-debug
   - react-native-aes (3.3.0):
     - React-Core
+  - react-native-image-picker (8.2.1):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.01.01.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Codegen
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - Yoga
   - react-native-netinfo (11.5.2):
     - React-Core
   - react-native-safe-area-context (5.8.0):
@@ -1274,6 +1295,7 @@ DEPENDENCIES:
   - React-logger (from `../node_modules/react-native/ReactCommon/logger`)
   - React-Mapbuffer (from `../node_modules/react-native/ReactCommon`)
   - react-native-aes (from `../node_modules/react-native-aes-crypto`)
+  - react-native-image-picker (from `../node_modules/react-native-image-picker`)
   - "react-native-netinfo (from `../node_modules/@react-native-community/netinfo`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - React-nativeconfig (from `../node_modules/react-native/ReactCommon`)
@@ -1374,6 +1396,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon"
   react-native-aes:
     :path: "../node_modules/react-native-aes-crypto"
+  react-native-image-picker:
+    :path: "../node_modules/react-native-image-picker"
   react-native-netinfo:
     :path: "../node_modules/@react-native-community/netinfo"
   react-native-safe-area-context:
@@ -1466,6 +1490,7 @@ SPEC CHECKSUMS:
   React-logger: 58cd5ca2c3ab03a06b33e6d46a210d2b17ca116d
   React-Mapbuffer: f245095650540b8ddd09ac907a79605f68b1f4d4
   react-native-aes: 0cad0a1f0087171b4af762c39d7199716d9335b5
+  react-native-image-picker: 7abd47bc29c5100aec221b4afdc9e2970c063fe9
   react-native-netinfo: 387c95161b1971d0b2acd61f5ecf394c8fd3fb95
   react-native-safe-area-context: 700f3e707470d3cef056231541c77df29a5f0d9e
   React-nativeconfig: 3b359be06d9ee8d64c1eacbca4f1040f331573fd

@@ -228,7 +228,15 @@ export const NuruApi = {
   },
   async sendChatMessage(
     conversationId: string,
-    body: { message_id: string; body: string; reply_to_id?: string; client_mutation_id: string },
+    body: {
+      message_id: string;
+      body: string;
+      reply_to_id?: string;
+      msg_type?: "text" | "image" | "voice" | "video" | "file";
+      attachment_url?: string;
+      attachment_meta?: Record<string, unknown>;
+      client_mutation_id: string;
+    },
   ): Promise<unknown> {
     const { data } = await api.post(`/chat/conversations/${conversationId}/messages`, body);
     return data;
@@ -247,6 +255,16 @@ export const NuruApi = {
   },
   async joinSpace(conversationId: string): Promise<{ conversation_id: string; joined: boolean }> {
     const { data } = await api.post<{ conversation_id: string; joined: boolean }>(`/chat/spaces/${conversationId}/join`, {});
+    return data;
+  },
+
+  // ---- Chat attachments (bytes go direct to Cloudinary, never our server) ----
+  async signChatAttachment(body: { content_type: string; kind?: "image" | "voice" | "video" | "file" }): Promise<{ object_key: string; upload_url: string; expires_at: string }> {
+    const { data } = await api.post<{ object_key: string; upload_url: string; expires_at: string }>("/chat/attachments/sign", body);
+    return data;
+  },
+  async resolveMediaUrl(key: string): Promise<{ url: string; expires_at: string }> {
+    const { data } = await api.get<{ url: string; expires_at: string }>("/media/url", { params: { key } });
     return data;
   },
 

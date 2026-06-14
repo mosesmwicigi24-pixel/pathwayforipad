@@ -4,8 +4,9 @@
 // offline they queue (chat_messages:create) and replay on reconnect (§1.7).
 // Opening the thread marks it read.
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
-import { ArrowLeft, Hash, Users } from "lucide-react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, TextInput, View } from "react-native";
+import { launchImageLibrary } from "react-native-image-picker";
+import { ArrowLeft, Hash, ImagePlus, Play, Users } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/types";
 import type { ChatMessage } from "../api/types";
@@ -15,6 +16,7 @@ import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 import { useChatConversation, queryKeys } from "../api/hooks";
 import { errorMessage, invalidateQueries } from "../api/query";
+import { uploadToSignedUrl } from "../api/upload";
 import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
@@ -58,6 +60,38 @@ export function ChatThreadScreen(): ReactElement {
         queued: { domain: "chat_messages", op: "create", payload },
       });
       setText("");
+      invalidateQueries(queryKeys.chatConvo(conversationId));
+      invalidateQueries(queryKeys.chatInbox);
+      void refetch();
+    } catch (e) {
+      setSendError(errorMessage(e));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function attachImage(): Promise<void> {
+    // Media requires connectivity — bytes upload direct to storage, not queued (§4.5).
+    if (!(await getConnectivity().isOnline())) {
+      setSendError("You're offline — images need a connection.");
+      return;
+    }
+    const result = await launchImageLibrary({ mediaType: "photo", quality: 0.8, selectionLimit: 1 });
+    const asset = result.assets?.[0];
+    if (!asset?.uri) return; // cancelled
+    setSending(true);
+    setSendError(null);
+    try {
+      const contentType = asset.type ?? "image/jpeg";
+      const signed = await NuruApi.signChatAttachment({ content_type: contentType, kind: "image" });
+      await uploadToSignedUrl(signed.upload_url, asset.uri, contentType);
+      await NuruApi.sendChatMessage(conversationId, {
+        message_id: uuidv4(),
+        body: "",
+        msg_type: "image",
+        attachment_url: signed.object_key,
+        client_mutation_id: uuidv4(),
+      });
       invalidateQueries(queryKeys.chatConvo(conversationId));
       invalidateQueries(queryKeys.chatInbox);
       void refetch();
@@ -114,15 +148,26 @@ export function ChatThreadScreen(): ReactElement {
           </ScrollView>
 
           <View style={st.composer}>
-            <TextInput
-              value={text}
-              onChangeText={setText}
-              placeholder="Message…"
-              placeholderTextColor={palette.ink400}
-              accessibilityLabel="Message"
-              multiline
-              style={st.input}
-            />
+            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: spacing.sm }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Add photo"
+                onPress={() => void attachImage()}
+                disabled={sending}
+                style={({ pressed }) => [st.attachBtn, pressed && { transform: [{ scale: 0.95 }] }]}
+              >
+                <ImagePlus size={20} color={palette.navy} />
+              </Pressable>
+              <TextInput
+                value={text}
+                onChangeText={setText}
+                placeholder="Message…"
+                placeholderTextColor={palette.ink400}
+                accessibilityLabel="Message"
+                multiline
+                style={[st.input, { flex: 1 }]}
+              />
+            </View>
             {sendError ? <T variant="caption" style={{ color: palette.error, marginTop: 4 }}>{sendError}</T> : null}
             <View style={{ marginTop: spacing.sm }}>
               <PButton variant="gold" onPress={() => void send()} disabled={sending || text.trim().length === 0}>
@@ -153,7 +198,14 @@ function Bubble({ m, onLongPress, reacting, onReact }: { m: ChatMessage; onLongP
           </View>
         ) : null}
         {m.ai_tag ? <T variant="micro" tone="gold" style={{ marginBottom: 2 }}>✨ {m.ai_tag.toUpperCase()}</T> : null}
-        <T variant="body" style={{ color: m.mine ? "#fff" : palette.ink }}>{m.body}</T>
+        {m.msg_type === "image" && m.attachment_url ? (
+          <AttachmentImage objectKey={m.attachment_url} />
+        ) : m.msg_type === "voice" ? (
+          <View style={st.mediaChip}><Play size={14} color={m.mine ? "#fff" : palette.navy} /><T variant="caption" style={{ color: m.mine ? "#fff" : palette.ink }}>Voice message</T></View>
+        ) : m.msg_type === "video" && m.attachment_url ? (
+          <View style={st.mediaChip}><Play size={14} color={m.mine ? "#fff" : palette.navy} /><T variant="caption" style={{ color: m.mine ? "#fff" : palette.ink }}>Video</T></View>
+        ) : null}
+        {m.body ? <T variant="body" style={{ color: m.mine ? "#fff" : palette.ink, marginTop: m.msg_type !== "text" ? 6 : 0 }}>{m.body}</T> : null}
         <T variant="micro" style={{ color: m.mine ? "rgba(255,255,255,0.6)" : palette.ink400, marginTop: 4, alignSelf: "flex-end" }}>{when(m.created_at)}</T>
       </Pressable>
 
@@ -178,6 +230,22 @@ function Bubble({ m, onLongPress, reacting, onReact }: { m: ChatMessage; onLongP
   );
 }
 
+/** Resolves a chat image's signed delivery URL on mount, then renders it. */
+function AttachmentImage({ objectKey }: { objectKey: string }): ReactElement {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    NuruApi.resolveMediaUrl(objectKey)
+      .then((r) => { if (live) setUrl(r.url); })
+      .catch(() => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [objectKey]);
+  if (failed) return <View style={st.imageBox}><T variant="caption" tone="tertiary">Image unavailable</T></View>;
+  if (!url) return <View style={st.imageBox}><ActivityIndicator color={palette.gold} /></View>;
+  return <Image source={{ uri: url }} style={st.image} resizeMode="cover" accessibilityLabel="Shared photo" />;
+}
+
 const st = {
   screen: { flex: 1, backgroundColor: palette.coolPaper },
   header: {
@@ -193,6 +261,10 @@ const st = {
   reaction: { borderWidth: 1, borderColor: palette.border, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: palette.white },
   reactBar: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm, backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, paddingHorizontal: spacing.md, paddingVertical: 6, ...shadow.card },
   reactPick: { paddingHorizontal: 4 },
+  attachBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: palette.coolPaper, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
+  image: { width: 220, height: 220, borderRadius: 14, marginBottom: 2 },
+  imageBox: { width: 220, height: 220, borderRadius: 14, backgroundColor: "rgba(11,31,51,0.06)", alignItems: "center", justifyContent: "center", marginBottom: 2 },
+  mediaChip: { flexDirection: "row", alignItems: "center", gap: 6 },
   composer: {
     borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.white,
     paddingHorizontal: spacing.screen, paddingTop: spacing.md, paddingBottom: spacing.lg,
