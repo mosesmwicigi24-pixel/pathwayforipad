@@ -5,7 +5,7 @@
 // edits are session-local (the make itself keeps them in component state), so the
 // data shown is real while the interactions mirror the design exactly.
 import { useMemo, useState, type ReactElement, type ReactNode } from "react";
-import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Alert, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import {
@@ -19,7 +19,7 @@ import { palette, spacing, shadow } from "../theme/tokens";
 import { T } from "../theme/components";
 import { useMe, useAchievements } from "../api/hooks";
 import { NuruApi } from "../api/client";
-import { clearQueryCache } from "../api/query";
+import { clearQueryCache, invalidateQueries } from "../api/query";
 import { getVault } from "../auth/vault";
 
 const CREAM = "#F6F4EE";
@@ -34,7 +34,30 @@ interface Field {
   Icon: LucideIcon;
   type?: "text" | "email" | "tel" | "date" | "select";
   options?: string[];
+  readOnly?: boolean; // shown but not editable (email is the login identity, §5.8)
 }
+
+// Curated country list (persists ISO-3166 alpha-2 → users.country_code).
+const COUNTRIES: Array<{ name: string; code: string; flag: string }> = [
+  { name: "Kenya", code: "KE", flag: "🇰🇪" },
+  { name: "Uganda", code: "UG", flag: "🇺🇬" },
+  { name: "Tanzania", code: "TZ", flag: "🇹🇿" },
+  { name: "Nigeria", code: "NG", flag: "🇳🇬" },
+  { name: "Ghana", code: "GH", flag: "🇬🇭" },
+  { name: "South Africa", code: "ZA", flag: "🇿🇦" },
+  { name: "United States", code: "US", flag: "🇺🇸" },
+  { name: "United Kingdom", code: "GB", flag: "🇬🇧" },
+];
+const countryName = (code?: string | null): string => {
+  const c = COUNTRIES.find((x) => x.code === code);
+  return c ? `${c.flag} ${c.name}` : "—";
+};
+const GENDER_TO_CODE: Record<string, "male" | "female" | "prefer_not_to_say"> = {
+  Male: "male", Female: "female", "Prefer not to say": "prefer_not_to_say",
+};
+const LANG_TO_LOCALE: Record<string, string> = {
+  English: "en", Swahili: "sw", Kikuyu: "ki", Luo: "luo", Luhya: "luy", Kamba: "kam", French: "fr", Arabic: "ar",
+};
 
 function initials(full: string): string {
   return full.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "NP";
@@ -66,10 +89,11 @@ export function ProfileScreen(): ReactElement {
     const p = profileData;
     return [
       { id: "name", label: "Full name", value: p?.full_name ?? "Member", Icon: User },
-      { id: "email", label: "Email", value: p?.email ?? "—", Icon: Mail, type: "email" },
+      { id: "email", label: "Email", value: p?.email ?? "—", Icon: Mail, type: "email", readOnly: true },
       { id: "phone", label: "Phone", value: p?.phone_number ?? "—", Icon: Phone, type: "tel" },
-      { id: "dob", label: "Date of birth", value: p?.date_of_birth ?? "", Icon: Calendar, type: "date" },
+      { id: "dob", label: "Date of birth", value: (p?.date_of_birth ?? "").slice(0, 10), Icon: Calendar, type: "date" },
       { id: "gender", label: "Gender", value: genderLabel(p?.gender), Icon: UserCog, type: "select", options: ["Male", "Female", "Prefer not to say"] },
+      { id: "country", label: "Country", value: countryName(p?.country_code), Icon: Globe, type: "select", options: COUNTRIES.map((c) => `${c.flag} ${c.name}`) },
       { id: "city", label: "City", value: p?.city ?? "—", Icon: MapPin },
     ];
   }, [profileData]);
@@ -91,9 +115,52 @@ export function ProfileScreen(): ReactElement {
   const [smsOn, setSmsOn] = useState(false);
   const [socials, setSocials] = useState<Record<string, boolean>>({ Google: true, Facebook: false, Instagram: true, X: false, LinkedIn: false, YouTube: false });
 
-  const saveField = (id: string, value: string): void => {
-    setProfile(fields.map((f) => (f.id === id ? { ...f, value } : f)));
+  // Map an edited row to the PATCH /me payload. Returns null when the value can't
+  // be persisted (bad format), so the caller can warn instead of silently dropping.
+  const patchFor = (id: string, value: string): Record<string, unknown> | null => {
+    const v = value.trim();
+    switch (id) {
+      case "name": return v ? { full_name: v } : null;
+      case "phone": return { phone_number: v };
+      case "city": return { city: v };
+      case "gender": return { gender: GENDER_TO_CODE[v] ?? null };
+      case "dob": return /^\d{4}-\d{2}-\d{2}$/.test(v) ? { date_of_birth: v } : null;
+      case "country": {
+        const c = COUNTRIES.find((x) => `${x.flag} ${x.name}` === v || x.name === v);
+        return c ? { country_code: c.code } : null;
+      }
+      default: return null;
+    }
+  };
+
+  // Persist an edit to the member record (PATCH /me) and refetch /me so the new
+  // identity propagates everywhere (Home greeting, header, etc.). Optimistic with
+  // rollback; surfaces VERSION_STALE so a concurrent edit can't be clobbered.
+  const saveField = async (id: string, value: string): Promise<void> => {
     setEditingField(null);
+    const patch = patchFor(id, value);
+    if (!patch) {
+      if (id === "dob") Alert.alert("Check the date", "Use YYYY-MM-DD, e.g. 1992-04-18.");
+      return;
+    }
+    const prev = fields;
+    setProfile(fields.map((f) => (f.id === id ? { ...f, value } : f))); // optimistic
+    try {
+      await NuruApi.updateMe(patch, profileData?.row_version ?? 1);
+      invalidateQueries("me");
+    } catch (e) {
+      setProfile(prev);
+      const stale = (e as { response?: { status?: number } }).response?.status === 409;
+      if (stale) invalidateQueries("me");
+      Alert.alert(stale ? "Profile changed elsewhere" : "Couldn't save", stale ? "We've refreshed it — please try your edit again." : "Please check your connection and try again.");
+    }
+  };
+
+  const persistLocale = async (lang: string): Promise<void> => {
+    try {
+      await NuruApi.updateMe({ locale: LANG_TO_LOCALE[lang] ?? "en" }, profileData?.row_version ?? 1);
+      invalidateQueries("me");
+    } catch { /* best-effort: language is a soft preference */ }
   };
 
   async function signOut(): Promise<void> {
@@ -123,7 +190,7 @@ export function ProfileScreen(): ReactElement {
         <View style={st.header}>
           <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
             <T variant="micro" tone="gold" style={st.kicker}>ACCOUNT</T>
-            <Pressable accessibilityRole="button" accessibilityLabel="Settings" onPress={() => void signOut()} style={st.headerBtn}>
+            <Pressable accessibilityRole="button" accessibilityLabel="App settings" onPress={() => setSheet("appLang")} style={st.headerBtn}>
               <Settings size={18} color="#fff" />
             </Pressable>
           </View>
@@ -146,7 +213,7 @@ export function ProfileScreen(): ReactElement {
         <View style={{ padding: spacing.lg, gap: spacing.base }}>
           <Section title="PERSONAL INFORMATION" Icon={User}>
             {fields.map((f, i) => (
-              <Row key={f.id} divider={i > 0} onPress={() => setEditingField(f)}>
+              <Row key={f.id} divider={i > 0} {...(f.readOnly ? {} : { onPress: () => setEditingField(f) })}>
                 <View style={st.fieldIcon}><f.Icon size={15} color={palette.navy} /></View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <T variant="micro" tone="tertiary" style={st.fieldLabel}>{f.label.toUpperCase()}</T>
@@ -154,7 +221,7 @@ export function ProfileScreen(): ReactElement {
                     {f.id === "dob" && f.value ? formatDate(f.value) : f.value}
                   </T>
                 </View>
-                <Pencil size={14} color={palette.ink400} />
+                {f.readOnly ? null : <Pencil size={14} color={palette.ink400} />}
               </Row>
             ))}
             <Row divider onPress={() => setLanguagesOpen(true)}>
@@ -256,10 +323,10 @@ export function ProfileScreen(): ReactElement {
       </ScrollView>
 
       {editingField ? (
-        <EditFieldSheet field={editingField} onClose={() => setEditingField(null)} onSave={(v) => saveField(editingField.id, v)} />
+        <EditFieldSheet field={editingField} onClose={() => setEditingField(null)} onSave={(v) => void saveField(editingField.id, v)} />
       ) : null}
       {languagesOpen ? (
-        <LanguagesSheet selected={languages} fallbackDefault={defaultLanguage} onClose={() => setLanguagesOpen(false)} onSave={(sel, def) => { setLanguages(sel); setDefaultLanguage(def); setLanguagesOpen(false); }} />
+        <LanguagesSheet selected={languages} fallbackDefault={defaultLanguage} onClose={() => setLanguagesOpen(false)} onSave={(sel, def) => { setLanguages(sel); setDefaultLanguage(def); setLanguagesOpen(false); void persistLocale(def); }} />
       ) : null}
       {sheet === "password" ? <PasswordSheet onClose={() => setSheet(null)} /> : null}
       {sheet === "twofa" ? <TwoFASheet onClose={() => setSheet(null)} onEnable={() => { setTwoFA(true); setSheet(null); }} /> : null}
@@ -449,15 +516,40 @@ function LanguagesSheet({ selected, fallbackDefault, onClose, onSave }: { select
 }
 
 function PasswordSheet({ onClose }: { onClose: () => void }): ReactElement {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(): Promise<void> {
+    if (!current || !next) { setError("Enter your current and new password."); return; }
+    if (next.length < 8) { setError("New password must be at least 8 characters."); return; }
+    if (next !== confirm) { setError("New passwords don't match."); return; }
+    setBusy(true); setError(null);
+    try {
+      await NuruApi.changePassword(current, next);
+      Alert.alert("Password updated", "Use your new password next time you sign in.");
+      onClose();
+    } catch (e) {
+      const status = (e as { response?: { status?: number } }).response?.status;
+      setError(status === 403 ? "Your current password is incorrect." : "Couldn't update password. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <SheetShell title="Change password" onClose={onClose}>
       <View style={{ gap: spacing.sm }}>
-        {["Current password", "New password", "Confirm new password"].map((p) => (
-          <TextInput key={p} secureTextEntry placeholder={p} placeholderTextColor={palette.ink400} style={st.input} />
-        ))}
+        <TextInput secureTextEntry value={current} onChangeText={setCurrent} placeholder="Current password" placeholderTextColor={palette.ink400} style={st.input} />
+        <TextInput secureTextEntry value={next} onChangeText={setNext} placeholder="New password" placeholderTextColor={palette.ink400} style={st.input} />
+        <TextInput secureTextEntry value={confirm} onChangeText={setConfirm} placeholder="Confirm new password" placeholderTextColor={palette.ink400} style={st.input} />
       </View>
-      <T variant="micro" tone="secondary" style={{ marginTop: spacing.sm }}>Use at least 8 characters with letters, numbers and a symbol.</T>
-      <View style={{ marginTop: spacing.base }}><GoldButton label="Update password" onPress={onClose} /></View>
+      {error ? <T variant="micro" style={{ color: palette.error, marginTop: spacing.sm }}>{error}</T> : (
+        <T variant="micro" tone="secondary" style={{ marginTop: spacing.sm }}>Use at least 8 characters with letters, numbers and a symbol.</T>
+      )}
+      <View style={{ marginTop: spacing.base }}><GoldButton label={busy ? "Updating…" : "Update password"} disabled={busy} onPress={() => void submit()} /></View>
     </SheetShell>
   );
 }

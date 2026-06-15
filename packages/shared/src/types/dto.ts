@@ -36,6 +36,7 @@ export interface UserProfile {
   is_minor: boolean;
   gender?: "male" | "female" | "prefer_not_to_say" | null;
   city?: string | null;
+  country_code?: string | null;
   socials?: Record<string, string>;
   row_version: number;
 }

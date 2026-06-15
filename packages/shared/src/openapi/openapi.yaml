@@ -2312,12 +2312,18 @@ components:
     ProfileUpdate:
       type: object
       required: [row_version]
-      description: Mutable fields only; role/congregation are not self-writable (§5.4, §5.8).
+      description: Mutable fields only; role/congregation/email are not self-writable (§5.4, §5.8).
       properties:
+        full_name: { type: string, minLength: 1, maxLength: 255 }
         phone_number: { type: string, minLength: 3, maxLength: 32 }
         cell_group_id: { type: [string, "null"], format: uuid }
         timezone: { type: string, maxLength: 64 }
         locale: { type: string, maxLength: 12 }
+        gender: { type: [string, "null"], enum: [male, female, prefer_not_to_say, null] }
+        city: { type: [string, "null"], maxLength: 120 }
+        country_code: { type: [string, "null"], minLength: 2, maxLength: 2 }
+        date_of_birth: { type: [string, "null"], format: date }
+        socials: { type: object, additionalProperties: { type: string } }
         row_version: { type: integer, description: Expected version for optimistic concurrency }
     OnboardingIntake:
       type: object

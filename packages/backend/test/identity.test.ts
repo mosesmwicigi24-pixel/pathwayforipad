@@ -102,6 +102,35 @@ describe("identity / auth", () => {
     ).rejects.toMatchObject({ code: "VERSION_STALE" });
   });
 
+  it("updateMe persists the editable identity fields and they round-trip through getMe", async () => {
+    const cong = await createCongregation();
+    const user = await createUser({ congregationId: cong, fullName: "Old Name" });
+
+    await svc().updateMe(user.user_id, {
+      full_name: "Moses Mwicigi",
+      phone_number: "+254712345678",
+      gender: "male",
+      city: "Nairobi",
+      country_code: "KE",
+      date_of_birth: "1992-04-18",
+      row_version: 1,
+    });
+
+    const me = (await svc().getMe(user.user_id)) as {
+      profile: {
+        full_name: string; phone_number: string; gender: string; city: string;
+        country_code: string; date_of_birth: unknown; is_minor: boolean;
+      };
+    };
+    expect(me.profile.full_name).toBe("Moses Mwicigi");
+    expect(me.profile.phone_number).toBe("+254712345678");
+    expect(me.profile.gender).toBe("male");
+    expect(me.profile.city).toBe("Nairobi");
+    expect(me.profile.country_code).toBe("KE");
+    expect(me.profile.date_of_birth).toBeTruthy(); // was null before the update; pg returns a Date
+    expect(me.profile.is_minor).toBe(false); // trigger recomputed from the new DOB
+  });
+
   it("GET /me requires a token and returns the profile with a valid one", async () => {
     const cong = await createCongregation();
     const user = await createUser({ congregationId: cong, fullName: "Mara" });

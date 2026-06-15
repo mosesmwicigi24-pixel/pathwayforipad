@@ -343,7 +343,7 @@ export class IdentityService {
       this.pool,
       `SELECT u.user_id, u.email, u.full_name, u.phone_number, u.date_of_birth, u.year_of_salvation,
               u.is_baptized, u.cell_group_id, u.congregation_id, u.role, u.timezone, u.locale, u.is_minor,
-              u.gender, u.city, u.socials, u.row_version, u.created_at, u.account_status, u.require_2fa,
+              u.gender, u.city, u.country_code, u.socials, u.row_version, u.created_at, u.account_status, u.require_2fa,
               COALESCE(array_agg(ur.role_key) FILTER (WHERE ur.role_key IS NOT NULL), '{}') AS role_keys
          FROM users u
          LEFT JOIN rbac_user_roles ur ON ur.user_id = u.user_id
@@ -379,10 +379,13 @@ export class IdentityService {
       locale: z.string().max(12).optional(),
       gender: z.enum(["male", "female", "prefer_not_to_say"]).nullable().optional(),
       city: z.string().max(120).nullable().optional(),
+      country_code: z.string().length(2).nullable().optional(),
+      date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
       socials: z.record(z.string().max(200)).optional(), // {instagram, x, facebook, ...}
       row_version: z.number().int().positive(),
     })
     .strict(); // mass-assignment guard (§5.8): role/congregation_id are not writable
+    // email is intentionally not writable here — it is the login identity (§5.8).
 
   /** Update mutable profile fields with an optimistic-concurrency version check. */
   async updateMe(userId: string, input: z.infer<typeof IdentityService.UpdateMeSchema>): Promise<unknown> {
@@ -390,7 +393,7 @@ export class IdentityService {
       const sets: string[] = [];
       const params: unknown[] = [];
       let i = 1;
-      for (const field of ["full_name", "phone_number", "cell_group_id", "timezone", "locale", "gender", "city", "socials"] as const) {
+      for (const field of ["full_name", "phone_number", "cell_group_id", "timezone", "locale", "gender", "city", "country_code", "date_of_birth", "socials"] as const) {
         if (field in input && input[field] !== undefined) {
           sets.push(`${field} = $${i++}`);
           params.push(field === "socials" ? JSON.stringify(input[field]) : input[field]);

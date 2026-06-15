@@ -122,6 +122,25 @@ export const NuruApi = {
     const { data } = await api.get<MeResponse>("/me");
     return data;
   },
+  /** Persist editable profile fields (optimistic concurrency via row_version). */
+  async updateMe(
+    patch: Record<string, unknown>,
+    rowVersion: number,
+  ): Promise<{ user_id: string; row_version: number }> {
+    const { data } = await api.patch<{ user_id: string; row_version: number }>("/me", {
+      ...patch,
+      row_version: rowVersion,
+    });
+    return data;
+  },
+  /** Change the account password (current + new). */
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ changed: boolean }> {
+    const { data } = await api.post<{ changed: boolean }>("/me/password", {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+    return data;
+  },
   // ---- Curriculum / pathway (real DB reads, server-gated) ----
   async levels(): Promise<Level[]> {
     const { data } = await api.get<{ data: Level[] }>("/levels");
