@@ -61,7 +61,7 @@ export function LoginScreen(): ReactElement {
   async function submitRegister(): Promise<void> {
     if (!fullName.trim()) { setError("Enter your full name."); return; }
     if (!email.trim()) { setError("Enter your email."); return; }
-    if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
     if (password !== confirm) { setError("Passwords don't match."); return; }
     setBusy(true); setError(null);
     try {
@@ -92,7 +92,7 @@ export function LoginScreen(): ReactElement {
 
   async function submitReset(): Promise<void> {
     if (!token.trim()) { setError("Paste the reset token from your email."); return; }
-    if (newPassword.length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (newPassword.length < 8) { setError("Password must be at least 8 characters."); return; }
     setBusy(true); setError(null);
     try {
       await NuruApi.resetPassword(token.trim(), newPassword);
@@ -171,7 +171,7 @@ export function LoginScreen(): ReactElement {
                 </Pressable>
               }
             >
-              <TextInput value={password} onChangeText={setPassword} placeholder={mode === "register" ? "At least 6 characters" : "••••••••"} placeholderTextColor={INPUT_PLACEHOLDER} secureTextEntry={!showPw} autoCapitalize="none" autoCorrect={false} style={st.input} />
+              <TextInput value={password} onChangeText={setPassword} placeholder={mode === "register" ? "At least 8 characters" : "••••••••"} placeholderTextColor={INPUT_PLACEHOLDER} secureTextEntry={!showPw} autoCapitalize="none" autoCorrect={false} style={st.input} />
             </Field>
           ) : null}
 
@@ -191,7 +191,7 @@ export function LoginScreen(): ReactElement {
                 </Pressable>
               }
             >
-              <TextInput value={newPassword} onChangeText={setNewPassword} placeholder="At least 6 characters" placeholderTextColor={INPUT_PLACEHOLDER} secureTextEntry={!showPw} autoCapitalize="none" autoCorrect={false} style={st.input} />
+              <TextInput value={newPassword} onChangeText={setNewPassword} placeholder="At least 8 characters" placeholderTextColor={INPUT_PLACEHOLDER} secureTextEntry={!showPw} autoCapitalize="none" autoCorrect={false} style={st.input} />
             </Field>
           ) : null}
 

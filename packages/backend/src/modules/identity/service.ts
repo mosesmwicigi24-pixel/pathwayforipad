@@ -129,17 +129,53 @@ export class IdentityService {
    * generic to avoid user enumeration; suspended accounts are blocked. SSO-only
    * accounts (no stored secret) cannot password-login. Mints a normal session.
    */
+  // Brute-force lockout (§5.3): lock an account after this many consecutive
+  // failed password attempts, for this long. A successful login resets the count.
+  static readonly MAX_FAILED_LOGINS = 5;
+  static readonly LOCKOUT_MINUTES = 15;
+
   async loginWithPassword(input: z.infer<typeof IdentityService.LoginSchema>): Promise<SessionTokens> {
-    const row = await maybeOne<UserAuthRow & { password_hash: string | null; account_status: string }>(
+    const row = await maybeOne<
+      UserAuthRow & {
+        password_hash: string | null;
+        account_status: string;
+        failed_login_count: number;
+        locked_until: Date | null;
+      }
+    >(
       this.pool,
-      `SELECT user_id, role, congregation_id, password_hash, account_status
+      `SELECT user_id, role, congregation_id, password_hash, account_status, failed_login_count, locked_until
          FROM users WHERE email = $1 AND deleted_at IS NULL`,
       [input.email],
     );
     if (!row || !row.password_hash) throw new ApiError("AUTH_REQUIRED", "Invalid email or password");
     if (row.account_status === "suspended") throw new ApiError("FORBIDDEN_SCOPE", "This account is suspended");
+    // Account currently locked from prior failures.
+    if (row.locked_until && row.locked_until.getTime() > Date.now()) {
+      throw new ApiError("RATE_LIMITED", "Too many failed attempts. Try again later or reset your password.");
+    }
+
     if (!(await verifyPassword(row.password_hash, input.password))) {
+      const next = (row.failed_login_count ?? 0) + 1;
+      const lock = next >= IdentityService.MAX_FAILED_LOGINS;
+      // On lock: reset the counter and stamp a cooldown; otherwise just increment.
+      await this.pool.query(
+        `UPDATE users SET failed_login_count = $2, locked_until = $3 WHERE user_id = $1`,
+        [row.user_id, lock ? 0 : next, lock ? new Date(Date.now() + IdentityService.LOCKOUT_MINUTES * 60_000) : null],
+      );
+      if (lock) {
+        await audit(this.pool, row.user_id, "user.login_locked", "users", row.user_id, {});
+        throw new ApiError("RATE_LIMITED", "Too many failed attempts. Try again later or reset your password.");
+      }
       throw new ApiError("AUTH_REQUIRED", "Invalid email or password");
+    }
+
+    // Success: clear any prior failure state.
+    if (row.failed_login_count > 0 || row.locked_until) {
+      await this.pool.query(
+        `UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE user_id = $1`,
+        [row.user_id],
+      );
     }
     return this.issueSession({ user_id: row.user_id, role: row.role, congregation_id: row.congregation_id });
   }
@@ -148,7 +184,7 @@ export class IdentityService {
     .object({
       full_name: z.string().trim().min(1).max(255),
       email: z.string().email().max(254),
-      password: z.string().min(6).max(200),
+      password: z.string().min(8).max(200),
     })
     .strict();
 
@@ -224,7 +260,7 @@ export class IdentityService {
   }
 
   static readonly ResetPasswordSchema = z
-    .object({ token: z.string().min(16).max(200), new_password: z.string().min(6).max(200) })
+    .object({ token: z.string().min(16).max(200), new_password: z.string().min(8).max(200) })
     .strict();
 
   /**
@@ -246,10 +282,10 @@ export class IdentityService {
         [tokenHash],
       );
       if (!reset) throw new ApiError("UNPROCESSABLE", "This reset link is invalid or has expired");
-      await c.query(`UPDATE users SET password_hash = $2, updated_at = now() WHERE user_id = $1`, [
-        reset.user_id,
-        newHash,
-      ]);
+      await c.query(
+        `UPDATE users SET password_hash = $2, failed_login_count = 0, locked_until = NULL, updated_at = now() WHERE user_id = $1`,
+        [reset.user_id, newHash],
+      );
       await c.query(`UPDATE password_resets SET used_at = now() WHERE reset_id = $1`, [reset.reset_id]);
       await c.query(
         `UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,

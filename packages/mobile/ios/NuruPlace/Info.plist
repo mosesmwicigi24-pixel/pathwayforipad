@@ -33,8 +33,10 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo to share in chat.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>NuruPlace connects to the Nuru Pathway server on your local network during development.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>Kenya</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Attach a photo to your conversations.</string>
 	<key>UILaunchStoryboardName</key>

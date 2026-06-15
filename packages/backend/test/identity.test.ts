@@ -176,11 +176,34 @@ describe("identity / auth", () => {
     expect(res.status).toBe(403);
   });
 
+  it("locks the account after 5 failed logins; even the correct password is then refused (429)", async () => {
+    await makePwUser("lock@dev.local", "correct-horse-8");
+    for (let i = 0; i < 5; i++) {
+      const r = await agent().post("/v1/auth/login").send({ email: "lock@dev.local", password: "wrong" });
+      expect([401, 429]).toContain(r.status); // attempts 1–4 → 401, the 5th trips the lock → 429
+    }
+    const locked = await agent().post("/v1/auth/login").send({ email: "lock@dev.local", password: "correct-horse-8" });
+    expect(locked.status).toBe(429); // correct password rejected while locked
+  });
+
+  it("a successful login clears the failed-attempt counter", async () => {
+    await makePwUser("recover@dev.local", "right-pass-8");
+    await agent().post("/v1/auth/login").send({ email: "recover@dev.local", password: "nope" }); // 1 failure
+    const ok = await agent().post("/v1/auth/login").send({ email: "recover@dev.local", password: "right-pass-8" });
+    expect(ok.status).toBe(200);
+    const { rows } = await testPool().query(
+      "SELECT failed_login_count, locked_until FROM users WHERE email=$1",
+      ["recover@dev.local"],
+    );
+    expect(rows[0].failed_login_count).toBe(0);
+    expect(rows[0].locked_until).toBeNull();
+  });
+
   // ---- Self-service register (POST /auth/register) ----
   it("registers a new Student, mints a session, and the account can then log in", async () => {
     const reg = await agent()
       .post("/v1/auth/register")
-      .send({ full_name: "Grace New", email: "grace@dev.local", password: "joinme1" });
+      .send({ full_name: "Grace New", email: "grace@dev.local", password: "joinme12" });
     expect(reg.status).toBe(201);
     expect(reg.body.access_token).toBeTruthy();
     expect(reg.body.refresh_token).toBeTruthy();
@@ -189,7 +212,7 @@ describe("identity / auth", () => {
     expect(rows[0].role).toBe("Student"); // self-signup can only create a Student (§5.8)
 
     // The brand-new credential works at the login endpoint too.
-    const login = await agent().post("/v1/auth/login").send({ email: "grace@dev.local", password: "joinme1" });
+    const login = await agent().post("/v1/auth/login").send({ email: "grace@dev.local", password: "joinme12" });
     expect(login.status).toBe(200);
   });
 

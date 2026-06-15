@@ -76,7 +76,7 @@ paths:
   /auth/login:
     post:
       tags: [auth]
-      summary: Email + password sign-in (argon2id verify). Generic error on bad credentials; 403 if suspended.
+      summary: Email + password sign-in (argon2id verify). Generic error on bad credentials; 403 if suspended; 429 if locked after repeated failures.
       security: []
       requestBody:
         required: true
@@ -97,6 +97,7 @@ paths:
         "400": { description: Validation failed }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "429": { description: Account temporarily locked after too many failed attempts }
   /auth/register:
     post:
       tags: [auth]
@@ -112,7 +113,7 @@ paths:
               properties:
                 full_name: { type: string, maxLength: 255 }
                 email: { type: string, format: email }
-                password: { type: string, minLength: 6 }
+                password: { type: string, minLength: 8 }
       responses:
         "201":
           description: Account created; access + refresh pair issued
@@ -160,7 +161,7 @@ paths:
               required: [token, new_password]
               properties:
                 token: { type: string }
-                new_password: { type: string, minLength: 6 }
+                new_password: { type: string, minLength: 8 }
       responses:
         "200":
           description: Password reset
