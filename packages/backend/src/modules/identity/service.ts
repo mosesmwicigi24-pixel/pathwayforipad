@@ -18,6 +18,7 @@ import type { OAuthProfile } from "./oauth.js";
 import { generateTotpSecret, otpauthUri, verifyTotp } from "./totp.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
 import { sealSecret, openSecret } from "./secretbox.js";
+import { buildEmailProvider, type EmailProvider } from "./email.js";
 
 export interface SessionTokens {
   access_token: string;
@@ -36,6 +37,7 @@ export class IdentityService {
   constructor(
     private readonly pool: Pool,
     private readonly env: Env,
+    private readonly emailer: EmailProvider = buildEmailProvider(env),
   ) {}
 
   private async issueSession(user: UserAuthRow, deviceId?: string | null): Promise<SessionTokens> {
@@ -256,6 +258,26 @@ export class IdentityService {
       [row.user_id, tokenHash, expires],
     );
     await audit(this.pool, row.user_id, "user.password_reset_requested", "users", row.user_id, {});
+
+    // Email the link to the account address. Best-effort: a delivery failure must
+    // not change the (no-enumeration) response, so we never surface it.
+    const link = `${this.env.APP_PUBLIC_URL}/reset-password?token=${raw}`;
+    try {
+      await this.emailer.send({
+        to: input.email,
+        subject: "Reset your Nuru Place password",
+        text:
+          `We received a request to reset the password for your Nuru Place account.\n\n` +
+          `Reset it here (valid for 30 minutes):\n${link}\n\n` +
+          `If you didn't request this, you can safely ignore this email — your password won't change.`,
+        html:
+          `<p>We received a request to reset the password for your Nuru Place account.</p>` +
+          `<p><a href="${link}">Reset your password</a> (valid for 30 minutes).</p>` +
+          `<p>If you didn't request this, you can safely ignore this email — your password won't change.</p>`,
+      });
+    } catch {
+      /* best-effort delivery */
+    }
     return this.env.NODE_ENV === "production" ? { sent: true } : { sent: true, dev_token: raw };
   }
 

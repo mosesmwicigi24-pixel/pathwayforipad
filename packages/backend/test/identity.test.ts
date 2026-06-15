@@ -3,6 +3,7 @@ import { resetDb, testPool, closeTestPool } from "./helpers/db.js";
 import { testEnv, agent, bearer } from "./helpers/app.js";
 import { createCongregation, createCellGroup, createUser } from "./helpers/factories.js";
 import { IdentityService } from "../src/modules/identity/service.js";
+import type { EmailMessage, EmailProvider } from "../src/modules/identity/email.js";
 import {
   issueRefreshToken,
   rotateRefreshToken,
@@ -260,5 +261,28 @@ describe("identity / auth", () => {
     const res = await svc().requestPasswordReset({ email: "nobody@dev.local" });
     expect(res.sent).toBe(true);
     expect(res.dev_token).toBeUndefined();
+  });
+
+  it("emails a reset link containing the token to the account address (and nothing for unknown emails)", async () => {
+    const cong = await createCongregation();
+    const u = await createUser({ congregationId: cong, email: "mailme@dev.local" });
+    const argon2 = (await import("argon2")).default;
+    await testPool().query("UPDATE users SET password_hash=$2 WHERE user_id=$1", [
+      u.user_id,
+      await argon2.hash("pw-123456", { type: argon2.argon2id }),
+    ]);
+    const sent: EmailMessage[] = [];
+    const fakeMailer: EmailProvider = { send: (m) => { sent.push(m); return Promise.resolve(); } };
+    const s = new IdentityService(testPool(), env, fakeMailer);
+
+    const res = await s.requestPasswordReset({ email: "mailme@dev.local" });
+    expect(res.sent).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.to).toBe("mailme@dev.local");
+    expect(sent[0]!.text).toContain("/reset-password?token=");
+    expect(sent[0]!.text).toContain(res.dev_token as string); // link carries the real token
+
+    await s.requestPasswordReset({ email: "ghost@dev.local" }); // unknown → no email
+    expect(sent).toHaveLength(1);
   });
 });

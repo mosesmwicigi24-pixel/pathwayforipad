@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Sparkles, Loader2 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { devLogin, login } from "../../store/authSlice";
+import { PortalApi } from "../../api/client";
 
 type Mode = "signin" | "register";
 
@@ -28,8 +29,16 @@ export function Login(): ReactElement {
   const [emailFocused, setEmailFocused] = useState(false);
   const [pwFocused, setPwFocused] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [forgotMsg, setForgotMsg] = useState("");
 
   useEffect(() => { if (accessToken) navigate("/", { replace: true }); }, [accessToken, navigate]);
+
+  const handleForgot = (): void => {
+    setLocalError(""); setForgotMsg("");
+    if (!isValidEmail) { setLocalError("Enter your email above, then tap Forgot password."); return; }
+    void PortalApi.forgotPassword(email.trim()).catch(() => undefined);
+    setForgotMsg("If an account exists for that email, a reset link is on its way.");
+  };
 
   const submitting = status === "loading";
   const isValidEmail = email.includes("@") && email.includes(".");
@@ -111,7 +120,7 @@ export function Login(): ReactElement {
                   <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} style={{ accentColor: "var(--nuru-gold)" }} />
                   <span style={{ fontSize: 12, color: "var(--foreground)" }}>Remember me</span>
                 </label>
-                <button type="button" style={{ fontSize: 12, color: "var(--nuru-gold)", fontWeight: 600, background: "none", border: "none" }}>Forgot password?</button>
+                <button type="button" onClick={handleForgot} style={{ fontSize: 12, color: "var(--nuru-gold)", fontWeight: 600, background: "none", border: "none", cursor: "pointer" }}>Forgot password?</button>
               </div>
             ) : (
               <label className="flex items-start gap-2 cursor-pointer" style={{ marginBottom: 14 }}>
@@ -123,6 +132,7 @@ export function Login(): ReactElement {
             )}
 
             {shownError && <div className="rounded-md mb-3" style={{ background: "#FDECEC", color: "#A8281F", fontSize: 12, padding: "8px 10px", border: "1px solid #F5C6C2" }}>{shownError}</div>}
+            {forgotMsg && !shownError && <div className="rounded-md mb-3" style={{ background: "rgba(200,155,60,0.10)", color: "#8B6914", fontSize: 12, padding: "8px 10px", border: "1px solid rgba(200,155,60,0.30)" }}>{forgotMsg}</div>}
 
             <button onClick={handleSubmit} disabled={submitting || (mode === "signin" ? !canSignIn : !canRegister)} className="w-full flex items-center justify-center gap-2 rounded-lg transition-all hover:brightness-105" style={{ height: 42, background: (mode === "signin" ? canSignIn : canRegister) && !submitting ? "var(--nuru-gold)" : "rgba(200,155,60,0.45)", color: "#fff", fontSize: 13.5, fontWeight: 700, letterSpacing: "0.01em", boxShadow: "0 8px 22px rgba(200,155,60,0.32)", cursor: submitting ? "not-allowed" : "pointer", border: "none" }}>
               {submitting && <Loader2 size={14} className="animate-spin" />}

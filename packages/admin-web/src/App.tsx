@@ -6,6 +6,7 @@ import { type ReactElement } from "react";
 import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom";
 import { Layout } from "./components/shell/Layout";
 import { Login } from "./components/pages/Login";
+import { ResetPassword } from "./components/pages/ResetPassword";
 import { Dashboard } from "./components/pages/Dashboard";
 import { CurriculumLevels } from "./components/pages/CurriculumLevels";
 import { CmsCurriculum } from "./components/pages/CmsCurriculum";
@@ -31,6 +32,7 @@ import { Languages } from "./components/pages/Languages";
 import { NotificationsProvider } from "./components/notifications/NotificationsProvider";
 const router = createBrowserRouter([
   { path: "/login", element: <Login /> },
+  { path: "/reset-password", element: <ResetPassword /> },
   { path: "/preview/:moduleId", element: <ModulePreview /> },
   {
     path: "/",

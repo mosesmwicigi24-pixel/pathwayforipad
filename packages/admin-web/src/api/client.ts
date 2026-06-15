@@ -84,6 +84,19 @@ export const PortalApi = {
     const { data } = await api.post<DevSession>("/auth/dev-login", { email });
     return data;
   },
+  /** Request a password-reset email (always succeeds — no account enumeration). */
+  async forgotPassword(email: string): Promise<{ sent: boolean }> {
+    const { data } = await api.post<{ sent: boolean }>("/auth/password/forgot", { email });
+    return data;
+  },
+  /** Consume an emailed reset token and set a new password. */
+  async resetPassword(token: string, newPassword: string): Promise<{ reset: boolean }> {
+    const { data } = await api.post<{ reset: boolean }>("/auth/password/reset", {
+      token,
+      new_password: newPassword,
+    });
+    return data;
+  },
   async cohort(
     cellId: string,
     opts: { band?: string; cursor?: string; limit?: number } = {},

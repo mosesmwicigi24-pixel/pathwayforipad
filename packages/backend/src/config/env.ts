@@ -57,6 +57,17 @@ const EnvSchema = z.object({
   CERT_SIGNING_KEY: z.string().optional(),
   PUSH_PROVIDER_KEY: z.string().optional(),
 
+  // --- Transactional email (password reset, §5.3). SMTP by name only (§5.10);
+  // absent → a logging no-op (dev). In prod we relay through the on-VPS mailcow. ---
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_SECURE: z.string().default("false").transform((v) => v === "true" || v === "1"),
+  EMAIL_FROM: z.string().default("Nuru Place <no-reply@nuruplace.org>"),
+  // Public base URL used to build links in emails (e.g. the password-reset page).
+  APP_PUBLIC_URL: z.string().url().default("https://pathway.nuruplace.org"),
+
   // --- Nuru AI assistant (free tier: Google AI Studio / Gemini). Key by name
   // only (§5.10); absent → a deterministic offline fake responder is used. ---
   GEMINI_API_KEY: z.string().optional(),
