@@ -149,7 +149,7 @@ export function CellDetail(): ReactElement {
             </tr></thead>
             <tbody>
               {sorted.map((m) => { const score = pct(m.e_score); const band = (m.band ?? "steady") as BandKey; const bm = bandMeta[band] ?? bandMeta.steady; const da = daysAgo(m.last_activity); return (
-                <tr key={m.user_id} onClick={() => navigate("/member-profile")} className="cursor-pointer transition hover:bg-secondary/60" style={{ borderTop: "1px solid var(--border)" }}>
+                <tr key={m.user_id} onClick={() => navigate(`/member-profile?id=${m.user_id}`)} className="cursor-pointer transition hover:bg-secondary/60" style={{ borderTop: "1px solid var(--border)" }}>
                   <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full" style={{ background: "#0B1F33", fontSize: 12, fontWeight: 800, color: "#fff" }}>{initials(m.full_name)}</div><div><p style={{ fontSize: 14, fontWeight: 800, color: "var(--foreground)", whiteSpace: "nowrap" }}>{m.full_name}</p><p style={{ fontSize: 12, color: "var(--muted-foreground)" }}>{m.email ?? m.phone_number}</p></div></div></td>
                   <td className="px-5 py-4" style={{ fontSize: 13, fontWeight: 700, color: "#0B1F33" }}>L{m.current_level ?? "—"}</td>
                   <td className="px-5 py-4">
@@ -160,7 +160,7 @@ export function CellDetail(): ReactElement {
                   </td>
                   <td className="px-5 py-4"><span className="inline-flex rounded-full px-3 py-1" style={{ fontSize: 12, fontWeight: 800, background: bm.bg, color: bm.color }}>{bm.label}</span></td>
                   <td className="px-5 py-4"><span className="font-mono" style={{ fontSize: 14, fontWeight: da != null && da >= 7 ? 800 : 600, color: da != null && da >= 7 ? "#B91C1C" : "var(--foreground)" }}>{da == null ? "—" : `${da}d`}</span></td>
-                  <td className="px-5 py-4"><button onClick={(e) => { e.stopPropagation(); navigate("/member-profile"); }} className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ border: "1px solid var(--border)", background: "var(--card)", fontSize: 12, fontWeight: 800, color: "#0B1F33" }}>View <ChevronRight size={14} style={{ color: "var(--muted-foreground)" }} /></button></td>
+                  <td className="px-5 py-4"><button onClick={(e) => { e.stopPropagation(); navigate(`/member-profile?id=${m.user_id}`); }} className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ border: "1px solid var(--border)", background: "var(--card)", fontSize: 12, fontWeight: 800, color: "#0B1F33" }}>View <ChevronRight size={14} style={{ color: "var(--muted-foreground)" }} /></button></td>
                 </tr>
               ); })}
               {sorted.length === 0 ? <tr><td colSpan={6} className="px-5 py-8 text-center" style={{ fontSize: 13, color: "var(--muted-foreground)" }}>No members loaded for this cell.</td></tr> : null}

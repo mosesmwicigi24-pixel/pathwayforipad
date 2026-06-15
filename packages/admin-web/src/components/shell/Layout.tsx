@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { logout } from "../../store/authSlice";
+import { MeApi } from "../../api/client";
 import { useIsMobile } from "./useIsMobile";
 import { navGroups, titleFor } from "./nav";
 import { useNotifications, notifTimeAgo, CATEGORY_META } from "../notifications/NotificationsProvider";
@@ -28,15 +29,26 @@ export function Layout(): ReactElement {
   const [notifOpen, setNotifOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  // Real logged-in identity (name + role) from /me, so the shell shows the
+  // registered person — not a guess parsed from their email address.
+  const [me, setMe] = useState<{ full_name: string; role: string } | null>(null);
 
   useEffect(() => { setMobileNavOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    if (!accessToken) { setMe(null); return; }
+    let alive = true;
+    MeApi.me()
+      .then((r) => { if (alive) setMe({ full_name: r.profile.full_name, role: r.profile.role }); })
+      .catch(() => { /* fall back to the email-derived label */ });
+    return () => { alive = false; };
+  }, [accessToken]);
 
   if (!accessToken) return <Navigate to="/login" replace />;
 
-  const name = (email ?? "").split("@")[0] || "User";
-  const display = name.split(/[._-]/).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
-  const initials = (name.replace(/[^a-zA-Z]/g, "").slice(0, 2) || "NU").toUpperCase();
-  const roleLabel = (role ?? "member").toUpperCase();
+  const emailName = (email ?? "").split("@")[0] || "User";
+  const display = (me?.full_name?.trim() || emailName.split(/[._-]/).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" "));
+  const initials = (display.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0] ?? "").join("") || "NU").toUpperCase();
+  const roleLabel = (me?.role ?? role ?? "member").toUpperCase();
   const pageTitle = titleFor(location.pathname);
   const { notifications, unreadCount, markRead, markAllRead, remove, clearAll } = useNotifications();
 

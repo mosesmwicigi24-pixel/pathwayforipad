@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import {
-  AdminApi, CurriculumApi, OpsApi, ConfigApi, MediaApi, SystemApi,
+  AdminApi, CurriculumApi, OpsApi, ConfigApi, MediaApi, SystemApi, MeApi,
   type OverviewKpis, type EngagementReport, type AttendanceTrendPoint, type AdminLevel,
   type CalendarOccurrence, type AuditRow,
 } from "../../api/client";
@@ -71,6 +71,7 @@ export function Dashboard(): ReactElement {
   const [languagesActive, setLanguagesActive] = useState(0);
   const [upcoming, setUpcoming] = useState<CalendarOccurrence[]>([]);
   const [activity, setActivity] = useState<AuditRow[]>([]);
+  const [firstName, setFirstName] = useState("");
 
   useEffect(() => {
     const now = new Date();
@@ -85,6 +86,7 @@ export function Dashboard(): ReactElement {
     void SystemApi.languages().then((r) => setLanguagesActive(r.filter((l) => l.status === "active").length)).catch(() => {});
     void OpsApi.calendar(now.toISOString(), in60.toISOString()).then((r) => setUpcoming(r.slice(0, 4))).catch(() => {});
     void ConfigApi.audit({}).then((r) => setActivity(r.data.slice(0, 6))).catch(() => {});
+    void MeApi.me().then((r) => setFirstName(r.profile.full_name.trim().split(/\s+/)[0] ?? "")).catch(() => {});
   }, []);
 
   const o = overview;
@@ -161,7 +163,7 @@ export function Dashboard(): ReactElement {
           </div>
         </div>
 
-        <h1 style={{ fontFamily: "var(--font-display)", color: "#fff", fontSize: 24, lineHeight: 1, letterSpacing: "-0.015em" }}>{greeting}</h1>
+        <h1 style={{ fontFamily: "var(--font-display)", color: "#fff", fontSize: 24, lineHeight: 1, letterSpacing: "-0.015em" }}>{firstName ? `${greeting}, ${firstName}` : greeting}</h1>
 
         <div className="grid grid-cols-2 md:grid-cols-4 mt-4 rounded-xl" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", overflow: "hidden" }}>
           {heroStats.map((item, idx) => (
