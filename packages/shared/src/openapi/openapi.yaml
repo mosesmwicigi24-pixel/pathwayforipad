@@ -97,6 +97,82 @@ paths:
         "400": { description: Validation failed }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Self-service sign-up; provisions a Student and mints a session (auto sign-in).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [full_name, email, password]
+              properties:
+                full_name: { type: string, maxLength: 255 }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 6 }
+      responses:
+        "201":
+          description: Account created; access + refresh pair issued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        "400": { description: Validation failed }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /auth/password/forgot:
+    post:
+      tags: [auth]
+      summary: Request a password-reset link. Always 200 (no account enumeration).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "200":
+          description: Reset requested (link delivered if the account exists)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sent]
+                properties:
+                  sent: { type: boolean }
+                  dev_token: { type: string, description: "Non-production only: the raw reset token, for testing." }
+  /auth/password/reset:
+    post:
+      tags: [auth]
+      summary: Consume a reset token and set a new password; revokes all sessions.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token: { type: string }
+                new_password: { type: string, minLength: 6 }
+      responses:
+        "200":
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reset]
+                properties:
+                  reset: { type: boolean }
+        "400": { description: Validation failed }
+        "422": { $ref: "#/components/responses/Unprocessable" }
   /auth/token/refresh:
     post:
       tags: [auth]

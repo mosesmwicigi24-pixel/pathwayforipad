@@ -81,12 +81,11 @@ export function GivingScreen(): ReactElement {
   const [methodOrder, setMethodOrder] = useState<UIMethod[]>(METHODS.map((m) => m.key));
   const [freq, setFreq] = useState<Freq>("once");
   const [coverFee, setCoverFee] = useState(false);
-  const [sheet, setSheet] = useState<"none" | "keypad" | "method" | "details">("none");
+  const [sheet, setSheet] = useState<"none" | "keypad" | "details">("none");
   const [ceremony, setCeremony] = useState<Ceremony | null>(null);
   const pollRef = useRef(false);
 
   const fund = FUNDS.find((f) => f.code === fundCode) ?? DEFAULT_FUND;
-  const methodDef = METHODS.find((m) => m.key === method) ?? METHODS[0]!;
   const fee = coverFee ? feeFor(amount) : 0;
   const total = amount + fee;
   const recurring = freq !== "once";
@@ -306,18 +305,43 @@ export function GivingScreen(): ReactElement {
           </View>
         ) : null}
 
-        {/* Paying with */}
-        <Pressable accessibilityRole="button" onPress={() => setSheet("method")} style={st.payRow}>
-          <View style={[st.methodTile, { backgroundColor: methodDef.badgeBg }]}>
-            <T variant="micro" style={{ color: palette.white, fontWeight: "800", fontSize: 9 }}>{methodDef.badge}</T>
+        {/* Choose how to pay — inline, selectable, reorderable list (Figma) */}
+        <View>
+          <View style={st.payHead}>
+            <T variant="overline" tone="secondary">CHOOSE HOW TO PAY</T>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <GripVertical size={12} color={palette.ink300} />
+              <T variant="micro" tone="tertiary">Drag to reorder</T>
+            </View>
           </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <T variant="micro" tone="tertiary" style={{ letterSpacing: 1 }}>PAYING WITH</T>
-            <T variant="heading" style={{ fontSize: 14, marginTop: 1 }}>{methodDef.label}</T>
-          </View>
-          {!PROVIDER[method] ? <View style={st.soonChip}><T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", fontSize: 9 }}>SOON</T></View> : null}
-          <ChevronDown size={18} color={palette.ink400} />
-        </Pressable>
+          {methodOrder.map((key, i) => {
+            const m = METHODS.find((x) => x.key === key)!;
+            const on = m.key === method;
+            const sub = (m.key === "mpesa" || m.key === "airtel") && on && phoneHint ? phoneHint : m.sub;
+            const soon = !PROVIDER[m.key];
+            return (
+              <View key={m.key} style={[st.methodCard, on && st.methodCardOn]}>
+                <Pressable accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => { setMethod(m.key); setSheet("details"); }} style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+                  <BrandGlyph k={m.key} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <T variant="heading" style={{ fontSize: 14 }}>{`Pay with ${m.label}`}</T>
+                    <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{sub}</T>
+                  </View>
+                  {soon ? <View style={st.soonChip}><T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", fontSize: 9 }}>SOON</T></View> : on ? <View style={st.checkDisc}><Check size={12} color={palette.white} /></View> : null}
+                </Pressable>
+                <View style={st.moveCol}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Move ${m.label} up`} disabled={i === 0} onPress={() => moveMethod(m.key, -1)} hitSlop={6} style={i === 0 && { opacity: 0.25 }}>
+                    <ChevronUp size={16} color={palette.ink400} />
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Move ${m.label} down`} disabled={i === methodOrder.length - 1} onPress={() => moveMethod(m.key, 1)} hitSlop={6} style={i === methodOrder.length - 1 && { opacity: 0.25 }}>
+                    <ChevronDown size={16} color={palette.ink400} />
+                  </Pressable>
+                </View>
+                <GripVertical size={16} color={palette.ink300} />
+              </View>
+            );
+          })}
+        </View>
 
         {/* Cover the fee */}
         <Pressable accessibilityRole="switch" accessibilityState={{ checked: coverFee }} onPress={() => setCoverFee((v) => !v)} style={st.feeRow}>
@@ -391,9 +415,6 @@ export function GivingScreen(): ReactElement {
       {sheet === "keypad" ? (
         <KeypadSheet fundLabel={fund.label} initial={amount} onClose={() => setSheet("none")} onSubmit={(v) => { setAmount(v); setSheet("none"); }} />
       ) : null}
-      {sheet === "method" ? (
-        <MethodSheet current={method} order={methodOrder} phoneHint={phoneHint} onMove={moveMethod} onPick={(m) => { setMethod(m); setSheet("details"); }} onClose={() => setSheet("none")} />
-      ) : null}
       {sheet === "details" ? (
         <PaymentDetailsSheet method={method} phoneHint={phoneHint} onClose={() => setSheet("none")} onGive={() => { setSheet("none"); void give(); }} />
       ) : null}
@@ -434,55 +455,14 @@ function KeypadSheet({ fundLabel, initial, onClose, onSubmit }: { fundLabel: str
   );
 }
 
-/* ---------- method picker (6, reorderable) ---------- */
-function MethodSheet({ current, order, phoneHint, onMove, onPick, onClose }: { current: UIMethod; order: UIMethod[]; phoneHint: string | null; onMove: (m: UIMethod, dir: -1 | 1) => void; onPick: (m: UIMethod) => void; onClose: () => void }): ReactElement {
-  return (
-    <View style={st.sheetWrap}>
-      <Pressable style={st.scrim} onPress={onClose} accessibilityLabel="Close" />
-      <View style={st.sheet}>
-        <View style={st.grab} />
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm }}>
-          <T variant="micro" tone="secondary" style={{ letterSpacing: 1.2 }}>CHOOSE HOW TO PAY</T>
-          <T variant="micro" tone="tertiary">Reorder ↑↓</T>
-        </View>
-        <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
-          {order.map((key, i) => {
-            const m = METHODS.find((x) => x.key === key)!;
-            const on = m.key === current;
-            const sub = (m.key === "mpesa" || m.key === "airtel") && phoneHint ? phoneHint : m.sub;
-            const soon = !PROVIDER[m.key];
-            return (
-              <View key={m.key} style={[st.methodOpt, on && st.methodOptOn]}>
-                <Pressable accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => onPick(m.key)} style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-                  <View style={[st.methodTileLg, { backgroundColor: m.badgeBg }]}>
-                    {m.key === "equity" ? <Landmark size={18} color={palette.white} /> : m.key === "card" ? <CreditCard size={18} color={palette.white} /> : m.key === "wallet" ? <Wallet size={18} color={palette.white} /> : <T variant="micro" style={{ color: palette.white, fontWeight: "800", fontSize: m.badge.length > 3 ? 8 : 11 }}>{m.badge}</T>}
-                  </View>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <T variant="heading" style={{ fontSize: 14 }}>{`Pay with ${m.label}`}</T>
-                    <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{sub}</T>
-                  </View>
-                  {soon ? <View style={st.soonChip}><T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", fontSize: 9 }}>SOON</T></View> : on ? <View style={st.checkDisc}><Check size={12} color={palette.white} /></View> : null}
-                </Pressable>
-                <View style={st.moveCol}>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Move ${m.label} up`} disabled={i === 0} onPress={() => onMove(m.key, -1)} hitSlop={6} style={i === 0 && { opacity: 0.25 }}>
-                    <ChevronUp size={16} color={palette.ink400} />
-                  </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Move ${m.label} down`} disabled={i === order.length - 1} onPress={() => onMove(m.key, 1)} hitSlop={6} style={i === order.length - 1 && { opacity: 0.25 }}>
-                    <ChevronDown size={16} color={palette.ink400} />
-                  </Pressable>
-                </View>
-                <GripVertical size={16} color={palette.ink300} />
-              </View>
-            );
-          })}
-        </ScrollView>
-        <View style={[st.trust, { justifyContent: "center", marginTop: spacing.md }]}>
-          <ShieldCheck size={13} color={palette.ink400} />
-          <T variant="micro" tone="tertiary">Encrypted via Safaricom Daraja &amp; Stripe</T>
-        </View>
-      </View>
-    </View>
-  );
+/* ---------- brand glyph (circular, per method) ---------- */
+function BrandGlyph({ k }: { k: UIMethod }): ReactElement {
+  if (k === "equity") return <View style={[st.glyph, { backgroundColor: "#A6093D" }]}><Landmark size={18} color={palette.white} /></View>;
+  if (k === "card") return <View style={[st.glyph, { backgroundColor: "#EEF0FF" }]}><CreditCard size={18} color="#6366F1" /></View>;
+  if (k === "wallet") return <View style={[st.glyph, { backgroundColor: "#EEF0FF" }]}><Wallet size={18} color="#6366F1" /></View>;
+  if (k === "paypal") return <View style={[st.glyph, { backgroundColor: "#E6F0FF" }]}><T variant="micro" style={{ color: "#0070BA", fontWeight: "800", fontSize: 11 }}>PP</T></View>;
+  const m = METHODS.find((x) => x.key === k)!;
+  return <View style={[st.glyph, { backgroundColor: m.badgeBg }]}><T variant="micro" style={{ color: palette.white, fontWeight: "800", fontSize: 8 }}>{m.badge}</T></View>;
 }
 
 /* ---------- per-method details ---------- */
@@ -641,9 +621,10 @@ const st = {
   freqItem: { flex: 1, height: 42, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   freqItemOn: { backgroundColor: palette.white, ...shadow.card },
   soonChip: { backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 6, paddingVertical: 2 },
-  payRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
-  methodTile: { width: 48, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  methodTileLg: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  payHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm },
+  methodCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: palette.white, borderRadius: 16, borderWidth: 1.5, borderColor: palette.border, padding: spacing.base, marginBottom: spacing.sm, ...shadow.card },
+  methodCardOn: { borderColor: palette.gold, backgroundColor: palette.priorityBg },
+  glyph: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   feeRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   switch: { width: 44, height: 26, borderRadius: 13, backgroundColor: "rgba(10,37,64,0.18)", padding: 3, justifyContent: "center" },
   knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: palette.white },

@@ -85,6 +85,35 @@ export const NuruApi = {
     const { data } = await api.post<TokenPair>("/auth/dev-login", { email });
     return data;
   },
+  /** Email + password sign-in. */
+  async login(email: string, password: string): Promise<TokenPair> {
+    const { data } = await api.post<TokenPair>("/auth/login", { email, password });
+    return data;
+  },
+  /** Self-service sign-up; returns a session (auto sign-in). */
+  async register(fullName: string, email: string, password: string): Promise<TokenPair> {
+    const { data } = await api.post<TokenPair>("/auth/register", {
+      full_name: fullName,
+      email,
+      password,
+    });
+    return data;
+  },
+  /** Request a password-reset link. Always resolves (no account enumeration). */
+  async forgotPassword(email: string): Promise<{ sent: boolean; dev_token?: string }> {
+    const { data } = await api.post<{ sent: boolean; dev_token?: string }>("/auth/password/forgot", {
+      email,
+    });
+    return data;
+  },
+  /** Consume a reset token and set a new password. */
+  async resetPassword(token: string, newPassword: string): Promise<{ reset: boolean }> {
+    const { data } = await api.post<{ reset: boolean }>("/auth/password/reset", {
+      token,
+      new_password: newPassword,
+    });
+    return data;
+  },
   async refresh(refreshToken: string): Promise<TokenPair> {
     const { data } = await api.post<TokenPair>("/auth/token/refresh", { refresh_token: refreshToken });
     return data;

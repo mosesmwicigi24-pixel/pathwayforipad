@@ -2,6 +2,7 @@
 // read/update with optimistic concurrency, and the onboarding intake that
 // instantiates the enrollment at Level 1 · Module 1.
 import type { Pool } from "pg";
+import { randomBytes, createHash } from "node:crypto";
 import { z } from "zod";
 import type { Env } from "../../config/env.js";
 import { ApiError } from "../../http/errors.js";
@@ -141,6 +142,122 @@ export class IdentityService {
       throw new ApiError("AUTH_REQUIRED", "Invalid email or password");
     }
     return this.issueSession({ user_id: row.user_id, role: row.role, congregation_id: row.congregation_id });
+  }
+
+  static readonly RegisterSchema = z
+    .object({
+      full_name: z.string().trim().min(1).max(255),
+      email: z.string().email().max(254),
+      password: z.string().min(6).max(200),
+    })
+    .strict();
+
+  /**
+   * Self-service sign-up (Figma "Create account"). Provisions a Student with a
+   * stored argon2id secret and mints a normal session (auto sign-in). Onboarding
+   * (cell, DOB, enrollment at L1·M1) is completed later via /me/onboarding. Email
+   * is CITEXT UNIQUE — a duplicate is rejected with 409 (constraint also enforces
+   * it under a race). Self-signup can only ever create a Student (§5.4, §5.8).
+   */
+  async register(input: z.infer<typeof IdentityService.RegisterSchema>): Promise<SessionTokens> {
+    const hash = await hashPassword(input.password);
+    const user = await tx(this.pool, async (c) => {
+      const existing = await maybeOne<{ user_id: string }>(
+        c,
+        `SELECT user_id FROM users WHERE email = $1 AND deleted_at IS NULL`,
+        [input.email],
+      );
+      if (existing) throw new ApiError("CONFLICT", "An account with this email already exists");
+      let created: UserAuthRow;
+      try {
+        created = await one<UserAuthRow>(
+          c,
+          `INSERT INTO users (full_name, email, password_hash, role)
+           VALUES ($1, $2, $3, 'Student')
+           RETURNING user_id, role, congregation_id`,
+          [input.full_name, input.email, hash],
+        );
+      } catch (e) {
+        // Unique-violation under a concurrent insert collapses to the same 409.
+        if ((e as { code?: string }).code === "23505") {
+          throw new ApiError("CONFLICT", "An account with this email already exists");
+        }
+        throw e;
+      }
+      await c.query(
+        `INSERT INTO notification_preferences (user_id) VALUES ($1) ON CONFLICT DO NOTHING`,
+        [created.user_id],
+      );
+      await audit(c, created.user_id, "user.registered", "users", created.user_id, { self_signup: true });
+      return created;
+    });
+    return this.issueSession(user);
+  }
+
+  static readonly ForgotPasswordSchema = z.object({ email: z.string().email().max(254) }).strict();
+
+  /**
+   * Request a password-reset link (Figma "Reset password"). Always reports success
+   * to avoid account enumeration; only accounts that actually have a password get a
+   * token. We persist the SHA-256 of a single-use 30-minute token (never the raw
+   * value). With no email provider wired, non-production returns the raw token so
+   * the flow is testable end-to-end; production would deliver it by email instead.
+   */
+  async requestPasswordReset(
+    input: z.infer<typeof IdentityService.ForgotPasswordSchema>,
+  ): Promise<{ sent: true; dev_token?: string }> {
+    const row = await maybeOne<{ user_id: string; password_hash: string | null }>(
+      this.pool,
+      `SELECT user_id, password_hash FROM users WHERE email = $1 AND deleted_at IS NULL`,
+      [input.email],
+    );
+    if (!row || !row.password_hash) return { sent: true };
+    const raw = randomBytes(32).toString("hex");
+    const tokenHash = createHash("sha256").update(raw).digest("hex");
+    const expires = new Date(Date.now() + 30 * 60 * 1000);
+    await this.pool.query(
+      `INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+      [row.user_id, tokenHash, expires],
+    );
+    await audit(this.pool, row.user_id, "user.password_reset_requested", "users", row.user_id, {});
+    return this.env.NODE_ENV === "production" ? { sent: true } : { sent: true, dev_token: raw };
+  }
+
+  static readonly ResetPasswordSchema = z
+    .object({ token: z.string().min(16).max(200), new_password: z.string().min(6).max(200) })
+    .strict();
+
+  /**
+   * Consume a reset token and set a new password. The token must be unused and
+   * unexpired; it is burned on use. All refresh-token families are revoked so any
+   * session opened with the old (possibly compromised) credential dies.
+   */
+  async resetPassword(
+    input: z.infer<typeof IdentityService.ResetPasswordSchema>,
+  ): Promise<{ reset: true }> {
+    const tokenHash = createHash("sha256").update(input.token).digest("hex");
+    const newHash = await hashPassword(input.new_password);
+    await tx(this.pool, async (c) => {
+      const reset = await maybeOne<{ reset_id: string; user_id: string }>(
+        c,
+        `SELECT reset_id, user_id FROM password_resets
+          WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
+          FOR UPDATE`,
+        [tokenHash],
+      );
+      if (!reset) throw new ApiError("UNPROCESSABLE", "This reset link is invalid or has expired");
+      await c.query(`UPDATE users SET password_hash = $2, updated_at = now() WHERE user_id = $1`, [
+        reset.user_id,
+        newHash,
+      ]);
+      await c.query(`UPDATE password_resets SET used_at = now() WHERE reset_id = $1`, [reset.reset_id]);
+      await c.query(
+        `UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
+        [reset.user_id],
+      );
+      await audit(c, reset.user_id, "user.password_reset", "users", reset.user_id, {});
+    });
+    return { reset: true };
   }
 
   async devLogin(input: { email?: string | undefined; user_id?: string | undefined }): Promise<SessionTokens> {

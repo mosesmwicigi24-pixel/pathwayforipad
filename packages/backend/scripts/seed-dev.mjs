@@ -5,6 +5,7 @@
 // dataset first. Run with `pnpm --filter @nuru/backend run seed:dev` against your
 // local DATABASE_URL. NEVER run against production.
 import pg from "pg";
+import argon2 from "argon2";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +29,7 @@ const STUDENTS = [
 ];
 const DEV_MODULES = 20; // dev curriculum modules to complete against
 const DEV_EVENTS = 8; // dev events to check in against
+const DEV_PASSWORD = "pathway123"; // shared password for every @dev.local account (local only)
 
 const client = new pg.Client({ connectionString: url });
 await client.connect();
@@ -143,6 +145,11 @@ try {
        window_end = EXCLUDED.window_end, computed_at = now()`,
   );
 
+  // Give every dev account the same known password so the email/password login
+  // (Figma "Log in") works out of the box in the simulator — not just dev-login.
+  const devHash = await argon2.hash(DEV_PASSWORD, { type: argon2.argon2id });
+  await client.query(`UPDATE users SET password_hash = $1 WHERE email LIKE '%@dev.local'`, [devHash]);
+
   await client.query("COMMIT");
 
   const bands = await client.query(
@@ -152,7 +159,7 @@ try {
   );
   console.warn("\nDev dataset seeded. Cell group 1 cohort (lowest engagement first):");
   for (const r of bands.rows) console.warn(`  ${r.e_score}  ${r.band.padEnd(9)}  ${r.full_name}`);
-  console.warn("\nDev-login emails:");
+  console.warn("\nDev-login emails (password for all: " + DEV_PASSWORD + "):");
   console.warn("  admin@dev.local    (Admin — sees every cell)");
   console.warn("  leader@dev.local   (Instructor — sees cell group 1 only)");
   console.warn("  student1@dev.local … student6@dev.local");

@@ -146,4 +146,67 @@ describe("identity / auth", () => {
     const res = await agent().post("/v1/auth/login").send({ email: "susp@dev.local", password: "right-pass" });
     expect(res.status).toBe(403);
   });
+
+  // ---- Self-service register (POST /auth/register) ----
+  it("registers a new Student, mints a session, and the account can then log in", async () => {
+    const reg = await agent()
+      .post("/v1/auth/register")
+      .send({ full_name: "Grace New", email: "grace@dev.local", password: "joinme1" });
+    expect(reg.status).toBe(201);
+    expect(reg.body.access_token).toBeTruthy();
+    expect(reg.body.refresh_token).toBeTruthy();
+
+    const { rows } = await testPool().query("SELECT role FROM users WHERE email=$1", ["grace@dev.local"]);
+    expect(rows[0].role).toBe("Student"); // self-signup can only create a Student (§5.8)
+
+    // The brand-new credential works at the login endpoint too.
+    const login = await agent().post("/v1/auth/login").send({ email: "grace@dev.local", password: "joinme1" });
+    expect(login.status).toBe(200);
+  });
+
+  it("rejects a duplicate email with 409 and a too-short password with 400", async () => {
+    await agent().post("/v1/auth/register").send({ full_name: "Dup One", email: "dup@dev.local", password: "first123" });
+    const dup = await agent()
+      .post("/v1/auth/register")
+      .send({ full_name: "Dup Two", email: "dup@dev.local", password: "second123" });
+    expect(dup.status).toBe(409);
+
+    const short = await agent()
+      .post("/v1/auth/register")
+      .send({ full_name: "Tiny", email: "tiny@dev.local", password: "12345" });
+    expect(short.status).toBe(400);
+  });
+
+  // ---- Forgot / reset password ----
+  it("forgot→reset rotates the password, burns the token, and revokes old sessions", async () => {
+    const uid = await makePwUser("reset@dev.local", "old-pass-1");
+    const old = await issueRefreshToken(testPool(), uid, env); // a live session before reset
+
+    const forgot = await svc().requestPasswordReset({ email: "reset@dev.local" });
+    expect(forgot.sent).toBe(true);
+    const token = forgot.dev_token as string; // non-production exposes the raw token
+    expect(token).toBeTruthy();
+
+    await svc().resetPassword({ token, new_password: "brand-new-2" });
+
+    // New password works, old one does not.
+    await expect(
+      svc().loginWithPassword({ email: "reset@dev.local", password: "brand-new-2" }),
+    ).resolves.toMatchObject({ token_type: "Bearer" });
+    await expect(
+      svc().loginWithPassword({ email: "reset@dev.local", password: "old-pass-1" }),
+    ).rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+
+    // Token is single-use, and the pre-reset session was revoked.
+    await expect(svc().resetPassword({ token, new_password: "again-333" })).rejects.toMatchObject({
+      code: "UNPROCESSABLE",
+    });
+    await expect(rotateRefreshToken(testPool(), old.token, env)).rejects.toThrow();
+  });
+
+  it("forgot for an unknown email still reports sent (no enumeration) and issues no token", async () => {
+    const res = await svc().requestPasswordReset({ email: "nobody@dev.local" });
+    expect(res.sent).toBe(true);
+    expect(res.dev_token).toBeUndefined();
+  });
 });
