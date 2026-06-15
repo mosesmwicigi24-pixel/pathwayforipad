@@ -64,6 +64,8 @@ const EnvSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   SMTP_SECURE: z.string().default("false").transform((v) => v === "true" || v === "1"),
+  // TLS servername when SMTP_HOST is an IP (cert validates against the real host).
+  SMTP_TLS_SERVERNAME: z.string().optional(),
   EMAIL_FROM: z.string().default("Nuru Place <no-reply@nuruplace.org>"),
   // Public base URL used to build links in emails (e.g. the password-reset page).
   APP_PUBLIC_URL: z.string().url().default("https://pathway.nuruplace.org"),

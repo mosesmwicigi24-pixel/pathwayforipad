@@ -21,13 +21,16 @@ class SmtpEmailProvider implements EmailProvider {
   private readonly tx: Transporter;
   constructor(
     private readonly from: string,
-    opts: { host: string; port: number; secure: boolean; user?: string; pass?: string },
+    opts: { host: string; port: number; secure: boolean; user?: string; pass?: string; servername?: string },
     private readonly log?: Logger,
   ) {
     this.tx = nodemailer.createTransport({
       host: opts.host,
       port: opts.port,
       secure: opts.secure, // 465 = implicit TLS; 587 = STARTTLS (secure:false, upgraded)
+      // When host is an IP (e.g. reaching the mail server over a private hop),
+      // set the TLS servername so the cert still validates against its hostname.
+      ...(opts.servername ? { tls: { servername: opts.servername } } : {}),
       ...(opts.user ? { auth: { user: opts.user, pass: opts.pass ?? "" } } : {}),
     });
   }
@@ -59,6 +62,7 @@ export function buildEmailProvider(env: Env, log?: Logger): EmailProvider {
         host: env.SMTP_HOST,
         port: env.SMTP_PORT,
         secure: env.SMTP_SECURE,
+        ...(env.SMTP_TLS_SERVERNAME ? { servername: env.SMTP_TLS_SERVERNAME } : {}),
         ...(env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS ?? "" } : {}),
       },
       log,
