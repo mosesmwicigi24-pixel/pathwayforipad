@@ -77,6 +77,15 @@ Live admin Chat console was already rebuilt to this exact Make (overview analyti
 - **Intentionally NOT built:** "support" conversation type/filter — backend `kind` is `dm|group|space` only and the Make has no creation flow for support; live deliberately omits it (documented in Chat.tsx comments). Adding it would be speculative net-new product scope.
 - **At parity by design substitution:** Make stat strip "Avg response 1.4h" (hardcoded fake) → live uses real "Unread"/"Active today".
 
+## 7. Finance — "Giving Ledger" 🔴🟡 (diffed fresh Make `Finance.tsx` vs live)
+Make is a 5-tab console: **Overview / Transactions / Ledger / Audit / Configuration (MFA-gated)**. Live was a single read-only scroll page (fund cards + donut + recent gifts + ledger). Data foundation already existed (funds, transactions w/ txn_status, double-entry ledger_entries, recurring schedules, webhooks, per-fund summary, append-only audit_log). Gaps fixed (#130 backend + #131 web), **read-only, no schema change, money path untouched §5.6**:
+- 🔴 `GET /admin/finance/trend` (settled per month, zero-filled) — overview trend line.
+- 🔴 `GET /admin/finance/audit` (finance-scoped slice of audit_log: giving.*/purchase.*/finance.*/webhook.*, actor filter All/System/Admin) — the Audit tab.
+- 🔴 `GET /admin/finance/transactions/:id` (txn + balanced ledger postings) — detail drawer.
+- 🔴 `GET /admin/finance/config` (funds + provider availability booleans from env presence; **never secrets**, step_up_required flag) — read-only Configuration tab.
+- 🟡 web 5-tab rebuild; **ledger/posting status per tx derived from txn status** (succeeded→Posted, processing→Waiting, failed→Not posted, refunded→Reversed) — no new column.
+- **Deliberately NOT built (speculative + security):** funds CRUD, provider-secret entry, real MFA step-up gating, reconcile action. Config tab is informational/read-only; Reconcile is a non-destructive info panel (ledger auto-reconciles on verified webhooks). Export = window.print (client-only). Real admin TOTP MFA remains an outstanding security item.
+
 ## STILL TO DIFF (current Figma not yet read this pass — pages persisted on disk may be stale vs the user's latest edits; re-fetch fresh before building each)
 Members, MemberProfile, CellEngagement/CellDetail, Chat (+ moderation/attachments already shipped — diff for new features), Events, Finance, Dashboard, Notifications, Profile, Login, Layout/nav, ReflectionQueue, Certificates, Badges, Countries, Languages, Roles, Users, ModulePreview. The user flagged **Members** and **Chat** as changed "in a big way / many places" — prioritize those next.
 
