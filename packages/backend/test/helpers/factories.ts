@@ -130,3 +130,29 @@ export async function addQuestion(
   );
   return rows[0]!.question_id;
 }
+
+/**
+ * Insert a question of any Figma type with explicit storage values. `correct`
+ * is the scalar (single-select), a JSON array string (checkbox), or '' (manual).
+ */
+export async function addTypedQuestion(opts: {
+  moduleId: string;
+  qType: string;
+  correct: string;
+  answerOptions?: unknown;
+  points?: number;
+}): Promise<string> {
+  const { rows } = await testPool().query<{ question_id: string }>(
+    `INSERT INTO question_bank (module_id, q_type, question_text, answer_options, correct_answer, points)
+     VALUES ($1,$2,$3,$4,$5,COALESCE($6,1)) RETURNING question_id`,
+    [
+      opts.moduleId,
+      opts.qType,
+      "Q?",
+      opts.answerOptions !== undefined ? JSON.stringify(opts.answerOptions) : null,
+      opts.correct,
+      opts.points ?? null,
+    ],
+  );
+  return rows[0]!.question_id;
+}

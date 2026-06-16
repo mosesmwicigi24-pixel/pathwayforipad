@@ -2489,6 +2489,9 @@ components:
         is_passed: { type: boolean }
         pass_mark: { type: number }
         unlocked_next_module_id: { type: [string, "null"] }
+        requires_manual_review:
+          type: boolean
+          description: True when the attempt contains manual items (paragraph / keyless short_answer) needing human review. These are excluded from auto pass/fail.
         duplicate: { type: boolean, description: True when a replayed client_mutation_id returned the prior attempt }
     QuizAssembly:
       type: object
@@ -2509,9 +2512,18 @@ components:
             required: [question_id, q_type, question_text]
             properties:
               question_id: { type: string, format: uuid }
-              q_type: { type: string, enum: [MultipleChoice, TrueFalse, FillInTheBlank] }
+              q_type:
+                type: string
+                enum: [MultipleChoice, TrueFalse, FillInTheBlank, multiple_choice, checkbox, dropdown, short_answer, paragraph, linear_scale]
               question_text: { type: string }
-              answer_options: { type: [array, "null"], items: { type: string } }
+              answer_options:
+                description: >-
+                  Legacy rows: a JSON string array. New rows: an object with
+                  `choices` ({id,text,is_correct}[]) for choice types and/or
+                  `scale` ({min,max,min_label,max_label}) for linear_scale.
+                  Null for free-text (short_answer/paragraph). Correct flags are
+                  NEVER leaked at assembly (server strips them).
+                type: [array, object, "null"]
     ExamAssembly:
       type: object
       required: [level_number, question_count, questions]
@@ -2525,9 +2537,13 @@ components:
             required: [question_id, q_type, question_text]
             properties:
               question_id: { type: string, format: uuid }
-              q_type: { type: string, enum: [MultipleChoice, TrueFalse, FillInTheBlank] }
+              q_type:
+                type: string
+                enum: [MultipleChoice, TrueFalse, FillInTheBlank, multiple_choice, checkbox, dropdown, short_answer, paragraph, linear_scale]
               question_text: { type: string }
-              answer_options: { type: [array, "null"], items: { type: string } }
+              answer_options:
+                description: See QuizAssembly.answer_options. Correct flags stripped at assembly.
+                type: [array, object, "null"]
     ExamResult:
       type: object
       required: [exam_attempt_id, score_achieved, is_passed, pass_mark]
@@ -2536,6 +2552,9 @@ components:
         score_achieved: { type: number }
         is_passed: { type: boolean }
         pass_mark: { type: number }
+        requires_manual_review:
+          type: boolean
+          description: True when the exam contains manual items (paragraph / keyless short_answer) needing human review. Excluded from auto pass/fail.
         duplicate: { type: boolean }
     ThreadCreate:
       type: object

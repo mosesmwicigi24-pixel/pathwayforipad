@@ -12,8 +12,7 @@ import { z } from "zod";
 import { many, maybeOne, one, tx, recordChange, audit, type Queryable } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 import { loadEnrollment, loadModule, isModuleUnlocked, type EnrollmentRef } from "../progress/gating.js";
-
-const normalize = (s: string): string => s.trim().toLowerCase();
+import { gradeSubmission, stripAnswerSignal, type GradableQuestion } from "./grading.js";
 
 export interface QuizResult {
   attempt_id: string;
@@ -21,6 +20,7 @@ export interface QuizResult {
   is_passed: boolean;
   pass_mark: number;
   unlocked_next_module_id: string | null;
+  requires_manual_review: boolean;
   duplicate: boolean;
 }
 
@@ -86,13 +86,16 @@ export class AssessmentService {
       }
     }
 
-    const questions = await many(
+    const rows = await many<{ question_id: string; q_type: string; question_text: string; answer_options: unknown }>(
       this.pool,
       `SELECT question_id, q_type, question_text, answer_options
          FROM question_bank WHERE module_id = $1 AND is_active ORDER BY random()`,
       [moduleId],
     );
-    if (questions.length === 0) throw new ApiError("UNPROCESSABLE", "Module has no quiz questions");
+    if (rows.length === 0) throw new ApiError("UNPROCESSABLE", "Module has no quiz questions");
+    // §5.8: never leak correct-answer signal (legacy correct_answer is already
+    // excluded; structured options have their is_correct flags stripped here).
+    const questions = rows.map((q) => ({ ...q, answer_options: stripAnswerSignal(q.answer_options) }));
     return {
       module_id: moduleId,
       question_count: questions.length,
@@ -136,6 +139,7 @@ export class AssessmentService {
           unlocked_next_module_id: dup.is_passed
             ? await this.nextUnlockedId(c, enrollment, moduleId)
             : null,
+          requires_manual_review: false,
           duplicate: true,
         };
       }
@@ -178,23 +182,20 @@ export class AssessmentService {
         }
       }
 
-      const active = await many<{ question_id: string; correct_answer: string }>(
+      const active = await many<GradableQuestion>(
         c,
-        `SELECT question_id, correct_answer FROM question_bank WHERE module_id = $1 AND is_active`,
+        `SELECT question_id, q_type, correct_answer, points FROM question_bank WHERE module_id = $1 AND is_active`,
         [moduleId],
       );
       if (active.length === 0) throw new ApiError("UNPROCESSABLE", "Module has no quiz questions");
 
       const submitted = new Map(sub.answers.map((a) => [a.question_id, a.given_answer]));
-      let correct = 0;
-      const graded = active.map((q) => {
-        const given = submitted.get(q.question_id) ?? "";
-        const isCorrect = normalize(given) !== "" && normalize(given) === normalize(q.correct_answer);
-        if (isCorrect) correct += 1;
-        return { question_id: q.question_id, given_answer: given, is_correct: isCorrect };
-      });
-      const score = Math.round((correct / active.length) * 10000) / 100; // 2 dp
-      const isPassed = score >= passMark;
+      const outcome = gradeSubmission(active, submitted);
+      const score = outcome.score;
+      const { graded } = outcome;
+      // §1.9: pass/fail is over the AUTO-gradable set only; manual items
+      // (paragraph / keyless short_answer) are surfaced, never blocking.
+      const isPassed = outcome.gradable_points > 0 && score >= passMark;
 
       const attempt = await one<{ attempt_id: string }>(
         c,
@@ -219,6 +220,7 @@ export class AssessmentService {
         is_passed: isPassed,
         pass_mark: passMark,
         unlocked_next_module_id: isPassed ? await this.nextUnlockedId(c, enrollment, moduleId) : null,
+        requires_manual_review: outcome.requires_manual_review,
         duplicate: false,
       };
     });

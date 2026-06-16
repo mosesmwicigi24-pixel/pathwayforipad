@@ -8,14 +8,14 @@ import { z } from "zod";
 import { many, maybeOne, one, tx, recordChange, audit, type Queryable } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 import { loadEnrollment, modulePassedPredicate, entryFloorSeq, type EnrollmentRef } from "../progress/gating.js";
-
-const normalize = (s: string): string => s.trim().toLowerCase();
+import { gradeSubmission, stripAnswerSignal, type GradableQuestion } from "./grading.js";
 
 export interface ExamResult {
   exam_attempt_id: string;
   score_achieved: number;
   is_passed: boolean;
   pass_mark: number;
+  requires_manual_review: boolean;
   duplicate: boolean;
 }
 
@@ -64,7 +64,7 @@ export class ExamService {
 
   private examQuestions(c: Queryable, levelNumber: number, withAnswers: boolean): Promise<Array<Record<string, unknown>>> {
     const cols = withAnswers
-      ? "q.question_id, q.correct_answer"
+      ? "q.question_id, q.q_type, q.correct_answer, q.points"
       : "q.question_id, q.q_type, q.question_text, q.answer_options";
     return many(
       c,
@@ -79,8 +79,10 @@ export class ExamService {
   /** Assemble the exam from the level's active question pool (no answers leaked). */
   async assemble(userId: string, levelNumber: number): Promise<unknown> {
     await this.requireLevelReady(this.pool, userId, levelNumber);
-    const questions = await this.examQuestions(this.pool, levelNumber, false);
-    if (questions.length === 0) throw new ApiError("UNPROCESSABLE", "No exam questions for this level");
+    const rows = await this.examQuestions(this.pool, levelNumber, false);
+    if (rows.length === 0) throw new ApiError("UNPROCESSABLE", "No exam questions for this level");
+    // §5.8: strip correct-answer signal from structured options before serving.
+    const questions = rows.map((q) => ({ ...q, answer_options: stripAnswerSignal(q.answer_options) }));
     return { level_number: levelNumber, question_count: questions.length, questions };
   }
 
@@ -112,25 +114,20 @@ export class ExamService {
           score_achieved: Number(dup.score_achieved),
           is_passed: dup.is_passed,
           pass_mark: passMark,
+          requires_manual_review: false,
           duplicate: true,
         };
       }
 
       const enrollment = await this.requireLevelReady(c, userId, levelNumber);
-      const active = (await this.examQuestions(c, levelNumber, true)) as Array<{
-        question_id: string;
-        correct_answer: string;
-      }>;
+      const active = (await this.examQuestions(c, levelNumber, true)) as unknown as GradableQuestion[];
       if (active.length === 0) throw new ApiError("UNPROCESSABLE", "No exam questions for this level");
 
       const submitted = new Map(sub.answers.map((a) => [a.question_id, a.given_answer]));
-      let correct = 0;
-      for (const q of active) {
-        const given = submitted.get(q.question_id) ?? "";
-        if (normalize(given) !== "" && normalize(given) === normalize(q.correct_answer)) correct += 1;
-      }
-      const score = Math.round((correct / active.length) * 10000) / 100;
-      const isPassed = score >= passMark;
+      const outcome = gradeSubmission(active, submitted);
+      const score = outcome.score;
+      // §1.9 rule 2: pass/fail over the AUTO-gradable set; manual items never block.
+      const isPassed = outcome.gradable_points > 0 && score >= passMark;
 
       const attempt = await one<{ exam_attempt_id: string }>(
         c,
@@ -146,6 +143,7 @@ export class ExamService {
         score_achieved: score,
         is_passed: isPassed,
         pass_mark: passMark,
+        requires_manual_review: outcome.requires_manual_review,
         duplicate: false,
       };
     });

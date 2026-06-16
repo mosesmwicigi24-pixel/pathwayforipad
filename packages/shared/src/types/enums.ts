@@ -4,7 +4,21 @@
 export const USER_ROLES = ["Student", "Instructor", "Admin", "SuperAdmin"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
-export const QUESTION_TYPES = ["MultipleChoice", "TrueFalse", "FillInTheBlank"] as const;
+// Legacy enum values (kept valid) + the six Figma "ModuleQuizBuilder" types.
+// The DB column is CHECK-constrained TEXT (migration 43), not a Postgres enum.
+export const QUESTION_TYPES = [
+  // legacy
+  "MultipleChoice",
+  "TrueFalse",
+  "FillInTheBlank",
+  // Figma
+  "multiple_choice",
+  "checkbox",
+  "dropdown",
+  "short_answer",
+  "paragraph",
+  "linear_scale",
+] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 
 export const ENROLLMENT_STATES = ["active", "paused", "completed", "withdrawn"] as const;

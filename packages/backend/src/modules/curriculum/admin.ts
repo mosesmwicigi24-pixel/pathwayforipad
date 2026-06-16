@@ -11,37 +11,205 @@ import { ApiError } from "../../http/errors.js";
 
 const KIND = z.enum(["none", "reflection", "quiz", "exit_exam"]);
 
-// ---- Question validation (per-type, §5.8) ----------------------------------
-const QuestionInput = z.object({
-  q_type: z.enum(["MultipleChoice", "TrueFalse", "FillInTheBlank"]),
-  question_text: z.string().min(1),
-  answer_options: z.array(z.string()).optional(),
-  correct_answer: z.string().min(1),
-  difficulty_rating: z.number().int().min(1).max(5).default(1),
-  explanation: z.string().nullable().optional(),
-  points: z.number().int().min(1).max(100).default(1),
-  /** Author can create a question as a draft (excluded from the live quiz). */
-  is_active: z.boolean().optional(),
+// ---- Question model (legacy + Figma "ModuleQuizBuilder" types, §5.8) --------
+// Six Figma types plus the three legacy enum values are all valid (the DB column
+// is CHECK-constrained TEXT — see migration 43). Authoring accepts EITHER the
+// legacy shape (answer_options: string[] + scalar correct_answer) OR the Figma
+// shape (options: {text,is_correct}[] + linear-scale fields); we normalize both
+// into the stored answer_options JSON + correct_answer scalar/JSON-set.
+const LEGACY_TYPES = ["MultipleChoice", "TrueFalse", "FillInTheBlank"] as const;
+const FIGMA_TYPES = [
+  "multiple_choice",
+  "checkbox",
+  "dropdown",
+  "short_answer",
+  "paragraph",
+  "linear_scale",
+] as const;
+
+// Structured option from the Figma builder: { id?, text, is_correct }.
+const OptionInput = z.object({
+  id: z.string().optional(),
+  text: z.string().min(1),
+  is_correct: z.boolean().default(false),
 });
+type OptionInput = z.infer<typeof OptionInput>;
+
+const QuestionInput = z
+  .object({
+    q_type: z.enum([...LEGACY_TYPES, ...FIGMA_TYPES]),
+    question_text: z.string().min(1),
+    /** Legacy shape: plain string options + scalar correct_answer. */
+    answer_options: z.array(z.string()).optional(),
+    correct_answer: z.string().optional(),
+    /** Figma shape: structured options carrying the is_correct flags. */
+    options: z.array(OptionInput).optional(),
+    /** linear_scale config (collected, not auto-graded). */
+    scale_min: z.number().int().optional(),
+    scale_max: z.number().int().optional(),
+    scale_min_label: z.string().nullable().optional(),
+    scale_max_label: z.string().nullable().optional(),
+    difficulty_rating: z.number().int().min(1).max(5).default(1),
+    explanation: z.string().nullable().optional(),
+    points: z.number().int().min(1).max(100).default(1),
+    required: z.boolean().optional(),
+    /** Author can create a question as a draft (excluded from the live quiz). */
+    is_active: z.boolean().optional(),
+  })
+  .strip();
 type QuestionInput = z.infer<typeof QuestionInput>;
 
-function validateQuestion(q: QuestionInput): void {
+/** What gets persisted to question_bank after per-type normalization. */
+interface NormalizedQuestion {
+  q_type: string;
+  question_text: string;
+  answer_options: unknown | null; // JSONB payload (string[] legacy OR {choices,scale})
+  correct_answer: string; // scalar OR JSON array (checkbox) OR '' (manual/scale)
+  difficulty_rating: number;
+  explanation: string | null;
+  points: number;
+  required: boolean;
+}
+
+function fail(msg: string): never {
+  throw new ApiError("VALIDATION_FAILED", msg);
+}
+
+/**
+ * Validate per-type and normalize to the stored shape. Accepts both the legacy
+ * and Figma authoring shapes; throws VALIDATION_FAILED on anything incoherent.
+ */
+function normalizeQuestion(q: QuestionInput): NormalizedQuestion {
+  const base = {
+    q_type: q.q_type,
+    question_text: q.question_text,
+    difficulty_rating: q.difficulty_rating,
+    explanation: q.explanation ?? null,
+    points: q.points,
+    required: q.required ?? true,
+  };
+
+  // ---- Legacy types: keep the original semantics exactly. ------------------
   if (q.q_type === "MultipleChoice") {
-    if (!q.answer_options || q.answer_options.length < 2) {
-      throw new ApiError("VALIDATION_FAILED", "MultipleChoice needs at least 2 options");
+    if (!q.answer_options || q.answer_options.length < 2) fail("MultipleChoice needs at least 2 options");
+    if (!q.correct_answer || !q.answer_options.includes(q.correct_answer)) {
+      fail("correct_answer must be one of the options");
     }
-    if (!q.answer_options.includes(q.correct_answer)) {
-      throw new ApiError("VALIDATION_FAILED", "correct_answer must be one of the options");
+    return { ...base, answer_options: q.answer_options, correct_answer: q.correct_answer };
+  }
+  if (q.q_type === "TrueFalse") {
+    if (!q.correct_answer || !["True", "False"].includes(q.correct_answer)) {
+      fail("TrueFalse correct_answer must be 'True' or 'False'");
     }
-  } else if (q.q_type === "TrueFalse") {
-    if (!["True", "False"].includes(q.correct_answer)) {
-      throw new ApiError("VALIDATION_FAILED", "TrueFalse correct_answer must be 'True' or 'False'");
+    return { ...base, answer_options: q.answer_options ?? null, correct_answer: q.correct_answer };
+  }
+  if (q.q_type === "FillInTheBlank") {
+    if (!q.correct_answer || q.correct_answer.trim().length === 0) {
+      fail("FillInTheBlank needs a non-empty correct_answer");
     }
-  } else if (q.q_type === "FillInTheBlank") {
-    if (q.correct_answer.trim().length === 0) {
-      throw new ApiError("VALIDATION_FAILED", "FillInTheBlank needs a non-empty correct_answer");
+    return { ...base, answer_options: q.answer_options ?? null, correct_answer: q.correct_answer };
+  }
+
+  // ---- Figma choice types: multiple_choice | checkbox | dropdown -----------
+  if (q.q_type === "multiple_choice" || q.q_type === "dropdown" || q.q_type === "checkbox") {
+    const choices = coerceChoices(q);
+    if (choices.length < 1) fail(`${q.q_type} needs at least 1 option`);
+    const correct = choices.filter((c) => c.is_correct);
+    if (q.q_type === "checkbox") {
+      if (correct.length < 1) fail("checkbox needs at least 1 correct option");
+    } else {
+      if (correct.length !== 1) fail(`${q.q_type} needs exactly one correct option`);
+    }
+    const answer_options = { choices };
+    const correct_answer =
+      q.q_type === "checkbox"
+        ? JSON.stringify(correct.map((c) => c.text))
+        : correct[0]!.text;
+    return { ...base, answer_options, correct_answer };
+  }
+
+  // ---- short_answer: keyed → auto, keyless → manual -----------------------
+  if (q.q_type === "short_answer") {
+    const key = (q.correct_answer ?? "").trim();
+    return { ...base, answer_options: null, correct_answer: key };
+  }
+
+  // ---- paragraph: always manual (never auto-graded) -----------------------
+  if (q.q_type === "paragraph") {
+    return { ...base, answer_options: null, correct_answer: "" };
+  }
+
+  // ---- linear_scale: collected, points awarded if answered ----------------
+  if (q.q_type === "linear_scale") {
+    const min = q.scale_min ?? 1;
+    const max = q.scale_max ?? 5;
+    if (!(min < max)) fail("linear_scale needs scale_min < scale_max");
+    const answer_options = {
+      scale: {
+        min,
+        max,
+        min_label: q.scale_min_label ?? null,
+        max_label: q.scale_max_label ?? null,
+      },
+    };
+    return { ...base, answer_options, correct_answer: "" };
+  }
+
+  return fail(`Unsupported q_type: ${q.q_type}`);
+}
+
+/**
+ * Reconstruct an authoring-shape QuestionInput from a stored question_bank row,
+ * so updateQuestion can re-run the same validation/normalization as create.
+ */
+function reconstructAuthoringShape(cur: {
+  q_type: string;
+  question_text: string;
+  answer_options: unknown | null;
+  correct_answer: string;
+  difficulty_rating: number;
+  explanation: string | null;
+  points: number;
+  required: boolean;
+}): QuestionInput {
+  const out: QuestionInput = {
+    q_type: cur.q_type as QuestionInput["q_type"],
+    question_text: cur.question_text,
+    correct_answer: cur.correct_answer,
+    difficulty_rating: cur.difficulty_rating,
+    points: cur.points,
+    required: cur.required,
+  };
+  const opts = cur.answer_options;
+  if (Array.isArray(opts)) {
+    out.answer_options = opts as string[]; // legacy string[] shape
+  } else if (opts && typeof opts === "object") {
+    const o = opts as { choices?: OptionInput[]; scale?: { min: number; max: number; min_label: string | null; max_label: string | null } };
+    if (o.choices) out.options = o.choices;
+    if (o.scale) {
+      out.scale_min = o.scale.min;
+      out.scale_max = o.scale.max;
+      out.scale_min_label = o.scale.min_label;
+      out.scale_max_label = o.scale.max_label;
     }
   }
+  return out;
+}
+
+/** Build the structured choice list from either the Figma or legacy shape. */
+function coerceChoices(q: QuestionInput): Array<{ id: string | null; text: string; is_correct: boolean }> {
+  if (q.options && q.options.length > 0) {
+    return q.options.map((o, i) => ({ id: o.id ?? `opt-${i + 1}`, text: o.text, is_correct: o.is_correct }));
+  }
+  // Legacy fallback: string[] options + scalar correct_answer → one is_correct.
+  if (q.answer_options && q.answer_options.length > 0) {
+    return q.answer_options.map((text, i) => ({
+      id: `opt-${i + 1}`,
+      text,
+      is_correct: q.correct_answer != null && text === q.correct_answer,
+    }));
+  }
+  return [];
 }
 
 export class AdminCurriculumService {
@@ -115,10 +283,14 @@ export class AdminCurriculumService {
     .object({
       required_exam_pass_mark: z.number().min(0).max(100),
       exam_question_count: z.number().int().min(1).nullable().optional(),
+      /** Figma QuizSettings for the per-level final assessment. */
+      exam_show_answers: z.boolean().optional(),
+      exam_show_score: z.boolean().optional(),
+      exam_shuffle: z.boolean().optional(),
     })
     .strict();
 
-  /** Configure the level exit exam: pass mark + (optional) served question count. */
+  /** Configure the level exit exam: pass mark + (optional) served question count + reveal flags. */
   async updateLevelExam(
     levelNumber: number,
     editorId: string,
@@ -130,6 +302,9 @@ export class AdminCurriculumService {
       {
         required_exam_pass_mark: input.required_exam_pass_mark,
         exam_question_count: input.exam_question_count ?? null,
+        exam_show_answers: input.exam_show_answers,
+        exam_show_score: input.exam_show_score,
+        exam_shuffle: input.exam_shuffle,
       },
       "level.exam_configured",
     );
@@ -272,6 +447,7 @@ export class AdminCurriculumService {
       `SELECT module_id, level_number, module_sequence_number, title, summary, lesson_content,
               key_verses, status, is_published, evaluation_kind, quiz_pass_mark, estimated_minutes,
               video_url, media_asset_id, time_limit_sec, max_attempts, quiz_shuffle,
+              quiz_show_answers, quiz_show_score,
               difficulty, objectives, tags, visibility, required,
               current_version, row_version, created_at, updated_at
          FROM modules WHERE module_id = $1`,
@@ -293,6 +469,9 @@ export class AdminCurriculumService {
       time_limit_sec: z.number().int().min(30).max(7200).nullable().optional(),
       max_attempts: z.number().int().min(1).max(50).nullable().optional(),
       quiz_shuffle: z.boolean().optional(),
+      /** Figma QuizSettings reveal flags (per-module quiz). */
+      quiz_show_answers: z.boolean().optional(),
+      quiz_show_score: z.boolean().optional(),
       /** Editorial metadata (Level Detail editor) — presentation only. */
       difficulty: z.enum(["beginner", "intermediate", "advanced"]).optional(),
       objectives: z.string().nullable().optional(),
@@ -349,6 +528,8 @@ export class AdminCurriculumService {
         time_limit_sec: input.time_limit_sec,
         max_attempts: input.max_attempts,
         quiz_shuffle: input.quiz_shuffle,
+        quiz_show_answers: input.quiz_show_answers,
+        quiz_show_score: input.quiz_show_score,
         difficulty: input.difficulty,
         objectives: input.objectives,
         tags: input.tags,
@@ -542,7 +723,7 @@ export class AdminCurriculumService {
     return many(
       this.pool,
       `SELECT question_id, module_id, q_type, question_text, answer_options, correct_answer,
-              difficulty_rating, is_active, explanation, points
+              difficulty_rating, is_active, explanation, points, required
          FROM question_bank WHERE module_id = $1 AND archived_at IS NULL ORDER BY question_id`,
       [moduleId],
     );
@@ -555,29 +736,31 @@ export class AdminCurriculumService {
     editorId: string,
     input: z.infer<typeof AdminCurriculumService.AddQuestions>,
   ): Promise<{ added: number }> {
-    for (const q of input.questions) validateQuestion(q);
+    const normalized = input.questions.map(normalizeQuestion);
     return tx(this.pool, async (c) => {
       const m = await maybeOne(c, `SELECT 1 FROM modules WHERE module_id = $1`, [moduleId]);
       if (!m) throw new ApiError("NOT_FOUND", "Module not found");
-      for (const q of input.questions) {
+      for (let i = 0; i < normalized.length; i++) {
+        const q = normalized[i]!;
         await c.query(
-          `INSERT INTO question_bank (module_id, q_type, question_text, answer_options, correct_answer, difficulty_rating, explanation, points, is_active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,1),COALESCE($9,TRUE))`,
+          `INSERT INTO question_bank (module_id, q_type, question_text, answer_options, correct_answer, difficulty_rating, explanation, points, required, is_active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,1),COALESCE($9,TRUE),COALESCE($10,TRUE))`,
           [
             moduleId,
             q.q_type,
             q.question_text,
-            q.answer_options ? JSON.stringify(q.answer_options) : null,
+            q.answer_options !== null ? JSON.stringify(q.answer_options) : null,
             q.correct_answer,
             q.difficulty_rating,
-            q.explanation ?? null,
-            q.points ?? null,
-            q.is_active ?? null,
+            q.explanation,
+            q.points,
+            q.required,
+            input.questions[i]!.is_active ?? null,
           ],
         );
       }
-      await audit(c, editorId, "module.questions_added", "modules", moduleId, { count: input.questions.length });
-      return { added: input.questions.length };
+      await audit(c, editorId, "module.questions_added", "modules", moduleId, { count: normalized.length });
+      return { added: normalized.length };
     });
   }
 
@@ -591,40 +774,61 @@ export class AdminCurriculumService {
     input: z.infer<typeof AdminCurriculumService.UpdateQuestion>,
   ): Promise<unknown> {
     return tx(this.pool, async (c) => {
-      const cur = await maybeOne<QuestionInput & { is_active: boolean; answer_options: string[] | null }>(
+      const cur = await maybeOne<{
+        q_type: string;
+        question_text: string;
+        answer_options: unknown | null;
+        correct_answer: string;
+        difficulty_rating: number;
+        is_active: boolean;
+        explanation: string | null;
+        points: number;
+        required: boolean;
+      }>(
         c,
-        `SELECT q_type, question_text, answer_options, correct_answer, difficulty_rating, is_active, explanation, points
+        `SELECT q_type, question_text, answer_options, correct_answer, difficulty_rating, is_active, explanation, points, required
            FROM question_bank WHERE question_id = $1 FOR UPDATE`,
         [questionId],
       );
       if (!cur) throw new ApiError("NOT_FOUND", "Question not found");
-      // Validate the merged result so partial edits can't produce an invalid question.
+
+      // Reconstruct the authoring-shape input from the stored row, overlay the
+      // partial edit, then re-validate+normalize so partial edits can't yield an
+      // invalid question and round-trip through the same per-type rules as create.
+      const stored = reconstructAuthoringShape(cur);
       const merged: QuestionInput = {
-        q_type: input.q_type ?? cur.q_type,
-        question_text: input.question_text ?? cur.question_text,
-        answer_options: input.answer_options ?? cur.answer_options ?? undefined,
-        correct_answer: input.correct_answer ?? cur.correct_answer,
+        q_type: input.q_type ?? stored.q_type,
+        question_text: input.question_text ?? stored.question_text,
+        answer_options: input.answer_options ?? stored.answer_options,
+        correct_answer: input.correct_answer ?? stored.correct_answer,
+        options: input.options ?? stored.options,
+        scale_min: input.scale_min ?? stored.scale_min,
+        scale_max: input.scale_max ?? stored.scale_max,
+        scale_min_label: input.scale_min_label ?? stored.scale_min_label,
+        scale_max_label: input.scale_max_label ?? stored.scale_max_label,
         difficulty_rating: input.difficulty_rating ?? cur.difficulty_rating,
-        explanation: input.explanation ?? cur.explanation ?? null,
-        points: input.points ?? cur.points ?? 1,
+        explanation: input.explanation ?? cur.explanation,
+        points: input.points ?? cur.points,
+        required: input.required ?? cur.required,
       };
-      validateQuestion(merged);
+      const norm = normalizeQuestion(merged);
 
       await c.query(
         `UPDATE question_bank
             SET q_type = $2, question_text = $3, answer_options = $4, correct_answer = $5,
-                difficulty_rating = $6, is_active = $7, explanation = $8, points = $9
+                difficulty_rating = $6, is_active = $7, explanation = $8, points = $9, required = $10
           WHERE question_id = $1`,
         [
           questionId,
-          merged.q_type,
-          merged.question_text,
-          merged.answer_options ? JSON.stringify(merged.answer_options) : null,
-          merged.correct_answer,
-          merged.difficulty_rating,
+          norm.q_type,
+          norm.question_text,
+          norm.answer_options !== null ? JSON.stringify(norm.answer_options) : null,
+          norm.correct_answer,
+          norm.difficulty_rating,
           input.is_active ?? cur.is_active,
-          merged.explanation ?? null,
-          merged.points ?? 1,
+          norm.explanation,
+          norm.points,
+          norm.required,
         ],
       );
       await audit(c, editorId, "question.updated", "question_bank", questionId, {});
