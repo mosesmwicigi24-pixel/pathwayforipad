@@ -825,3 +825,96 @@ export const MediaApi = {
   archive: (assetId: string) =>
     api.delete<{ archived: boolean }>(`/admin/media/${assetId}`).then((r) => r.data),
 };
+
+// ---- Chat (oversight console over the member-facing mobile chat; chat module) ----
+export type ChatKind = "dm" | "group" | "space";
+export type ChatAiTag = "prayer" | "action" | "important" | null;
+export type ChatMsgType = "text" | "voice" | "image" | "file" | "video";
+
+export interface ChatReaction { emoji: string; count: number; mine: boolean }
+
+export interface ChatConversationRow {
+  conversation_id: string;
+  kind: ChatKind;
+  is_public: boolean;
+  title: string | null;
+  topic: string | null;
+  member_count: number;
+  last_body: string | null;
+  last_type: ChatMsgType | null;
+  last_at: string | null;
+  last_author: string | null;
+  unread: number;
+}
+
+export interface ChatDiscoverSpace {
+  conversation_id: string;
+  title: string | null;
+  topic: string | null;
+  member_count: number;
+}
+
+export interface ChatMessageRow {
+  message_id: string;
+  author_user_id: string;
+  author_name: string;
+  body: string;
+  msg_type: ChatMsgType;
+  attachment_url: string | null;
+  attachment_meta: Record<string, unknown> | null;
+  reply_to_id: string | null;
+  ai_tag: ChatAiTag;
+  is_edited: boolean;
+  created_at: string;
+  reply_body: string | null;
+  reply_author: string | null;
+  mine: boolean;
+  reactions: ChatReaction[];
+}
+
+export interface ChatConversationDetail {
+  conversation_id: string;
+  kind: ChatKind;
+  is_public: boolean;
+  topic: string | null;
+  title: string | null;
+  joined: boolean;
+  messages: ChatMessageRow[];
+}
+
+export interface ChatList {
+  conversations: ChatConversationRow[];
+  discover_spaces: ChatDiscoverSpace[];
+}
+
+export interface SendChatMessageBody {
+  message_id: string; // client-generated uuid (offline-first contract)
+  body?: string;
+  msg_type?: ChatMsgType;
+  attachment_url?: string;
+  reply_to_id?: string;
+}
+
+export const ChatApi = {
+  conversations: () => api.get<ChatList>("/chat/conversations").then((r) => r.data),
+  conversation: (id: string) =>
+    api.get<ChatConversationDetail>(`/chat/conversations/${id}`).then((r) => r.data),
+  sendMessage: (id: string, body: SendChatMessageBody) =>
+    api
+      .post<{ message_id: string; duplicate: boolean }>(`/chat/conversations/${id}/messages`, body)
+      .then((r) => r.data),
+  markRead: (id: string) =>
+    api.post<{ conversation_id: string }>(`/chat/conversations/${id}/read`, {}).then((r) => r.data),
+  toggleReaction: (messageId: string, emoji: string) =>
+    api
+      .post<{ message_id: string; emoji: string; on: boolean }>(`/chat/messages/${messageId}/reactions`, { emoji })
+      .then((r) => r.data),
+};
+
+// ---- Nuru AI assistant (assistant module; provider resolved server-side) ----
+export interface AssistantTurn { role: "user" | "assistant"; text: string }
+
+export const AssistantApi = {
+  chat: (body: { messages: AssistantTurn[]; conversation_id?: string }) =>
+    api.post<{ reply: string }>("/assistant/chat", body).then((r) => r.data),
+};
