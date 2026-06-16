@@ -17,6 +17,7 @@ import {
 import type { OAuthProfile } from "./oauth.js";
 import { generateTotpSecret, otpauthUri, verifyTotp } from "./totp.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
+import { renderPasswordReset } from "./email-templates.js";
 import { sealSecret, openSecret } from "./secretbox.js";
 import { buildEmailProvider, type EmailProvider } from "./email.js";
 
@@ -244,9 +245,9 @@ export class IdentityService {
   async requestPasswordReset(
     input: z.infer<typeof IdentityService.ForgotPasswordSchema>,
   ): Promise<{ sent: true; dev_token?: string }> {
-    const row = await maybeOne<{ user_id: string; password_hash: string | null }>(
+    const row = await maybeOne<{ user_id: string; password_hash: string | null; full_name: string | null }>(
       this.pool,
-      `SELECT user_id, password_hash FROM users WHERE email = $1 AND deleted_at IS NULL`,
+      `SELECT user_id, password_hash, full_name FROM users WHERE email = $1 AND deleted_at IS NULL`,
       [input.email],
     );
     if (!row || !row.password_hash) return { sent: true };
@@ -262,19 +263,14 @@ export class IdentityService {
     // Email the link to the account address. Best-effort: a delivery failure must
     // not change the (no-enumeration) response, so we never surface it.
     const link = `${this.env.APP_PUBLIC_URL}/reset-password?token=${raw}`;
+    const firstName = row.full_name?.trim().split(/\s+/)[0];
+    const email = renderPasswordReset({
+      link,
+      minutes: 30,
+      ...(firstName ? { name: firstName } : {}),
+    });
     try {
-      await this.emailer.send({
-        to: input.email,
-        subject: "Reset your Nuru Place password",
-        text:
-          `We received a request to reset the password for your Nuru Place account.\n\n` +
-          `Reset it here (valid for 30 minutes):\n${link}\n\n` +
-          `If you didn't request this, you can safely ignore this email — your password won't change.`,
-        html:
-          `<p>We received a request to reset the password for your Nuru Place account.</p>` +
-          `<p><a href="${link}">Reset your password</a> (valid for 30 minutes).</p>` +
-          `<p>If you didn't request this, you can safely ignore this email — your password won't change.</p>`,
-      });
+      await this.emailer.send({ to: input.email, ...email });
     } catch {
       /* best-effort delivery */
     }
