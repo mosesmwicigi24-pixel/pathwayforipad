@@ -1532,13 +1532,13 @@ paths:
   /admin/members:
     get:
       tags: [portal]
-      summary: Admin. Congregation-wide member list (search/cell/band/level filters, keyset-paged).
+      summary: Admin. Congregation-wide member list (search/cell/band/level/gender/programme/country filters, keyset-paged). Each row carries a derived status ("graduated" when the lifecycle flag is set, otherwise the server-computed engagement band) plus gender/city/programme/country_code/age.
       responses:
         "200": { description: Members }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
     post:
       tags: [portal]
-      summary: Admin. Add a learner (creates Student + enrollment; optional start_level/start_module_sequence, default L1·M1). Audited.
+      summary: Admin. Add a learner (creates Student + enrollment; optional start_level/start_module_sequence, default L1·M1; optional gender/city/programme/country_code/language/is_baptized). Engagement band is never accepted (server-computed, §1.1). Audited.
       responses:
         "201": { description: Member created }
         "400": { description: Validation failed }
@@ -1562,6 +1562,17 @@ paths:
       responses:
         "200": { description: Enrollment placement updated }
         "400": { description: Validation failed (unknown level or no published module at that position) }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/members/{id}/graduation:
+    patch:
+      tags: [portal]
+      summary: 'Admin. Mark/unmark a member Graduated ({ graduated: boolean }). A lifecycle flag distinct from the server-computed engagement band (§1.1); when set, the member''s list/profile status surfaces as "graduated". Idempotent. Audited.'
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Graduation flag updated }
+        "400": { description: Validation failed }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
   /admin/audit:

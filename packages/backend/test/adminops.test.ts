@@ -115,6 +115,76 @@ describe("members administration", () => {
     expect(aud.rows[0].n).toBe(1);
   });
 
+  it("persists the Figma member fields (gender/city/programme/country/language/baptized) and echoes them", async () => {
+    const res = await agent().post("/v1/admin/members").set(auth(adminTok)).send({
+      full_name: "Figma Disciple",
+      phone_number: "+254700000077",
+      cell_group_id: cell,
+      gender: "female",
+      city: "Nairobi",
+      programme: "foundations",
+      country_code: "ke", // lowercased input -> stored/returned uppercase
+      language: "sw",
+      is_baptized: true,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      gender: "female",
+      city: "Nairobi",
+      programme: "foundations",
+      country_code: "KE",
+      language: "sw",
+      is_baptized: true,
+    });
+    // Band must NOT be settable from the modal even if sent.
+    const withBand = await agent().post("/v1/admin/members").set(auth(adminTok)).send({
+      full_name: "Mock Band",
+      phone_number: "+254700000076",
+      cell_group_id: cell,
+      band: "thriving",
+    });
+    expect(withBand.status).toBe(400); // strict schema rejects unknown band key
+
+    const list = await agent().get("/v1/admin/members").set(auth(adminTok)).query({ programme: "foundations" });
+    const row = list.body.data.find((m: { user_id: string }) => m.user_id === res.body.user_id);
+    expect(row).toMatchObject({ gender: "female", city: "Nairobi", programme: "foundations", country_code: "KE" });
+    expect(row.status).toBe(null); // no engagement score yet, not graduated -> band is null
+  });
+
+  it("marks a member Graduated: list + profile status flip, then unmark restores band", async () => {
+    // Give the seeded student a computed band so we can see graduated override it.
+    await testPool().query(
+      `INSERT INTO engagement_scores (user_id, cell_group_id, h_score, c_score, a_score, e_score, band, window_end)
+       VALUES ($1, $2, 0.8, 0.8, 0.8, 0.8, 'thriving', CURRENT_DATE)`,
+      [studentId, cell],
+    );
+
+    const before = await agent().get("/v1/admin/members").set(auth(adminTok));
+    expect(before.body.data.find((m: { user_id: string }) => m.user_id === studentId).status).toBe("thriving");
+
+    const grad = await agent().patch(`/v1/admin/members/${studentId}/graduation`).set(auth(adminTok)).send({ graduated: true });
+    expect(grad.status).toBe(200);
+    expect(grad.body).toMatchObject({ graduated: true, status: "graduated" });
+
+    const afterList = await agent().get("/v1/admin/members").set(auth(adminTok));
+    expect(afterList.body.data.find((m: { user_id: string }) => m.user_id === studentId).status).toBe("graduated");
+
+    const profile = await agent().get(`/v1/admin/members/${studentId}`).set(auth(adminTok));
+    expect(profile.body).toMatchObject({ status: "graduated", graduated: true });
+    expect(profile.body.engagement.band).toBe("thriving"); // band still computed underneath
+
+    const aud = await testPool().query("SELECT count(*)::int n FROM audit_log WHERE action = 'member.graduated'");
+    expect(aud.rows[0].n).toBe(1);
+
+    // Unmark -> status returns to the computed band.
+    const ungrad = await agent().patch(`/v1/admin/members/${studentId}/graduation`).set(auth(adminTok)).send({ graduated: false });
+    expect(ungrad.body).toMatchObject({ graduated: false, status: "thriving" });
+
+    // Non-admin denied.
+    const denied = await agent().patch(`/v1/admin/members/${studentId}/graduation`).set(auth(studentTok)).send({ graduated: true });
+    expect(denied.status).toBe(403);
+  });
+
   it("rejects an unknown cell and non-admin callers", async () => {
     const bad = await agent().post("/v1/admin/members").set(auth(adminTok)).send({
       full_name: "X",

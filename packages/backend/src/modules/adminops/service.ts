@@ -256,11 +256,21 @@ export class AdminOpsService {
 
   // ---------------- Members administration ----------------
 
+  // Figma member "programme/track" + gender vocabularies. Band is NEVER accepted
+  // from clients — it stays server-computed (§1.1); the Figma "engagement band"
+  // select in the add-member modal is mock and intentionally ignored.
+  static readonly PROGRAMMES = ["new_believer", "foundations", "serving_track", "leadership_prep"] as const;
+  static readonly GENDERS = ["female", "male", "other"] as const;
+
   static readonly ListMembers = z.object({
     search: z.string().max(120).optional(),
     cell_group_id: z.string().uuid().optional(),
     band: z.enum(["thriving", "steady", "watch", "at_risk"]).optional(),
     level: z.coerce.number().int().min(1).optional(),
+    // Figma member filters (nice-to-have; all low-risk equality filters).
+    gender: z.enum(AdminOpsService.GENDERS).optional(),
+    programme: z.enum(AdminOpsService.PROGRAMMES).optional(),
+    country_code: z.string().trim().length(2).toUpperCase().optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50),
     cursor: z.string().uuid().optional(), // keyset: last user_id of the prior page
   });
@@ -285,6 +295,18 @@ export class AdminOpsService {
       params.push(q.level);
       where.push(`en.current_level = $${params.length}`);
     }
+    if (q.gender) {
+      params.push(q.gender);
+      where.push(`u.gender = $${params.length}`);
+    }
+    if (q.programme) {
+      params.push(q.programme);
+      where.push(`u.programme = $${params.length}`);
+    }
+    if (q.country_code) {
+      params.push(q.country_code);
+      where.push(`u.country_code = $${params.length}`);
+    }
     if (q.cursor) {
       params.push(q.cursor);
       where.push(`u.user_id > $${params.length}::uuid`);
@@ -294,9 +316,17 @@ export class AdminOpsService {
     const rows = await many<Record<string, unknown>>(
       this.replica,
       `SELECT u.user_id, u.full_name, u.email, u.phone_number, u.is_minor, u.created_at,
+              u.gender, u.city, u.programme, u.country_code,
+              u.date_of_birth,
+              date_part('year', age(u.date_of_birth))::int AS age,
               cg.name AS cell_name, u.cell_group_id,
               en.current_level, en.start_level, en.start_module_sequence,
+              en.graduated_at,
               es.e_score::float, es.band::text,
+              -- Derived list status: "graduated" (lifecycle flag) overrides the
+              -- server-computed engagement band; band itself is never admin-set (§1.1).
+              CASE WHEN en.graduated_at IS NOT NULL THEN 'graduated'
+                   ELSE es.band::text END AS status,
               (SELECT max(ie.occurred_at) FROM interaction_events ie WHERE ie.user_id = u.user_id) AS last_activity
          FROM users u
          LEFT JOIN cell_groups cg ON cg.cell_group_id = u.cell_group_id
@@ -320,6 +350,13 @@ export class AdminOpsService {
       email: z.string().email().optional(),
       date_of_birth: z.string().optional(), // ISO date
       cell_group_id: z.string().uuid(),
+      // Figma member fields (all optional). Gender stored lowercase.
+      gender: z.enum(AdminOpsService.GENDERS).optional(),
+      city: z.string().trim().max(120).optional(),
+      programme: z.enum(AdminOpsService.PROGRAMMES).optional(),
+      country_code: z.string().trim().length(2).toUpperCase().optional(),
+      language: z.string().trim().max(12).optional(), // -> users.locale
+      is_baptized: z.boolean().optional(),
       // Optional placement at registration; defaults to Level 1 · Module 1.
       start_level: z.coerce.number().int().min(1).default(1),
       start_module_sequence: z.coerce.number().int().min(1).default(1),
@@ -364,8 +401,14 @@ export class AdminOpsService {
 
       const user = await one<{ user_id: string }>(
         c,
-        `INSERT INTO users (full_name, phone_number, email, date_of_birth, cell_group_id, congregation_id, role)
-         VALUES ($1,$2,$3,$4,$5,$6,'Student') RETURNING user_id`,
+        `INSERT INTO users
+           (full_name, phone_number, email, date_of_birth, cell_group_id, congregation_id, role,
+            gender, city, programme, country_code,
+            locale, is_baptized)
+         VALUES ($1,$2,$3,$4,$5,$6,'Student',
+                 $7,$8,$9,$10,
+                 COALESCE($11, 'en'), COALESCE($12, FALSE))
+         RETURNING user_id`,
         [
           input.full_name,
           input.phone_number,
@@ -373,6 +416,12 @@ export class AdminOpsService {
           input.date_of_birth ?? null,
           input.cell_group_id,
           cell.congregation_id,
+          input.gender ?? null,
+          input.city ?? null,
+          input.programme ?? null,
+          input.country_code ?? null,
+          input.language ?? null,
+          input.is_baptized ?? null,
         ],
       );
       await c.query(
@@ -387,7 +436,8 @@ export class AdminOpsService {
       });
       return one(
         c,
-        `SELECT user_id, full_name, email, phone_number, cell_group_id, congregation_id, created_at
+        `SELECT user_id, full_name, email, phone_number, cell_group_id, congregation_id, created_at,
+                gender, city, programme, country_code, locale AS language, is_baptized
            FROM users WHERE user_id = $1`,
         [user.user_id],
       );
@@ -436,6 +486,49 @@ export class AdminOpsService {
         c,
         `SELECT u.user_id, u.full_name, en.current_level, en.start_level, en.start_module_sequence
            FROM users u JOIN enrollments en ON en.user_id = u.user_id
+          WHERE u.user_id = $1`,
+        [userId],
+      );
+    });
+  }
+
+  static readonly SetGraduation = z.object({ graduated: z.boolean() }).strict();
+
+  /**
+   * Mark / unmark a member as Graduated (Figma Members list "Graduated" status).
+   * Graduation is a LIFECYCLE flag distinct from the server-computed engagement
+   * band (§1.1): the band keeps updating from authoritative activity; this flag
+   * just changes the UI's surfaced status to "graduated" while set. Audited.
+   * Idempotent: setting an already-set value is a no-op (returns current state).
+   */
+  async setGraduation(adminId: string, userId: string, graduated: boolean): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const enrollment = await maybeOne<{ enrollment_id: string; graduated_at: string | null }>(
+        c,
+        `SELECT enrollment_id, graduated_at FROM enrollments WHERE user_id = $1`,
+        [userId],
+      );
+      if (!enrollment) throw new ApiError("NOT_FOUND", "Member has no enrollment");
+
+      const wasGraduated = enrollment.graduated_at != null;
+      if (wasGraduated !== graduated) {
+        await c.query(
+          `UPDATE enrollments SET graduated_at = ${graduated ? "now()" : "NULL"} WHERE user_id = $1`,
+          [userId],
+        );
+        await audit(c, adminId, graduated ? "member.graduated" : "member.ungraduated", "enrollments", enrollment.enrollment_id, {
+          user_id: userId,
+        });
+      }
+      return one(
+        c,
+        `SELECT u.user_id, u.full_name, en.graduated_at,
+                (en.graduated_at IS NOT NULL) AS graduated,
+                CASE WHEN en.graduated_at IS NOT NULL THEN 'graduated'
+                     ELSE es.band::text END AS status
+           FROM users u
+           JOIN enrollments en ON en.user_id = u.user_id
+           LEFT JOIN engagement_scores es ON es.user_id = u.user_id
           WHERE u.user_id = $1`,
         [userId],
       );
@@ -598,12 +691,14 @@ export class AdminOpsService {
     const m = await maybeOne<Record<string, unknown>>(
       this.replica,
       `SELECT u.user_id, u.full_name, u.email, u.phone_number, u.is_baptized, u.locale,
+              u.gender, u.city, u.programme, u.country_code,
               u.created_at, u.date_of_birth,
+              date_part('year', age(u.date_of_birth))::int AS age,
               (u.date_of_birth > CURRENT_DATE - INTERVAL '18 years') AS is_minor,
               cg.cell_group_id, cg.name AS cell_name,
               lang.name AS language_name,
               en.current_level, en.start_level, en.state AS enrollment_state,
-              en.started_at, en.completed_at,
+              en.started_at, en.completed_at, en.graduated_at,
               lv.title AS level_title,
               es.e_score::float AS e_score, es.band::text AS band,
               st.current_streak_days, st.longest_streak_days, st.last_active_date,
@@ -718,11 +813,21 @@ export class AdminOpsService {
       phone_number: m.phone_number,
       is_minor: m.is_minor,
       is_baptized: m.is_baptized,
+      gender: m.gender,
+      city: m.city,
+      programme: m.programme,
+      country_code: m.country_code,
+      date_of_birth: m.date_of_birth,
+      age: m.age,
       cell_group_id: m.cell_group_id,
       cell_name: m.cell_name,
       language: m.language_name ?? m.locale,
       created_at: m.created_at,
       last_activity: m.last_activity,
+      // "graduated" (lifecycle flag) overrides the server-computed band in the UI.
+      status: m.graduated_at ? "graduated" : (m.band as string | null),
+      graduated: m.graduated_at != null,
+      graduated_at: m.graduated_at,
       enrollment: {
         current_level: currentLevel,
         level_title: m.level_title,
@@ -730,6 +835,7 @@ export class AdminOpsService {
         state: m.enrollment_state,
         started_at: m.started_at,
         completed_at: m.completed_at,
+        graduated_at: m.graduated_at,
       },
       engagement: { e_score: m.e_score, band: m.band },
       metrics: {

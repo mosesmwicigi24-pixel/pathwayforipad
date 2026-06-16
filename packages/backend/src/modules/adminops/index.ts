@@ -84,6 +84,13 @@ export function registerAdminOps(ctx: AppContext): Router {
     res.json(await svc.setEnrollmentStart(requirePrincipal(req).userId, userId, input));
   }));
 
+  // Mark / unmark a member Graduated (lifecycle flag; engagement band stays computed, §1.1).
+  r.patch("/admin/members/:id/graduation", auth, perm("members", "edit"), handler(async (req, res) => {
+    const input = parseBody(AdminOpsService.SetGraduation, req.body);
+    const userId = req.params.id ?? "";
+    res.json(await svc.setGraduation(requirePrincipal(req).userId, userId, input.graduated));
+  }));
+
   // ---- Audit viewer ----
   r.get("/admin/audit", ...superOnly, handler(async (req, res) => {
     const q = parseBody(AdminOpsService.ListAudit, req.query);
