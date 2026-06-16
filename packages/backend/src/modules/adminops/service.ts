@@ -50,12 +50,15 @@ export class AdminOpsService {
     const cells = await many(
       this.replica,
       `SELECT cg.cell_group_id, cg.name,
+              cg.discipler_name, cg.discipler_role, cg.focus, cg.level_label,
+              cg.meets, cg.room, cg.next_session, cg.tone,
               count(es.user_id)::int                       AS members,
               COALESCE(round(avg(es.e_score), 3), 0)::float AS avg_engagement,
               count(*) FILTER (WHERE es.band = 'at_risk')::int AS at_risk
          FROM cell_groups cg
          LEFT JOIN engagement_scores es ON es.cell_group_id = cg.cell_group_id
-        GROUP BY cg.cell_group_id, cg.name
+        GROUP BY cg.cell_group_id, cg.name, cg.discipler_name, cg.discipler_role,
+                 cg.focus, cg.level_label, cg.meets, cg.room, cg.next_session, cg.tone
         ORDER BY avg_engagement ASC NULLS LAST
         LIMIT 50`,
     );
@@ -63,6 +66,72 @@ export class AdminOpsService {
       bands: Object.fromEntries(bands.map((b) => [b.band, Number(b.n)])),
       cells,
     };
+  }
+
+  static readonly CreateCell = z
+    .object({
+      name: z.string().trim().min(1).max(150),
+      discipler_name: z.string().trim().max(150).optional(),
+      discipler_role: z.string().trim().max(80).optional(),
+      focus: z.string().trim().max(200).optional(),
+      level_label: z.string().trim().max(120).optional(),
+      meets: z.string().trim().max(120).optional(),
+      room: z.string().trim().max(120).optional(),
+      next_session: z.string().trim().max(160).optional(),
+      tone: z.enum(["amber", "blue", "green", "violet", "rose", "red"]).optional(),
+      meeting_cadence: z.coerce.number().int().min(1).max(31).default(8),
+    })
+    .strict();
+
+  /**
+   * Register a new cell (Figma "Register a new cell"). The cell joins the single
+   * congregation; engagement metrics stay derived (§1.1), so a fresh cell reports
+   * zeros until disciples are assigned. Audited. Name is unique per congregation.
+   */
+  async createCell(adminId: string, input: z.infer<typeof AdminOpsService.CreateCell>): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const cong = await maybeOne<{ congregation_id: string }>(
+        c,
+        `SELECT congregation_id FROM congregations ORDER BY created_at LIMIT 1`,
+      );
+      if (!cong) throw new ApiError("VALIDATION_FAILED", "No congregation configured");
+      const dup = await maybeOne(
+        c,
+        `SELECT 1 FROM cell_groups WHERE congregation_id = $1 AND lower(name) = lower($2)`,
+        [cong.congregation_id, input.name],
+      );
+      if (dup) throw new ApiError("CONFLICT", "A cell with that name already exists");
+      const row = await one<{ cell_group_id: string }>(
+        c,
+        `INSERT INTO cell_groups
+           (congregation_id, name, meeting_cadence, discipler_name, discipler_role,
+            focus, level_label, meets, room, next_session, tone)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         RETURNING cell_group_id`,
+        [
+          cong.congregation_id,
+          input.name,
+          input.meeting_cadence,
+          input.discipler_name ?? null,
+          input.discipler_role ?? null,
+          input.focus ?? null,
+          input.level_label ?? null,
+          input.meets ?? null,
+          input.room ?? null,
+          input.next_session ?? null,
+          input.tone ?? null,
+        ],
+      );
+      await audit(c, adminId, "cell.created", "cell_groups", row.cell_group_id, { name: input.name });
+      return one(
+        c,
+        `SELECT cell_group_id, name, discipler_name, discipler_role, focus, level_label,
+                meets, room, next_session, tone, meeting_cadence,
+                0 AS members, 0::float AS avg_engagement, 0 AS at_risk
+           FROM cell_groups WHERE cell_group_id = $1`,
+        [row.cell_group_id],
+      );
+    });
   }
 
   /** Weekly attendance trend (last `weeks`) + this-week summary. */

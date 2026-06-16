@@ -55,6 +55,12 @@ export function registerAdminOps(ctx: AppContext): Router {
     res.json(await svc.markNotifications(requirePrincipal(req).userId, body.ids, action));
   }));
 
+  // ---- Cells administration (Figma "New Cell") ----
+  r.post("/admin/cells", auth, perm("members", "create"), handler(async (req, res) => {
+    const input = parseBody(AdminOpsService.CreateCell, req.body);
+    res.status(201).json(await svc.createCell(requirePrincipal(req).userId, input));
+  }));
+
   // ---- Members administration ----
   r.get("/admin/members", auth, perm("members", "view"), handler(async (req, res) => {
     const q = parseBody(AdminOpsService.ListMembers, req.query);

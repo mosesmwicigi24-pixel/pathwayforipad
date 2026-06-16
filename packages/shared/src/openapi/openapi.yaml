@@ -1445,6 +1445,15 @@ paths:
         "200": { description: Updated }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /admin/cells:
+    post:
+      tags: [portal]
+      summary: Admin. Register a new cell (name + discipler/focus/level/meeting metadata). Engagement metrics stay derived; a fresh cell reports zeros until disciples are assigned. Audited.
+      responses:
+        "201": { description: Cell created }
+        "400": { description: Validation failed }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "409": { description: A cell with that name already exists }
   /admin/members:
     get:
       tags: [portal]

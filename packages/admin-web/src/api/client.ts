@@ -166,10 +166,30 @@ export interface EngagementCellRow {
   members: number;
   avg_engagement: number;
   at_risk: number;
+  discipler_name?: string | null;
+  discipler_role?: string | null;
+  focus?: string | null;
+  level_label?: string | null;
+  meets?: string | null;
+  room?: string | null;
+  next_session?: string | null;
+  tone?: string | null;
 }
 export interface EngagementReport {
   bands: Record<string, number>;
   cells: EngagementCellRow[];
+}
+export interface CreateCellBody {
+  name: string;
+  discipler_name?: string;
+  discipler_role?: string;
+  focus?: string;
+  level_label?: string;
+  meets?: string;
+  room?: string;
+  next_session?: string;
+  tone?: string;
+  meeting_cadence?: number;
 }
 
 export const AdminApi = {
@@ -179,6 +199,10 @@ export const AdminApi = {
   },
   async engagementReport(): Promise<EngagementReport> {
     const { data } = await api.get<EngagementReport>("/admin/reports/engagement");
+    return data;
+  },
+  async createCell(body: CreateCellBody): Promise<EngagementCellRow> {
+    const { data } = await api.post<EngagementCellRow>("/admin/cells", body);
     return data;
   },
   async attendanceReport(weeks = 8): Promise<{ trend: AttendanceTrendPoint[]; recent_events: RecentEventRow[] }> {

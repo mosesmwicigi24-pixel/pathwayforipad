@@ -185,6 +185,35 @@ describe("members administration", () => {
   });
 });
 
+describe("cells administration", () => {
+  it("registers a new cell (Admin), echoes metadata, and surfaces it in the engagement report", async () => {
+    const res = await agent().post("/v1/admin/cells").set(auth(adminTok)).send({
+      name: "Lakeview Cell", discipler_name: "Mary Wanjiru", discipler_role: "Lead discipler",
+      focus: "New believers", level_label: "Level 2 · Foundations", meets: "Tue · 6:30 PM",
+      room: "Hall B", next_session: "Tue, Jun 24 · 6:30 PM", tone: "amber",
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.name).toBe("Lakeview Cell");
+    expect(res.body.discipler_name).toBe("Mary Wanjiru");
+    expect(res.body.tone).toBe("amber");
+    expect(res.body.members).toBe(0); // fresh cell — metrics derived, no disciples yet
+
+    const report = await agent().get("/v1/admin/reports/engagement").set(auth(adminTok));
+    const row = (report.body.cells as { name: string; focus: string | null }[]).find((c) => c.name === "Lakeview Cell");
+    expect(row).toBeTruthy();
+    expect(row?.focus).toBe("New believers");
+  });
+
+  it("rejects a duplicate cell name (409) and non-admin callers (403)", async () => {
+    await agent().post("/v1/admin/cells").set(auth(adminTok)).send({ name: "Unique Cell" });
+    const dup = await agent().post("/v1/admin/cells").set(auth(adminTok)).send({ name: "unique cell" });
+    expect(dup.status).toBe(409);
+
+    const forbidden = await agent().post("/v1/admin/cells").set(auth(studentTok)).send({ name: "Hacker Cell" });
+    expect(forbidden.status).toBe(403);
+  });
+});
+
 describe("audit viewer (SuperAdmin)", () => {
   it("lists audit rows for SuperAdmin; Admin gets 403", async () => {
     await agent().post("/v1/admin/members").set(auth(adminTok)).send({
