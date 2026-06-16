@@ -172,17 +172,17 @@ export function Badges(): ReactElement {
 function CreateModal({ onClose, onDone, onError }: { onClose: () => void; onDone: (name: string) => void; onError: (m: string) => void }): ReactElement {
   const [name, setName] = useState(""); const [code, setCode] = useState(""); const [description, setDescription] = useState("");
   const [category, setCategory] = useState<Category>("journey");
-  const [kind, setKind] = useState<"modules_completed" | "level" | "streak" | "attendance">("modules_completed");
+  const [kind, setKind] = useState<"module_count" | "level_reached" | "streak_days" | "attendance_count">("module_count");
   const [threshold, setThreshold] = useState("5");
   const [busy, setBusy] = useState(false);
   const codeAuto = code || name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 
   function criteria(): Record<string, unknown> {
     const n = Math.max(1, Number(threshold) || 1);
-    if (kind === "modules_completed") return { kind, count: n };
-    if (kind === "level") return { kind, level: n };
-    if (kind === "streak") return { kind, days: n };
-    return { kind, count: n };
+    if (kind === "module_count") return { kind, count: n };
+    if (kind === "level_reached") return { kind, level: n };
+    if (kind === "streak_days") return { kind, days: n };
+    return { kind, count: n }; // attendance_count
   }
   async function submit(): Promise<void> {
     if (!name.trim() || !codeAuto || !description.trim()) { onError("Name, code and description are required."); return; }
@@ -192,7 +192,7 @@ function CreateModal({ onClose, onDone, onError }: { onClose: () => void; onDone
     finally { setBusy(false); }
   }
   const inp = { width: "100%", borderRadius: 10, border: "1px solid var(--border)", background: "var(--input-background)", fontSize: 13, padding: "10px 12px", color: "var(--foreground)", outline: "none" } as const;
-  const thresholdLabel = kind === "level" ? "Reach level" : kind === "streak" ? "Streak days" : "Count";
+  const thresholdLabel = kind === "level_reached" ? "Reach level" : kind === "streak_days" ? "Streak days" : "Count";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(11,31,51,0.55)" }} onClick={onClose}>
@@ -210,7 +210,7 @@ function CreateModal({ onClose, onDone, onError }: { onClose: () => void; onDone
           <Field label="Award when (registered rule)" required>
             <div className="grid grid-cols-2 gap-3">
               <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} style={inp}>
-                <option value="modules_completed">Modules completed</option><option value="level">Level reached</option><option value="streak">Habit streak (days)</option><option value="attendance">Events attended</option>
+                <option value="module_count">Modules completed</option><option value="level_reached">Level reached</option><option value="streak_days">Habit streak (days)</option><option value="attendance_count">Events attended</option>
               </select>
               <div><div style={{ fontSize: 10, color: "var(--muted-foreground)", marginBottom: 4 }}>{thresholdLabel}</div><input type="number" min={1} value={threshold} onChange={(e) => setThreshold(e.target.value)} style={inp} /></div>
             </div>
