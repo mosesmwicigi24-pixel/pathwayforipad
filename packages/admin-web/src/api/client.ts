@@ -873,18 +873,28 @@ export const ConfigApi = {
 
 // ---- Video Library (W2; Features v2 §V) ----
 export type MediaStatus = "uploading" | "transcoding" | "ready" | "failed";
+// cloudinary = hosted/transcoded; the rest are externally-hosted, best-effort gated.
+export type VideoSource = "cloudinary" | "youtube" | "vimeo" | "direct" | "private";
 
 export interface MediaAssetRow {
   media_asset_id: string;
   kind: string;
   status: MediaStatus;
   provider: string;
+  video_source: VideoSource;
+  external_url: string | null;
+  external_video_id: string | null;
+  caption: string | null;
+  level_number: number | null;
+  is_homepage: boolean;
   duration_sec: number | null;
   error_detail: string | null;
   created_at: string;
   attached_module_title: string | null;
   attached_module_id: string | null;
   is_stuck: boolean;
+  views: number | null;
+  completion: number | null;
 }
 
 export interface UploadSession {
@@ -894,12 +904,56 @@ export interface UploadSession {
   expires_at: string;
 }
 
+export interface MediaListFilter {
+  status?: MediaStatus;
+  video_source?: VideoSource;
+  level?: number;
+  attached?: boolean;
+  q?: string;
+}
+
+export interface RegisterExternalInput {
+  video_source: Exclude<VideoSource, "cloudinary">;
+  url: string;
+  title?: string;
+  caption?: string;
+  level_number?: number;
+}
+
+export interface PatchAssetInput {
+  title?: string;
+  caption?: string;
+  level_number?: number | null;
+  video_source?: Exclude<VideoSource, "cloudinary">;
+  url?: string;
+}
+
 export const MediaApi = {
-  list: () => api.get<{ data: MediaAssetRow[]; total: number; stuck: number }>("/admin/media").then((r) => r.data),
+  list: (filter: MediaListFilter = {}) => {
+    const params: Record<string, string> = {};
+    if (filter.status) params.status = filter.status;
+    if (filter.video_source) params.video_source = filter.video_source;
+    if (typeof filter.level === "number") params.level = String(filter.level);
+    if (typeof filter.attached === "boolean") params.attached = filter.attached ? "true" : "false";
+    if (filter.q) params.q = filter.q;
+    return api.get<{ data: MediaAssetRow[]; total: number; stuck: number }>("/admin/media", { params }).then((r) => r.data);
+  },
+  // get / registerExternal / patchAsset return a leaner server row than the list
+  // projection; the page refetches via list() for the full shape, so type these loosely.
+  get: (assetId: string) =>
+    api.get<Partial<MediaAssetRow> & { media_asset_id: string }>(`/admin/media/${assetId}`).then((r) => r.data),
   createUpload: (kind = "lesson_video") =>
     api.post<UploadSession>("/admin/media/uploads", { kind }).then((r) => r.data),
   completeUpload: (uploadId: string) =>
     api.post<{ status: string }>(`/admin/media/uploads/${uploadId}/complete`, {}).then((r) => r.data),
+  registerExternal: (input: RegisterExternalInput) =>
+    api.post<Partial<MediaAssetRow> & { media_asset_id: string }>("/admin/media/external", input).then((r) => r.data),
+  patchAsset: (assetId: string, input: PatchAssetInput) =>
+    api.patch<Partial<MediaAssetRow> & { media_asset_id: string }>(`/admin/media/${assetId}`, input).then((r) => r.data),
+  setHomepage: (assetId: string) =>
+    api.post<{ is_homepage: true }>(`/admin/media/${assetId}/homepage`, {}).then((r) => r.data),
+  clearHomepage: (assetId: string) =>
+    api.delete<{ is_homepage: false }>(`/admin/media/${assetId}/homepage`).then((r) => r.data),
   archive: (assetId: string) =>
     api.delete<{ archived: boolean }>(`/admin/media/${assetId}`).then((r) => r.data),
 };
