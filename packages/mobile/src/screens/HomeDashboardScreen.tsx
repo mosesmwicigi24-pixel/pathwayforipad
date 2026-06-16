@@ -5,7 +5,7 @@
 // verse for today (WEB default per D-M4), encouragement, and announcements —
 // real data wherever the API serves it; spec demo content elsewhere.
 import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Linking, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import {
   BadgeCheck,
   Bell,
@@ -35,7 +35,9 @@ import {
   useNotifications,
   usePathway,
   useScripture,
+  useWelcomeVideo,
 } from "../api/hooks";
+import type { WelcomeVideo } from "../api/types";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -60,6 +62,22 @@ function firstName(full?: string | null): string {
   return (full ?? "Friend").trim().split(/\s+/)[0] ?? "Friend";
 }
 
+// The single link the welcome-video card opens. External sources (youtube/vimeo/
+// direct/private) carry a shareable external_url; hosted (cloudinary) carries a
+// signed delivery url. No video player dependency ships in the app, so both paths
+// hand off to the OS via Linking.openURL (same pattern as GivingScreen).
+function welcomeVideoUrl(v: WelcomeVideo): string | null {
+  if ("external_url" in v) return v.external_url;
+  return v.url;
+}
+
+// Human label for the source badge on the card.
+function welcomeVideoSourceLabel(source: WelcomeVideo["video_source"]): string {
+  if (source === "youtube") return "YouTube";
+  if (source === "vimeo") return "Vimeo";
+  return "Video";
+}
+
 const RHYTHM: Array<{ key: "prayer" | "word" | "reflection"; label: string }> = [
   { key: "prayer", label: "Prayer" },
   { key: "word", label: "Word" },
@@ -74,17 +92,25 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: notifications, refetch: refetchNotifs } = useNotifications();
   const { data: announcements, refetch: refetchAnnouncements } = useMyAnnouncements();
   const { data: verse } = useScripture("Psalm 119:105");
+  const { data: welcomeVideo, refetch: refetchWelcomeVideo } = useWelcomeVideo();
   const [refreshing, setRefreshing] = useState(false);
 
   // Pull-to-refresh re-pulls every Home data source from the backend.
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refetch(), refetchMe(), refetchAch(), refetchNotifs(), refetchAnnouncements()]);
+      await Promise.all([
+        refetch(),
+        refetchMe(),
+        refetchAch(),
+        refetchNotifs(),
+        refetchAnnouncements(),
+        refetchWelcomeVideo(),
+      ]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetch, refetchMe, refetchAch, refetchNotifs, refetchAnnouncements]);
+  }, [refetch, refetchMe, refetchAch, refetchNotifs, refetchAnnouncements, refetchWelcomeVideo]);
   const [fromIso, toIso] = useMemo(() => {
     const now = new Date();
     return [now.toISOString(), new Date(now.getTime() + 7 * 86_400_000).toISOString()];
@@ -123,6 +149,9 @@ export function HomeDashboardScreen(): ReactElement {
   const unread = notifications?.unread ?? 0;
   const modulesLeft = active ? active.total_modules - active.completed_modules : 0;
   const habitsPct = Math.round((rhythmDone / 3) * 100);
+  // Show the welcome-video card only when one is set AND it resolves to an
+  // openable link (hosted videos with no key come back as url:null).
+  const welcomeUrl = welcomeVideo ? welcomeVideoUrl(welcomeVideo) : null;
 
   const openAnnouncement = (id: string): void => {
     void NuruApi.openAnnouncement(id)
@@ -176,38 +205,39 @@ export function HomeDashboardScreen(): ReactElement {
       </View>
 
       <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.base, gap: spacing.base }}>
-        {/* ── Featured welcome video ─────────────────────────────────── */}
-        <View style={st.featuredCard}>
-          <View style={st.channelRow}>
-            <View style={st.channelAvatar}>
-              <T variant="micro" style={{ color: palette.gold, fontWeight: "700" }}>N</T>
-            </View>
-            <T variant="caption" style={{ fontWeight: "600" }}>Nuru Pathway</T>
-            <BadgeCheck size={14} color={palette.gold} />
-            <View style={{ flex: 1 }} />
-            <T variant="micro" tone="tertiary" style={{ letterSpacing: 1.2 }}>FEATURED</T>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Play welcome video"
-            onPress={() => (active ? nav.navigate("Level", { levelId: active.level_number }) : undefined)}
-            style={({ pressed }) => [st.thumb, pressed && { opacity: 0.92 }]}
-          >
-            <GradientBg colors={[palette.navy, palette.navy700, palette.gold]} radius={16} />
-            <View style={st.playBtn}>
-              <Play size={24} color={palette.navy} fill={palette.navy} />
-            </View>
-          </Pressable>
-          <T variant="heading" style={{ marginTop: spacing.md, fontSize: 17 }}>Welcome to the Pathway</T>
-          <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>Start here — what the journey looks like</T>
-          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
-            {["Intro", "Level overview", "Testimonies"].map((c) => (
-              <View key={c} style={st.chip}>
-                <T variant="micro" tone="secondary">{c}</T>
+        {/* ── Featured welcome video (real, PR #120; hidden when none set) ── */}
+        {welcomeVideo && welcomeUrl ? (
+          <View style={st.featuredCard}>
+            <View style={st.channelRow}>
+              <View style={st.channelAvatar}>
+                <T variant="micro" style={{ color: palette.gold, fontWeight: "700" }}>N</T>
               </View>
-            ))}
+              <T variant="caption" style={{ fontWeight: "600" }}>Nuru Pathway</T>
+              <BadgeCheck size={14} color={palette.gold} />
+              <View style={{ flex: 1 }} />
+              <T variant="micro" tone="tertiary" style={{ letterSpacing: 1.2 }}>
+                {welcomeVideoSourceLabel(welcomeVideo.video_source).toUpperCase()}
+              </T>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Play welcome video"
+              onPress={() => void Linking.openURL(welcomeUrl).catch(() => undefined)}
+              style={({ pressed }) => [st.thumb, pressed && { opacity: 0.92 }]}
+            >
+              <GradientBg colors={[palette.navy, palette.navy700, palette.gold]} radius={16} />
+              <View style={st.playBtn}>
+                <Play size={24} color={palette.navy} fill={palette.navy} />
+              </View>
+            </Pressable>
+            <T variant="heading" style={{ marginTop: spacing.md, fontSize: 17 }}>Welcome to the Pathway</T>
+            {welcomeVideo.caption ? (
+              <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>{welcomeVideo.caption}</T>
+            ) : (
+              <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>Start here — what the journey looks like</T>
+            )}
           </View>
-        </View>
+        ) : null}
 
         {/* ── Resume card (real pathway data) ────────────────────────── */}
         {active ? (
@@ -532,7 +562,6 @@ const st = {
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.6)",
   },
-  chip: { backgroundColor: palette.white, borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: palette.border },
   resumeTile: { width: 44, height: 44, borderRadius: 14, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
   resumeKicker: { color: palette.goldLo, fontWeight: "700", letterSpacing: 1.8 },
   resumeTitle: { fontSize: 19, color: palette.ink, marginTop: 2 },

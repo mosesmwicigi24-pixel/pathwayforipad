@@ -23,6 +23,7 @@ import type {
   MentorInfo,
   NotificationRow,
   ScripturePassage,
+  WelcomeVideo,
   LevelModule,
   ModuleDetail,
   PathwaySummary,
@@ -64,6 +65,7 @@ export const queryKeys = {
   notifications: "notifications",
   myAnnouncements: "myAnnouncements",
   scripture: (ref: string, version: string) => `scripture:${ref}:${version}`,
+  welcomeVideo: "welcomeVideo",
 };
 
 export function useMe(): QueryResult<MeResponse> {
@@ -173,6 +175,11 @@ export function useScripture(ref: string, version = "WEB"): QueryResult<Scriptur
   return useQuery(queryKeys.scripture(ref, version), () => NuruApi.scripture(ref, version), {
     staleMs: 24 * 60 * 60 * 1000,
   });
+}
+
+/** Homepage welcome video (PR #120); data is null when none is configured. */
+export function useWelcomeVideo(): QueryResult<WelcomeVideo | null> {
+  return useQuery(queryKeys.welcomeVideo, () => NuruApi.welcomeVideo(), { staleMs: 5 * 60_000 });
 }
 
 export function useMyRsvps(): QueryResult<MyRsvp[]> {

@@ -42,6 +42,7 @@ import type {
   ChatInbox,
   ChatThreadDetail,
   NuruTurn,
+  WelcomeVideo,
 } from "./types";
 
 export const api: AxiosInstance = axios.create({
@@ -477,6 +478,12 @@ export const NuruApi = {
   async mentor(): Promise<MentorInfo> {
     const { data } = await api.get("/growth/mentor");
     return data as MentorInfo;
+  },
+
+  // ---- Homepage welcome video (PR #120); null when none is set ----
+  async welcomeVideo(): Promise<WelcomeVideo | null> {
+    const { data } = await api.get<WelcomeVideo | null>("/home/welcome-video");
+    return data;
   },
 
   // ---- Module reflection review state (M3 over B3); null = none submitted ----

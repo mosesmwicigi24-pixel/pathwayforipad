@@ -456,3 +456,22 @@ export interface MentorInfo {
   next_meeting_at: string | null;
   notes: Array<{ note_id: string; topic: string; note: string | null; met_at: string; next_meeting_at: string | null }>;
 }
+
+// Homepage welcome video (GET /home/welcome-video, PR #120). Shared base fields,
+// then a source-dependent payload: external (youtube/vimeo/direct/private) carries
+// a shareable link; hosted (cloudinary) carries a signed, expiring delivery URL.
+interface WelcomeVideoBase {
+  media_asset_id: string;
+  video_source: "cloudinary" | "youtube" | "vimeo" | "direct" | "private";
+  caption: string | null;
+  duration_sec: number | null;
+}
+export interface WelcomeVideoExternal extends WelcomeVideoBase {
+  external_url: string | null;
+  external_video_id: string | null;
+}
+export interface WelcomeVideoHosted extends WelcomeVideoBase {
+  url: string | null;
+  expires_at?: string;
+}
+export type WelcomeVideo = WelcomeVideoExternal | WelcomeVideoHosted;
