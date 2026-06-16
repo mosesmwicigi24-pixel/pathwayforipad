@@ -475,3 +475,21 @@ export interface WelcomeVideoHosted extends WelcomeVideoBase {
   expires_at?: string;
 }
 export type WelcomeVideo = WelcomeVideoExternal | WelcomeVideoHosted;
+
+// Homepage-featured cell ("This week at Nuru", GET /home/featured-cell, PR #125).
+// Descriptive fields come from the cell row; members + avg_engagement are derived
+// server-side from engagement_scores. The endpoint returns null when none is set.
+export interface FeaturedCell {
+  cell_group_id: string;
+  name: string;
+  discipler_name: string | null;
+  discipler_role: string | null;
+  focus: string | null;
+  level_label: string | null;
+  meets: string | null;
+  room: string | null;
+  next_session: string | null;
+  tone: string | null;
+  members: number;
+  avg_engagement: number;
+}

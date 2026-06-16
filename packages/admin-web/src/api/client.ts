@@ -174,6 +174,8 @@ export interface EngagementCellRow {
   room?: string | null;
   next_session?: string | null;
   tone?: string | null;
+  // Homepage-featured cell ("This week at Nuru"); single-row invariant (PR #125).
+  is_featured?: boolean;
 }
 export interface EngagementReport {
   bands: Record<string, number>;
@@ -205,6 +207,12 @@ export const AdminApi = {
     const { data } = await api.post<EngagementCellRow>("/admin/cells", body);
     return data;
   },
+  // Feature this cell on the mobile homepage ("This week at Nuru"); unsets any
+  // other (single-row invariant enforced server-side, PR #125).
+  setFeaturedCell: (cellId: string) =>
+    api.post<{ is_featured: true }>(`/admin/cells/${cellId}/homepage`, {}).then((r) => r.data),
+  clearFeaturedCell: (cellId: string) =>
+    api.delete<{ is_featured: false }>(`/admin/cells/${cellId}/homepage`).then((r) => r.data),
   async attendanceReport(weeks = 8): Promise<{ trend: AttendanceTrendPoint[]; recent_events: RecentEventRow[] }> {
     const { data } = await api.get<{ trend: AttendanceTrendPoint[]; recent_events: RecentEventRow[] }>(
       "/admin/reports/attendance",

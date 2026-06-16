@@ -24,6 +24,7 @@ import type {
   NotificationRow,
   ScripturePassage,
   WelcomeVideo,
+  FeaturedCell,
   LevelModule,
   ModuleDetail,
   PathwaySummary,
@@ -66,6 +67,7 @@ export const queryKeys = {
   myAnnouncements: "myAnnouncements",
   scripture: (ref: string, version: string) => `scripture:${ref}:${version}`,
   welcomeVideo: "welcomeVideo",
+  featuredCell: "featuredCell",
 };
 
 export function useMe(): QueryResult<MeResponse> {
@@ -180,6 +182,11 @@ export function useScripture(ref: string, version = "WEB"): QueryResult<Scriptur
 /** Homepage welcome video (PR #120); data is null when none is configured. */
 export function useWelcomeVideo(): QueryResult<WelcomeVideo | null> {
   return useQuery(queryKeys.welcomeVideo, () => NuruApi.welcomeVideo(), { staleMs: 5 * 60_000 });
+}
+
+/** Homepage-featured cell "This week at Nuru" (PR #125); null when none is set. */
+export function useFeaturedCell(): QueryResult<FeaturedCell | null> {
+  return useQuery(queryKeys.featuredCell, () => NuruApi.featuredCell(), { staleMs: 5 * 60_000 });
 }
 
 export function useMyRsvps(): QueryResult<MyRsvp[]> {

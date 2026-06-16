@@ -43,6 +43,7 @@ import type {
   ChatThreadDetail,
   NuruTurn,
   WelcomeVideo,
+  FeaturedCell,
 } from "./types";
 
 export const api: AxiosInstance = axios.create({
@@ -483,6 +484,12 @@ export const NuruApi = {
   // ---- Homepage welcome video (PR #120); null when none is set ----
   async welcomeVideo(): Promise<WelcomeVideo | null> {
     const { data } = await api.get<WelcomeVideo | null>("/home/welcome-video");
+    return data;
+  },
+
+  // ---- Homepage-featured cell ("This week at Nuru", PR #125); null when none ----
+  async featuredCell(): Promise<FeaturedCell | null> {
+    const { data } = await api.get<FeaturedCell | null>("/home/featured-cell");
     return data;
   },
 

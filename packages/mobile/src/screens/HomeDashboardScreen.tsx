@@ -10,6 +10,7 @@ import {
   BadgeCheck,
   Bell,
   BookOpen,
+  CalendarClock,
   Check,
   ChevronRight,
   Clock,
@@ -30,6 +31,7 @@ import { GradientBg, Glow, T } from "../theme/components";
 import {
   useAchievements,
   useCalendar,
+  useFeaturedCell,
   useMe,
   useMyAnnouncements,
   useNotifications,
@@ -93,6 +95,7 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: announcements, refetch: refetchAnnouncements } = useMyAnnouncements();
   const { data: verse } = useScripture("Psalm 119:105");
   const { data: welcomeVideo, refetch: refetchWelcomeVideo } = useWelcomeVideo();
+  const { data: featuredCell, refetch: refetchFeaturedCell } = useFeaturedCell();
   const [refreshing, setRefreshing] = useState(false);
 
   // Pull-to-refresh re-pulls every Home data source from the backend.
@@ -106,11 +109,12 @@ export function HomeDashboardScreen(): ReactElement {
         refetchNotifs(),
         refetchAnnouncements(),
         refetchWelcomeVideo(),
+        refetchFeaturedCell(),
       ]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetch, refetchMe, refetchAch, refetchNotifs, refetchAnnouncements, refetchWelcomeVideo]);
+  }, [refetch, refetchMe, refetchAch, refetchNotifs, refetchAnnouncements, refetchWelcomeVideo, refetchFeaturedCell]);
   const [fromIso, toIso] = useMemo(() => {
     const now = new Date();
     return [now.toISOString(), new Date(now.getTime() + 7 * 86_400_000).toISOString()];
@@ -236,6 +240,57 @@ export function HomeDashboardScreen(): ReactElement {
             ) : (
               <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>Start here — what the journey looks like</T>
             )}
+          </View>
+        ) : null}
+
+        {/* ── This week at Nuru (real featured cell, PR #125; hidden when none) ── */}
+        {featuredCell ? (
+          <View style={st.card}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Users size={13} color={palette.goldChipText} />
+              <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>
+                THIS WEEK AT NURU
+              </T>
+            </View>
+            <T serif style={{ fontSize: 18, color: palette.ink, marginTop: spacing.md }}>{featuredCell.name}</T>
+            {featuredCell.discipler_name ? (
+              <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>
+                {featuredCell.discipler_role
+                  ? `${featuredCell.discipler_name} · ${featuredCell.discipler_role}`
+                  : featuredCell.discipler_name}
+              </T>
+            ) : null}
+            {featuredCell.focus || featuredCell.level_label ? (
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md }}>
+                {featuredCell.focus ? (
+                  <View style={st.weekChip}>
+                    <Target size={12} color={palette.goldLo} />
+                    <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>{featuredCell.focus}</T>
+                  </View>
+                ) : null}
+                {featuredCell.level_label ? (
+                  <View style={st.weekChip}>
+                    <Sparkles size={12} color={palette.goldLo} />
+                    <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>{featuredCell.level_label}</T>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+            {featuredCell.meets || featuredCell.next_session ? (
+              <View style={st.weekMeetRow}>
+                <View style={st.weekMeetTile}>
+                  <CalendarClock size={14} color={palette.goldLo} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  {featuredCell.meets ? (
+                    <T variant="caption" style={{ fontWeight: "600", color: palette.ink }}>{featuredCell.meets}</T>
+                  ) : null}
+                  {featuredCell.next_session ? (
+                    <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{`Next: ${featuredCell.next_session}`}</T>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -597,6 +652,25 @@ const st = {
     marginTop: spacing.md,
   },
   targetTile: { width: 28, height: 28, borderRadius: 9, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
+  weekChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: palette.surface,
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  weekMeetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: palette.surface,
+    borderRadius: 14,
+    padding: spacing.md,
+    marginTop: spacing.md,
+  },
+  weekMeetTile: { width: 28, height: 28, borderRadius: 9, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
   eventRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.md },
   eventDate: { width: 46, height: 46, borderRadius: 14, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
   verseCard: {

@@ -3,9 +3,9 @@
 // roster cards, a leaderboard ranked by average engagement, and an at-risk watch
 // list. Mock-only fields (discipler/room/meeting time) the make showed aren't in
 // our model, so real per-cell metrics (members, avg engagement, at-risk) are shown.
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronRight, CircleAlert, Sparkles, TrendingUp, Users, ArrowUpRight, Plus, X, Home, UserCheck, Target, CalendarClock, MapPin, CalendarPlus, GraduationCap } from "lucide-react";
+import { ChevronRight, CircleAlert, Sparkles, TrendingUp, Users, ArrowUpRight, Plus, X, Home, UserCheck, Target, CalendarClock, MapPin, CalendarPlus, GraduationCap, Star } from "lucide-react";
 import { AdminApi, type EngagementCellRow, type CreateCellBody } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -23,10 +23,40 @@ export function CellEngagement(): ReactElement {
   const [cells, setCells] = useState<EngagementCellRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [featuringId, setFeaturingId] = useState<string | null>(null);
 
-  useEffect(() => { void AdminApi.engagementReport().then((r) => setCells(r.cells)).catch((e) => setError(errorMessage(e, "Could not load cell engagement."))); }, []);
+  const load = useCallback(
+    () => AdminApi.engagementReport().then((r) => setCells(r.cells)).catch((e) => setError(errorMessage(e, "Could not load cell engagement."))),
+    [],
+  );
+  useEffect(() => { void load(); }, [load]);
 
-  const handleCreate = (created: EngagementCellRow): void => { setCells((prev) => [created, ...prev]); setAddOpen(false); };
+  const handleCreate = async (created: EngagementCellRow, featureOnHomepage: boolean): Promise<void> => {
+    setAddOpen(false);
+    if (featureOnHomepage) {
+      // Set the new cell as featured, then refetch so the single-featured
+      // invariant (any prior featured cell cleared server-side) shows correctly.
+      try { await AdminApi.setFeaturedCell(created.cell_group_id); await load(); return; }
+      catch (e) { setError(errorMessage(e, "Cell created, but could not feature it on the homepage.")); }
+    }
+    setCells((prev) => [created, ...prev]);
+  };
+
+  // Toggle the homepage-featured cell ("This week at Nuru"). The server keeps the
+  // single-featured invariant, so we refetch the whole report after each toggle.
+  const toggleFeatured = async (cell: EngagementCellRow): Promise<void> => {
+    setFeaturingId(cell.cell_group_id);
+    setError(null);
+    try {
+      if (cell.is_featured) await AdminApi.clearFeaturedCell(cell.cell_group_id);
+      else await AdminApi.setFeaturedCell(cell.cell_group_id);
+      await load();
+    } catch (e) {
+      setError(errorMessage(e, "Could not update the homepage-featured cell."));
+    } finally {
+      setFeaturingId(null);
+    }
+  };
 
   const totalMembers = cells.reduce((s, c) => s + c.members, 0);
   const totalAtRisk = cells.reduce((s, c) => s + c.at_risk, 0);
@@ -86,6 +116,29 @@ export function CellEngagement(): ReactElement {
                   </div>
                   <span className="inline-flex items-center gap-0.5 rounded-full px-2 py-1" style={{ fontSize: 11, fontWeight: 800, color: "#0B1F33", background: "rgba(255,255,255,0.7)", border: "1px solid var(--border)" }}>View <ChevronRight size={12} /></span>
                 </div>
+                <div className="mt-3">
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={cell.is_featured ?? false}
+                    title={cell.is_featured ? "Featured on the homepage — click to remove" : "Feature this cell on the homepage"}
+                    onClick={(e) => { e.stopPropagation(); if (featuringId !== cell.cell_group_id) void toggleFeatured(cell); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (featuringId !== cell.cell_group_id) void toggleFeatured(cell); } }}
+                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 transition"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: featuringId === cell.cell_group_id ? "wait" : "pointer",
+                      opacity: featuringId === cell.cell_group_id ? 0.6 : 1,
+                      color: cell.is_featured ? "#fff" : "var(--muted-foreground)",
+                      background: cell.is_featured ? "var(--nuru-gold)" : "rgba(0,0,0,0.03)",
+                      border: cell.is_featured ? "1px solid var(--nuru-gold)" : "1px solid var(--border)",
+                    }}
+                  >
+                    <Star size={11} fill={cell.is_featured ? "#fff" : "none"} />
+                    {cell.is_featured ? "Homepage · This week" : "Feature on homepage"}
+                  </span>
+                </div>
                 <div className="mt-4 flex items-end justify-between">
                   <div><div className="nuru-eyebrow" style={{ marginBottom: 2 }}>Avg engagement</div><span style={{ fontFamily: "var(--font-display)", fontSize: 32, color: "#0B1F33", lineHeight: 1 }}>{avg}%</span></div>
                   <div className="text-right">
@@ -132,7 +185,7 @@ export function CellEngagement(): ReactElement {
         </div>
       </section>
 
-      {addOpen && <NewCellModal onClose={() => setAddOpen(false)} onCreate={handleCreate} />}
+      {addOpen && <NewCellModal onClose={() => setAddOpen(false)} onCreate={(c, f) => { void handleCreate(c, f); }} />}
     </main>
   );
 }
@@ -159,7 +212,7 @@ function Field({ label, icon, children }: { label: string; icon?: ReactElement; 
   );
 }
 
-function NewCellModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c: EngagementCellRow) => void }): ReactElement {
+function NewCellModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c: EngagementCellRow, featureOnHomepage: boolean) => void }): ReactElement {
   const [name, setName] = useState("");
   const [discipler, setDiscipler] = useState("");
   const [disciplerRole, setDisciplerRole] = useState(ROLE_OPTIONS[0] as string);
@@ -169,6 +222,7 @@ function NewCellModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c
   const [room, setRoom] = useState("");
   const [nextSession, setNextSession] = useState("");
   const [tone, setTone] = useState("amber");
+  const [featureOnHomepage, setFeatureOnHomepage] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -184,7 +238,7 @@ function NewCellModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c
       ...(room.trim() ? { room: room.trim() } : {}),
       ...(nextSession.trim() ? { next_session: nextSession.trim() } : {}),
     };
-    try { onCreate(await AdminApi.createCell(body)); }
+    try { onCreate(await AdminApi.createCell(body), featureOnHomepage); }
     catch (e) { setErr(errorMessage(e, "Could not register the cell.")); setSaving(false); }
   };
 
@@ -219,6 +273,27 @@ function NewCellModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c
                 <button key={t.key} type="button" onClick={() => setTone(t.key)} aria-label={t.key} className="rounded-lg" style={{ width: 34, height: 34, background: t.hex, border: tone === t.key ? "3px solid var(--nuru-navy)" : "3px solid transparent", outline: tone === t.key ? "1px solid var(--border)" : "none" }} />
               ))}
             </div>
+          </div>
+          <div className="sm:col-span-2">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={featureOnHomepage}
+              onClick={() => setFeatureOnHomepage((v) => !v)}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left"
+              style={{ background: "var(--input-background)", border: "1.5px solid var(--border)" }}
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ background: featureOnHomepage ? "var(--nuru-gold)" : "rgba(0,0,0,0.05)", color: featureOnHomepage ? "#fff" : "var(--muted-foreground)" }}>
+                <Star size={16} fill={featureOnHomepage ? "#fff" : "none"} />
+              </span>
+              <span className="flex-1">
+                <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>Feature on homepage</span>
+                <span style={{ display: "block", fontSize: 11.5, color: "var(--muted-foreground)", marginTop: 1 }}>Show this cell in “This week at Nuru” on members’ home screens.</span>
+              </span>
+              <span className="rounded-full" style={{ width: 40, height: 22, padding: 2, background: featureOnHomepage ? "var(--nuru-gold)" : "rgba(0,0,0,0.15)", transition: "background 0.15s" }}>
+                <span style={{ display: "block", width: 18, height: 18, borderRadius: 9, background: "#fff", transform: featureOnHomepage ? "translateX(18px)" : "translateX(0)", transition: "transform 0.15s" }} />
+              </span>
+            </button>
           </div>
         </div>
 
