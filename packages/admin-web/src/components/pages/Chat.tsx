@@ -17,6 +17,7 @@ import {
   Archive, ArchiveRestore, Send, ShieldAlert, Users, Sparkles, AlertTriangle,
   CheckCheck, Circle, X, MessageSquare, Activity,
   WifiOff, Moon, LayoutGrid, Hash, Wand2, Loader2, Image as ImageIcon, Paperclip, FileText,
+  Plus, Mic, Square, Globe,
 } from "lucide-react";
 import {
   ChatApi, AssistantApi, uploadToCloudinary,
@@ -136,6 +137,12 @@ export function Chat(): ReactElement {
   const [uploading, setUploading] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Create-space modal + voice-note recording
+  const [createOpen, setCreateOpen] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   // Server-authoritative moderation: track in-flight message actions to disable buttons.
   const [moderatingIds, setModeratingIds] = useState<Set<string>>(new Set());
@@ -355,7 +362,7 @@ export function Chat(): ReactElement {
   };
 
   /* ── Attachment upload (sign → Cloudinary multipart POST → send message) ── */
-  const sendAttachment = async (file: File, kind: "image" | "file"): Promise<void> => {
+  const sendAttachment = async (file: File, kind: "image" | "file" | "voice"): Promise<void> => {
     if (!active || uploading || sending || isArchived) return;
     const id = active.conversation_id;
     const caption = draft.trim();
@@ -398,6 +405,40 @@ export function Chat(): ReactElement {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file
     if (file) void sendAttachment(file, kind);
+  };
+
+  /* ── Voice-note recording (MediaRecorder → webm → upload as msg_type voice) ── */
+  const startRecording = async (): Promise<void> => {
+    if (recording || isArchived) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      chunksRef.current = [];
+      rec.ondataavailable = (ev) => { if (ev.data.size) chunksRef.current.push(ev.data); };
+      rec.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const stamp = new Date().toISOString().slice(11, 19).replace(/:/g, "-");
+        const file = new File([blob], `voice-note-${stamp}.webm`, { type: "audio/webm" });
+        void sendAttachment(file, "voice");
+      };
+      rec.start();
+      recorderRef.current = rec;
+      setRecording(true);
+    } catch {
+      setThreadError("Microphone unavailable or permission denied.");
+    }
+  };
+  const stopRecording = (): void => { recorderRef.current?.stop(); setRecording(false); };
+
+  /* ── Create a public space (real POST; then reload + open it) ── */
+  const handleCreateSpace = async (title: string, topic: string): Promise<void> => {
+    const conversation_id = crypto.randomUUID();
+    const res = await ChatApi.createSpace({ conversation_id, title, ...(topic ? { topic } : {}) });
+    setCreateOpen(false);
+    loadList();
+    setActiveId(res.conversation_id);
+    setView("conversations");
   };
 
   /* ── Hero stats (derived from the list; flagged from the server per-row count) ── */
@@ -467,6 +508,9 @@ export function Chat(): ReactElement {
               );
             })}
           </div>
+          <button onClick={() => setCreateOpen(true)} className="flex items-center gap-2 rounded-lg px-3.5" style={{ height: 38, background: "var(--nuru-gold)", color: "#fff", fontSize: 12.5, fontWeight: 700, border: "none", cursor: "pointer", boxShadow: "0 6px 18px rgba(200,155,60,0.32)" }}>
+            <Plus size={14} /> New space
+          </button>
         </div>
 
         {view === "overview" && (
@@ -766,6 +810,9 @@ export function Chat(): ReactElement {
                     <div className="flex items-center gap-1 shrink-0">
                       <CBtn onClick={() => imageInputRef.current?.click()} disabled={isArchived || uploading || sending} title="Attach image"><ImageIcon size={16} /></CBtn>
                       <CBtn onClick={() => fileInputRef.current?.click()} disabled={isArchived || uploading || sending} title="Attach file"><Paperclip size={16} /></CBtn>
+                      <CBtn onClick={() => (recording ? stopRecording() : void startRecording())} disabled={isArchived || uploading || sending} title={recording ? "Stop recording" : "Record voice note"} active={recording} accent="#DC2626">
+                        {recording ? <Square size={15} /> : <Mic size={16} />}
+                      </CBtn>
                       <CBtn onClick={() => setAssistOpen((v) => !v)} disabled={isArchived} title="Nuru assist" active={assistOpen} accent="#5B2BB8"><Sparkles size={16} /></CBtn>
                     </div>
                     <textarea
@@ -793,6 +840,71 @@ export function Chat(): ReactElement {
             </section>
           </div>
         )}
+      </div>
+
+      {createOpen && <CreateSpaceModal onClose={() => setCreateOpen(false)} onCreate={handleCreateSpace} />}
+    </div>
+  );
+}
+
+/* ────── Create a public space ────── */
+function CreateSpaceModal({ onClose, onCreate }: { onClose: () => void; onCreate: (title: string, topic: string) => Promise<void> }): ReactElement {
+  const [name, setName] = useState("");
+  const [topic, setTopic] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (): Promise<void> => {
+    if (name.trim().length < 3) { setError("Give the space a name (at least 3 characters)."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      await onCreate(name.trim(), topic.trim());
+    } catch {
+      setBusy(false);
+      setError("Could not create the space. Please try again.");
+    }
+  };
+
+  const field: React.CSSProperties = { width: "100%", height: 40, borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--input-background)", padding: "0 12px", fontSize: 13, color: "var(--foreground)", outline: "none" };
+  const labelSt: React.CSSProperties = { fontSize: 11.5, fontWeight: 600, color: "var(--muted-foreground)", marginBottom: 6, display: "block" };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(11,31,51,0.55)" }} onClick={onClose}>
+      <div className="rounded-2xl overflow-hidden flex flex-col w-full" style={{ background: "#fff", maxWidth: 540, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between" style={{ padding: "18px 22px", borderBottom: "1px solid var(--border)" }}>
+          <div className="flex items-center gap-3">
+            <span className="flex items-center justify-center rounded-xl" style={{ width: 40, height: 40, background: "rgba(200,155,60,0.12)", color: "var(--nuru-gold)" }}><Globe size={19} /></span>
+            <div>
+              <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: "var(--nuru-navy)", lineHeight: 1.1 }}>Create a space</h2>
+              <p style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 1 }}>A public, joinable channel in the mobile-app chat.</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-2" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none", cursor: "pointer" }}><X size={16} /></button>
+        </div>
+
+        <div style={{ padding: "20px 22px" }}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelSt}>Space name <span style={{ color: "#DC2626" }}>*</span></label>
+            <div className="relative flex items-center">
+              <Hash size={15} style={{ position: "absolute", left: 12, color: "var(--muted-foreground)" }} />
+              <input value={name} onChange={(e) => { setName(e.target.value); setError(""); }} placeholder="e.g. Citywide Prayer Wall" style={{ ...field, paddingLeft: 36, borderColor: error ? "#DC2626" : "var(--border)" }} />
+            </div>
+            {error && <p style={{ fontSize: 11, color: "#DC2626", marginTop: 4 }}>{error}</p>}
+          </div>
+
+          <div>
+            <label style={labelSt}>Topic <span style={{ color: "var(--muted-foreground)", fontWeight: 400 }}>(optional)</span></label>
+            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="What is this space for?" style={field} />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2" style={{ padding: "16px 22px", borderTop: "1px solid var(--border)", background: "var(--secondary)" }}>
+          <button onClick={onClose} className="rounded-xl px-4 py-2.5" style={{ background: "transparent", color: "var(--foreground)", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}>Cancel</button>
+          <button onClick={() => void submit()} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 600, border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Create space
+          </button>
+        </div>
       </div>
     </div>
   );

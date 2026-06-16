@@ -70,6 +70,13 @@ Diffed `/tmp/make/Events.tsx` (fresh) vs live — ~90% already matches; insights
 - 🔴 **RSVP roster** — make shows a full RSVP drawer (Member/Response/Cell/Time, going|maybe|not_going|no_response); live is an empty "not available yet" placeholder. Needs `GET /admin/events/:occurrenceId/rsvps` (from event_rsvps ⋈ users ⋈ cell_groups for the occurrence) + web wiring.
 - 🔴 **Series pause/resume** — make has a Pause button on Active Series (display-only). Needs `event_series.is_paused` + `POST /admin/events/series/:id/pause|resume` + projectRange skips paused + web wiring.
 
+## 6. Chat ✅ near-parity (diffed fresh Make `Chat.tsx` + `chatData.tsx` vs live admin console)
+Live admin Chat console was already rebuilt to this exact Make (overview analytics health-pie/per-day-bar/type-breakdown/needs-attention, filters, moderation flag/unflag/remove/restore, Nuru summary + draft assist with all 4 tones, image/file attachments + voice playback, reactions, reply context). Real gaps fixed (web-only, existing backend):
+- 🟡 **"New space" create button + modal** — Make has a prominent create flow; live had none. Added `ChatApi.createSpace` → existing `POST /chat/spaces` (Instructor+; admins qualify) + `CreateSpaceModal`. (Make's "group" option N/A: groups are per-cell auto-provisioned, no generic create endpoint — space is the backend-supported path.)
+- 🟡 **Voice-note recording in composer** — Make has a Mic record button; live only had image/file. Added MediaRecorder → webm → `sendAttachment(file,"voice")` (backend already supports `msg_type='voice'` + signed voice upload; renderer already plays voice).
+- **Intentionally NOT built:** "support" conversation type/filter — backend `kind` is `dm|group|space` only and the Make has no creation flow for support; live deliberately omits it (documented in Chat.tsx comments). Adding it would be speculative net-new product scope.
+- **At parity by design substitution:** Make stat strip "Avg response 1.4h" (hardcoded fake) → live uses real "Unread"/"Active today".
+
 ## STILL TO DIFF (current Figma not yet read this pass — pages persisted on disk may be stale vs the user's latest edits; re-fetch fresh before building each)
 Members, MemberProfile, CellEngagement/CellDetail, Chat (+ moderation/attachments already shipped — diff for new features), Events, Finance, Dashboard, Notifications, Profile, Login, Layout/nav, ReflectionQueue, Certificates, Badges, Countries, Languages, Roles, Users, ModulePreview. The user flagged **Members** and **Chat** as changed "in a big way / many places" — prioritize those next.
 

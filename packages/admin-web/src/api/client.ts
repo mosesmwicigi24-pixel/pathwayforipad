@@ -1199,6 +1199,11 @@ export const ChatApi = {
     api.post<ChatModerationResult>(`/chat/messages/${id}/remove`, {}).then((r) => r.data),
   restoreMessage: (id: string) =>
     api.post<ChatModerationResult>(`/chat/messages/${id}/restore`, {}).then((r) => r.data),
+  // Curate a public space for the congregation (Instructor+; admins qualify).
+  createSpace: (body: { conversation_id: string; title: string; topic?: string }) =>
+    api
+      .post<{ conversation_id: string; duplicate: boolean }>("/chat/spaces", body)
+      .then((r) => r.data),
 };
 
 export interface ChatModerationResult {
