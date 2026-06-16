@@ -137,3 +137,121 @@ describe("RBAC (§5.4)", () => {
     expect(res.body.error.code).toBe("FORBIDDEN_SCOPE");
   });
 });
+
+describe("external videos (Figma VideoLibrary: external + best-effort gating)", () => {
+  it("registers a YouTube video, parsing the id from the URL; status ready immediately", async () => {
+    const tok = bearer({ sub: adminId, role: "Admin", cong });
+    const res = await agent()
+      .post("/v1/admin/media/external")
+      .set("Authorization", tok)
+      .send({ video_source: "youtube", url: "https://youtu.be/ScMzIvxBSi4", title: "Intro", caption: "Welcome", level_number: 1 });
+    expect(res.status).toBe(201);
+    expect(res.body.video_source).toBe("youtube");
+    expect(res.body.external_video_id).toBe("ScMzIvxBSi4");
+    expect(res.body.external_url).toBe("https://youtu.be/ScMzIvxBSi4");
+    expect(res.body.status).toBe("ready");
+    expect(res.body.caption).toBe("Welcome");
+    expect(res.body.level_number).toBe(1);
+    // the existing transcode `provider` column is untouched (still the pipeline value)
+    expect(res.body.provider).toBe("youtube"); // origin lands in video_source; provider mirrors it for external rows
+  });
+
+  it("parses a vimeo id and rejects an unparseable youtube url", async () => {
+    const v = newVideo();
+    const ok = (await v.registerExternal(adminId, { video_source: "vimeo", url: "https://vimeo.com/76979871" })) as {
+      external_video_id: string;
+    };
+    expect(ok.external_video_id).toBe("76979871");
+    await expect(
+      v.registerExternal(adminId, { video_source: "youtube", url: "https://example.com/not-a-video" }),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+
+  it("updates caption, level, and the external url (re-parsing the id)", async () => {
+    const v = newVideo();
+    const a = (await v.registerExternal(adminId, { video_source: "youtube", url: "https://youtu.be/ScMzIvxBSi4" })) as {
+      media_asset_id: string;
+    };
+    const upd = (await v.updateAsset(adminId, a.media_asset_id, {
+      caption: "Updated",
+      level_number: 2,
+      url: "https://youtu.be/aqz-KE-bpKQ",
+    })) as { caption: string; level_number: number; external_video_id: string };
+    expect(upd.caption).toBe("Updated");
+    expect(upd.level_number).toBe(2);
+    expect(upd.external_video_id).toBe("aqz-KE-bpKQ");
+  });
+});
+
+describe("homepage welcome video (single-row invariant)", () => {
+  it("set/clear keeps at most one homepage asset and serves it to members", async () => {
+    const v = newVideo();
+    const a = (await v.registerExternal(adminId, { video_source: "youtube", url: "https://youtu.be/ScMzIvxBSi4" })) as {
+      media_asset_id: string;
+    };
+    const b = (await v.registerExternal(adminId, { video_source: "vimeo", url: "https://vimeo.com/76979871" })) as {
+      media_asset_id: string;
+    };
+
+    await v.setHomepage(adminId, a.media_asset_id);
+    let onCount = await testPool().query("SELECT COUNT(*)::int AS n FROM media_assets WHERE is_homepage = true");
+    expect(onCount.rows[0].n).toBe(1);
+
+    // Setting b unsets a — never two homepage rows (partial unique index).
+    await v.setHomepage(adminId, b.media_asset_id);
+    onCount = await testPool().query("SELECT media_asset_id FROM media_assets WHERE is_homepage = true");
+    expect(onCount.rowCount).toBe(1);
+    expect(onCount.rows[0].media_asset_id).toBe(b.media_asset_id);
+
+    // Member welcome-video fetch returns the external link.
+    const w = (await v.welcomeVideo()) as { media_asset_id: string; external_url: string; video_source: string };
+    expect(w.media_asset_id).toBe(b.media_asset_id);
+    expect(w.video_source).toBe("vimeo");
+    expect(w.external_url).toBe("https://vimeo.com/76979871");
+
+    await v.clearHomepage(adminId, b.media_asset_id);
+    expect(await v.welcomeVideo()).toBeNull();
+  });
+
+  it("serves a signed delivery URL for a hosted homepage video", async () => {
+    const v = newVideo();
+    const session = await v.createUploadSession(adminId, {});
+    await v.completeUpload(adminId, session.upload_id, {});
+    await v.transcodeAsset({ media_asset_id: session.media_asset_id, content_hash: "z".repeat(64) });
+    await v.setHomepage(adminId, session.media_asset_id);
+    const w = (await v.welcomeVideo()) as { url: string; expires_at: string };
+    expect(w.url).toContain("res.cloudinary.com");
+    expect(w.expires_at).toBeTruthy();
+  });
+
+  it("GET /home/welcome-video is authenticated and returns null when unset", async () => {
+    const tok = bearer({ sub: studentId, role: "Student", cong });
+    const res = await agent().get("/v1/home/welcome-video").set("Authorization", tok);
+    expect(res.status).toBe(200);
+    expect(res.body).toBeNull();
+  });
+});
+
+describe("library list filters", () => {
+  it("filters by video_source, level, attached, and q", async () => {
+    const v = newVideo();
+    const tok = bearer({ sub: adminId, role: "Admin", cong });
+    await v.registerExternal(adminId, { video_source: "youtube", url: "https://youtu.be/ScMzIvxBSi4", caption: "alpha", level_number: 1 });
+    await v.registerExternal(adminId, { video_source: "vimeo", url: "https://vimeo.com/76979871", caption: "beta", level_number: 2 });
+
+    const yt = await agent().get("/v1/admin/media?video_source=youtube").set("Authorization", tok);
+    expect(yt.body.total).toBe(1);
+    expect(yt.body.data[0].video_source).toBe("youtube");
+
+    const lvl2 = await agent().get("/v1/admin/media?level=2").set("Authorization", tok);
+    expect(lvl2.body.total).toBe(1);
+    expect(lvl2.body.data[0].level_number).toBe(2);
+
+    const unattached = await agent().get("/v1/admin/media?attached=false").set("Authorization", tok);
+    expect(unattached.body.total).toBe(2); // neither external is attached to a module
+
+    const q = await agent().get("/v1/admin/media?q=beta").set("Authorization", tok);
+    expect(q.body.total).toBe(1);
+    expect(q.body.data[0].caption).toBe("beta");
+  });
+});

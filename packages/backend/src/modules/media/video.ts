@@ -14,6 +14,28 @@ import type { VideoPipelineProvider } from "./pipeline.js";
 const MANIFEST_TTL = 600; // ≤ 10 min (§V.2)
 const DEFAULT_MAX_BYTES = 2_000_000_000; // 2 GB upload cap
 
+// External (shareable) origins vs. hosted (signed-delivery) origins. External
+// links are best-effort gated only — they're shareable by nature (§ product
+// decision); hosted sources go through the existing signed-URL broker.
+const EXTERNAL_SOURCES = new Set(["youtube", "vimeo", "direct", "private"]);
+
+/** Parse a YouTube/Vimeo video id from a pasted URL (server-side). */
+export function parseExternalVideo(
+  declared: "youtube" | "vimeo" | "direct" | "private",
+  raw: string,
+): { videoId: string | null } {
+  const url = raw.trim();
+  if (declared === "youtube") {
+    const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/);
+    return { videoId: yt ? (yt[1] ?? null) : null };
+  }
+  if (declared === "vimeo") {
+    const vm = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+    return { videoId: vm ? (vm[1] ?? null) : null };
+  }
+  return { videoId: null }; // direct / private carry no provider id
+}
+
 export class VideoService {
   constructor(
     private readonly pool: Pool,
@@ -131,25 +153,270 @@ export class VideoService {
     }
   }
 
-  /** Video Library (W2): all managed assets, newest first, with the linked
-   *  module title and a stuck-encoding flag (transcoding for > 30 min). */
-  async listAssets(): Promise<{ data: unknown[]; total: number; stuck: number }> {
+  static readonly ListFilter = z
+    .object({
+      status: z.enum(["uploading", "transcoding", "ready", "failed"]).optional(),
+      video_source: z.enum(["cloudinary", "youtube", "vimeo", "direct", "private"]).optional(),
+      level: z.coerce.number().int().optional(),
+      attached: z
+        .enum(["true", "false"])
+        .transform((v) => v === "true")
+        .optional(),
+      q: z.string().trim().min(1).optional(),
+    })
+    .strict();
+
+  /** Video Library (W2 / Figma VideoLibrary): managed assets, newest first, with
+   *  the linked module title, a stuck-encoding flag (transcoding for > 30 min),
+   *  the external/library fields, and cheap derived views/completion from
+   *  video_progress. Optional filters: status, video_source, level, attached, q. */
+  async listAssets(
+    filter: z.infer<typeof VideoService.ListFilter> = {},
+  ): Promise<{ data: unknown[]; total: number; stuck: number }> {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (filter.status) {
+      params.push(filter.status);
+      where.push(`ma.status = $${params.length}`);
+    }
+    if (filter.video_source) {
+      params.push(filter.video_source);
+      where.push(`ma.video_source = $${params.length}`);
+    }
+    if (typeof filter.level === "number") {
+      params.push(filter.level);
+      where.push(`ma.level_number = $${params.length}`);
+    }
+    if (typeof filter.attached === "boolean") {
+      where.push(filter.attached ? `m.module_id IS NOT NULL` : `m.module_id IS NULL`);
+    }
+    if (filter.q) {
+      params.push(`%${filter.q}%`);
+      where.push(`(m.title ILIKE $${params.length}::text OR ma.caption ILIKE $${params.length}::text)`);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const rows = await many<Record<string, unknown>>(
       this.pool,
-      `SELECT ma.media_asset_id, ma.kind, ma.status, ma.provider, ma.duration_sec,
-              ma.error_detail, ma.created_at,
+      `SELECT ma.media_asset_id, ma.kind, ma.status, ma.provider, ma.video_source,
+              ma.external_url, ma.external_video_id, ma.caption, ma.level_number,
+              ma.is_homepage, ma.duration_sec, ma.error_detail, ma.created_at,
               m.title AS attached_module_title, m.module_id AS attached_module_id,
-              (ma.status = 'transcoding' AND ma.created_at < now() - interval '30 minutes') AS is_stuck
+              (ma.status = 'transcoding' AND ma.created_at < now() - interval '30 minutes') AS is_stuck,
+              vp.views, vp.completion
          FROM media_assets ma
          LEFT JOIN modules m ON m.media_asset_id = ma.media_asset_id
+         LEFT JOIN (
+                SELECT media_asset_id,
+                       COUNT(*)::int AS views,
+                       ROUND(AVG(completed_pct))::int AS completion
+                  FROM video_progress
+                 GROUP BY media_asset_id
+              ) vp ON vp.media_asset_id = ma.media_asset_id
+        ${whereSql}
         ORDER BY ma.created_at DESC
         LIMIT 200`,
+      params,
     );
     return {
       data: rows,
       total: rows.length,
       stuck: rows.filter((r) => r.is_stuck === true).length,
     };
+  }
+
+  // ---------------- Admin: external videos + library editing ----------------
+
+  static readonly RegisterExternal = z
+    .object({
+      video_source: z.enum(["youtube", "vimeo", "direct", "private"]),
+      url: z.string().url(),
+      title: z.string().trim().min(1).optional(),
+      caption: z.string().trim().optional(),
+      level_number: z.number().int().positive().optional(),
+    })
+    .strict();
+
+  /** Register an external (shareable) video. No transcode — status = 'ready'
+   *  immediately. Parses the YouTube/Vimeo id server-side. */
+  async registerExternal(
+    adminId: string,
+    input: z.infer<typeof VideoService.RegisterExternal>,
+  ): Promise<unknown> {
+    const { videoId } = parseExternalVideo(input.video_source, input.url);
+    if ((input.video_source === "youtube" || input.video_source === "vimeo") && !videoId) {
+      throw new ApiError("VALIDATION_FAILED", `Could not parse a ${input.video_source} video id from the URL`);
+    }
+    return tx(this.pool, async (c) => {
+      const row = await one<{ media_asset_id: string }>(
+        c,
+        `INSERT INTO media_assets
+            (cloudinary_id, kind, status, provider, video_source,
+             external_url, external_video_id, caption, level_number, created_by)
+         VALUES ('external', 'lesson_video', 'ready', $1::varchar, $2::text, $3, $4, $5, $6, $7)
+         RETURNING media_asset_id`,
+        [
+          input.video_source,
+          input.video_source,
+          input.url,
+          videoId,
+          input.caption ?? null,
+          input.level_number ?? null,
+          adminId,
+        ],
+      );
+      if (input.title) {
+        // Title lives on the linked module; apply it if an attachment already
+        // exists (single-attach model — no placement table this PR).
+        await c.query(`UPDATE modules SET title = $1 WHERE media_asset_id = $2`, [input.title, row.media_asset_id]);
+      }
+      await audit(c, adminId, "media.external_register", "media_assets", row.media_asset_id, {
+        video_source: input.video_source,
+        external_video_id: videoId,
+      });
+      return this.getAssetRow(c, row.media_asset_id);
+    });
+  }
+
+  static readonly UpdateAsset = z
+    .object({
+      title: z.string().trim().min(1).optional(),
+      caption: z.string().trim().optional(),
+      level_number: z.number().int().positive().nullable().optional(),
+      video_source: z.enum(["youtube", "vimeo", "direct", "private"]).optional(),
+      url: z.string().url().optional(),
+    })
+    .strict();
+
+  /** Edit library metadata: caption, level_number, and (for external) the source/url.
+   *  Title is applied to the linked module when one is attached. */
+  async updateAsset(
+    adminId: string,
+    id: string,
+    input: z.infer<typeof VideoService.UpdateAsset>,
+  ): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const existing = await maybeOne<{ video_source: string }>(
+        c,
+        `SELECT video_source FROM media_assets WHERE media_asset_id = $1 FOR UPDATE`,
+        [id],
+      );
+      if (!existing) throw new ApiError("NOT_FOUND", "Media asset not found");
+
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      const push = (col: string, val: unknown): void => {
+        params.push(val);
+        sets.push(`${col} = $${params.length}`);
+      };
+      if (input.caption !== undefined) push("caption", input.caption);
+      if (input.level_number !== undefined) push("level_number", input.level_number);
+
+      const newSource = input.video_source ?? existing.video_source;
+      if (input.video_source !== undefined) {
+        if (!EXTERNAL_SOURCES.has(input.video_source)) {
+          throw new ApiError("VALIDATION_FAILED", "video_source must be external");
+        }
+        push("video_source", input.video_source);
+      }
+      if (input.url !== undefined) {
+        if (!EXTERNAL_SOURCES.has(newSource)) {
+          throw new ApiError("CONFLICT", "Cannot set an external url on a hosted asset");
+        }
+        const declared = newSource as "youtube" | "vimeo" | "direct" | "private";
+        const { videoId } = parseExternalVideo(declared, input.url);
+        if ((declared === "youtube" || declared === "vimeo") && !videoId) {
+          throw new ApiError("VALIDATION_FAILED", `Could not parse a ${declared} video id from the URL`);
+        }
+        push("external_url", input.url);
+        push("external_video_id", videoId);
+      }
+
+      if (sets.length > 0) {
+        params.push(id);
+        await c.query(`UPDATE media_assets SET ${sets.join(", ")} WHERE media_asset_id = $${params.length}`, params);
+      }
+      if (input.title !== undefined) {
+        await c.query(`UPDATE modules SET title = $1 WHERE media_asset_id = $2`, [input.title, id]);
+      }
+      await audit(c, adminId, "media.update", "media_assets", id, { fields: Object.keys(input) });
+      return this.getAssetRow(c, id);
+    });
+  }
+
+  // ---------------- Admin: homepage welcome video ----------------
+
+  /** Set THIS asset as the single homepage welcome video; unsets any other.
+   *  The partial unique index guarantees the single-row invariant. */
+  async setHomepage(adminId: string, id: string): Promise<{ is_homepage: true }> {
+    return tx(this.pool, async (c) => {
+      const exists = await maybeOne<{ media_asset_id: string }>(
+        c,
+        `SELECT media_asset_id FROM media_assets WHERE media_asset_id = $1`,
+        [id],
+      );
+      if (!exists) throw new ApiError("NOT_FOUND", "Media asset not found");
+      await c.query(`UPDATE media_assets SET is_homepage = false WHERE is_homepage = true AND media_asset_id <> $1`, [id]);
+      await c.query(`UPDATE media_assets SET is_homepage = true WHERE media_asset_id = $1`, [id]);
+      await audit(c, adminId, "media.homepage_set", "media_assets", id, {});
+      return { is_homepage: true };
+    });
+  }
+
+  /** Clear the homepage flag from this asset. */
+  async clearHomepage(adminId: string, id: string): Promise<{ is_homepage: false }> {
+    return tx(this.pool, async (c) => {
+      const r = await c.query(`UPDATE media_assets SET is_homepage = false WHERE media_asset_id = $1`, [id]);
+      if (r.rowCount === 0) throw new ApiError("NOT_FOUND", "Media asset not found");
+      await audit(c, adminId, "media.homepage_clear", "media_assets", id, {});
+      return { is_homepage: false };
+    });
+  }
+
+  /** Member: the current homepage welcome video, or null. External sources
+   *  return external_url + external_video_id; hosted return a signed delivery URL. */
+  async welcomeVideo(): Promise<unknown | null> {
+    const row = await maybeOne<{
+      media_asset_id: string;
+      video_source: string;
+      external_url: string | null;
+      external_video_id: string | null;
+      caption: string | null;
+      hls_master_key: string | null;
+      source_object_key: string | null;
+      duration_sec: number | null;
+    }>(
+      this.pool,
+      `SELECT media_asset_id, video_source, external_url, external_video_id, caption,
+              hls_master_key, source_object_key, duration_sec
+         FROM media_assets WHERE is_homepage = true LIMIT 1`,
+    );
+    if (!row) return null;
+    const base = {
+      media_asset_id: row.media_asset_id,
+      video_source: row.video_source,
+      caption: row.caption,
+      duration_sec: row.duration_sec,
+    };
+    // youtube / vimeo / direct / private all carry a shareable external_url
+    // (best-effort gating only — these are inherently shareable links).
+    if (EXTERNAL_SOURCES.has(row.video_source)) {
+      return { ...base, external_url: row.external_url, external_video_id: row.external_video_id };
+    }
+    // cloudinary / hosted: signed, expiring delivery URL.
+    const key = row.hls_master_key ?? row.source_object_key;
+    if (!key) return { ...base, url: null };
+    return { ...base, ...this.media.signedUrl(key, MANIFEST_TTL) };
+  }
+
+  private getAssetRow(c: Queryable, id: string): Promise<unknown> {
+    return one(
+      c,
+      `SELECT media_asset_id, kind, status, provider, video_source, external_url,
+              external_video_id, caption, level_number, is_homepage, ladder,
+              duration_sec, hls_master_key, error_detail, created_at
+         FROM media_assets WHERE media_asset_id = $1`,
+      [id],
+    );
   }
 
   getAsset(id: string): Promise<unknown> {

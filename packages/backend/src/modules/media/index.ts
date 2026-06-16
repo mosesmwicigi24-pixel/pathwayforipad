@@ -60,8 +60,19 @@ export function registerMedia(ctx: AppContext): Router {
   r.get(
     "/admin/media",
     auth, perm("videos", "view"),
-    handler(async (_req, res) => {
-      res.json(await video.listAssets());
+    handler(async (req, res) => {
+      const filter = parseBody(VideoService.ListFilter, req.query);
+      res.json(await video.listAssets(filter));
+    }),
+  );
+
+  // Register an external (YouTube/Vimeo/direct/private) video — no transcode.
+  r.post(
+    "/admin/media/external",
+    auth, perm("videos", "create"),
+    handler(async (req, res) => {
+      const input = parseBody(VideoService.RegisterExternal, req.body ?? {});
+      res.status(201).json(await video.registerExternal(requirePrincipal(req).userId, input));
     }),
   );
 
@@ -73,11 +84,47 @@ export function registerMedia(ctx: AppContext): Router {
     }),
   );
 
+  // Edit library metadata (caption, level, title; external source/url).
+  r.patch(
+    "/admin/media/:id",
+    auth, perm("videos", "update"),
+    handler(async (req, res) => {
+      const input = parseBody(VideoService.UpdateAsset, req.body ?? {});
+      res.json(await video.updateAsset(requirePrincipal(req).userId, req.params.id ?? "", input));
+    }),
+  );
+
   r.delete(
     "/admin/media/:id",
     auth, perm("videos", "delete"),
     handler(async (req, res) => {
       res.json(await video.archiveAsset(requirePrincipal(req).userId, req.params.id ?? ""));
+    }),
+  );
+
+  // Homepage welcome video (single-row invariant): set / clear.
+  r.post(
+    "/admin/media/:id/homepage",
+    auth, perm("videos", "update"),
+    handler(async (req, res) => {
+      res.json(await video.setHomepage(requirePrincipal(req).userId, req.params.id ?? ""));
+    }),
+  );
+
+  r.delete(
+    "/admin/media/:id/homepage",
+    auth, perm("videos", "update"),
+    handler(async (req, res) => {
+      res.json(await video.clearHomepage(requirePrincipal(req).userId, req.params.id ?? ""));
+    }),
+  );
+
+  // Member: the current homepage welcome video (or null).
+  r.get(
+    "/home/welcome-video",
+    auth,
+    handler(async (_req, res) => {
+      res.json(await video.welcomeVideo());
     }),
   );
 

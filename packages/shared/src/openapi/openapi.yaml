@@ -1076,10 +1076,44 @@ paths:
   /admin/media:
     get:
       tags: [system]
-      summary: Admin. Video Library — all managed assets with linked module + stuck-encoding flag.
+      summary: Admin. Video Library — managed assets with linked module, stuck-encoding flag, external + library fields, derived views/completion.
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string, enum: [uploading, transcoding, ready, failed] } }
+        - { name: video_source, in: query, required: false, schema: { type: string, enum: [cloudinary, youtube, vimeo, direct, private] } }
+        - { name: level, in: query, required: false, schema: { type: integer } }
+        - { name: attached, in: query, required: false, schema: { type: string, enum: ["true", "false"] } }
+        - { name: q, in: query, required: false, schema: { type: string } }
       responses:
         "200": { description: Assets }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/media/external:
+    post:
+      tags: [system]
+      summary: Admin. Register an external video (YouTube/Vimeo/direct/private); no transcode, status ready immediately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [video_source, url]
+              properties:
+                video_source: { type: string, enum: [youtube, vimeo, direct, private] }
+                url: { type: string, format: uri }
+                title: { type: string }
+                caption: { type: string }
+                level_number: { type: integer }
+      responses:
+        "201": { description: Registered asset }
+        "400": { description: Validation failed }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /home/welcome-video:
+    get:
+      tags: [system]
+      summary: Member. The current homepage welcome video (external link or signed delivery URL), or null.
+      responses:
+        "200": { description: Welcome video or null }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /admin/media/uploads:
     post:
       tags: [system]
@@ -1100,11 +1134,33 @@ paths:
   /admin/media/{id}:
     get:
       tags: [system]
-      summary: Admin. Asset status, ladder, duration, error_detail.
+      summary: Admin. Asset status, ladder, duration, error_detail, external + library fields.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
         "200": { description: Asset }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [system]
+      summary: Admin. Update caption, level_number, title (and external video_source/url).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                caption: { type: string }
+                level_number: { type: [integer, "null"] }
+                video_source: { type: string, enum: [youtube, vimeo, direct, private] }
+                url: { type: string, format: uri }
+      responses:
+        "200": { description: Updated asset }
+        "400": { description: Validation failed }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
@@ -1116,6 +1172,25 @@ paths:
         "200": { description: Archived }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /admin/media/{id}/homepage:
+    post:
+      tags: [system]
+      summary: Admin. Set this asset as THE homepage welcome video (unsets any other).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Set }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [system]
+      summary: Admin. Clear the homepage flag from this asset.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Cleared }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   # --- Calendar (Features v2 §C) ---
   /calendar:
