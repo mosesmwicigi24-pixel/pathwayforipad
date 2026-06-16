@@ -585,6 +585,12 @@ export const GrowthAdminApi = {
 };
 
 // ---- Operations (ERP, W3 over B1/B2/B3/B5) ----
+// Figma member vocabularies (must match the backend §1.1 enums in adminops).
+export type Programme = "new_believer" | "foundations" | "serving_track" | "leadership_prep";
+export type Gender = "female" | "male" | "other";
+/** Derived list status: "graduated" overrides the server-computed engagement band. */
+export type MemberStatus = "graduated" | "thriving" | "steady" | "watch" | "at_risk";
+
 export interface MemberRow {
   user_id: string;
   full_name: string;
@@ -600,6 +606,13 @@ export interface MemberRow {
   e_score: number | null;
   band: string | null;
   last_activity: string | null;
+  // Figma member fields (PR #123). `status` is server-derived (graduated|band|null).
+  gender: Gender | null;
+  city: string | null;
+  programme: Programme | null;
+  country_code: string | null;
+  age: number | null;
+  status: MemberStatus | null;
 }
 
 export interface MemberDetail {
@@ -609,6 +622,16 @@ export interface MemberDetail {
   phone_number: string;
   is_minor: boolean;
   is_baptized: boolean;
+  // Figma member fields (PR #123).
+  gender: Gender | null;
+  city: string | null;
+  programme: Programme | null;
+  country_code: string | null;
+  date_of_birth: string | null;
+  age: number | null;
+  status: MemberStatus | null;
+  graduated: boolean;
+  graduated_at: string | null;
   cell_group_id: string | null;
   cell_name: string | null;
   language: string | null;
@@ -621,6 +644,7 @@ export interface MemberDetail {
     state: string | null;
     started_at: string | null;
     completed_at: string | null;
+    graduated_at: string | null;
   };
   engagement: { e_score: number | null; band: string | null };
   metrics: {
@@ -700,16 +724,47 @@ export interface ReflectionHistoryRow {
 }
 
 export const OpsApi = {
-  members: (q: { search?: string; band?: string; level?: number; cursor?: string } = {}) =>
-    api.get<{ data: MemberRow[]; next_cursor: string | null }>("/admin/members", { params: q }).then((r) => r.data),
+  members: (
+    q: {
+      search?: string;
+      band?: string;
+      level?: number;
+      cell_group_id?: string;
+      gender?: Gender;
+      programme?: Programme;
+      country_code?: string;
+      cursor?: string;
+    } = {},
+  ) => api.get<{ data: MemberRow[]; next_cursor: string | null }>("/admin/members", { params: q }).then((r) => r.data),
   memberDetail: (userId: string) => api.get<MemberDetail>(`/admin/members/${userId}`).then((r) => r.data),
-  addMember: (body: { full_name: string; phone_number: string; email?: string; date_of_birth?: string; cell_group_id: string; start_level?: number; start_module_sequence?: number }) =>
-    api.post<MemberRow>("/admin/members", body).then((r) => r.data),
+  addMember: (body: {
+    full_name: string;
+    phone_number: string;
+    email?: string;
+    date_of_birth?: string;
+    cell_group_id: string;
+    gender?: Gender;
+    city?: string;
+    programme?: Programme;
+    country_code?: string;
+    language?: string;
+    is_baptized?: boolean;
+    start_level?: number;
+    start_module_sequence?: number;
+  }) => api.post<MemberRow>("/admin/members", body).then((r) => r.data),
   setMemberStart: (userId: string, body: { start_level: number; start_module_sequence: number }) =>
     api
       .patch<{ user_id: string; current_level: number; start_level: number; start_module_sequence: number }>(
         `/admin/members/${userId}/enrollment`,
         body,
+      )
+      .then((r) => r.data),
+  // Mark / unmark a member Graduated (lifecycle flag; band stays server-computed, §1.1).
+  setGraduation: (userId: string, graduated: boolean) =>
+    api
+      .patch<{ user_id: string; full_name: string; graduated: boolean; graduated_at: string | null; status: MemberStatus | null }>(
+        `/admin/members/${userId}/graduation`,
+        { graduated },
       )
       .then((r) => r.data),
 

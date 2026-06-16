@@ -7,10 +7,17 @@ import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Award, BookOpen, CalendarDays, CheckCircle2, ChevronRight, Droplets, Flag,
-  Heart, Mail, MessageSquare, ShieldAlert, Sparkles, Sunrise, Flame, X,
+  Heart, Mail, MessageSquare, ShieldAlert, Sparkles, Sunrise, Flame, X, GraduationCap,
 } from "lucide-react";
-import { OpsApi, type MemberDetail } from "../../api/client";
+import { OpsApi, SystemApi, type MemberDetail, type Country, type Programme } from "../../api/client";
 import { errorMessage } from "../../util/error";
+
+const PROGRAMME_LABELS: Record<Programme, string> = {
+  new_believer: "New Believer",
+  foundations: "Foundations",
+  serving_track: "Serving Track",
+  leadership_prep: "Leadership Prep",
+};
 
 const STEADY = { bg: "#FFF6E0", color: "#A87616" };
 const bandStyle: Record<string, { bg: string; color: string }> = {
@@ -59,11 +66,22 @@ export function MemberProfile(): ReactElement {
   const [m, setM] = useState<MemberDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [consentOpen, setConsentOpen] = useState(false);
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [gradBusy, setGradBusy] = useState(false);
 
   useEffect(() => {
     if (!id) { setError("No member selected."); return; }
     OpsApi.memberDetail(id).then(setM).catch((e) => setError(errorMessage(e, "Could not load member.")));
   }, [id]);
+  useEffect(() => { void SystemApi.countries().then(setCountries).catch(() => {}); }, []);
+
+  async function toggleGraduation(): Promise<void> {
+    if (!m) return;
+    setGradBusy(true);
+    try { await OpsApi.setGraduation(m.user_id, !m.graduated); const fresh = await OpsApi.memberDetail(m.user_id); setM(fresh); }
+    catch (e) { setError(errorMessage(e, "Could not update graduation.")); }
+    finally { setGradBusy(false); }
+  }
 
   const band = useMemo(() => (m?.engagement.band ? bandStyle[m.engagement.band] ?? STEADY : STEADY), [m]);
 
@@ -71,10 +89,16 @@ export function MemberProfile(): ReactElement {
   if (!m) return <div style={{ padding: 48, color: "var(--muted-foreground)" }}>Loading…</div>;
 
   const lvl = m.enrollment;
+  const country = m.country_code ? countries.find((c) => c.code === m.country_code) ?? null : null;
+  const genderLabel = m.gender ? m.gender.charAt(0).toUpperCase() + m.gender.slice(1) : null;
+  const locationValue = [country ? `${country.flag ?? ""} ${country.name}`.trim() : m.country_code, m.city].filter(Boolean).join(" · ") || "—";
   const heroItems = [
     { label: "Cell", value: m.cell_name ?? "Unassigned" },
     { label: "Current level", value: `L${lvl.current_level}${lvl.level_title ? ` · ${lvl.level_title}` : ""}` },
     { label: "Engagement band", value: m.engagement.band ?? "—", isBand: !!m.engagement.band },
+    { label: "Programme", value: m.programme ? PROGRAMME_LABELS[m.programme] : "—" },
+    { label: "Location", value: locationValue },
+    { label: "Age · Gender", value: [m.age != null ? `${m.age}` : null, genderLabel].filter(Boolean).join(" · ") || "—" },
     { label: "Language", value: m.language ?? "—" },
     { label: "Joined", value: fmtDate(m.created_at) },
     { label: "Last activity", value: fmtWhen(m.last_activity) },
@@ -108,8 +132,10 @@ export function MemberProfile(): ReactElement {
             <span>Nuru Pathway</span><ChevronRight size={10} /><button onClick={() => navigate("/members")} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer" }}>Members</button><ChevronRight size={10} /><span style={{ color: "#fff", fontWeight: 600 }}>{m.full_name}</span>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {m.graduated ? <span className="inline-flex items-center gap-1.5 rounded-lg px-2.5" style={{ height: 32, background: "rgba(124,58,237,0.18)", color: "#C4B5FD", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", border: "1px solid rgba(124,58,237,0.4)" }}><GraduationCap size={12} /> Graduated</span> : null}
             <span className="inline-flex items-center gap-1.5 rounded-lg px-2.5" style={{ height: 32, background: "rgba(245,199,126,0.14)", color: "#F5C77E", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", border: "1px solid rgba(245,199,126,0.25)" }}><Sparkles size={11} /> {m.cell_name ?? "Unassigned"} · L{lvl.current_level}</span>
             {m.email ? <a href={`mailto:${m.email}`} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: 12, fontWeight: 600, border: "1px solid rgba(255,255,255,0.15)", textDecoration: "none" }}><Mail size={13} /> Message</a> : null}
+            <button onClick={() => void toggleGraduation()} disabled={gradBusy} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: m.graduated ? "rgba(255,255,255,0.08)" : "rgba(124,58,237,0.9)", color: "#fff", fontSize: 12, fontWeight: 600, border: m.graduated ? "1px solid rgba(255,255,255,0.15)" : "none", opacity: gradBusy ? 0.6 : 1 }}><GraduationCap size={13} /> {m.graduated ? "Un-graduate" : "Mark graduated"}</button>
             <button onClick={() => navigate("/reflection-queue")} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none" }}><Heart size={13} /> Pastoral note</button>
           </div>
         </div>
