@@ -95,11 +95,52 @@ export interface GivingRecord {
   settled_at: string | null;
 }
 
+// Question types served by the backend (PR #117). New Figma-builder kinds plus
+// the legacy kinds that still exist in older question banks.
+export type QuestionType =
+  | "multiple_choice"
+  | "checkbox"
+  | "dropdown"
+  | "short_answer"
+  | "paragraph"
+  | "linear_scale"
+  // legacy (pre-#117) kinds — still graded as single-select
+  | "MultipleChoice"
+  | "TrueFalse"
+  | "FillInTheBlank";
+
+// A structured choice (id is the value graded server-side; text is the label).
+export interface QuestionChoice {
+  id: string;
+  text: string;
+}
+
+// linear_scale config. Answer signal (is_correct) is stripped server-side (§5.8).
+export interface QuestionScale {
+  min: number;
+  max: number;
+  min_label?: string;
+  max_label?: string;
+}
+
+// Polymorphic answer_options (answer signal stripped before serving, §5.8):
+//   • legacy `string[]`            — single-select options
+//   • `{ choices: QuestionChoice[] }` — multiple_choice / checkbox / dropdown
+//   • `{ scale: QuestionScale }`   — linear_scale
+//   • null                         — short_answer / paragraph (free text)
+export type AnswerOptions =
+  | string[]
+  | { choices: QuestionChoice[] }
+  | { scale: QuestionScale }
+  | null;
+
 export interface QuizQuestion {
   question_id: string;
-  q_type: "MultipleChoice" | "TrueFalse" | "FillInTheBlank";
+  q_type: QuestionType;
   question_text: string;
-  answer_options: string[] | null;
+  answer_options: AnswerOptions;
+  points?: number;
+  required?: boolean;
 }
 
 export interface AssembledQuiz {
@@ -114,6 +155,7 @@ export interface QuizResult {
   is_passed: boolean;
   pass_mark: number;
   unlocked_next_module_id: string | null;
+  requires_manual_review: boolean;
   duplicate: boolean;
 }
 
