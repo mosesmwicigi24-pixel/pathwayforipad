@@ -20,8 +20,9 @@ ENV NODE_ENV=production
 WORKDIR /repo
 # node_modules is intentionally NOT pruned: node-pg-migrate (migrations) lives in
 # devDependencies, and the migrate/seed init step in compose needs it.
-COPY --from=build /repo /repo
-RUN chown -R node:node /repo
+# Set ownership during the copy (single pass) — a separate `RUN chown -R /repo`
+# walks every node_modules file and is pathologically slow on small/contended hosts.
+COPY --from=build --chown=node:node /repo /repo
 USER node
 WORKDIR /repo/packages/backend
 EXPOSE 8080
