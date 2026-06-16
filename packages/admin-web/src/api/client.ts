@@ -932,6 +932,40 @@ export interface LedgerRow {
   created_at: string;
 }
 
+export interface FinanceTrendPoint {
+  m: string;
+  month: string;
+  total_minor: number;
+}
+
+export interface FinanceAuditRow {
+  audit_id: number;
+  actor_id: string | null;
+  actor_name: string | null;
+  action: string;
+  entity: string | null;
+  entity_id: string | null;
+  metadata: Record<string, unknown> | null;
+  occurred_at: string;
+  actor_type: "System" | "Admin";
+}
+
+export interface TransactionDetail {
+  transaction: TransactionRow & {
+    fund_name: string | null;
+    provider_ref: string | null;
+    stripe_payment_intent: string | null;
+    idempotency_key: string | null;
+  };
+  ledger_entries: LedgerRow[];
+}
+
+export interface FinanceConfig {
+  funds: { code: string; name: string; is_active: boolean }[];
+  providers: { key: string; label: string; enabled: boolean }[];
+  step_up_required: boolean;
+}
+
 export interface AuditRow {
   audit_id: number;
   actor_id: string | null;
@@ -966,6 +1000,13 @@ export const ConfigApi = {
       .then((r) => r.data),
   ledger: (limit = 100) =>
     api.get<{ data: LedgerRow[] }>("/admin/finance/ledger", { params: { limit } }).then((r) => r.data.data),
+  financeTrend: (months = 6) =>
+    api.get<{ data: FinanceTrendPoint[] }>("/admin/finance/trend", { params: { months } }).then((r) => r.data.data),
+  financeAudit: (q: { actor?: "All" | "System" | "Admin"; limit?: number } = {}) =>
+    api.get<{ data: FinanceAuditRow[] }>("/admin/finance/audit", { params: q }).then((r) => r.data.data),
+  transactionDetail: (id: string) =>
+    api.get<TransactionDetail>(`/admin/finance/transactions/${id}`).then((r) => r.data),
+  financeConfig: () => api.get<FinanceConfig>("/admin/finance/config").then((r) => r.data),
 
   audit: (q: { actor_id?: string; action?: string; entity?: string; before?: number } = {}) =>
     api.get<{ data: AuditRow[]; next_cursor: number | null }>("/admin/audit", { params: q }).then((r) => r.data),
