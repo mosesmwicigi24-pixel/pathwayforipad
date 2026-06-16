@@ -185,4 +185,52 @@ describe("financial / giving (§1.10 C, §3.5)", () => {
     );
     await expect(svc.createPurchase(user, productId)).rejects.toMatchObject({ code: "CONFLICT" });
   });
+
+  // ── Admin finance reads (Figma source-of-truth: overview trend, audit, tx detail, config) ──
+  const settle = async (key: string, fund: string, amount: number): Promise<string> => {
+    const intent = (await svc.createGivingIntent(user, {
+      fund, amount_minor: amount, currency: "kes", idempotency_key: key,
+    })) as { transaction_id: string };
+    await svc.handleWebhook(succeeded(gw.lastIntentId), "valid");
+    return intent.transaction_id;
+  };
+
+  it("financeTrend returns one zero-filled bucket per month, ending this month", async () => {
+    await settle("trend-1", "tithe", 5000);
+    const { data } = await svc.financeTrend(6);
+    expect(data).toHaveLength(6);
+    // chronological, newest last
+    const last = data[data.length - 1];
+    expect(Number(last.total_minor)).toBe(5000);
+    expect(data[0].total_minor).toBe(0); // older months empty
+  });
+
+  it("financeAudit surfaces only finance actions and honours the actor filter", async () => {
+    await settle("aud-1", "offering", 200);
+    const all = await svc.financeAudit({ actor: "All", limit: 50 });
+    expect(all.data.length).toBeGreaterThan(0);
+    expect((all.data as { action: string }[]).every((r) => /^(giving|purchase|finance|webhook)\./.test(r.action))).toBe(true);
+    // the giving intent was created by a member (non-null actor) → "Admin" bucket, not "System"
+    const system = await svc.financeAudit({ actor: "System", limit: 50 });
+    expect(system.data.length).toBe(0);
+  });
+
+  it("transactionDetail returns the txn plus its balanced ledger postings; null when missing", async () => {
+    const txId = await settle("det-1", "tithe", 7000);
+    const detail = await svc.transactionDetail(txId);
+    expect(detail).not.toBeNull();
+    const d = detail as { transaction: { status: string; fund: string; amount_minor: number }; ledger_entries: { side: string; amount_minor: number }[] };
+    expect(d.transaction.status).toBe("succeeded");
+    expect(d.transaction.fund).toBe("tithe");
+    expect(d.ledger_entries).toHaveLength(2);
+    expect(d.ledger_entries.find((e) => e.side === "debit")?.amount_minor).toBe(7000);
+    expect(await svc.transactionDetail("00000000-0000-0000-0000-000000000000")).toBeNull();
+  });
+
+  it("financeFunds lists the configured funds (no secrets)", async () => {
+    const funds = await svc.financeFunds();
+    expect(funds.length).toBeGreaterThan(0);
+    expect(funds.some((f) => f.code === "tithe")).toBe(true);
+    expect(funds[0]).toHaveProperty("is_active");
+  });
 });

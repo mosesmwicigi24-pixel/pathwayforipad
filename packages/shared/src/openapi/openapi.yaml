@@ -1688,6 +1688,51 @@ paths:
       responses:
         "200": { description: Ledger entries }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/finance/trend:
+    get:
+      tags: [giving]
+      summary: Admin (view). Settled giving per month for the overview trend (zero-filled).
+      parameters:
+        - in: query
+          name: months
+          schema: { type: integer, minimum: 1, maximum: 24, default: 6 }
+      responses:
+        "200": { description: Monthly settled totals }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/finance/audit:
+    get:
+      tags: [giving]
+      summary: Admin (view). Finance-scoped slice of the append-only audit trail (§5.10).
+      parameters:
+        - in: query
+          name: actor
+          schema: { type: string, enum: [All, System, Admin], default: All }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200": { description: Finance audit entries }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/finance/transactions/{id}:
+    get:
+      tags: [giving]
+      summary: Admin (view). A single transaction plus its balanced ledger postings.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Transaction detail }
+        "404": { description: Transaction not found }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/finance/config:
+    get:
+      tags: [giving]
+      summary: Admin (view). Read-only config — funds + provider availability (no secrets, §5.6).
+      responses:
+        "200": { description: Funds and provider availability }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
 
   # --- Growth domains (Contract Matrix B6) ---
   /gifts/questions:

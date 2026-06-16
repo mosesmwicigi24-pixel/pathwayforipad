@@ -96,6 +96,41 @@ export function registerFinancial(
     res.json({ data: await svc.listLedger(q.limit) });
   }));
 
+  // Overview trend (settled giving per month).
+  r.get("/admin/finance/trend", auth, perm("finance", "view"), handler(async (req, res) => {
+    const q = parseBody(z.object({ months: z.coerce.number().int().min(1).max(24).default(6) }), req.query);
+    res.json(await svc.financeTrend(q.months));
+  }));
+
+  // Finance-scoped audit trail (the money paper trail, §5.10).
+  r.get("/admin/finance/audit", auth, perm("finance", "view"), handler(async (req, res) => {
+    const q = parseBody(FinancialService.ListFinanceAudit, req.query);
+    res.json(await svc.financeAudit(q));
+  }));
+
+  // Single transaction + its balanced ledger postings (detail drawer).
+  r.get("/admin/finance/transactions/:id", auth, perm("finance", "view"), handler(async (req, res) => {
+    const detail = await svc.transactionDetail(String(req.params.id));
+    if (!detail) {
+      res.status(404).json({ error: { code: "NOT_FOUND", message: "Transaction not found" } });
+      return;
+    }
+    res.json(detail);
+  }));
+
+  // Read-only configuration view: funds + which providers are wired (no secrets, §5.6).
+  r.get("/admin/finance/config", auth, perm("finance", "view"), handler(async (_req, res) => {
+    const funds = await svc.financeFunds();
+    const e = ctx.env;
+    const providers = [
+      { key: "stripe", label: "Stripe (cards & wallets)", enabled: Boolean(e.STRIPE_SECRET_KEY) },
+      { key: "mpesa", label: "M-Pesa (STK push)", enabled: Boolean(e.MPESA_CONSUMER_KEY && e.MPESA_PASSKEY && e.MPESA_SHORTCODE) || Boolean(e.MPESA_CALLBACK_SECRET) },
+      { key: "airtel", label: "Airtel Money", enabled: Boolean(e.AIRTEL_CALLBACK_SECRET) },
+      { key: "paypal", label: "PayPal (USD)", enabled: Boolean(e.PAYPAL_CLIENT_ID && e.PAYPAL_SECRET) },
+    ];
+    res.json({ funds, providers, step_up_required: true });
+  }));
+
   // Media store (§3.3): catalogue + purchase (access granted on the webhook).
   r.get(
     "/products",

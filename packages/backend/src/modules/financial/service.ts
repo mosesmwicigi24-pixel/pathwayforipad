@@ -571,4 +571,92 @@ export class FinancialService {
     );
     return rows.map((r) => ({ ...r, amount_minor: Number(r.amount_minor) }));
   }
+
+  /** Settled giving totals per month for the overview trend chart (oldest → newest). */
+  async financeTrend(months = 6): Promise<{ data: { m: string; month: string; total_minor: number }[] }> {
+    const n = Math.min(Math.max(months, 1), 24);
+    const rows = await many<Record<string, unknown>>(
+      this.pool,
+      `SELECT to_char(gs.m, 'Mon') AS m, gs.m AS month,
+              COALESCE(sum(t.amount_minor) FILTER (WHERE t.status = 'succeeded'), 0)::bigint AS total_minor
+         FROM generate_series(
+                date_trunc('month', now()) - (($1::int - 1) * interval '1 month'),
+                date_trunc('month', now()),
+                interval '1 month') gs(m)
+         LEFT JOIN transactions t ON date_trunc('month', t.settled_at) = gs.m
+        GROUP BY gs.m
+        ORDER BY gs.m`,
+      [n],
+    );
+    return {
+      data: rows.map((r) => ({ m: String(r.m), month: String(r.month), total_minor: Number(r.total_minor) })),
+    };
+  }
+
+  static readonly ListFinanceAudit = z.object({
+    actor: z.enum(["All", "System", "Admin"]).default("All"),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+  });
+
+  /** Finance-scoped slice of the append-only audit trail (§5.10) — the money paper trail. */
+  async financeAudit(
+    q: z.infer<typeof FinancialService.ListFinanceAudit>,
+  ): Promise<{ data: unknown[] }> {
+    const params: unknown[] = [];
+    const where: string[] = [
+      "(a.action LIKE 'giving.%' OR a.action LIKE 'purchase.%' OR a.action LIKE 'finance.%' OR a.action LIKE 'webhook.%')",
+    ];
+    if (q.actor === "System") where.push("a.actor_id IS NULL");
+    else if (q.actor === "Admin") where.push("a.actor_id IS NOT NULL");
+    params.push(q.limit);
+    const rows = await many<Record<string, unknown>>(
+      this.pool,
+      `SELECT a.audit_id, a.actor_id, u.full_name AS actor_name, a.action, a.entity,
+              a.entity_id, a.metadata, a.occurred_at,
+              CASE WHEN a.actor_id IS NULL THEN 'System' ELSE 'Admin' END AS actor_type
+         FROM audit_log a LEFT JOIN users u ON u.user_id = a.actor_id
+        WHERE ${where.join(" AND ")}
+        ORDER BY a.audit_id DESC
+        LIMIT $${params.length}`,
+      params,
+    );
+    return { data: rows };
+  }
+
+  /** A single transaction plus its balanced ledger postings (for the detail drawer). */
+  async transactionDetail(id: string): Promise<Record<string, unknown> | null> {
+    const txn = await maybeOne<Record<string, unknown>>(
+      this.pool,
+      `SELECT t.transaction_id, u.full_name, t.amount_minor, t.currency, t.status,
+              f.code AS fund, f.name AS fund_name, t.created_at, t.settled_at,
+              COALESCE(t.provider, CASE WHEN t.stripe_payment_intent IS NOT NULL THEN 'card' END) AS method,
+              t.provider_ref, t.stripe_payment_intent, t.idempotency_key
+         FROM transactions t
+         LEFT JOIN funds f ON f.fund_id = t.fund_id
+         LEFT JOIN users u ON u.user_id = t.user_id
+        WHERE t.transaction_id = $1`,
+      [id],
+    );
+    if (!txn) return null;
+    const entries = await many<Record<string, unknown>>(
+      this.pool,
+      `SELECT entry_id, account, side::text AS side, amount_minor, currency, created_at
+         FROM ledger_entries WHERE transaction_id = $1 ORDER BY side DESC`,
+      [id],
+    );
+    return {
+      transaction: { ...txn, amount_minor: Number(txn.amount_minor) },
+      ledger_entries: entries.map((e) => ({ ...e, amount_minor: Number(e.amount_minor) })),
+    };
+  }
+
+  /** Read-only configuration view: funds + which payment providers are wired.
+      Never returns secrets (§5.6/§5.10) — only on/off availability. */
+  async financeFunds(): Promise<{ code: string; name: string; is_active: boolean }[]> {
+    const rows = await many<Record<string, unknown>>(
+      this.pool,
+      `SELECT code, name, is_active FROM funds ORDER BY code`,
+    );
+    return rows.map((r) => ({ code: String(r.code), name: String(r.name), is_active: Boolean(r.is_active) }));
+  }
 }
