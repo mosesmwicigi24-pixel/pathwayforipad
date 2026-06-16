@@ -721,6 +721,37 @@ export interface EventRoster {
   rsvp_no_show: Array<{ user_id: string; full_name: string }>;
 }
 
+// RSVP roster for one materialized occurrence (calendar service, PR #127).
+export type RsvpResponse = "going" | "maybe" | "declined" | "no_response";
+export interface RsvpRosterRow {
+  user_id: string;
+  full_name: string;
+  response: RsvpResponse;
+  cell_name: string | null;
+  responded_at: string;
+}
+export interface RsvpRoster {
+  event_id: string;
+  buckets: {
+    going: RsvpRosterRow[];
+    maybe: RsvpRosterRow[];
+    declined: RsvpRosterRow[];
+    no_response: RsvpRosterRow[];
+  };
+  counts: { going: number; maybe: number; declined: number; no_response: number };
+  // "cell" when the occurrence is cell-scoped (no_response is populated); "none" for
+  // congregation-wide occurrences (no_response left empty — too costly to derive).
+  no_response_scope: "cell" | "none";
+}
+
+// Series row returned by pause/resume (calendar service, PR #127). Only the fields
+// the Events page reads are typed; the row carries more.
+export interface EventSeriesRow {
+  series_id: string;
+  title: string;
+  is_paused: boolean;
+}
+
 export type ReflectionState = "pending" | "approved" | "rejected" | "returned" | "deferred";
 
 export interface ReflectionHistoryRow {
@@ -786,11 +817,17 @@ export const OpsApi = {
   calendar: (fromIso: string, toIso: string) =>
     api.get<{ data: CalendarOccurrence[] }>("/calendar", { params: { from: fromIso, to: toIso } }).then((r) => r.data.data),
   roster: (eventId: string) => api.get<EventRoster>(`/admin/events/${eventId}/attendance`).then((r) => r.data),
+  rsvpRoster: (occurrenceId: string) =>
+    api.get<RsvpRoster>(`/admin/events/${occurrenceId}/rsvps`).then((r) => r.data),
   manualCheckIn: (eventId: string, body: { user_id: string; note?: string }) =>
     api.post(`/admin/events/${eventId}/checkins`, body).then((r) => r.data),
   addGuest: (eventId: string, body: { guest_name: string; phone?: string; first_time?: boolean }) =>
     api.post(`/admin/events/${eventId}/guests`, body).then((r) => r.data),
   createSeries: (body: Record<string, unknown>) => api.post("/admin/events/series", body).then((r) => r.data),
+  pauseSeries: (seriesId: string) =>
+    api.post<EventSeriesRow>(`/admin/events/series/${seriesId}/pause`, {}).then((r) => r.data),
+  resumeSeries: (seriesId: string) =>
+    api.post<EventSeriesRow>(`/admin/events/series/${seriesId}/resume`, {}).then((r) => r.data),
   addEventException: (seriesId: string, body: EventExceptionBody) =>
     api.post(`/admin/events/series/${seriesId}/exceptions`, body).then((r) => r.data),
   cancelOccurrence: (seriesId: string, originalStartAt: string, note?: string) =>

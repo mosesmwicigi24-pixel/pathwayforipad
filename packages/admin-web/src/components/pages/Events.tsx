@@ -27,6 +27,7 @@ import {
   Mic2,
   MoreHorizontal,
   Pause,
+  Play,
   Phone,
   Plus,
   QrCode,
@@ -48,6 +49,8 @@ import {
   AnnouncementsApi,
   type CalendarOccurrence,
   type EventRoster,
+  type RsvpRoster,
+  type RsvpRosterRow,
   type RecentEventRow,
   type MemberRow,
   type AnnouncementRow,
@@ -598,7 +601,17 @@ export function Events(): ReactElement {
 
   // Rosters cached per event id (loaded lazily for the panels that need real counts).
   const [rosters, setRosters] = useState<Record<string, EventRoster>>({});
+  // RSVP rosters cached per occurrence id (PR #127 GET /admin/events/:id/rsvps).
+  const [rsvpRosters, setRsvpRosters] = useState<Record<string, RsvpRoster>>({});
+  const [rsvpFilter, setRsvpFilter] = useState<"going" | "maybe" | "declined" | "no_response">("going");
   const [qrTick, setQrTick] = useState(0); // display-only QR rotation (no QR endpoint yet)
+
+  // Series pause/resume (PR #127). The calendar wire carries no `is_paused` and a
+  // paused series stops projecting occurrences (so it drops out of the calendar);
+  // we track paused series from the toggle response so we can keep showing them as
+  // "Paused" rows with a Resume action. { series_id -> { title, paused } }.
+  const [pausedSeries, setPausedSeries] = useState<Record<string, { title: string; paused: boolean }>>({});
+  const [seriesBusy, setSeriesBusy] = useState<string | null>(null);
 
   const loadCalendar = useCallback(async () => {
     const from = new Date(now);
@@ -635,6 +648,15 @@ export function Events(): ReactElement {
     }
   }, []);
 
+  const loadRsvpRoster = useCallback(async (id: string): Promise<void> => {
+    try {
+      const r = await OpsApi.rsvpRoster(id);
+      setRsvpRosters((prev) => ({ ...prev, [id]: r }));
+    } catch {
+      /* leave undefined — drawer shows a loading/empty state */
+    }
+  }, []);
+
   const byDay = useMemo(() => {
     const m = new Map<string, UiOccurrence[]>();
     for (const e of events) {
@@ -652,13 +674,14 @@ export function Events(): ReactElement {
     () => events.filter((o) => o.startsAt >= now.toISOString()).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).slice(0, 6),
     [events, now],
   );
-  // "Active event series" — group occurrences by title (one row per recurring series). display-only series stats.
+  // "Active event series" — group occurrences by series_id (one row per recurring
+  // series). count/next are real; pause/resume is server-authoritative (PR #127).
   const seriesRows = useMemo(() => {
-    const m = new Map<string, { title: string; category: EventCategory; count: number; next: UiOccurrence }>();
+    const m = new Map<string, { seriesId: string; title: string; category: EventCategory; count: number; next: UiOccurrence }>();
     for (const o of upcoming.length ? events.filter((e) => e.startsAt >= now.toISOString()) : events) {
-      const key = o.title;
+      const key = o.seriesId;
       const ex = m.get(key);
-      if (!ex) m.set(key, { title: o.title, category: o.category, count: 1, next: o });
+      if (!ex) m.set(key, { seriesId: o.seriesId, title: o.title, category: o.category, count: 1, next: o });
       else {
         ex.count += 1;
         if (o.startsAt < ex.next.startsAt) ex.next = o;
@@ -681,6 +704,11 @@ export function Events(): ReactElement {
     }
   }, [drawerOccId, attendanceDrawerId, showQrScreen, rosters, loadRoster]);
 
+  // Lazily pull the RSVP roster when the RSVP drawer opens (PR #127).
+  useEffect(() => {
+    if (rsvpDrawerId && !rsvpRosters[rsvpDrawerId]) void loadRsvpRoster(rsvpDrawerId);
+  }, [rsvpDrawerId, rsvpRosters, loadRsvpRoster]);
+
   const qrSecret = useMemo(() => {
     const base = qrScreenOcc?.id ?? drawerOcc?.id ?? "occurrence";
     return `NURU-${base.slice(0, 8).toUpperCase()}-${qrTick.toString(36).toUpperCase()}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
@@ -694,6 +722,29 @@ export function Events(): ReactElement {
     setRosters({});
     await load();
   }, [load]);
+
+  const toggleSeriesPause = useCallback(
+    async (seriesId: string, title: string, currentlyPaused: boolean) => {
+      setSeriesBusy(seriesId);
+      try {
+        const row = currentlyPaused ? await OpsApi.resumeSeries(seriesId) : await OpsApi.pauseSeries(seriesId);
+        setPausedSeries((prev) => {
+          const next = { ...prev };
+          if (row.is_paused) next[seriesId] = { title: row.title || title, paused: true };
+          else delete next[seriesId];
+          return next;
+        });
+        // Paused series stop projecting future occurrences; refetch to drop/restore them.
+        await refetch();
+        setNotice(row.is_paused ? "Series paused — future occurrences hidden." : "Series resumed.");
+      } catch (e) {
+        setError(errorMessage(e, "Could not update series."));
+      } finally {
+        setSeriesBusy(null);
+      }
+    },
+    [refetch],
+  );
 
   const submitCancelOccurrence = useCallback(async () => {
     if (!drawerOcc) return;
@@ -1006,38 +1057,93 @@ export function Events(): ReactElement {
             <Card>
               <SectionHeader title="Active event series" subtitle={`${seriesRows.length} recurring series running`} />
               <div className="flex flex-col">
-                {seriesRows.length === 0 ? (
-                  <EmptyState icon={<Repeat size={20} />} title="No recurring series" body="Create a recurring event and its series shows up here." cta="Create event" onCta={() => setShowCreateEvent(true)} />
-                ) : (
-                  seriesRows.map((s, i) => (
-                    <div key={s.title} className="flex items-center gap-3 py-3" style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
-                      <div className="rounded-md shrink-0" style={{ width: 4, height: 40, background: CATEGORY_META[s.category].color }} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{s.title}</span>
-                          <span className="rounded-full px-2 py-0.5" style={{ background: "#DCF7E4", color: "#15803D", fontSize: 9, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>Active</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5" style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
-                          <Repeat size={10} /> {s.count} upcoming
-                          <span>·</span>
-                          <span style={{ fontFamily: "var(--font-mono)" }}>{s.next.date}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => setDrawerOccId(s.next.id)} className="rounded-md p-1.5" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none" }} title="View next">
-                          <Eye size={12} />
-                        </button>
-                        {/* display-only (no series pause endpoint yet) */}
-                        <button className="rounded-md p-1.5" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none" }} title="Pause">
-                          <Pause size={12} />
-                        </button>
-                        <button className="rounded-md p-1.5" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none" }} title="More">
-                          <MoreHorizontal size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
+                {(() => {
+                  // Active rows (from the projected calendar) plus any locally-tracked
+                  // paused rows (which no longer project occurrences, so they're not in
+                  // seriesRows). A row currently being toggled to paused may still be in
+                  // seriesRows until the refetch lands — flag it from pausedSeries.
+                  const activeIds = new Set(seriesRows.map((s) => s.seriesId));
+                  const pausedExtra = Object.entries(pausedSeries)
+                    .filter(([id, v]) => v.paused && !activeIds.has(id))
+                    .map(([seriesId, v]) => ({ seriesId, title: v.title }));
+                  if (seriesRows.length === 0 && pausedExtra.length === 0) {
+                    return <EmptyState icon={<Repeat size={20} />} title="No recurring series" body="Create a recurring event and its series shows up here." cta="Create event" onCta={() => setShowCreateEvent(true)} />;
+                  }
+                  return (
+                    <>
+                      {seriesRows.map((s, i) => {
+                        const paused = pausedSeries[s.seriesId]?.paused ?? false;
+                        const busy = seriesBusy === s.seriesId;
+                        return (
+                          <div key={s.seriesId} className="flex items-center gap-3 py-3" style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
+                            <div className="rounded-md shrink-0" style={{ width: 4, height: 40, background: CATEGORY_META[s.category].color }} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{s.title}</span>
+                                {paused ? (
+                                  <span className="rounded-full px-2 py-0.5" style={{ background: "#FEE2E2", color: "#B91C1C", fontSize: 9, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>Paused</span>
+                                ) : (
+                                  <span className="rounded-full px-2 py-0.5" style={{ background: "#DCF7E4", color: "#15803D", fontSize: 9, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>Active</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5" style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
+                                <Repeat size={10} /> {s.count} upcoming
+                                <span>·</span>
+                                <span style={{ fontFamily: "var(--font-mono)" }}>{s.next.date}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => setDrawerOccId(s.next.id)} className="rounded-md p-1.5" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none" }} title="View next">
+                                <Eye size={12} />
+                              </button>
+                              <button
+                                onClick={() => void toggleSeriesPause(s.seriesId, s.title, paused)}
+                                disabled={busy}
+                                className="flex items-center gap-1 rounded-md px-2 py-1.5"
+                                style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none", fontSize: 11, fontWeight: 600, opacity: busy ? 0.6 : 1 }}
+                                title={paused ? "Resume" : "Pause"}
+                              >
+                                {paused ? <Play size={12} /> : <Pause size={12} />}
+                                {paused ? "Resume" : "Pause"}
+                              </button>
+                              <button className="rounded-md p-1.5" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none" }} title="More">
+                                <MoreHorizontal size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {pausedExtra.map((s, i) => {
+                        const busy = seriesBusy === s.seriesId;
+                        return (
+                          <div key={s.seriesId} className="flex items-center gap-3 py-3" style={{ borderTop: seriesRows.length === 0 && i === 0 ? "none" : "1px solid var(--border)" }}>
+                            <div className="rounded-md shrink-0" style={{ width: 4, height: 40, background: "#D1D5DB" }} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{s.title}</span>
+                                <span className="rounded-full px-2 py-0.5" style={{ background: "#FEE2E2", color: "#B91C1C", fontSize: 9, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>Paused</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5" style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
+                                <Pause size={10} /> Future occurrences hidden
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => void toggleSeriesPause(s.seriesId, s.title, true)}
+                                disabled={busy}
+                                className="flex items-center gap-1 rounded-md px-2 py-1.5"
+                                style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none", fontSize: 11, fontWeight: 600, opacity: busy ? 0.6 : 1 }}
+                                title="Resume"
+                              >
+                                <Play size={12} /> Resume
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
               </div>
             </Card>
           </div>
@@ -1337,16 +1443,59 @@ export function Events(): ReactElement {
         </Drawer>
       )}
 
-      {/* RSVP drawer — display-only (no RSVP roster endpoint yet) */}
+      {/* RSVP drawer — real roster (PR #127 GET /admin/events/:id/rsvps) */}
       {rsvpDrawerOcc && (
         <Drawer onClose={() => setRsvpDrawerId(null)} width={520}>
           <div className="px-6 py-5" style={{ borderBottom: "1px solid var(--border)" }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6 }}>RSVP list · {rsvpDrawerOcc.title}</div>
             <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)", marginTop: 4 }}>RSVP responses</h2>
           </div>
-          <div className="px-6 py-10">
-            <EmptyState icon={<Users size={20} />} title="RSVP roster not available yet" body="RSVP responses will appear here once the RSVP service is wired. Attendance check-ins are available now." cta="View attendance" onCta={() => { setRsvpDrawerId(null); setAttendanceDrawerId(rsvpDrawerOcc.id); }} />
-          </div>
+          {(() => {
+            const roster = rsvpRosters[rsvpDrawerOcc.id];
+            if (!roster) return <div className="px-6 py-10" style={{ textAlign: "center", color: "var(--muted-foreground)", fontSize: 13 }}>Loading RSVPs…</div>;
+            const META: Record<string, { label: string; fg: string; bg: string }> = {
+              going: { label: "Going", fg: "#0F6B33", bg: "#E8F6EE" },
+              maybe: { label: "Maybe", fg: "#B45309", bg: "#FFF7E6" },
+              declined: { label: "Not going", fg: "#B91C1C", bg: "#FEF2F2" },
+              no_response: { label: "No response", fg: "#6B7280", bg: "#F3F4F6" },
+            };
+            const tabs = (["going", "maybe", "declined", "no_response"] as const).filter((k) => k !== "no_response" || roster.no_response_scope === "cell");
+            const rows: RsvpRosterRow[] = roster.buckets[rsvpFilter] ?? [];
+            return (
+              <>
+                <div className="px-6 pt-4 flex items-center gap-2 flex-wrap">
+                  {tabs.map((k) => (
+                    <button key={k} onClick={() => setRsvpFilter(k)} className="rounded-full px-3 py-1.5" style={{ fontSize: 12, fontWeight: 700, border: "1px solid var(--border)", background: rsvpFilter === k ? META[k]!.bg : "var(--input-background)", color: rsvpFilter === k ? META[k]!.fg : "var(--muted-foreground)" }}>
+                      {META[k]!.label} · {roster.counts[k]}
+                    </button>
+                  ))}
+                </div>
+                <div className="px-6 py-3 flex flex-col gap-1.5" style={{ maxHeight: 420, overflowY: "auto" }}>
+                  {rows.length === 0 ? (
+                    <p style={{ fontSize: 13, color: "var(--muted-foreground)", padding: "16px 0", textAlign: "center" }}>No members in “{META[rsvpFilter]!.label}”.</p>
+                  ) : rows.map((m) => (
+                    <div key={m.user_id} className="flex items-center justify-between rounded-xl px-3 py-2.5" style={{ background: "#fff", border: "1px solid var(--border)" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--nuru-navy)" }}>{m.full_name}</div>
+                        <div style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{m.cell_name ?? "—"}</div>
+                      </div>
+                      <span className="rounded-full px-2.5 py-1 shrink-0" style={{ fontSize: 10.5, fontWeight: 700, background: META[m.response]?.bg ?? "#F3F4F6", color: META[m.response]?.fg ?? "#6B7280" }}>
+                        {m.responded_at ? new Date(m.responded_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : META[m.response]?.label ?? "—"}
+                      </span>
+                    </div>
+                  ))}
+                  {roster.no_response_scope !== "cell" && (
+                    <p style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 6 }}>A no-response list is only available for cell-scoped events.</p>
+                  )}
+                </div>
+                <div className="px-6 py-4" style={{ borderTop: "1px solid var(--border)" }}>
+                  <button onClick={() => { setRsvpDrawerId(null); setShowCreateAnnouncement(true); }} className="w-full rounded-xl" style={{ height: 42, background: "var(--nuru-navy)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none" }}>
+                    Send reminder to non-responders
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </Drawer>
       )}
 
