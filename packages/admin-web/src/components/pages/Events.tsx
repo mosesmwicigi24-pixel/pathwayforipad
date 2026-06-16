@@ -87,6 +87,8 @@ function deriveCategory(occ: { title: string; cell_group_id: string | null }): E
 
 type UiOccurrence = {
   id: string;
+  seriesId: string;
+  originalStartAt: string; // original recurrence instant (exception key)
   title: string;
   category: EventCategory;
   iso: string; // YYYY-MM-DD (local)
@@ -120,15 +122,17 @@ function durationLabel(start: Date, end: Date): string {
 }
 
 function toUi(occ: CalendarOccurrence): UiOccurrence {
-  const start = new Date(occ.starts_at);
-  const end = new Date(occ.ends_at);
+  const start = new Date(occ.start_at);
+  const end = new Date(occ.end_at);
   return {
-    id: occ.event_id,
+    id: occ.occurrence_id,
+    seriesId: occ.series_id,
+    originalStartAt: occ.original_start_at,
     title: occ.title,
     category: deriveCategory(occ),
     iso: localIso(start),
-    startsAt: occ.starts_at,
-    endsAt: occ.ends_at,
+    startsAt: occ.start_at,
+    endsAt: occ.end_at,
     date: fmtDateShort(start),
     time: fmtTime(start),
     endTime: fmtTime(end),
@@ -586,6 +590,11 @@ export function Events(): ReactElement {
   const [manualCheckinFor, setManualCheckinFor] = useState<string | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [rescheduleDate, setRescheduleDate] = useState(""); // YYYY-MM-DD
+  const [rescheduleTime, setRescheduleTime] = useState(""); // HH:MM
+  const [rescheduleReason, setRescheduleReason] = useState("");
+  const [occActionBusy, setOccActionBusy] = useState(false);
 
   // Rosters cached per event id (loaded lazily for the panels that need real counts).
   const [rosters, setRosters] = useState<Record<string, EventRoster>>({});
@@ -685,6 +694,62 @@ export function Events(): ReactElement {
     setRosters({});
     await load();
   }, [load]);
+
+  const submitCancelOccurrence = useCallback(async () => {
+    if (!drawerOcc) return;
+    setOccActionBusy(true);
+    try {
+      await OpsApi.addEventException(drawerOcc.seriesId, {
+        original_start_at: drawerOcc.originalStartAt,
+        is_cancelled: true,
+        ...(cancelReason.trim() ? { note: cancelReason.trim() } : {}),
+      });
+      setShowCancelModal(false);
+      setDrawerOccId(null);
+      setCancelReason("");
+      await refetch();
+      setNotice("Occurrence cancelled.");
+    } catch (e) {
+      setError(errorMessage(e, "Could not cancel occurrence."));
+    } finally {
+      setOccActionBusy(false);
+    }
+  }, [drawerOcc, cancelReason, refetch]);
+
+  const submitRescheduleOccurrence = useCallback(async () => {
+    if (!drawerOcc) return;
+    if (!rescheduleDate || !rescheduleTime) {
+      setError("Enter a new date and start time to reschedule.");
+      return;
+    }
+    const newStart = new Date(`${rescheduleDate}T${rescheduleTime}`);
+    if (Number.isNaN(newStart.getTime())) {
+      setError("Invalid date or time.");
+      return;
+    }
+    const durationMs = new Date(drawerOcc.endsAt).getTime() - new Date(drawerOcc.startsAt).getTime();
+    const newEnd = new Date(newStart.getTime() + (Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 60 * 60 * 1000));
+    setOccActionBusy(true);
+    try {
+      await OpsApi.addEventException(drawerOcc.seriesId, {
+        original_start_at: drawerOcc.originalStartAt,
+        new_start_at: newStart.toISOString(),
+        new_end_at: newEnd.toISOString(),
+        ...(rescheduleReason.trim() ? { note: rescheduleReason.trim() } : {}),
+      });
+      setShowRescheduleModal(false);
+      setDrawerOccId(null);
+      setRescheduleDate("");
+      setRescheduleTime("");
+      setRescheduleReason("");
+      await refetch();
+      setNotice("Occurrence rescheduled.");
+    } catch (e) {
+      setError(errorMessage(e, "Could not reschedule occurrence."));
+    } finally {
+      setOccActionBusy(false);
+    }
+  }, [drawerOcc, rescheduleDate, rescheduleTime, rescheduleReason, refetch]);
 
   return (
     <div style={{ minWidth: 0, background: "var(--background)", minHeight: "100%" }}>
@@ -1431,7 +1496,7 @@ export function Events(): ReactElement {
         />
       )}
 
-      {/* Cancel modal — display-only (no cancel-occurrence endpoint yet) */}
+      {/* Cancel modal — wired to POST /admin/events/series/:id/exceptions (is_cancelled) */}
       {showCancelModal && (
         <Modal onClose={() => setShowCancelModal(false)} width={460}>
           <div className="px-6 py-5">
@@ -1446,7 +1511,7 @@ export function Events(): ReactElement {
             </div>
             <div className="mt-5 flex flex-col gap-3">
               <Field label="Reason for cancellation">
-                <textarea rows={2} className="w-full rounded-xl px-3 py-2.5 outline-none resize-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13 }} />
+                <textarea value={cancelReason} onChange={(ev) => setCancelReason(ev.target.value)} rows={2} className="w-full rounded-xl px-3 py-2.5 outline-none resize-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13 }} />
               </Field>
               <ToggleRow label="Notify attendees" defaultOn icon={<Bell size={13} />} />
               <ToggleRow label="Send cancellation announcement" defaultOn icon={<Send size={13} />} />
@@ -1455,21 +1520,18 @@ export function Events(): ReactElement {
           <div className="px-6 py-4 flex items-center justify-end gap-2" style={{ background: "var(--secondary)", borderTop: "1px solid var(--border)" }}>
             <button onClick={() => setShowCancelModal(false)} className="rounded-xl px-4 py-2.5" style={{ fontSize: 13, fontWeight: 600, background: "transparent", border: "none", color: "var(--foreground)" }}>Keep event</button>
             <button
-              onClick={() => {
-                setShowCancelModal(false);
-                setDrawerOccId(null);
-                setNotice("Cancellation is not wired to the backend yet.");
-              }}
+              onClick={() => void submitCancelOccurrence()}
+              disabled={occActionBusy}
               className="rounded-xl px-4 py-2.5"
-              style={{ background: "#B91C1C", color: "#fff", fontSize: 13, fontWeight: 600, border: "none" }}
+              style={{ background: "#B91C1C", color: "#fff", fontSize: 13, fontWeight: 600, border: "none", opacity: occActionBusy ? 0.6 : 1 }}
             >
-              Cancel occurrence
+              {occActionBusy ? "Cancelling…" : "Cancel occurrence"}
             </button>
           </div>
         </Modal>
       )}
 
-      {/* Reschedule modal — display-only (no reschedule endpoint yet) */}
+      {/* Reschedule modal — wired to POST /admin/events/series/:id/exceptions (new_start_at/new_end_at) */}
       {showRescheduleModal && (
         <Modal onClose={() => setShowRescheduleModal(false)} width={520}>
           <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
@@ -1481,19 +1543,19 @@ export function Events(): ReactElement {
           <div className="px-6 py-5 flex flex-col gap-4">
             <div className="grid grid-cols-3 gap-3">
               <Field label="New date">
-                <input defaultValue="" placeholder="14 Jun 2026" className="w-full rounded-xl px-3 py-2.5 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13, fontFamily: "var(--font-mono)" }} />
+                <input type="date" value={rescheduleDate} onChange={(ev) => setRescheduleDate(ev.target.value)} className="w-full rounded-xl px-3 py-2.5 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13, fontFamily: "var(--font-mono)" }} />
               </Field>
               <Field label="New start time">
-                <input defaultValue="" placeholder="09:00" className="w-full rounded-xl px-3 py-2.5 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13, fontFamily: "var(--font-mono)" }} />
+                <input type="time" value={rescheduleTime} onChange={(ev) => setRescheduleTime(ev.target.value)} className="w-full rounded-xl px-3 py-2.5 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13, fontFamily: "var(--font-mono)" }} />
               </Field>
               <Field label="Duration">
-                <select className="w-full rounded-xl px-3 py-2.5 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13 }}>
-                  <option>2h 30m</option>
+                <select disabled className="w-full rounded-xl px-3 py-2.5 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13 }}>
+                  <option>{drawerOcc?.duration ?? "—"} (kept)</option>
                 </select>
               </Field>
             </div>
             <Field label="Reason">
-              <input className="w-full rounded-xl px-3 py-2.5 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13 }} />
+              <input value={rescheduleReason} onChange={(ev) => setRescheduleReason(ev.target.value)} className="w-full rounded-xl px-3 py-2.5 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13 }} />
             </Field>
             <Field label="Scope">
               <div className="grid grid-cols-3 gap-2">
@@ -1510,14 +1572,12 @@ export function Events(): ReactElement {
           <div className="px-6 py-4 flex items-center justify-end gap-2" style={{ background: "var(--secondary)", borderTop: "1px solid var(--border)" }}>
             <button onClick={() => setShowRescheduleModal(false)} className="rounded-xl px-4 py-2.5" style={{ fontSize: 13, fontWeight: 600, background: "transparent", border: "none", color: "var(--foreground)" }}>Cancel</button>
             <button
-              onClick={() => {
-                setShowRescheduleModal(false);
-                setNotice("Reschedule is not wired to the backend yet.");
-              }}
+              onClick={() => void submitRescheduleOccurrence()}
+              disabled={occActionBusy}
               className="rounded-xl px-4 py-2.5"
-              style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none" }}
+              style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none", opacity: occActionBusy ? 0.6 : 1 }}
             >
-              Reschedule event
+              {occActionBusy ? "Rescheduling…" : "Reschedule event"}
             </button>
           </div>
         </Modal>

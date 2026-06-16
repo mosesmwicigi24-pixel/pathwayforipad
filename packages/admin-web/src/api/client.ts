@@ -607,13 +607,24 @@ export interface ReflectionRow {
 }
 
 export interface CalendarOccurrence {
-  event_id: string;
+  occurrence_id: string;
+  series_id: string;
   title: string;
-  starts_at: string;
-  ends_at: string;
   location: string | null;
   visibility: string;
   cell_group_id: string | null;
+  start_at: string;
+  end_at: string;
+  original_start_at: string;
+  rescheduled?: boolean;
+}
+
+export interface EventExceptionBody {
+  original_start_at: string;
+  is_cancelled?: boolean;
+  new_start_at?: string | null;
+  new_end_at?: string | null;
+  note?: string;
 }
 
 export interface EventRoster {
@@ -661,6 +672,17 @@ export const OpsApi = {
   addGuest: (eventId: string, body: { guest_name: string; phone?: string; first_time?: boolean }) =>
     api.post(`/admin/events/${eventId}/guests`, body).then((r) => r.data),
   createSeries: (body: Record<string, unknown>) => api.post("/admin/events/series", body).then((r) => r.data),
+  addEventException: (seriesId: string, body: EventExceptionBody) =>
+    api.post(`/admin/events/series/${seriesId}/exceptions`, body).then((r) => r.data),
+  cancelOccurrence: (seriesId: string, originalStartAt: string, note?: string) =>
+    OpsApi.addEventException(seriesId, { original_start_at: originalStartAt, is_cancelled: true, ...(note ? { note } : {}) }),
+  rescheduleOccurrence: (seriesId: string, originalStartAt: string, newStartAt: string, newEndAt: string, note?: string) =>
+    OpsApi.addEventException(seriesId, {
+      original_start_at: originalStartAt,
+      new_start_at: newStartAt,
+      new_end_at: newEndAt,
+      ...(note ? { note } : {}),
+    }),
 };
 
 // ---- Announcements (W3 over B5) ----

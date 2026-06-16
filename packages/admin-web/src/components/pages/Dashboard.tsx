@@ -377,12 +377,12 @@ export function Dashboard(): ReactElement {
             ) : (
               <ul className="flex flex-col">
                 {upcoming.map((e, i) => {
-                  const d = new Date(e.starts_at);
+                  const d = new Date(e.start_at);
                   const wk = d.toLocaleDateString("en-US", { weekday: "short" });
                   const day = d.toLocaleDateString("en-US", { day: "numeric" });
                   const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
                   return (
-                    <li key={e.event_id} onClick={() => navigate("/events")} className="flex items-center gap-3 py-3 cursor-pointer" style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
+                    <li key={e.occurrence_id} onClick={() => navigate("/events")} className="flex items-center gap-3 py-3 cursor-pointer" style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
                       <div className="flex flex-col items-center justify-center rounded-lg shrink-0" style={{ width: 46, height: 46, background: "#FDF5E5", color: "#8A6B1F" }}>
                         <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>{wk}</span>
                         <span style={{ fontFamily: "var(--font-display)", fontSize: 17, lineHeight: 1 }}>{day}</span>

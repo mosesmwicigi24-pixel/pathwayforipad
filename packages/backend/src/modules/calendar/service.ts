@@ -120,6 +120,7 @@ export class CalendarService {
           cell_group_id: s.cell_group_id,
           start_at: start,
           end_at: end,
+          original_start_at: o.start_at,
           rescheduled: Boolean(ex && !ex.is_cancelled && ex.new_start_at),
         });
       }
