@@ -61,6 +61,20 @@ export function registerAdminOps(ctx: AppContext): Router {
     res.status(201).json(await svc.createCell(requirePrincipal(req).userId, input));
   }));
 
+  // Homepage-featured cell ("This week at Nuru", single-row invariant): set / clear.
+  r.post("/admin/cells/:id/homepage", auth, perm("members", "edit"), handler(async (req, res) => {
+    res.json(await svc.setFeaturedCell(requirePrincipal(req).userId, req.params.id ?? ""));
+  }));
+
+  r.delete("/admin/cells/:id/homepage", auth, perm("members", "edit"), handler(async (req, res) => {
+    res.json(await svc.clearFeaturedCell(requirePrincipal(req).userId, req.params.id ?? ""));
+  }));
+
+  // Member: the current homepage-featured cell summary (or null).
+  r.get("/home/featured-cell", auth, handler(async (_req, res) => {
+    res.json(await svc.featuredCell());
+  }));
+
   // ---- Members administration ----
   r.get("/admin/members", auth, perm("members", "view"), handler(async (req, res) => {
     const q = parseBody(AdminOpsService.ListMembers, req.query);

@@ -51,14 +51,15 @@ export class AdminOpsService {
       this.replica,
       `SELECT cg.cell_group_id, cg.name,
               cg.discipler_name, cg.discipler_role, cg.focus, cg.level_label,
-              cg.meets, cg.room, cg.next_session, cg.tone,
+              cg.meets, cg.room, cg.next_session, cg.tone, cg.is_featured,
               count(es.user_id)::int                       AS members,
               COALESCE(round(avg(es.e_score), 3), 0)::float AS avg_engagement,
               count(*) FILTER (WHERE es.band = 'at_risk')::int AS at_risk
          FROM cell_groups cg
          LEFT JOIN engagement_scores es ON es.cell_group_id = cg.cell_group_id
         GROUP BY cg.cell_group_id, cg.name, cg.discipler_name, cg.discipler_role,
-                 cg.focus, cg.level_label, cg.meets, cg.room, cg.next_session, cg.tone
+                 cg.focus, cg.level_label, cg.meets, cg.room, cg.next_session, cg.tone,
+                 cg.is_featured
         ORDER BY avg_engagement ASC NULLS LAST
         LIMIT 50`,
     );
@@ -126,12 +127,76 @@ export class AdminOpsService {
       return one(
         c,
         `SELECT cell_group_id, name, discipler_name, discipler_role, focus, level_label,
-                meets, room, next_session, tone, meeting_cadence,
+                meets, room, next_session, tone, meeting_cadence, is_featured,
                 0 AS members, 0::float AS avg_engagement, 0 AS at_risk
            FROM cell_groups WHERE cell_group_id = $1`,
         [row.cell_group_id],
       );
     });
+  }
+
+  // ---------------- Homepage-featured cell ("This week at Nuru") ----------------
+
+  /** Feature THIS cell on the mobile homepage; unsets any other. Exactly one
+   *  cell is featured at a time — the partial unique index guards the invariant
+   *  and the unset+set happen in one tx (Figma "Feature on homepage" toggle). */
+  async setFeaturedCell(adminId: string, id: string): Promise<{ is_featured: true }> {
+    return tx(this.pool, async (c) => {
+      const exists = await maybeOne<{ cell_group_id: string }>(
+        c,
+        `SELECT cell_group_id FROM cell_groups WHERE cell_group_id = $1`,
+        [id],
+      );
+      if (!exists) throw new ApiError("NOT_FOUND", "Cell not found");
+      await c.query(`UPDATE cell_groups SET is_featured = false WHERE is_featured = true AND cell_group_id <> $1`, [id]);
+      await c.query(`UPDATE cell_groups SET is_featured = true WHERE cell_group_id = $1`, [id]);
+      await audit(c, adminId, "cell.homepage_set", "cell_groups", id, {});
+      return { is_featured: true };
+    });
+  }
+
+  /** Clear the homepage-feature flag from this cell. */
+  async clearFeaturedCell(adminId: string, id: string): Promise<{ is_featured: false }> {
+    return tx(this.pool, async (c) => {
+      const r = await c.query(`UPDATE cell_groups SET is_featured = false WHERE cell_group_id = $1`, [id]);
+      if (r.rowCount === 0) throw new ApiError("NOT_FOUND", "Cell not found");
+      await audit(c, adminId, "cell.homepage_clear", "cell_groups", id, {});
+      return { is_featured: false };
+    });
+  }
+
+  /** Member: the current homepage-featured cell summary, or null.
+   *  Descriptive fields come from cell_groups; member count + avg engagement are
+   *  derived from engagement_scores (server-authoritative, §1.1). */
+  async featuredCell(): Promise<unknown | null> {
+    const row = await maybeOne<{
+      cell_group_id: string;
+      name: string;
+      discipler_name: string | null;
+      discipler_role: string | null;
+      focus: string | null;
+      level_label: string | null;
+      meets: string | null;
+      room: string | null;
+      next_session: string | null;
+      tone: string | null;
+      members: number;
+      avg_engagement: number;
+    }>(
+      this.replica,
+      `SELECT cg.cell_group_id, cg.name,
+              cg.discipler_name, cg.discipler_role, cg.focus, cg.level_label,
+              cg.meets, cg.room, cg.next_session, cg.tone,
+              count(es.user_id)::int                        AS members,
+              COALESCE(round(avg(es.e_score), 3), 0)::float AS avg_engagement
+         FROM cell_groups cg
+         LEFT JOIN engagement_scores es ON es.cell_group_id = cg.cell_group_id
+        WHERE cg.is_featured = true
+        GROUP BY cg.cell_group_id, cg.name, cg.discipler_name, cg.discipler_role,
+                 cg.focus, cg.level_label, cg.meets, cg.room, cg.next_session, cg.tone
+        LIMIT 1`,
+    );
+    return row ?? null;
   }
 
   /** Weekly attendance trend (last `weeks`) + this-week summary. */

@@ -1477,7 +1477,7 @@ paths:
   /admin/reports/engagement:
     get:
       tags: [portal]
-      summary: Admin. Engagement band distribution + lowest-engagement cells.
+      summary: Admin. Engagement band distribution + lowest-engagement cells (each cell row carries is_featured for the homepage toggle).
       responses:
         "200": { description: Engagement report }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
@@ -1529,6 +1529,32 @@ paths:
         "400": { description: Validation failed }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "409": { description: A cell with that name already exists }
+  /admin/cells/{id}/homepage:
+    post:
+      tags: [portal]
+      summary: Admin. Feature this cell on the mobile homepage ("This week at Nuru"); unsets any other. Single featured cell at a time. Audited.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Featured }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [portal]
+      summary: Admin. Clear the homepage-feature flag from this cell. Audited.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Cleared }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /home/featured-cell:
+    get:
+      tags: [system]
+      summary: Member. The current homepage-featured cell summary ("This week at Nuru") with descriptive fields, member count and avg engagement, or null.
+      responses:
+        "200": { description: Featured cell or null }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /admin/members:
     get:
       tags: [portal]

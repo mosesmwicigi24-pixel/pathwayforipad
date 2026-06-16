@@ -284,6 +284,74 @@ describe("cells administration", () => {
   });
 });
 
+describe("homepage-featured cell (\"This week at Nuru\", single-row invariant)", () => {
+  it("features a cell, enforces a single featured cell, and reflects it in the engagement report", async () => {
+    // `cell` (from beforeEach) plus a second cell.
+    const cellB = await createCellGroup(cong, "Second Cell");
+
+    const set = await agent().post(`/v1/admin/cells/${cell}/homepage`).set(auth(adminTok));
+    expect(set.status).toBe(200);
+    expect(set.body.is_featured).toBe(true);
+
+    let on = await testPool().query("SELECT cell_group_id FROM cell_groups WHERE is_featured = true");
+    expect(on.rowCount).toBe(1);
+    expect(on.rows[0].cell_group_id).toBe(cell);
+
+    // Featuring the second cell unsets the first — never two featured rows.
+    const set2 = await agent().post(`/v1/admin/cells/${cellB}/homepage`).set(auth(adminTok));
+    expect(set2.status).toBe(200);
+    on = await testPool().query("SELECT cell_group_id FROM cell_groups WHERE is_featured = true");
+    expect(on.rowCount).toBe(1);
+    expect(on.rows[0].cell_group_id).toBe(cellB);
+
+    // Engagement report carries is_featured per cell.
+    const report = await agent().get("/v1/admin/reports/engagement").set(auth(adminTok));
+    const rows = report.body.cells as { cell_group_id: string; is_featured: boolean }[];
+    expect(rows.find((c) => c.cell_group_id === cellB)?.is_featured).toBe(true);
+    expect(rows.find((c) => c.cell_group_id === cell)?.is_featured).toBe(false);
+  });
+
+  it("clears the featured cell", async () => {
+    await agent().post(`/v1/admin/cells/${cell}/homepage`).set(auth(adminTok));
+    const clear = await agent().delete(`/v1/admin/cells/${cell}/homepage`).set(auth(adminTok));
+    expect(clear.status).toBe(200);
+    expect(clear.body.is_featured).toBe(false);
+    const on = await testPool().query("SELECT 1 FROM cell_groups WHERE is_featured = true");
+    expect(on.rowCount).toBe(0);
+  });
+
+  it("GET /home/featured-cell returns the cell summary (with member count + avg engagement) or null", async () => {
+    // Unset → null.
+    const none = await agent().get("/v1/home/featured-cell").set(auth(studentTok));
+    expect(none.status).toBe(200);
+    expect(none.body).toBeNull();
+
+    // A member with an engagement score in the cell feeds the derived metrics.
+    await testPool().query(
+      `INSERT INTO engagement_scores (user_id, cell_group_id, h_score, c_score, a_score, e_score, band, window_end)
+       VALUES ($1, $2, 0.7, 0.7, 0.7, 0.7, 'thriving', CURRENT_DATE)`,
+      [studentId, cell],
+    );
+    await agent().post(`/v1/admin/cells/${cell}/homepage`).set(auth(adminTok));
+
+    const res = await agent().get("/v1/home/featured-cell").set(auth(studentTok));
+    expect(res.status).toBe(200);
+    expect(res.body.cell_group_id).toBe(cell);
+    expect(res.body.members).toBe(1);
+    expect(typeof res.body.avg_engagement).toBe("number");
+  });
+
+  it("forbids non-admin callers (403) and 404s an unknown cell", async () => {
+    const forbidden = await agent().post(`/v1/admin/cells/${cell}/homepage`).set(auth(studentTok));
+    expect(forbidden.status).toBe(403);
+
+    const missing = await agent()
+      .post("/v1/admin/cells/00000000-0000-0000-0000-000000000000/homepage")
+      .set(auth(adminTok));
+    expect(missing.status).toBe(404);
+  });
+});
+
 describe("audit viewer (SuperAdmin)", () => {
   it("lists audit rows for SuperAdmin; Admin gets 403", async () => {
     await agent().post("/v1/admin/members").set(auth(adminTok)).send({
