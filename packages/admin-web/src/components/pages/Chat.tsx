@@ -3,9 +3,10 @@
 // modules. The portal admin reads disciple/group/space threads, moderates flagged
 // messages, replies as admin, and uses Nuru (assistant module) to draft replies,
 // prayers and encouragement. Backend conversation `kind` is dm|group|space — the
-// make's "direct"/"support" labels map from `dm`/derived. Some affordances the
-// make showed have no server endpoint yet (flag/remove moderation, mute/archive,
-// attachment upload) and are kept as local display-only state, clearly commented.
+// make's "direct"/"support" labels map from `dm`/derived. Moderation (flag /
+// dismiss flag / remove) is server-authoritative via the chat module's moderation
+// routes; flagged counts and per-message state come from the server. Mute /
+// archive / attachment upload have no endpoint yet and stay local display-only.
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -132,10 +133,9 @@ export function Chat(): ReactElement {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
 
-  // Local-only moderation overlays (no server endpoint yet — display-only).
-  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
-  const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set());
-  const [unflaggedIds, setUnflaggedIds] = useState<Set<string>>(new Set());
+  // Server-authoritative moderation: track in-flight message actions to disable buttons.
+  const [moderatingIds, setModeratingIds] = useState<Set<string>>(new Set());
+  // Mute / archive have no endpoint yet — local display-only.
   const [mutedIds, setMutedIds] = useState<Set<string>>(new Set());
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
 
@@ -171,8 +171,8 @@ export function Chat(): ReactElement {
 
   const filtered = useMemo(() => {
     return convos.filter((c) => {
-      if (filter === "flagged") return false; // list endpoint has no flag signal — see "Flagged" note below
-      if (filter !== "all" && c.type !== filter) return false;
+      if (filter === "flagged") { if (!(c.flagged && c.flagged > 0)) return false; }
+      else if (filter !== "all" && c.type !== filter) return false;
       if (query.trim()) {
         const q = query.toLowerCase();
         if (!conversationTitle(c).toLowerCase().includes(q)) return false;
@@ -219,11 +219,10 @@ export function Chat(): ReactElement {
     if (el) el.scrollTop = el.scrollHeight;
   }, [activeId, messages, draft]);
 
-  // Effective per-message status, blending the live message with local overlays.
+  // Per-message status straight from server moderation state.
   const statusOf = (m: ChatMessageRow): "sent" | "flagged" | "removed" => {
-    if (removedIds.has(m.message_id)) return "removed";
-    if (unflaggedIds.has(m.message_id)) return "sent";
-    if (flaggedIds.has(m.message_id)) return "flagged";
+    if (m.is_hidden) return "removed";
+    if (m.is_flagged) return "flagged";
     return "sent";
   };
   const isMuted = active ? mutedIds.has(active.conversation_id) : false;
@@ -232,7 +231,7 @@ export function Chat(): ReactElement {
   /* ── Nuru (assistant module) ── */
   const recentTurns = (): AssistantTurn[] =>
     messages
-      .filter((m) => !removedIds.has(m.message_id))
+      .filter((m) => !m.is_hidden)
       .slice(-12)
       .map((m): AssistantTurn => ({ role: m.mine ? "assistant" : "user", text: `${m.author_name}: ${m.body}`.slice(0, 4000) }))
       .filter((t) => t.text.trim().length > 0);
@@ -298,16 +297,29 @@ export function Chat(): ReactElement {
     }
   };
 
-  /* ── Moderation (local display-only — no moderation/hide endpoint yet) ── */
-  const handleRemove = (m: ChatMessageRow): void => setRemovedIds((s) => new Set(s).add(m.message_id));
-  const handleFlag = (m: ChatMessageRow): void => {
-    setFlaggedIds((s) => new Set(s).add(m.message_id));
-    setUnflaggedIds((s) => { const n = new Set(s); n.delete(m.message_id); return n; });
+  /* ── Moderation (server-authoritative via the chat module) ── */
+  const refetchThread = async (id: string): Promise<void> => {
+    const d = await ChatApi.conversation(id);
+    setMessages(d.messages);
   };
-  const handleUnflag = (m: ChatMessageRow): void => {
-    setUnflaggedIds((s) => new Set(s).add(m.message_id));
-    setFlaggedIds((s) => { const n = new Set(s); n.delete(m.message_id); return n; });
+  const moderate = async (m: ChatMessageRow, run: () => Promise<unknown>): Promise<void> => {
+    if (!active || moderatingIds.has(m.message_id)) return;
+    const id = active.conversation_id;
+    setModeratingIds((s) => new Set(s).add(m.message_id));
+    try {
+      await run();
+      await refetchThread(id);
+      // Keep the list's flagged badge in step with the thread we just changed.
+      loadList();
+    } catch (e) {
+      setThreadError(errorMessage(e, "Moderation action failed."));
+    } finally {
+      setModeratingIds((s) => { const n = new Set(s); n.delete(m.message_id); return n; });
+    }
   };
+  const handleRemove = (m: ChatMessageRow): void => void moderate(m, () => ChatApi.removeMessage(m.message_id));
+  const handleFlag = (m: ChatMessageRow): void => void moderate(m, () => ChatApi.flagMessage(m.message_id));
+  const handleUnflag = (m: ChatMessageRow): void => void moderate(m, () => ChatApi.unflagMessage(m.message_id));
   const toggleId = (id: string, set: typeof setMutedIds): void =>
     set((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const handleMute = (): void => { if (active) toggleId(active.conversation_id, setMutedIds); };
@@ -338,8 +350,8 @@ export function Chat(): ReactElement {
     }
   };
 
-  /* ── Hero stats (derived from the list; flagged is local-overlay count) ── */
-  const totalFlagged = flaggedIds.size;
+  /* ── Hero stats (derived from the list; flagged from the server per-row count) ── */
+  const totalFlagged = rows.reduce((s, c) => s + (c.flagged || 0), 0);
   const msgsToday = rows.reduce((s, c) => s + (c.last_at && Date.now() - ms(c.last_at) < DAY ? 1 : 0), 0);
   const unreadTotal = rows.reduce((s, c) => s + (c.unread || 0), 0);
 
@@ -626,7 +638,7 @@ export function Chat(): ReactElement {
                                   )}
                                   {flagged && (
                                     <div className="flex items-center gap-1" style={{ marginTop: 5, fontSize: 10.5, color: "#B91C1C", fontWeight: 600 }}>
-                                      <AlertTriangle size={10} /> Flagged for review
+                                      <AlertTriangle size={10} /> Flagged for review{m.flag_reason ? ` · ${m.flag_reason}` : ""}
                                     </div>
                                   )}
                                   <div className="flex items-center gap-1" style={{ marginTop: 4, fontSize: 9.5, color: "var(--muted-foreground)" }}>
@@ -634,23 +646,27 @@ export function Chat(): ReactElement {
                                   </div>
                                 </div>
 
-                                {/* Moderation actions — local display-only (no endpoint yet) */}
-                                {!removed && !mine && (
-                                  <div className="flex items-center gap-2" style={{ marginTop: 4, marginLeft: 2 }}>
-                                    {flagged ? (
-                                      <button onClick={() => handleUnflag(m)} className="flex items-center gap-1" style={{ fontSize: 10.5, color: "#0F6B33", fontWeight: 700, border: "none", background: "none", cursor: "pointer", padding: 0 }}>
-                                        <Circle size={9} /> Dismiss flag
+                                {/* Moderation actions — server-authoritative (chat module) */}
+                                {!removed && !mine && (() => {
+                                  const busy = moderatingIds.has(m.message_id);
+                                  const btn = (extra: object): object => ({ border: "none", background: "none", padding: 0, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.5 : 1, ...extra });
+                                  return (
+                                    <div className="flex items-center gap-2" style={{ marginTop: 4, marginLeft: 2 }}>
+                                      {flagged ? (
+                                        <button onClick={() => handleUnflag(m)} disabled={busy} className="flex items-center gap-1" style={btn({ fontSize: 10.5, color: "#0F6B33", fontWeight: 700 })}>
+                                          <Circle size={9} /> Dismiss flag
+                                        </button>
+                                      ) : (
+                                        <button onClick={() => handleFlag(m)} disabled={busy} className="flex items-center gap-1" style={btn({ fontSize: 10.5, color: "var(--muted-foreground)", fontWeight: 600 })}>
+                                          <Flag size={10} /> Flag
+                                        </button>
+                                      )}
+                                      <button onClick={() => handleRemove(m)} disabled={busy} className="flex items-center gap-1" style={btn({ fontSize: 10.5, color: "#DC2626", fontWeight: 700 })}>
+                                        <Trash2 size={10} /> Remove
                                       </button>
-                                    ) : (
-                                      <button onClick={() => handleFlag(m)} className="flex items-center gap-1" style={{ fontSize: 10.5, color: "var(--muted-foreground)", fontWeight: 600, border: "none", background: "none", cursor: "pointer", padding: 0 }}>
-                                        <Flag size={10} /> Flag
-                                      </button>
-                                    )}
-                                    <button onClick={() => handleRemove(m)} className="flex items-center gap-1" style={{ fontSize: 10.5, color: "#DC2626", fontWeight: 700, border: "none", background: "none", cursor: "pointer", padding: 0 }}>
-                                      <Trash2 size={10} /> Remove
-                                    </button>
-                                  </div>
-                                )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                           );

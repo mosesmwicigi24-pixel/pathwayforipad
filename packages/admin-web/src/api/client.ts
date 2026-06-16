@@ -845,6 +845,7 @@ export interface ChatConversationRow {
   last_at: string | null;
   last_author: string | null;
   unread: number;
+  flagged?: number; // moderation: count of flagged-but-visible messages (admin list)
 }
 
 export interface ChatDiscoverSpace {
@@ -870,6 +871,11 @@ export interface ChatMessageRow {
   reply_author: string | null;
   mine: boolean;
   reactions: ChatReaction[];
+  // Moderation state — only present in the admin/oversight view (server-authoritative).
+  is_flagged?: boolean;
+  flag_reason?: string | null;
+  is_hidden?: boolean;
+  moderated_at?: string | null;
 }
 
 export interface ChatConversationDetail {
@@ -909,7 +915,24 @@ export const ChatApi = {
     api
       .post<{ message_id: string; emoji: string; on: boolean }>(`/chat/messages/${messageId}/reactions`, { emoji })
       .then((r) => r.data),
+  // Moderation (Admin/SuperAdmin). Server-authoritative — these mutate the message row.
+  flagMessage: (id: string, reason?: string) =>
+    api
+      .post<ChatModerationResult>(`/chat/messages/${id}/flag`, reason ? { reason } : {})
+      .then((r) => r.data),
+  unflagMessage: (id: string) =>
+    api.post<ChatModerationResult>(`/chat/messages/${id}/unflag`, {}).then((r) => r.data),
+  removeMessage: (id: string) =>
+    api.post<ChatModerationResult>(`/chat/messages/${id}/remove`, {}).then((r) => r.data),
+  restoreMessage: (id: string) =>
+    api.post<ChatModerationResult>(`/chat/messages/${id}/restore`, {}).then((r) => r.data),
 };
+
+export interface ChatModerationResult {
+  message_id: string;
+  is_flagged: boolean;
+  is_hidden: boolean;
+}
 
 // ---- Nuru AI assistant (assistant module; provider resolved server-side) ----
 export interface AssistantTurn { role: "user" | "assistant"; text: string }

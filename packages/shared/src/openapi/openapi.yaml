@@ -2103,6 +2103,57 @@ paths:
         "200": { description: Joined }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /chat/messages/{id}/flag:
+    post:
+      tags: [progress]
+      summary: Flag a message for review (Admin/SuperAdmin); soft — still visible to members.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { reason: { type: string } }
+      responses:
+        "200": { description: Moderation state }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /chat/messages/{id}/unflag:
+    post:
+      tags: [progress]
+      summary: Clear a message's flag (Admin/SuperAdmin).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Moderation state }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /chat/messages/{id}/remove:
+    post:
+      tags: [progress]
+      summary: Remove a message — hide it from members (Admin/SuperAdmin).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Moderation state }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /chat/messages/{id}/restore:
+    post:
+      tags: [progress]
+      summary: Restore a removed message — make it visible to members again (Admin/SuperAdmin).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Moderation state }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /giving/paypal/capture:
     post:

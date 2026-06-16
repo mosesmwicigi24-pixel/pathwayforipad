@@ -18,6 +18,12 @@ interface ConversationRow {
   cell_group_id: string | null;
 }
 
+/** Roles with cross-conversation oversight + moderation (§5.4). */
+type ViewerRole = string | undefined;
+const isModerator = (role: ViewerRole): boolean => role === "Admin" || role === "SuperAdmin";
+
+type ModerationAction = "flag" | "unflag" | "remove" | "restore";
+
 export class ChatService {
   constructor(private readonly pool: Pool) {}
 
@@ -103,8 +109,51 @@ export class ChatService {
     throw new ApiError("NOT_FOUND", "Conversation not found"); // no existence leak
   }
 
+  /** Moderator conversation fetch — bypasses membership (Admin/SuperAdmin only). */
+  private async accessAsModerator(c: Queryable, conversationId: string): Promise<ConversationRow> {
+    const convo = await maybeOne<ConversationRow>(
+      c,
+      `SELECT conversation_id, kind, is_public, congregation_id, cell_group_id
+         FROM chat_conversations WHERE conversation_id = $1`,
+      [conversationId],
+    );
+    if (!convo) throw new ApiError("NOT_FOUND", "Conversation not found");
+    return convo;
+  }
+
+  /**
+   * Admin/SuperAdmin oversight inbox: every conversation, with member count,
+   * last-message preview, and a per-conversation count of flagged-but-not-hidden
+   * messages. Server-authoritative (§1.1) — only moderators reach this path.
+   */
+  private async listAllForModeration(): Promise<{ conversations: unknown[]; discover_spaces: unknown[] }> {
+    const conversations = await many(
+      this.pool,
+      `SELECT cv.conversation_id, cv.kind, cv.is_public,
+              cv.title, cv.topic,
+              (SELECT count(*)::int FROM chat_members m2 WHERE m2.conversation_id = cv.conversation_id) AS member_count,
+              lm.body AS last_body, lm.msg_type AS last_type, lm.created_at AS last_at,
+              la.full_name AS last_author,
+              0 AS unread,
+              (SELECT count(*)::int FROM chat_messages fm
+                 WHERE fm.conversation_id = cv.conversation_id AND fm.is_flagged AND NOT fm.is_hidden) AS flagged
+         FROM chat_conversations cv
+         LEFT JOIN LATERAL (
+            SELECT body, msg_type, created_at, author_user_id FROM chat_messages
+             WHERE conversation_id = cv.conversation_id AND NOT is_hidden
+             ORDER BY created_at DESC LIMIT 1
+         ) lm ON TRUE
+         LEFT JOIN users la ON la.user_id = lm.author_user_id
+        ORDER BY COALESCE(lm.created_at, cv.created_at) DESC
+        LIMIT 500`,
+      [],
+    );
+    return { conversations, discover_spaces: [] };
+  }
+
   /** The inbox: my conversations (with unread + preview) + discoverable spaces. */
-  async listConversations(userId: string): Promise<{ conversations: unknown[]; discover_spaces: unknown[] }> {
+  async listConversations(userId: string, viewerRole?: ViewerRole): Promise<{ conversations: unknown[]; discover_spaces: unknown[] }> {
+    if (isModerator(viewerRole)) return this.listAllForModeration();
     await tx(this.pool, async (c) => this.ensureCellGroup(c, userId));
     const conversations = await many(
       this.pool,
@@ -152,9 +201,16 @@ export class ChatService {
     return { conversations, discover_spaces: discover };
   }
 
-  /** A conversation's messages (oldest→newest) with reactions, reply previews, authors. */
-  async getConversation(userId: string, conversationId: string): Promise<unknown> {
-    const convo = await this.access(this.pool, userId, conversationId);
+  /**
+   * A conversation's messages (oldest→newest) with reactions, reply previews,
+   * authors. Members see only visible messages. Moderators (Admin/SuperAdmin)
+   * bypass membership, see hidden messages, and get per-message moderation state.
+   */
+  async getConversation(userId: string, conversationId: string, viewerRole?: ViewerRole): Promise<unknown> {
+    const moderator = isModerator(viewerRole);
+    const convo = moderator
+      ? await this.accessAsModerator(this.pool, conversationId)
+      : await this.access(this.pool, userId, conversationId);
     const head = await one<Record<string, unknown>>(
       this.pool,
       `SELECT cv.conversation_id, cv.kind, cv.is_public, cv.topic,
@@ -172,6 +228,7 @@ export class ChatService {
       this.pool,
       `SELECT m.message_id, m.author_user_id, u.full_name AS author_name, m.body, m.msg_type,
               m.attachment_url, m.attachment_meta, m.reply_to_id, m.ai_tag, m.is_edited, m.created_at,
+              ${moderator ? "m.is_hidden, m.is_flagged, m.flag_reason, m.moderated_at," : ""}
               rt.body AS reply_body, ru.full_name AS reply_author,
               (m.author_user_id = $1) AS mine,
               COALESCE((
@@ -183,7 +240,7 @@ export class ChatService {
          JOIN users u ON u.user_id = m.author_user_id
          LEFT JOIN chat_messages rt ON rt.message_id = m.reply_to_id
          LEFT JOIN users ru ON ru.user_id = rt.author_user_id
-        WHERE m.conversation_id = $2 AND NOT m.is_hidden
+        WHERE m.conversation_id = $2 ${moderator ? "" : "AND NOT m.is_hidden"}
         ORDER BY m.created_at
         LIMIT 500`,
       [userId, conversationId],
@@ -306,6 +363,41 @@ export class ChatService {
       if (res.rowCount === 0) return { conversation_id: input.conversation_id, duplicate: true };
       await c.query(`INSERT INTO chat_members (conversation_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`, [input.conversation_id, userId]);
       return { conversation_id: input.conversation_id, duplicate: false };
+    });
+  }
+
+  /**
+   * Moderate a message (Admin/SuperAdmin only, §5.4). Server-authoritative state
+   * (§1.1): flag (soft, still visible to members), unflag, remove (hide from
+   * members), restore. Stamps moderated_by/at for the audit trail.
+   */
+  async moderateMessage(
+    actorId: string,
+    role: ViewerRole,
+    messageId: string,
+    action: ModerationAction,
+    reason?: string,
+  ): Promise<{ message_id: string; is_flagged: boolean; is_hidden: boolean }> {
+    if (!isModerator(role)) throw new ApiError("FORBIDDEN_SCOPE", "Moderation requires Admin");
+    return tx(this.pool, async (c) => {
+      const msg = await maybeOne<{ message_id: string }>(c, `SELECT message_id FROM chat_messages WHERE message_id = $1`, [messageId]);
+      if (!msg) throw new ApiError("NOT_FOUND", "Message not found");
+      let row: { is_flagged: boolean; is_hidden: boolean };
+      switch (action) {
+        case "flag":
+          row = await one(c, `UPDATE chat_messages SET is_flagged = TRUE, flag_reason = $2, moderated_by = $3, moderated_at = now() WHERE message_id = $1 RETURNING is_flagged, is_hidden`, [messageId, reason ?? null, actorId]);
+          break;
+        case "unflag":
+          row = await one(c, `UPDATE chat_messages SET is_flagged = FALSE, flag_reason = NULL, moderated_by = $2, moderated_at = now() WHERE message_id = $1 RETURNING is_flagged, is_hidden`, [messageId, actorId]);
+          break;
+        case "remove":
+          row = await one(c, `UPDATE chat_messages SET is_hidden = TRUE, moderated_by = $2, moderated_at = now() WHERE message_id = $1 RETURNING is_flagged, is_hidden`, [messageId, actorId]);
+          break;
+        case "restore":
+          row = await one(c, `UPDATE chat_messages SET is_hidden = FALSE, moderated_by = $2, moderated_at = now() WHERE message_id = $1 RETURNING is_flagged, is_hidden`, [messageId, actorId]);
+          break;
+      }
+      return { message_id: messageId, is_flagged: row.is_flagged, is_hidden: row.is_hidden };
     });
   }
 }

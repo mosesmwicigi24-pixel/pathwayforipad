@@ -34,12 +34,14 @@ export function registerChat(ctx: AppContext): Router {
   }));
 
   r.get("/chat/conversations", auth, handler(async (req, res) => {
-    res.json(await svc.listConversations(requirePrincipal(req).userId));
+    const p = requirePrincipal(req);
+    res.json(await svc.listConversations(p.userId, p.role));
   }));
 
   r.get("/chat/conversations/:id", auth, handler(async (req, res) => {
     const { id } = parseBody(IdParam, req.params);
-    res.json(await svc.getConversation(requirePrincipal(req).userId, id));
+    const p = requirePrincipal(req);
+    res.json(await svc.getConversation(p.userId, id, p.role));
   }));
 
   r.post("/chat/conversations/:id/messages", auth, handler(async (req, res) => {
@@ -73,6 +75,31 @@ export function registerChat(ctx: AppContext): Router {
   r.post("/chat/spaces", auth, requireRole("Instructor"), handler(async (req, res) => {
     const input = parseBody(ChatService.CreateSpace, req.body);
     res.status(201).json(await svc.createSpace(requirePrincipal(req).userId, input));
+  }));
+
+  // Moderation (Admin/SuperAdmin via requireRole("Admin")). Server-authoritative
+  // gating — the portal console flags, removes, and restores messages here (§1.1).
+  const FlagBody = z.object({ reason: z.string().max(500).optional() });
+  r.post("/chat/messages/:id/flag", auth, requireRole("Admin"), handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    const { reason } = parseBody(FlagBody, req.body);
+    const p = requirePrincipal(req);
+    res.json(await svc.moderateMessage(p.userId, p.role, id, "flag", reason));
+  }));
+  r.post("/chat/messages/:id/unflag", auth, requireRole("Admin"), handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    const p = requirePrincipal(req);
+    res.json(await svc.moderateMessage(p.userId, p.role, id, "unflag"));
+  }));
+  r.post("/chat/messages/:id/remove", auth, requireRole("Admin"), handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    const p = requirePrincipal(req);
+    res.json(await svc.moderateMessage(p.userId, p.role, id, "remove"));
+  }));
+  r.post("/chat/messages/:id/restore", auth, requireRole("Admin"), handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    const p = requirePrincipal(req);
+    res.json(await svc.moderateMessage(p.userId, p.role, id, "restore"));
   }));
 
   return r;

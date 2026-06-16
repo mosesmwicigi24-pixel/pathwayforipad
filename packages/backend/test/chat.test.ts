@@ -12,6 +12,7 @@ let a2Id: string, a2Tok: string; // cellA (same cell as a)
 let bTok: string; // cellB
 let leaderTok: string; // Instructor in cellA
 let minorId: string; // a minor in cellA
+let adminTok: string; // Admin (not a member of any cell room)
 
 const auth = (t: string) => ({ Authorization: t });
 const uuid = (n: number) => `00000000-0000-4000-8000-0000000000${String(n).padStart(2, "0")}`;
@@ -27,11 +28,13 @@ beforeEach(async () => {
   const l = await createUser({ congregationId: cong, cellGroupId: cellA, role: "Instructor", email: "l@dev.local", fullName: "Lee" });
   const minor = await createUser({ congregationId: cong, cellGroupId: cellA, email: "m@dev.local", fullName: "Kid", dateOfBirth: "2015-01-01" });
   expect(minor.is_minor).toBe(true);
+  const admin = await createUser({ congregationId: cong, cellGroupId: cellB, role: "Admin", email: "admin@dev.local", fullName: "Admin" });
   aId = a.user_id; a2Id = a2.user_id; minorId = minor.user_id;
   aTok = bearer({ sub: a.user_id, role: "Student", cong });
   a2Tok = bearer({ sub: a2.user_id, role: "Student", cong });
   bTok = bearer({ sub: b.user_id, role: "Student", cong });
   leaderTok = bearer({ sub: l.user_id, role: "Instructor", cong });
+  adminTok = bearer({ sub: admin.user_id, role: "Admin", cong });
 });
 afterAll(async () => {
   await closeTestPool();
@@ -141,6 +144,53 @@ describe("public spaces", () => {
     const list = await agent().get("/v1/chat/conversations").set(auth(aTok));
     expect((list.body.conversations as Array<{ conversation_id: string }>).some((c) => c.conversation_id === uuid(9))).toBe(true);
     expect((list.body.discover_spaces as Array<{ conversation_id: string }>).some((s) => s.conversation_id === uuid(9))).toBe(false);
+  });
+});
+
+describe("moderation (Admin/SuperAdmin)", () => {
+  it("admin flags a message — it shows is_flagged in the admin view", async () => {
+    const g = await groupId(aTok);
+    await agent().post(`/v1/chat/conversations/${g}/messages`).set(auth(aTok)).send({ message_id: uuid(20), body: "needs a look" });
+
+    const flag = await agent().post(`/v1/chat/messages/${uuid(20)}/flag`).set(auth(adminTok)).send({ reason: "review" });
+    expect(flag.status).toBe(200);
+    expect(flag.body.is_flagged).toBe(true);
+
+    const adminView = await agent().get(`/v1/chat/conversations/${g}`).set(auth(adminTok));
+    const msg = (adminView.body.messages as Array<{ message_id: string; is_flagged: boolean; flag_reason: string | null }>).find((m) => m.message_id === uuid(20))!;
+    expect(msg.is_flagged).toBe(true);
+    expect(msg.flag_reason).toBe("review");
+  });
+
+  it("admin removes a message — hidden from members, visible to admin as is_hidden", async () => {
+    const g = await groupId(aTok);
+    await agent().post(`/v1/chat/conversations/${g}/messages`).set(auth(aTok)).send({ message_id: uuid(21), body: "to remove" });
+
+    const removed = await agent().post(`/v1/chat/messages/${uuid(21)}/remove`).set(auth(adminTok)).send({});
+    expect(removed.status).toBe(200);
+    expect(removed.body.is_hidden).toBe(true);
+
+    const memberView = await agent().get(`/v1/chat/conversations/${g}`).set(auth(a2Tok));
+    expect((memberView.body.messages as Array<{ message_id: string }>).some((m) => m.message_id === uuid(21))).toBe(false);
+
+    const adminView = await agent().get(`/v1/chat/conversations/${g}`).set(auth(adminTok));
+    const msg = (adminView.body.messages as Array<{ message_id: string; is_hidden: boolean }>).find((m) => m.message_id === uuid(21))!;
+    expect(msg.is_hidden).toBe(true);
+  });
+
+  it("a non-admin (Student) cannot moderate — 403", async () => {
+    const g = await groupId(aTok);
+    await agent().post(`/v1/chat/conversations/${g}/messages`).set(auth(aTok)).send({ message_id: uuid(22), body: "hands off" });
+    const denied = await agent().post(`/v1/chat/messages/${uuid(22)}/flag`).set(auth(a2Tok)).send({ reason: "x" });
+    expect(denied.status).toBe(403);
+  });
+
+  it("admin can read a conversation they are not a member of", async () => {
+    const g = await groupId(aTok); // cellA room; admin is in cellB
+    await agent().post(`/v1/chat/conversations/${g}/messages`).set(auth(aTok)).send({ message_id: uuid(23), body: "for oversight" });
+    const view = await agent().get(`/v1/chat/conversations/${g}`).set(auth(adminTok));
+    expect(view.status).toBe(200);
+    expect((view.body.messages as Array<{ body: string }>).map((m) => m.body)).toContain("for oversight");
   });
 });
 
