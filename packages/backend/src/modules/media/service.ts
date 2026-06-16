@@ -2,11 +2,12 @@
 // references never leak and links expire. CLOUDINARY_URL holds the credentials
 // (cloudinary://api_key:api_secret@cloud_name). The HMAC token here stands in for
 // Cloudinary's exact signed-URL scheme — same guarantee (tamper-evident, expiring).
-import { createHmac } from "node:crypto";
+import { createHmac, createHash } from "node:crypto";
 import { ApiError } from "../../http/errors.js";
 
 interface CloudinaryConfig {
   cloud: string;
+  apiKey: string;
   apiSecret: string;
 }
 
@@ -14,10 +15,21 @@ function parseCloudinaryUrl(url: string | undefined): CloudinaryConfig | null {
   if (!url) return null;
   const m = /^cloudinary:\/\/([^:]+):([^@]+)@(.+)$/.exec(url);
   if (!m) return null;
+  const apiKey = m[1];
   const apiSecret = m[2];
   const cloud = m[3];
-  if (!apiSecret || !cloud) return null;
-  return { cloud, apiSecret };
+  if (!apiKey || !apiSecret || !cloud) return null;
+  return { cloud, apiKey, apiSecret };
+}
+
+/** Cloudinary signed-upload params (real Cloudinary REST API, §4.5). */
+export interface CloudinaryUploadSignature {
+  cloud_name: string;
+  api_key: string;
+  timestamp: number;
+  folder: string;
+  signature: string;
+  upload_url: string;
 }
 
 export class MediaService {
@@ -41,6 +53,29 @@ export class MediaService {
     return {
       url: `https://res.cloudinary.com/${this.cfg.cloud}/${objectKey}?expires=${expires}&sig=${sig}`,
       expires_at: new Date(expires * 1000).toISOString(),
+    };
+  }
+
+  /**
+   * Real Cloudinary signed-upload params (§4.5). The client POSTs the file
+   * directly (multipart) to `upload_url` with these fields — bytes never touch
+   * our server. Signature = sha1 of the sorted to-sign params + api_secret;
+   * `resource_type=auto` lives in the URL path (not signed). Cloudinary returns
+   * `secure_url` + `public_id`, which the caller stores on the message.
+   */
+  signUpload(opts: { folder?: string } = {}): CloudinaryUploadSignature {
+    if (!this.cfg) throw new ApiError("UPSTREAM_UNAVAILABLE", "Media uploads are not configured");
+    const folder = opts.folder ?? "nuru";
+    const timestamp = Math.floor(this.now() / 1000);
+    const toSign = `folder=${folder}&timestamp=${timestamp}`; // keys sorted: folder < timestamp
+    const signature = createHash("sha1").update(toSign + this.cfg.apiSecret).digest("hex");
+    return {
+      cloud_name: this.cfg.cloud,
+      api_key: this.cfg.apiKey,
+      timestamp,
+      folder,
+      signature,
+      upload_url: `https://api.cloudinary.com/v1_1/${this.cfg.cloud}/auto/upload`,
     };
   }
 

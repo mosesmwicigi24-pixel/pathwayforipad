@@ -1,5 +1,6 @@
 // Media — signed, expiring delivery URLs (§4.5).
 import { describe, it, expect } from "vitest";
+import { createHash } from "node:crypto";
 import { MediaService } from "../src/modules/media/service.js";
 
 const URL = "cloudinary://key123:secret456@nuru-cloud";
@@ -23,5 +24,24 @@ describe("media signed URLs (§4.5)", () => {
 
   it("throws when media is not configured", () => {
     expect(() => new MediaService(undefined).signedUrl("x.mp4")).toThrow();
+  });
+});
+
+describe("Cloudinary signed upload (§4.5)", () => {
+  it("signs upload params with Cloudinary's exact scheme (sha1 of sorted params + secret)", () => {
+    const svc = new MediaService(URL, () => FIXED);
+    const sig = svc.signUpload({ folder: "nuru/chat/u1" });
+    const ts = Math.floor(FIXED / 1000);
+    const expected = createHash("sha1").update(`folder=nuru/chat/u1&timestamp=${ts}secret456`).digest("hex");
+    expect(sig.cloud_name).toBe("nuru-cloud");
+    expect(sig.api_key).toBe("key123");
+    expect(sig.timestamp).toBe(ts);
+    expect(sig.folder).toBe("nuru/chat/u1");
+    expect(sig.signature).toBe(expected);
+    expect(sig.upload_url).toBe("https://api.cloudinary.com/v1_1/nuru-cloud/auto/upload");
+  });
+
+  it("throws when media is not configured", () => {
+    expect(() => new MediaService(undefined).signUpload({ folder: "x" })).toThrow();
   });
 });

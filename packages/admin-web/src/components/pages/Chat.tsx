@@ -7,7 +7,7 @@
 // dismiss flag / remove) is server-authoritative via the chat module's moderation
 // routes; flagged counts and per-message state come from the server. Mute /
 // archive / attachment upload have no endpoint yet and stay local display-only.
-import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactElement, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, Tooltip, ResponsiveContainer,
@@ -16,12 +16,12 @@ import {
   ChevronRight, Search, MessagesSquare, Flag, Trash2, Volume2, VolumeX,
   Archive, ArchiveRestore, Send, ShieldAlert, Users, Sparkles, AlertTriangle,
   CheckCheck, Circle, X, MessageSquare, Activity,
-  WifiOff, Moon, LayoutGrid, Hash, Wand2, Loader2,
+  WifiOff, Moon, LayoutGrid, Hash, Wand2, Loader2, Image as ImageIcon, Paperclip, FileText,
 } from "lucide-react";
 import {
-  ChatApi, AssistantApi,
+  ChatApi, AssistantApi, uploadToCloudinary,
   type ChatConversationRow, type ChatMessageRow, type ChatKind, type ChatAiTag,
-  type AssistantTurn,
+  type ChatMsgType, type AssistantTurn,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -132,6 +132,10 @@ export function Chat(): ReactElement {
   const [threadLoading, setThreadLoading] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  // Attachment upload (Cloudinary; bytes never touch our server).
+  const [uploading, setUploading] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Server-authoritative moderation: track in-flight message actions to disable buttons.
   const [moderatingIds, setModeratingIds] = useState<Set<string>>(new Set());
@@ -348,6 +352,52 @@ export function Chat(): ReactElement {
     } finally {
       setSending(false);
     }
+  };
+
+  /* ── Attachment upload (sign → Cloudinary multipart POST → send message) ── */
+  const sendAttachment = async (file: File, kind: "image" | "file"): Promise<void> => {
+    if (!active || uploading || sending || isArchived) return;
+    const id = active.conversation_id;
+    const caption = draft.trim();
+    const msgType: ChatMsgType =
+      kind === "image"
+        ? "image"
+        : file.type.startsWith("audio/")
+          ? "voice"
+          : file.type.startsWith("video/")
+            ? "video"
+            : "file";
+    setUploading(true);
+    setThreadError(null);
+    try {
+      const sign = await ChatApi.signAttachment({ content_type: file.type || "application/octet-stream", kind });
+      const up = await uploadToCloudinary(sign, file);
+      await ChatApi.sendMessage(id, {
+        message_id: crypto.randomUUID(),
+        msg_type: msgType,
+        attachment_url: up.secure_url,
+        attachment_meta: { public_id: up.public_id, bytes: up.bytes, name: file.name },
+        ...(caption ? { body: caption } : {}),
+      });
+      setDraft("");
+      const d = await ChatApi.conversation(id);
+      setMessages(d.messages);
+      setRows((prev) => prev.map((r) =>
+        r.conversation_id === id
+          ? { ...r, last_body: caption || file.name, last_at: new Date().toISOString(), last_author: "You", last_type: msgType }
+          : r,
+      ));
+    } catch (e) {
+      setThreadError(errorMessage(e, "Could not upload the attachment."));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onPickFile = (e: ChangeEvent<HTMLInputElement>, kind: "image" | "file"): void => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (file) void sendAttachment(file, kind);
   };
 
   /* ── Hero stats (derived from the list; flagged from the server per-row count) ── */
@@ -620,13 +670,9 @@ export function Chat(): ReactElement {
                                       <span style={{ display: "block", fontSize: 11, color: "var(--muted-foreground)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{m.reply_body}</span>
                                     </div>
                                   )}
+                                  {!removed && m.attachment_url && <MessageAttachment m={m} />}
                                   {!removed && m.body && (
-                                    <p style={{ fontSize: 13, lineHeight: 1.5, color: "#1F2937", whiteSpace: "pre-wrap" }}>{m.body}</p>
-                                  )}
-                                  {!removed && !m.body && m.attachment_url && (
-                                    <a href={m.attachment_url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", textDecoration: "underline" }}>
-                                      Attachment ({m.msg_type})
-                                    </a>
+                                    <p style={{ fontSize: 13, lineHeight: 1.5, color: "#1F2937", whiteSpace: "pre-wrap", marginTop: m.attachment_url ? 6 : 0 }}>{m.body}</p>
                                   )}
                                   {removed && (
                                     <p style={{ fontSize: 13, lineHeight: 1.5, fontStyle: "italic", color: "var(--muted-foreground)" }}>This message was removed by a moderator.</p>
@@ -704,9 +750,22 @@ export function Chat(): ReactElement {
                     </div>
                   )}
 
+                  {/* Uploading chip */}
+                  {uploading && (
+                    <div className="flex items-center gap-2 shrink-0" style={{ padding: "8px 16px 0" }}>
+                      <span className="inline-flex items-center gap-1.5 rounded-full" style={{ padding: "4px 10px", fontSize: 11.5, fontWeight: 700, background: "#F0EBFA", color: "#5B2BB8", border: "1px solid rgba(124,58,237,0.25)" }}>
+                        <Loader2 size={12} className="animate-spin" /> Uploading attachment…
+                      </span>
+                    </div>
+                  )}
+
                   {/* Composer */}
                   <div className="flex items-end gap-2 shrink-0" style={{ padding: "12px 16px", borderTop: "1px solid var(--border)", background: "#fff" }}>
+                    <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(e) => onPickFile(e, "image")} />
+                    <input ref={fileInputRef} type="file" hidden onChange={(e) => onPickFile(e, "file")} />
                     <div className="flex items-center gap-1 shrink-0">
+                      <CBtn onClick={() => imageInputRef.current?.click()} disabled={isArchived || uploading || sending} title="Attach image"><ImageIcon size={16} /></CBtn>
+                      <CBtn onClick={() => fileInputRef.current?.click()} disabled={isArchived || uploading || sending} title="Attach file"><Paperclip size={16} /></CBtn>
                       <CBtn onClick={() => setAssistOpen((v) => !v)} disabled={isArchived} title="Nuru assist" active={assistOpen} accent="#5B2BB8"><Sparkles size={16} /></CBtn>
                     </div>
                     <textarea
@@ -716,12 +775,12 @@ export function Chat(): ReactElement {
                       onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendAdminMessage(); } }}
                       rows={1}
                       placeholder={isArchived ? "Conversation archived — reopen to reply" : "Reply as admin, or ask Nuru to draft…  (Shift+Enter for a new line)"}
-                      disabled={isArchived || sending}
+                      disabled={isArchived || sending || uploading}
                       className="flex-1 rounded-lg outline-none resize-none block"
                       style={{ minHeight: 40, maxHeight: 140, padding: "9px 12px", background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13, lineHeight: 1.45, color: "var(--foreground)", opacity: isArchived ? 0.5 : 1, overflowY: "auto" }}
                     />
                     {(() => {
-                      const canSend = draft.trim().length > 0 && !isArchived && !sending;
+                      const canSend = draft.trim().length > 0 && !isArchived && !sending && !uploading;
                       return (
                         <button onClick={() => void sendAdminMessage()} disabled={!canSend} className="flex items-center justify-center rounded-lg shrink-0 transition-opacity hover:opacity-90" style={{ width: 40, height: 40, background: "var(--nuru-gold)", color: "#fff", border: "none", opacity: canSend ? 1 : 0.5, cursor: canSend ? "pointer" : "not-allowed" }}>
                           {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
@@ -736,6 +795,30 @@ export function Chat(): ReactElement {
         )}
       </div>
     </div>
+  );
+}
+
+/* Renders a message attachment by msg_type: image thumbnail, audio player, or download chip. */
+function MessageAttachment({ m }: { m: ChatMessageRow }): ReactElement | null {
+  const url = m.attachment_url;
+  if (!url) return null;
+  const meta = (m.attachment_meta ?? {}) as { name?: string; bytes?: number };
+  const name = typeof meta.name === "string" && meta.name ? meta.name : "Attachment";
+  if (m.msg_type === "image") {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="block rounded-lg overflow-hidden" style={{ maxWidth: 240 }}>
+        <img src={url} alt={name} style={{ display: "block", maxWidth: 240, maxHeight: 240, width: "auto", height: "auto", borderRadius: 10 }} />
+      </a>
+    );
+  }
+  if (m.msg_type === "voice") {
+    return <audio controls src={url} style={{ maxWidth: 240, width: "100%" }} />;
+  }
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg" style={{ padding: "7px 10px", background: "rgba(0,0,0,0.04)", border: "1px solid var(--border)", textDecoration: "none", maxWidth: 240 }}>
+      <FileText size={15} style={{ color: "var(--nuru-navy)", flexShrink: 0 }} />
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
+    </a>
   );
 }
 

@@ -8,7 +8,6 @@ import { authenticate, requireRole } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { ChatService } from "./service.js";
 import { MediaService } from "../media/service.js";
-import { attachmentObjectKey } from "./attachments.js";
 
 const IdParam = z.object({ id: z.string().uuid() });
 
@@ -20,17 +19,16 @@ export function registerChat(ctx: AppContext): Router {
   const auth = authenticate(ctx.env);
   const r = chatRouter;
 
-  // Broker a signed, direct-to-Cloudinary upload URL for an attachment; the
-  // client PUTs the bytes (never our server, §4.5), then sends a message that
-  // references the returned object_key (resolved for display via GET /media/url).
+  // Broker real Cloudinary signed-upload params for an attachment; the client
+  // POSTs the bytes directly to Cloudinary (never our server, §4.5), then sends a
+  // message referencing the returned secure_url. Folder is namespaced per author.
   r.post("/chat/attachments/sign", auth, handler(async (req, res) => {
-    const input = parseBody(
+    parseBody(
       z.object({ content_type: z.string().min(3).max(120), kind: z.enum(["image", "voice", "video", "file"]).default("image") }),
       req.body,
     );
-    const objectKey = attachmentObjectKey(requirePrincipal(req).userId, input.content_type);
-    const signed = media.signedUploadUrl(objectKey);
-    res.status(201).json({ object_key: objectKey, upload_url: signed.url, expires_at: signed.expires_at });
+    const folder = `nuru/chat/${requirePrincipal(req).userId}`;
+    res.status(201).json(media.signUpload({ folder }));
   }));
 
   r.get("/chat/conversations", auth, handler(async (req, res) => {

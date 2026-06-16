@@ -79,6 +79,17 @@ export function installAuth(vault: TokenVault): void {
   );
 }
 
+// Cloudinary signed-upload params from POST /chat/attachments/sign. The upload is a
+// multipart POST to `upload_url` (https://api.cloudinary.com/v1_1/<cloud>/auto/upload).
+export interface CloudinarySign {
+  cloud_name: string;
+  api_key: string;
+  timestamp: number;
+  folder: string;
+  signature: string;
+  upload_url: string;
+}
+
 export const NuruApi = {
   /** DEV ONLY: mint a session by email (no OAuth). 404s in production. */
   async devLogin(email: string): Promise<TokenPair> {
@@ -311,8 +322,31 @@ export const NuruApi = {
   },
 
   // ---- Chat attachments (bytes go direct to Cloudinary, never our server) ----
-  async signChatAttachment(body: { content_type: string; kind?: "image" | "voice" | "video" | "file" }): Promise<{ object_key: string; upload_url: string; expires_at: string }> {
-    const { data } = await api.post<{ object_key: string; upload_url: string; expires_at: string }>("/chat/attachments/sign", body);
+  async signChatAttachment(body: {
+    content_type: string;
+    kind?: "image" | "voice" | "video" | "file";
+  }): Promise<CloudinarySign> {
+    const { data } = await api.post<CloudinarySign>("/chat/attachments/sign", body);
+    return data;
+  },
+  /** Multipart POST a local RN file straight to Cloudinary with the server-signed params. */
+  async uploadChatAttachment(
+    sign: CloudinarySign,
+    asset: { uri: string; name: string; type: string },
+  ): Promise<{ secure_url: string; public_id: string; bytes: number }> {
+    const form = new FormData();
+    // RN's FormData accepts a {uri,name,type} file object (typed loosely).
+    form.append("file", { uri: asset.uri, name: asset.name, type: asset.type } as unknown as Blob);
+    form.append("api_key", sign.api_key);
+    form.append("timestamp", String(sign.timestamp));
+    form.append("folder", sign.folder);
+    form.append("signature", sign.signature);
+    const res = await fetch(sign.upload_url, { method: "POST", body: form });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`Upload failed (${res.status})${detail ? `: ${detail}` : ""}`);
+    }
+    const data = (await res.json()) as { secure_url: string; public_id: string; bytes: number };
     return data;
   },
   async resolveMediaUrl(key: string): Promise<{ url: string; expires_at: string }> {

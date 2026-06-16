@@ -920,11 +920,52 @@ export interface SendChatMessageBody {
   body?: string;
   msg_type?: ChatMsgType;
   attachment_url?: string;
+  attachment_meta?: Record<string, unknown>;
   reply_to_id?: string;
+}
+
+// Cloudinary signed-upload params returned by POST /v1/chat/attachments/sign.
+// Bytes go direct to Cloudinary (multipart POST to upload_url), never our server.
+export interface CloudinarySignResult {
+  cloud_name: string;
+  api_key: string;
+  timestamp: number;
+  folder: string;
+  signature: string;
+  upload_url: string;
+}
+
+export interface CloudinaryUploadResult {
+  secure_url: string;
+  public_id: string;
+  bytes: number;
+  resource_type: string;
+}
+
+/** Multipart POST the file straight to Cloudinary using the server-signed params. */
+export async function uploadToCloudinary(
+  sign: CloudinarySignResult,
+  file: File,
+): Promise<CloudinaryUploadResult> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("api_key", sign.api_key);
+  form.append("timestamp", String(sign.timestamp));
+  form.append("folder", sign.folder);
+  form.append("signature", sign.signature);
+  const res = await fetch(sign.upload_url, { method: "POST", body: form });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Cloudinary upload failed (${res.status})${detail ? `: ${detail}` : ""}`);
+  }
+  const data = (await res.json()) as CloudinaryUploadResult;
+  return data;
 }
 
 export const ChatApi = {
   conversations: () => api.get<ChatList>("/chat/conversations").then((r) => r.data),
+  signAttachment: (body: { content_type: string; kind?: "image" | "voice" | "video" | "file" }) =>
+    api.post<CloudinarySignResult>("/chat/attachments/sign", body).then((r) => r.data),
   conversation: (id: string) =>
     api.get<ChatConversationDetail>(`/chat/conversations/${id}`).then((r) => r.data),
   sendMessage: (id: string, body: SendChatMessageBody) =>

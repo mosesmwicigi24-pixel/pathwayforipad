@@ -4,7 +4,7 @@
 // offline they queue (chat_messages:create) and replay on reconnect (§1.7).
 // Opening the thread marks it read.
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { ActivityIndicator, Image, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Image, Pressable, ScrollView, TextInput, View } from "react-native";
 import { launchImageLibrary } from "react-native-image-picker";
 import { ArrowLeft, Hash, ImagePlus, Play, Users } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
@@ -16,7 +16,6 @@ import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 import { useChatConversation, queryKeys } from "../api/hooks";
 import { errorMessage, invalidateQueries } from "../api/query";
-import { uploadToSignedUrl } from "../api/upload";
 import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
@@ -83,13 +82,15 @@ export function ChatThreadScreen(): ReactElement {
     setSendError(null);
     try {
       const contentType = asset.type ?? "image/jpeg";
-      const signed = await NuruApi.signChatAttachment({ content_type: contentType, kind: "image" });
-      await uploadToSignedUrl(signed.upload_url, asset.uri, contentType);
+      const name = asset.fileName ?? `photo-${Date.now()}.jpg`;
+      const sign = await NuruApi.signChatAttachment({ content_type: contentType, kind: "image" });
+      const up = await NuruApi.uploadChatAttachment(sign, { uri: asset.uri, name, type: contentType });
       await NuruApi.sendChatMessage(conversationId, {
         message_id: uuidv4(),
         body: "",
         msg_type: "image",
-        attachment_url: signed.object_key,
+        attachment_url: up.secure_url,
+        attachment_meta: { public_id: up.public_id, bytes: up.bytes, name },
         client_mutation_id: uuidv4(),
       });
       invalidateQueries(queryKeys.chatConvo(conversationId));
@@ -199,7 +200,7 @@ function Bubble({ m, onLongPress, reacting, onReact }: { m: ChatMessage; onLongP
         ) : null}
         {m.ai_tag ? <T variant="micro" tone="gold" style={{ marginBottom: 2 }}>✨ {m.ai_tag.toUpperCase()}</T> : null}
         {m.msg_type === "image" && m.attachment_url ? (
-          <AttachmentImage objectKey={m.attachment_url} />
+          <AttachmentImage url={m.attachment_url} />
         ) : m.msg_type === "voice" ? (
           <View style={st.mediaChip}><Play size={14} color={m.mine ? "#fff" : palette.navy} /><T variant="caption" style={{ color: m.mine ? "#fff" : palette.ink }}>Voice message</T></View>
         ) : m.msg_type === "video" && m.attachment_url ? (
@@ -230,20 +231,19 @@ function Bubble({ m, onLongPress, reacting, onReact }: { m: ChatMessage; onLongP
   );
 }
 
-/** Resolves a chat image's signed delivery URL on mount, then renders it. */
-function AttachmentImage({ objectKey }: { objectKey: string }): ReactElement {
-  const [url, setUrl] = useState<string | null>(null);
+/** Renders a chat image from its Cloudinary secure URL (delivered direct, no resolve step). */
+function AttachmentImage({ url }: { url: string }): ReactElement {
   const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let live = true;
-    NuruApi.resolveMediaUrl(objectKey)
-      .then((r) => { if (live) setUrl(r.url); })
-      .catch(() => { if (live) setFailed(true); });
-    return () => { live = false; };
-  }, [objectKey]);
   if (failed) return <View style={st.imageBox}><T variant="caption" tone="tertiary">Image unavailable</T></View>;
-  if (!url) return <View style={st.imageBox}><ActivityIndicator color={palette.gold} /></View>;
-  return <Image source={{ uri: url }} style={st.image} resizeMode="cover" accessibilityLabel="Shared photo" />;
+  return (
+    <Image
+      source={{ uri: url }}
+      style={st.image}
+      resizeMode="cover"
+      accessibilityLabel="Shared photo"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 const st = {
