@@ -366,6 +366,10 @@ export interface AdminLevel {
   published_count: string;
   draft_count: string;
   archived_count: string;
+  // Figma QuizSettings for the level final exam (may be absent on older list rows).
+  exam_show_answers?: boolean;
+  exam_show_score?: boolean;
+  exam_shuffle?: boolean;
 }
 
 export interface AdminModuleSummary {
@@ -389,6 +393,8 @@ export interface AdminModule extends AdminModuleSummary {
   time_limit_sec: number | null;
   max_attempts: number | null;
   quiz_shuffle: boolean;
+  quiz_show_answers: boolean;
+  quiz_show_score: boolean;
   difficulty: "beginner" | "intermediate" | "advanced";
   objectives: string | null;
   tags: string | null;
@@ -398,17 +404,59 @@ export interface AdminModule extends AdminModuleSummary {
   row_version: number;
 }
 
+/** Legacy enum values are still accepted server-side; the Figma builder emits the six lowercase types. */
+export type QuestionType =
+  | "multiple_choice"
+  | "checkbox"
+  | "dropdown"
+  | "short_answer"
+  | "paragraph"
+  | "linear_scale"
+  | "MultipleChoice"
+  | "TrueFalse"
+  | "FillInTheBlank";
+
+/** Structured choice stored under answer_options.choices for the Figma choice types. */
+export interface QuestionChoice {
+  id?: string | null;
+  text: string;
+  is_correct: boolean;
+}
+
+/** linear_scale config stored under answer_options.scale. */
+export interface QuestionScale {
+  min: number;
+  max: number;
+  min_label: string | null;
+  max_label: string | null;
+}
+
+/**
+ * answer_options JSONB is polymorphic by type:
+ *  - legacy choice types: string[]
+ *  - Figma choice types: { choices: QuestionChoice[] }
+ *  - linear_scale: { scale: QuestionScale }
+ *  - short_answer/paragraph: null
+ */
+export type AnswerOptions =
+  | string[]
+  | { choices: QuestionChoice[] }
+  | { scale: QuestionScale }
+  | null;
+
 export interface AdminQuestion {
   question_id: string;
   module_id: string;
-  q_type: "MultipleChoice" | "TrueFalse" | "FillInTheBlank";
+  q_type: QuestionType;
   question_text: string;
-  answer_options: string[] | null;
+  answer_options: AnswerOptions;
+  /** Scalar for single-select, JSON array string for checkbox, "" for manual/scale. */
   correct_answer: string;
   difficulty_rating: number;
   is_active: boolean;
   explanation: string | null;
   points: number;
+  required: boolean;
 }
 
 export interface ModuleVersion {
@@ -426,8 +474,16 @@ export const CurriculumApi = {
     api.post<AdminLevel>("/admin/levels", body).then((r) => r.data),
   updateLevel: (n: number, body: Record<string, unknown>) =>
     api.put<AdminLevel>(`/admin/levels/${n}`, body).then((r) => r.data),
-  updateExam: (n: number, body: { required_exam_pass_mark: number; exam_question_count?: number | null }) =>
-    api.put<AdminLevel>(`/admin/levels/${n}/exam`, body).then((r) => r.data),
+  updateExam: (
+    n: number,
+    body: {
+      required_exam_pass_mark: number;
+      exam_question_count?: number | null;
+      exam_show_answers?: boolean;
+      exam_show_score?: boolean;
+      exam_shuffle?: boolean;
+    },
+  ) => api.put<AdminLevel>(`/admin/levels/${n}/exam`, body).then((r) => r.data),
 
   modules: (n: number) => unwrap(api.get<{ data: AdminModuleSummary[] }>(`/admin/levels/${n}/modules`)),
   module: (id: string) => api.get<AdminModule>(`/admin/modules/${id}`).then((r) => r.data),

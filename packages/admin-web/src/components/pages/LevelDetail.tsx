@@ -17,6 +17,7 @@ import {
 import { errorMessage } from "../../util/error";
 import { MarkdownPreview } from "../MarkdownPreview";
 import { LevelModal, type LevelFormData, type LevelStatus } from "../curriculum/LevelModal";
+import { ModuleQuizBuilder, type QuizSettings } from "../curriculum/ModuleQuizBuilder";
 
 const statusPill: Record<string, { bg: string; color: string }> = {
   published: { bg: "#E8F6EE", color: "#0F6B33" },
@@ -51,7 +52,6 @@ export function LevelDetail(): ReactElement {
   const [savingLevel, setSavingLevel] = useState(false);
   const [addingTo, setAddingTo] = useState<number | null>(null);
   const [newModTitle, setNewModTitle] = useState("");
-  const [quizCount, setQuizCount] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
@@ -78,8 +78,6 @@ export function LevelDetail(): ReactElement {
   useEffect(() => {
     if (!selectedId) { setMod(null); setDraft(null); return; }
     void CurriculumApi.module(selectedId).then((m) => { setMod(m); setDraft(m); setDirty(false); setMdView("write"); }).catch((e) => setError(errorMessage(e, "Could not load module.")));
-    setQuizCount(null);
-    void CurriculumApi.questions(selectedId).then((qs) => setQuizCount(qs.length)).catch(() => setQuizCount(null));
   }, [selectedId]);
 
   function setField<K extends keyof AdminModule>(key: K, val: AdminModule[K]): void {
@@ -131,6 +129,30 @@ export function LevelDetail(): ReactElement {
       else void loadMods((updated as AdminModule).level_number);
     } catch (e) { setError(errorMessage(e, "Save failed — the module may have changed elsewhere (reload).")); }
   }
+  // ── Per-module quiz settings (Quiz tab) ──
+  // Decode the module row → Figma QuizSettings; persist via updateModule (PR #117 fields).
+  function moduleQuizSettings(m: AdminModule): QuizSettings {
+    return {
+      passMark: Math.round(Number(m.quiz_pass_mark) || 70),
+      shuffleQuestions: m.quiz_shuffle ?? false,
+      showAnswersAfterSubmit: m.quiz_show_answers ?? false,
+      showScoreAfterSubmit: m.quiz_show_score ?? true,
+      timeLimitMinutes: m.time_limit_sec != null ? Math.round(m.time_limit_sec / 60) : null,
+    };
+  }
+  async function saveModuleQuizSettings(m: AdminModule, s: QuizSettings): Promise<void> {
+    const updated = await CurriculumApi.updateModule(m.module_id, {
+      quiz_pass_mark: s.passMark,
+      quiz_shuffle: s.shuffleQuestions,
+      quiz_show_answers: s.showAnswersAfterSubmit,
+      quiz_show_score: s.showScoreAfterSubmit,
+      time_limit_sec: s.timeLimitMinutes != null ? s.timeLimitMinutes * 60 : null,
+      expected_row_version: m.row_version,
+    });
+    setMod(updated as AdminModule); setDraft(updated as AdminModule);
+    void loadMods((updated as AdminModule).level_number);
+  }
+
   async function togglePublish(): Promise<void> {
     if (!mod) return;
     try {
@@ -295,16 +317,28 @@ export function LevelDetail(): ReactElement {
               {notice ? <div style={{ padding: "8px 28px", color: "#0F6B33", fontSize: 12.5, background: "#F3FAF5", borderBottom: "1px solid var(--border)" }}>{notice}</div> : null}
               {error ? <div style={{ padding: "8px 28px", color: "#A8281F", fontSize: 12.5, background: "#FDF4F4", borderBottom: "1px solid var(--border)" }}>{error}</div> : null}
 
-              {/* Quiz tab */}
+              {/* Quiz tab — six-type builder wired to this module's question bank (§1.9). */}
               {rightTab === "quiz" ? (
-                <div style={{ flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <div className="nuru-card" style={{ padding: 32, maxWidth: 460, textAlign: "center" }}>
-                    <div style={{ width: 52, height: 52, borderRadius: 16, margin: "0 auto 12px", background: "rgba(124,58,237,0.10)", color: "#7C3AED", display: "grid", placeItems: "center" }}><ClipboardList size={22} /></div>
-                    <h3 className="type-section" style={{ fontSize: 18 }}>Module quiz</h3>
-                    <p style={{ fontSize: 13, color: "var(--muted-foreground)", marginTop: 6, lineHeight: 1.5 }}>
-                      This module has <strong style={{ color: "var(--nuru-navy)" }}>{quizCount ?? "—"}</strong> question{quizCount === 1 ? "" : "s"}. Author them in the dedicated Quiz Builder — scoring stays server-authoritative.
-                    </p>
-                    <button onClick={() => navigate("/quiz-builder")} className="flex items-center gap-2" style={{ margin: "16px auto 0", height: 40, padding: "0 18px", borderRadius: 10, background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none", boxShadow: "0 6px 18px rgba(200,155,60,0.3)" }}>Open Quiz Builder <ChevronRight size={14} /></button>
+                <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto" }}>
+                  <div style={{ padding: "20px 28px", maxWidth: 1040 }}>
+                    {mod && draft && draft.evaluation_kind !== "quiz" ? (
+                      <div className="flex items-start" style={{ gap: 10, marginBottom: 16, padding: "12px 14px", borderRadius: 10, background: "rgba(217,119,6,0.06)", border: "1px solid rgba(217,119,6,0.2)", color: "#8A6B1F", fontSize: 12.5 }}>
+                        <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                        <span>This module's evaluation kind is <strong>{draft.evaluation_kind}</strong>. Set it to <strong>Quiz</strong> in the Content tab for these questions to be served and graded.</span>
+                      </div>
+                    ) : null}
+                    {mod ? (
+                      <ModuleQuizBuilder
+                        key={mod.module_id}
+                        moduleId={mod.module_id}
+                        accent={selectedLevel?.color ?? "var(--nuru-gold)"}
+                        settings={moduleQuizSettings(mod)}
+                        onSaveSettings={(s) => saveModuleQuizSettings(mod, s)}
+                        settingsLabel="Quiz settings"
+                      />
+                    ) : (
+                      <div style={{ padding: 40, textAlign: "center", color: "var(--muted-foreground)", fontSize: 13 }}>Select a module to build its quiz.</div>
+                    )}
                   </div>
                 </div>
               ) : (
