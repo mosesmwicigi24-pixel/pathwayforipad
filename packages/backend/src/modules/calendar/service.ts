@@ -9,6 +9,7 @@ import * as chrono from "chrono-node";
 import { DateTime } from "luxon";
 import { many, maybeOne, one, tx, recordChange, audit, enqueueOutbox, type Queryable } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
+import { assertCellInScope } from "../../http/auth.js";
 import type { Principal } from "../../http/http.js";
 import { validateRrule, expandOccurrences, type Occurrence } from "./recurrence.js";
 import { NotificationService } from "../notifications/service.js";
@@ -31,6 +32,7 @@ interface SeriesRow {
   qr_enabled?: boolean;
   reminders_enabled?: boolean;
   checkin_opens_min_before?: number | null;
+  is_paused?: boolean;
 }
 
 interface UserScope {
@@ -73,9 +75,9 @@ export class CalendarService {
       c,
       `SELECT series_id, congregation_id, cell_group_id, title, description, location, timezone,
               to_char(dtstart_local, 'YYYY-MM-DD"T"HH24:MI:SS') AS dtstart_local,
-              duration_min, rrule, visibility
+              duration_min, rrule, visibility, is_paused
          FROM event_series es
-        WHERE es.deleted_at IS NULL AND es.congregation_id = $1
+        WHERE es.deleted_at IS NULL AND es.is_paused = FALSE AND es.congregation_id = $1
           AND (
             es.visibility = 'congregation'
             OR (es.visibility = 'cell' AND (es.cell_group_id = $2 OR es.cell_group_id = ANY($3::uuid[])))
@@ -453,6 +455,110 @@ export class CalendarService {
       rsvp_counts: Object.fromEntries(counts.map((r) => [r.status, r.n])),
       my_rsvp: mine?.status ?? null,
     };
+  }
+
+  // ---------------- Leader: RSVP roster (Events page) ----------------
+
+  /**
+   * The RSVP roster for one materialized occurrence (Events page). Resolves the
+   * occurrence exactly like the attendance roster — by its materialized
+   * `event_id` (= occurrenceId(series_id, start)) — then scope-checks the
+   * occurrence's cell (Admin+ pass; an Instructor must lead that cell, else
+   * 403 FORBIDDEN_SCOPE) before returning RSVPs.
+   *
+   * Returns each rsvp row {user_id, full_name, response, cell_name, responded_at}
+   * grouped under its response bucket, plus a count per response. A "no_response"
+   * bucket lists cell members (for a cell-scoped occurrence) who have no rsvp row
+   * — cheap to derive from the occurrence's own cell. For congregation-wide
+   * occurrences (no cell) no_response is left empty (deriving it would mean
+   * scanning the whole congregation), and `no_response_scope` flags that.
+   */
+  async rsvpRoster(principal: Principal, eventId: string): Promise<Record<string, unknown>> {
+    const ev = await maybeOne<{ cell_group_id: string | null }>(
+      this.pool,
+      `SELECT cell_group_id FROM events WHERE event_id = $1`,
+      [eventId],
+    );
+    if (!ev) throw new ApiError("NOT_FOUND", "Event not found");
+    await assertCellInScope(this.pool, principal, ev.cell_group_id ?? "");
+
+    const rsvps = await many<{
+      user_id: string;
+      full_name: string;
+      response: string;
+      cell_name: string | null;
+      responded_at: string;
+    }>(
+      this.pool,
+      `SELECT r.user_id, u.full_name, r.status::text AS response,
+              cg.name AS cell_name, r.updated_at AS responded_at
+         FROM event_rsvps r
+         JOIN users u ON u.user_id = r.user_id
+         LEFT JOIN cell_groups cg ON cg.cell_group_id = u.cell_group_id
+        WHERE r.event_id = $1
+        ORDER BY u.full_name`,
+      [eventId],
+    );
+
+    const buckets: Record<string, typeof rsvps> = { going: [], maybe: [], declined: [], no_response: [] };
+    for (const r of rsvps) (buckets[r.response] ??= []).push(r);
+
+    // no_response: cell members (for a cell-scoped occurrence) with no rsvp row.
+    // Cheap — scoped to the occurrence's own cell. Skipped for congregation-wide.
+    if (ev.cell_group_id) {
+      const noResponse = await many<{ user_id: string; full_name: string; cell_name: string | null }>(
+        this.pool,
+        `SELECT u.user_id, u.full_name, cg.name AS cell_name
+           FROM users u
+           LEFT JOIN cell_groups cg ON cg.cell_group_id = u.cell_group_id
+          WHERE u.cell_group_id = $1 AND u.deleted_at IS NULL
+            AND NOT EXISTS (SELECT 1 FROM event_rsvps r WHERE r.event_id = $2 AND r.user_id = u.user_id)
+          ORDER BY u.full_name`,
+        [ev.cell_group_id, eventId],
+      );
+      buckets.no_response = noResponse.map((m) => ({ ...m, response: "no_response", responded_at: "" }));
+    }
+
+    return {
+      event_id: eventId,
+      buckets,
+      counts: {
+        going: buckets.going!.length,
+        maybe: buckets.maybe!.length,
+        declined: buckets.declined!.length,
+        no_response: buckets.no_response!.length,
+      },
+      no_response_scope: ev.cell_group_id ? "cell" : "none",
+    };
+  }
+
+  // ---------------- Leader: series pause / resume (Events page) ----------------
+
+  /** Pause a series so it stops projecting/materializing future occurrences (audited). */
+  async pauseSeries(principal: Principal, seriesId: string): Promise<unknown> {
+    return this.setPaused(principal, seriesId, true);
+  }
+
+  /** Resume a paused series, restoring normal projection (audited). */
+  async resumeSeries(principal: Principal, seriesId: string): Promise<unknown> {
+    return this.setPaused(principal, seriesId, false);
+  }
+
+  private async setPaused(principal: Principal, seriesId: string, paused: boolean): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const s = await maybeOne<{ congregation_id: string }>(
+        c,
+        `SELECT congregation_id FROM event_series WHERE series_id = $1 AND deleted_at IS NULL`,
+        [seriesId],
+      );
+      if (!s) throw new ApiError("NOT_FOUND", "Series not found");
+      if (s.congregation_id !== principal.congregationId && principal.role !== "SuperAdmin") {
+        throw new ApiError("FORBIDDEN_SCOPE", "Series outside your congregation");
+      }
+      await c.query(`UPDATE event_series SET is_paused = $2 WHERE series_id = $1`, [seriesId, paused]);
+      await audit(c, principal.userId, paused ? "calendar.series_paused" : "calendar.series_resumed", "event_series", seriesId, {});
+      return one(c, `SELECT * FROM event_series WHERE series_id = $1`, [seriesId]);
+    });
   }
 
   // ---------------- NLP quick-add (chrono-node) ----------------

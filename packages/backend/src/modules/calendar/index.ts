@@ -81,6 +81,15 @@ export function registerCalendar(ctx: AppContext): Router {
     }),
   );
 
+  // RSVP roster for one occurrence — buckets + counts (Events page; cell-scoped).
+  r.get(
+    "/admin/events/:id/rsvps",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      res.json(await svc.rsvpRoster(requirePrincipal(req), req.params.id ?? ""));
+    }),
+  );
+
   // NLP quick-add — suggestion only; never auto-creates. Leader+ (CPU-bound).
   r.post(
     "/calendar/parse",
@@ -124,6 +133,23 @@ export function registerCalendar(ctx: AppContext): Router {
     ...leaderPlus,
     handler(async (req, res) => {
       res.json(await svc.deleteSeries(requirePrincipal(req), req.params.id ?? ""));
+    }),
+  );
+
+  // Pause / resume a series — paused series stop projecting future occurrences.
+  r.post(
+    "/admin/events/series/:id/pause",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      res.json(await svc.pauseSeries(requirePrincipal(req), req.params.id ?? ""));
+    }),
+  );
+
+  r.post(
+    "/admin/events/series/:id/resume",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      res.json(await svc.resumeSeries(requirePrincipal(req), req.params.id ?? ""));
     }),
   );
 

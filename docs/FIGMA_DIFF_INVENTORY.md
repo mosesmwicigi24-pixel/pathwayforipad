@@ -65,6 +65,11 @@ Make `CourseModule`: difficulty, objectives, scripture, tags, quizAttempts, requ
 - Module evaluation in the per-module editor = Quiz/Reflection/None (exit-exam lives in Level Quiz Builder).
 - 🟡 expose time_limit + shuffle + showAnswers/showScore in editor (see Quiz section).
 
+## 5. Events ✅ mostly (live built from this make at #111; only 2 real backend gaps)
+Diffed `/tmp/make/Events.tsx` (fresh) vs live — ~90% already matches; insights %, follow-up counts, rotating-QR remain display-only by design (acceptable). Real gaps:
+- 🔴 **RSVP roster** — make shows a full RSVP drawer (Member/Response/Cell/Time, going|maybe|not_going|no_response); live is an empty "not available yet" placeholder. Needs `GET /admin/events/:occurrenceId/rsvps` (from event_rsvps ⋈ users ⋈ cell_groups for the occurrence) + web wiring.
+- 🔴 **Series pause/resume** — make has a Pause button on Active Series (display-only). Needs `event_series.is_paused` + `POST /admin/events/series/:id/pause|resume` + projectRange skips paused + web wiring.
+
 ## STILL TO DIFF (current Figma not yet read this pass — pages persisted on disk may be stale vs the user's latest edits; re-fetch fresh before building each)
 Members, MemberProfile, CellEngagement/CellDetail, Chat (+ moderation/attachments already shipped — diff for new features), Events, Finance, Dashboard, Notifications, Profile, Login, Layout/nav, ReflectionQueue, Certificates, Badges, Countries, Languages, Roles, Users, ModulePreview. The user flagged **Members** and **Chat** as changed "in a big way / many places" — prioritize those next.
 

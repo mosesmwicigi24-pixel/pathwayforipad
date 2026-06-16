@@ -1262,6 +1262,26 @@ paths:
       responses:
         "201": { description: Exception recorded }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/events/series/{id}/pause:
+    post:
+      tags: [system]
+      summary: Leader+/Admin. Pause a series — stops projecting/materializing future occurrences (audited). Returns the updated series (is_paused=true).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Paused }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/events/series/{id}/resume:
+    post:
+      tags: [system]
+      summary: Leader+/Admin. Resume a paused series — restores normal projection (audited). Returns the updated series (is_paused=false).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Resumed }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   # --- Onboarding (Features v2 §O) ---
   /onboarding:
@@ -1463,6 +1483,21 @@ paths:
         - $ref: "#/components/parameters/IdPath"
       responses:
         "200": { description: Roster }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/events/{id}/rsvps:
+    get:
+      tags: [portal]
+      summary: >-
+        Leader+. RSVP roster for one occurrence (cell-scoped). Returns buckets
+        {going, maybe, declined, no_response} of {user_id, full_name, response,
+        cell_name, responded_at}, plus counts per response. no_response lists the
+        occurrence cell's members with no rsvp row (no_response_scope=cell);
+        empty for congregation-wide occurrences (no_response_scope=none).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: RSVP roster }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
 
