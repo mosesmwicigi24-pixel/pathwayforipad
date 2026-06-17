@@ -3,10 +3,10 @@ import { describe, it, expect } from "vitest";
 import { palette, radii, type as typ, bandColor } from "../src/theme/tokens";
 
 describe("design tokens", () => {
-  it("exposes the brand palette (navy · gold · paper · ink)", () => {
-    expect(palette.navy).toBe("#0A2540");
-    expect(palette.gold).toBe("#C9A227");
-    expect(palette.paper).toBe("#F4F0E8");
+  it("exposes the brand palette re-anchored to the make + web portal (navy · gold · paper · ink)", () => {
+    expect(palette.navy).toBe("#0B1F33"); // --nuru-navy (portal + current make)
+    expect(palette.gold).toBe("#C89B3C"); // --nuru-gold
+    expect(palette.paper).toBe("#F6F4EE"); // --background
     expect(palette.ink).toBe("#0B0B0C");
   });
 

@@ -5,16 +5,16 @@
 
 export const palette = {
   // Surfaces
-  paper: "#F4F0E8", // app background (warm off-white so cards float)
+  paper: "#F6F4EE", // app background (warm off-white so cards float) — matches make/portal --background
   white: "#FFFFFF", // cards / surfaces
-  // Deep blue (brand)
-  navy: "#0A2540", // headers, tab bar, chrome
-  navyDeep: "#071F3B", // primary brand / button base
+  // Deep blue (brand) — re-anchored to the current make + web portal (--nuru-navy #0B1F33)
+  navy: "#0B1F33", // headers, tab bar, chrome
+  navyDeep: "#00132F", // primary brand / button base / app frame (deepest navy)
   navy700: "#143559", // gradient top / hover
-  // Gold (accent — used sparingly)
-  gold: "#C9A227", // accent: indicators, progress, badges, focus ring
-  goldHi: "#E5BC3A", // gradient top
-  goldLo: "#A8861C", // gradient bottom / gold text on light (≥14px semibold)
+  // Gold (accent — used sparingly) — re-anchored to make/portal (--nuru-gold #C89B3C)
+  gold: "#C89B3C", // accent: indicators, progress, badges, focus ring
+  goldHi: "#E0B85E", // gradient top
+  goldLo: "#A87F2E", // gradient bottom / gold text on light (≥14px semibold)
   goldGlow: "#E6CA68", // gold text on navy
   goldTint: "#FFF4C7", // subtle gold tint (completed icon bg)
   // Ink (black → greys)
