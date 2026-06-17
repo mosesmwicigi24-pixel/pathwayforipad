@@ -1,0 +1,122 @@
+[
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Module 2 opens by describing God's original plan for humanity. According to the teaching, why did God make man?",
+    "answer_options": [
+      "To share the intricate beauty of God's glory as a friend",
+      "To populate the earth and multiply across the nations",
+      "To labor over the ground and tend the animals alone",
+      "To live at a distance from God and worship from afar"
+    ],
+    "correct_answer": "To share the intricate beauty of God's glory as a friend",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module states that man was designed for a particular role on the earth. In simple words, what was man designed to do?",
+    "answer_options": [
+      "To carry God's presence and represent God's authority on the earth",
+      "To build cities and establish kingdoms in God's name",
+      "To record God's words and pass them to future generations",
+      "To remain hidden from creation until God called him forth"
+    ],
+    "correct_answer": "To carry God's presence and represent God's authority on the earth",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module gives a memorable 'Catch this' line about the Image of God in man, breaking it into three parts. According to that line, what do image, likeness, and dominion each represent?",
+    "answer_options": [
+      "Image is identity; likeness is capacity; dominion is assignment",
+      "Image is glory; likeness is holiness; dominion is fellowship",
+      "Image is identity; likeness is authority; dominion is friendship",
+      "Image is capacity; likeness is identity; dominion is reflection"
+    ],
+    "correct_answer": "Image is identity; likeness is capacity; dominion is assignment",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module defines sin in terms of a person's state, not merely their actions. How does the teaching define what sin is?",
+    "answer_options": [
+      "The degenerated state of a man from the image of the Father",
+      "A list of wrong actions that break God's written law",
+      "The temporary mistakes a believer makes before repentance",
+      "A weakness of the body that fades as a person matures"
+    ],
+    "correct_answer": "The degenerated state of a man from the image of the Father",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module names the first created being to embody sin and explains what he did. Who was it, and what did he do?",
+    "answer_options": [
+      "Lucifer, who showed extreme pride and rebellion, desiring to exalt himself above God",
+      "Adam, who ate the fruit and attracted God's righteous judgement",
+      "Satan, who tricked Eve before he had ever sinned himself",
+      "Cain, who rebelled against God's will out of jealousy and anger"
+    ],
+    "correct_answer": "Lucifer, who showed extreme pride and rebellion, desiring to exalt himself above God",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Describing the Fall, the module explains how Adam came to sin. According to the teaching, what happened?",
+    "answer_options": [
+      "Satan, through his own self-will, took advantage of the self-choice of man and tricked Adam into sinning",
+      "Adam invented sin on his own without any outside influence at all",
+      "God withdrew His presence, leaving Adam no choice but to disobey",
+      "Adam was forced by Lucifer to eat the fruit against his own will"
+    ],
+    "correct_answer": "Satan, through his own self-will, took advantage of the self-choice of man and tricked Adam into sinning",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module uses the example of children to make a point about sin. It observes that children are inclined to lie or do mischievous things though no one taught them. What does this point to?",
+    "answer_options": [
+      "The inherent nature of sin passed to all men following the rebellion of the first man, Adam",
+      "The failure of parents to model good moral behavior early",
+      "A passing stage of immaturity that disappears with discipline",
+      "The influence of a sinful society shaping a child's choices"
+    ],
+    "correct_answer": "The inherent nature of sin passed to all men following the rebellion of the first man, Adam",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module explains why Jesus came, contrasting it with merely managing sin. According to the teaching, what did Jesus come to do about the nature of sin?",
+    "answer_options": [
+      "To cure the nature of sin by replacing the degenerated DNA of sin and generating a new state of righteousness",
+      "To help the old man try harder and gradually improve his behavior",
+      "To cover up sin so that God would no longer see man's failures",
+      "To manage sin's effects until man could overcome it on his own"
+    ],
+    "correct_answer": "To cure the nature of sin by replacing the degenerated DNA of sin and generating a new state of righteousness",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "In 'The Great Exchange,' the module insists salvation is more than a powerful, emotional moment. How does the teaching describe what salvation actually is?",
+    "answer_options": [
+      "A permanent change of position and a fact to believe, not a feeling to maintain",
+      "A renovation project where a bad person learns to try harder",
+      "A second chance to prove yourself worthy through daily consistency",
+      "A feeling of excitement that you must work hard to keep alive"
+    ],
+    "correct_answer": "A permanent change of position and a fact to believe, not a feeling to maintain",
+    "difficulty_rating": 5
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Under 'What Changed,' the module lists three pillars and a 'Catch this' line tying each to a specific change. According to that line, what does each pillar change?",
+    "answer_options": [
+      "Regeneration changes your inside; justification changes your standing; reconciliation changes your access",
+      "Regeneration changes your access; justification changes your inside; reconciliation changes your standing",
+      "Regeneration changes your standing; justification changes your access; reconciliation changes your inside",
+      "Regeneration changes your feelings; justification changes your behavior; reconciliation changes your status"
+    ],
+    "correct_answer": "Regeneration changes your inside; justification changes your standing; reconciliation changes your access",
+    "difficulty_rating": 5
+  }
+]

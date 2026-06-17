@@ -1,0 +1,122 @@
+[
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Module 4 builds on the earlier modules. According to the introduction, the central question that Module 4 sets out to answer is:",
+    "answer_options": [
+      "Who am I now that I am in Christ?",
+      "Who is God and what is His character?",
+      "How does Christ save and grant righteousness?",
+      "What is God's plan for humanity and the fall of man?"
+    ],
+    "correct_answer": "Who am I now that I am in Christ?",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson quotes 2 Corinthians 5:17. According to that verse as given in the text, if any man is in Christ:",
+    "answer_options": [
+      "he is a new creature; old things are passed away and all things are become new",
+      "he is forgiven of his sins only and nothing else changes",
+      "he must work to become accepted by God",
+      "he remains an old man who is simply trying to improve"
+    ],
+    "correct_answer": "he is a new creature; old things are passed away and all things are become new",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson teaches that man has three dimensions based on 1 Thessalonians 5:23. According to the text, the soul is:",
+    "answer_options": [
+      "the mind, will, and emotions",
+      "the inner man",
+      "the outward man",
+      "the part made alive first at salvation"
+    ],
+    "correct_answer": "the mind, will, and emotions",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson distinguishes between two voices that can address a believer over sin. According to the text, what is the difference?",
+    "answer_options": [
+      "The devil guilts, while the Holy Spirit convicts",
+      "The devil convicts, while the Holy Spirit guilts",
+      "Both the devil and the Holy Spirit guilt the believer",
+      "Neither guilt nor conviction has any effect on the believer"
+    ],
+    "correct_answer": "The devil guilts, while the Holy Spirit convicts",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text describes the condition of man before salvation, citing Ephesians 2:1. According to the lesson, spiritual death means:",
+    "answer_options": [
+      "separation from the life of God, being cut off from God while possibly active outwardly",
+      "the complete end of a person's existence",
+      "a temporary loss of physical strength and health",
+      "a state in which a person merely needs better advice and discipline"
+    ],
+    "correct_answer": "separation from the life of God, being cut off from God while possibly active outwardly",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson explains where and when the new birth takes place in a person. According to the text, salvation is:",
+    "answer_options": [
+      "instant in the spirit, then worked out progressively in the soul, and finally completed even in the body",
+      "instant in the body first, then later worked out in the spirit",
+      "a gradual change that begins in the soul and never reaches the spirit",
+      "completed fully and visibly in every area on the day of conversion"
+    ],
+    "correct_answer": "instant in the spirit, then worked out progressively in the soul, and finally completed even in the body",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson addresses a believer who still struggles with old thought patterns, emotional wounds, or learned habits. According to the text, what does this struggle prove?",
+    "answer_options": [
+      "that sanctification is now needed, not that the new birth is false",
+      "that the new birth never actually happened",
+      "that the believer's spirit was not made new",
+      "that the believer has lost his sonship and must be saved again"
+    ],
+    "correct_answer": "that sanctification is now needed, not that the new birth is false",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson teaches on the believer's restored authority, referencing passages such as Mark 16:17–18. According to the text, this authority is:",
+    "answer_options": [
+      "not self-generated, but exercised in Christ's name, under His lordship, and by faith in what He accomplished",
+      "self-generated power that the believer produces by his own strength",
+      "a fight to win Christ's victory that has not yet been achieved",
+      "lawful dominion that the devil still holds over the believer"
+    ],
+    "correct_answer": "not self-generated, but exercised in Christ's name, under His lordship, and by faith in what He accomplished",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson explains what happens when a Christian sins. According to the text, when a Christian sins, that sin:",
+    "answer_options": [
+      "does not become his identity but contradicts it, disrupting fellowship without erasing sonship",
+      "becomes his new and deepest identity",
+      "permanently erases his sonship and standing before God",
+      "may be excused freely because identity in Christ is settled"
+    ],
+    "correct_answer": "does not become his identity but contradicts it, disrupting fellowship without erasing sonship",
+    "difficulty_rating": 5
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson repeatedly contrasts identity and growth, summarizing the Christian life. According to the text, which statement best captures its core teaching?",
+    "answer_options": [
+      "Identity in Christ is already settled, and the Christian life is learning to live outwardly from what God already did inwardly",
+      "Identity in Christ is gradually earned as a believer's conduct improves over time",
+      "Growth in the soul must be complete before a believer's identity can change",
+      "A believer's identity is built from his feelings, past, tribe, wounds, and failures"
+    ],
+    "correct_answer": "Identity in Christ is already settled, and the Christian life is learning to live outwardly from what God already did inwardly",
+    "difficulty_rating": 5
+  }
+]

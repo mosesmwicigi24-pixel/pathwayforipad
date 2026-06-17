@@ -1,0 +1,122 @@
+[
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Module 5 teaches that the believer grows in truth, stability, and confidence after salvation through one foundational source. According to the lesson, what is the answer to how a believer grows after salvation?",
+    "answer_options": [
+      "The Word of God",
+      "Strong emotions and zeal alone",
+      "Natural gifts and talents",
+      "Sincere guesswork about God"
+    ],
+    "correct_answer": "The Word of God",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson describes the overall makeup of the Bible. According to the text, how many books does the Bible contain in total?",
+    "answer_options": [
+      "It contains 66 books",
+      "It contains 39 books",
+      "It contains 27 books",
+      "It contains 12 books"
+    ],
+    "correct_answer": "It contains 66 books",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "John 1:1-2 is quoted to show the relationship between Jesus and the Word. According to the lesson, how is Jesus described in relation to the Word?",
+    "answer_options": [
+      "He is the eternal Word revealed, not merely a messenger who brought truth",
+      "He is only a messenger who delivered God's truth to people",
+      "He is separate from the Word and stands apart from Scripture",
+      "He is one of several prophets who spoke God's words"
+    ],
+    "correct_answer": "He is the eternal Word revealed, not merely a messenger who brought truth",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson divides the Bible into two testaments and gives the book count of each. According to the text, how are the books distributed between the testaments?",
+    "answer_options": [
+      "The Old Testament has 39 books and the New Testament has 27 books",
+      "The Old Testament has 27 books and the New Testament has 39 books",
+      "The Old Testament has 33 books and the New Testament has 33 books",
+      "The Old Testament has 39 books and the New Testament has 39 books"
+    ],
+    "correct_answer": "The Old Testament has 39 books and the New Testament has 27 books",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Quoting John 8:32, the lesson explains the connection between truth and freedom. According to the text, how is freedom related to truth?",
+    "answer_options": [
+      "Freedom is tied to truth, and where truth enters, deception begins to lose its grip",
+      "Freedom is produced by emotional excitement and hype",
+      "Freedom comes through ignorance of difficult matters",
+      "Freedom is achieved mainly through zeal and passion"
+    ],
+    "correct_answer": "Freedom is tied to truth, and where truth enters, deception begins to lose its grip",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson notes that the Bible is not laid out in a simple time sequence. According to the text, how is the Bible primarily arranged?",
+    "answer_options": [
+      "By type, genre, and function rather than strictly by chronology",
+      "Strictly in the chronological order events occurred",
+      "Alphabetically by the names of the books",
+      "By the length of each book from longest to shortest"
+    ],
+    "correct_answer": "By type, genre, and function rather than strictly by chronology",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The section on the Major Prophets lists Isaiah, Jeremiah, Lamentations, Ezekiel, and Daniel. According to the lesson, why are these called 'major'?",
+    "answer_options": [
+      "Because of their length and scope, not because they are more inspired than the others",
+      "Because they are more inspired than the other prophetic books",
+      "Because they were written before all the other prophets",
+      "Because they contain the most prophecies about the end times"
+    ],
+    "correct_answer": "Because of their length and scope, not because they are more inspired than the others",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson describes the integrity of God's Word using passages such as Psalm 119:89, Numbers 23:19, and Isaiah 40:8. Which statement best captures the lesson's conclusion about the trustworthiness of God's Word?",
+    "answer_options": [
+      "It is unchanging and stands forever, so the believer approaches it with confidence, not suspicion",
+      "It is reliable now but may weaken and expire over long periods of time",
+      "It should be approached with suspicion until each part is personally proven",
+      "It is subject to the instability of man and changes with circumstances"
+    ],
+    "correct_answer": "It is unchanging and stands forever, so the believer approaches it with confidence, not suspicion",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Under 'Key Priorities in Gaining Knowledge,' the lesson stresses that knowledge must mature into action. According to the text, what is the danger of knowledge that does not affect the believer's life?",
+    "answer_options": [
+      "It has not yet matured properly; the Word must move from hearing to believing to doing",
+      "It is automatically complete once the believer understands it correctly",
+      "It guarantees transformation in a single sitting regardless of conduct",
+      "It produces health and stability even without obedience"
+    ],
+    "correct_answer": "It has not yet matured properly; the Word must move from hearing to believing to doing",
+    "difficulty_rating": 5
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson on building a Word culture contrasts two ways of relating to Scripture and cites Acts 20:32 about the Word building the believer. According to the text, how does a believer actually grow strong in the Word?",
+    "answer_options": [
+      "By daily contact, prayerful attention, and obedience, since consistency is stronger than occasional intensity",
+      "By random passion and bursts of occasional intense reading",
+      "By touching the Bible occasionally whenever inspiration strikes",
+      "By reading large amounts quickly without praying or seeking understanding"
+    ],
+    "correct_answer": "By daily contact, prayerful attention, and obedience, since consistency is stronger than occasional intensity",
+    "difficulty_rating": 5
+  }
+]

@@ -1,0 +1,122 @@
+[
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module calls the Holy Spirit \"The New Roommate.\" According to the text, why is this name used?",
+    "answer_options": [
+      "Because a roommate shares your space and is present in your everyday life",
+      "Because a roommate only visits occasionally when invited",
+      "Because a roommate is a force that comes and goes",
+      "Because a roommate appears only during church services"
+    ],
+    "correct_answer": "Because a roommate shares your space and is present in your everyday life",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text describes who the Holy Spirit is in relation to the Trinity. How does it identify Him?",
+    "answer_options": [
+      "Fully God, the third person of the Trinity, co-equal with the Father and the Son",
+      "A power and a feeling given by the Father",
+      "An angel sent to appear to mankind",
+      "A lesser spirit subordinate to the Father and the Son"
+    ],
+    "correct_answer": "Fully God, the third person of the Trinity, co-equal with the Father and the Son",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module lists personal traits of the Holy Spirit to show He has a personality. Which set of traits does it give?",
+    "answer_options": [
+      "He loves, He gets angry, and He gets heartbreaks and grief",
+      "He is happy, calm, and never disturbed",
+      "He is wise, powerful, and unfeeling",
+      "He loves, He forgives, and He rejoices only"
+    ],
+    "correct_answer": "He loves, He gets angry, and He gets heartbreaks and grief",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text explains when the Holy Spirit takes up residence in a person, making them a living temple. When does this happen?",
+    "answer_options": [
+      "At the moment of the new birth",
+      "After years of faithful church attendance",
+      "Only when a believer first speaks in tongues",
+      "When a believer earns it through human effort"
+    ],
+    "correct_answer": "At the moment of the new birth",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module distinguishes between the gifts and the fruit of the Holy Spirit. According to the text, what is true of the gifts versus the fruit?",
+    "answer_options": [
+      "Gifts are given as He wills to anyone He chooses, while fruits abide even when gifts are not visibly at work",
+      "Fruits are given as He wills, while gifts abide permanently in every believer",
+      "Both gifts and fruits are natural talents God may use",
+      "Gifts are produced by hard work, while fruits are received by faith"
+    ],
+    "correct_answer": "Gifts are given as He wills to anyone He chooses, while fruits abide even when gifts are not visibly at work",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text says the ministry of the Holy Spirit is not to draw attention to Himself. What does it say He does instead?",
+    "answer_options": [
+      "He glorifies Jesus and points believers to Christ",
+      "He glorifies Himself so believers will worship the Spirit",
+      "He draws attention to the gifts He distributes",
+      "He elevates the five-fold ministry offices"
+    ],
+    "correct_answer": "He glorifies Jesus and points believers to Christ",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module lists steps for how to receive the Holy Spirit. According to the text, what is the very first step?",
+    "answer_options": [
+      "Be born again, since the Holy Spirit is given to those who belong to Christ through faith",
+      "Speak in other tongues as the Spirit gives utterance",
+      "Work hard to earn the Spirit through obedience",
+      "Yield yourself and allow Him to lead your life"
+    ],
+    "correct_answer": "Be born again, since the Holy Spirit is given to those who belong to Christ through faith",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text groups the nine gifts of the Spirit into three categories: Revelation, Power, and Inspiration. Which gift belongs to the Gifts of Power?",
+    "answer_options": [
+      "The Working of Miracles",
+      "The Word of Knowledge",
+      "Prophecy",
+      "Interpretation of Tongues"
+    ],
+    "correct_answer": "The Working of Miracles",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module contrasts the nine gifts of the Spirit with the five-fold ministry offices. Which description matches the nine gifts rather than the offices?",
+    "answer_options": [
+      "Given to all believers, for momentary manifestation, operating as the Spirit wills",
+      "Given to some believers, for ongoing ministry function, operating as a calling",
+      "Given to some believers and earned through striving over time",
+      "Given to all believers as a permanent office held for life"
+    ],
+    "correct_answer": "Given to all believers, for momentary manifestation, operating as the Spirit wills",
+    "difficulty_rating": 5
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text explains why Paul uses the singular \"fruit\" and not \"fruits.\" What does it say this teaches about the Spirit's work?",
+    "answer_options": [
+      "It is one unified work with nine manifestations that grow together, so maturity means balanced development across all nine",
+      "It means a believer may pick which fruits to develop one at a time",
+      "It means the fruit is about external behavior modification rather than nature",
+      "It means each fruit is a separate gift distributed as the Spirit wills"
+    ],
+    "correct_answer": "It is one unified work with nine manifestations that grow together, so maturity means balanced development across all nine",
+    "difficulty_rating": 5
+  }
+]

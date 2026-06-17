@@ -1,0 +1,122 @@
+[
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Module 3 opens by defining salvation in a simple way. According to the text, salvation is best described as which of the following?",
+    "answer_options": [
+      "The helpless and dying receiving help to live again",
+      "A reward given to those who try their hardest to obey God",
+      "A moral improvement that good people gradually achieve",
+      "An inspiring message that motivates people to do better"
+    ],
+    "correct_answer": "The helpless and dying receiving help to live again",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson defines salvation by grace using a picture of a gift. How does the text describe salvation by grace?",
+    "answer_options": [
+      "Receiving the gift of life that you could not buy or afford",
+      "Earning life by paying God back over time",
+      "A loan of life that must be repaid through good works",
+      "A wage given to man for his good conduct"
+    ],
+    "correct_answer": "Receiving the gift of life that you could not buy or afford",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text uses the image of a drowning man to make a point about the sinner's deepest need. What does it say the sinner first needs?",
+    "answer_options": [
+      "Salvation, rather than inspiration, religion, or moral polishing",
+      "Better advice on how to fix his own life",
+      "A religion that gives him rules to follow",
+      "Moral polishing to slowly become acceptable"
+    ],
+    "correct_answer": "Salvation, rather than inspiration, religion, or moral polishing",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "In the section on Repentance and Faith, the text distinguishes the two by direction. How does it describe them?",
+    "answer_options": [
+      "Repentance turns away from sin, and faith turns toward Jesus Christ",
+      "Repentance turns toward Christ, and faith turns away from sin",
+      "Repentance and faith both mean simply feeling sorry for sin",
+      "Repentance is receiving Christ, and faith is changing one's mind"
+    ],
+    "correct_answer": "Repentance turns away from sin, and faith turns toward Jesus Christ",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The section on the New Birth contrasts forgiveness with something more. According to the text, what does God do beyond cancelling a debt and removing guilt?",
+    "answer_options": [
+      "He gives new life and regenerates the inner man",
+      "He leaves the man the same but excused",
+      "He gives the man a second chance to try harder",
+      "He removes only the penalty but not the guilt"
+    ],
+    "correct_answer": "He gives new life and regenerates the inner man",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text describes 'the Great Exchange' that took place at the cross. What does it say was exchanged?",
+    "answer_options": [
+      "Your debt became His, and His righteousness became yours",
+      "Your good works became the basis of your acceptance",
+      "Jesus sympathized with man's pain without taking his place",
+      "Man's effort was exchanged for God's approval"
+    ],
+    "correct_answer": "Your debt became His, and His righteousness became yours",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The lesson defines eternal life in a way that goes beyond mere length of existence. How does the text describe eternal life?",
+    "answer_options": [
+      "The very life of God shared with the believer, beginning now and continuing forever",
+      "Only an endless existence that begins after a person dies",
+      "Merely a better future that the believer is still waiting to receive",
+      "A reward earned by faithful living over a lifetime"
+    ],
+    "correct_answer": "The very life of God shared with the believer, beginning now and continuing forever",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text is careful about how commitment relates to salvation. According to the lesson, what is commitment?",
+    "answer_options": [
+      "The fruit of a life that has truly encountered salvation",
+      "The price a man pays in order to be saved",
+      "Careless living that grace permits after salvation",
+      "The works that earn a man his right standing with God"
+    ],
+    "correct_answer": "The fruit of a life that has truly encountered salvation",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "In 'The First Walk of the Saved Man,' the text uses a door-and-road image to explain salvation and discipleship. Which statement matches the text?",
+    "answer_options": [
+      "Salvation is the door, but discipleship is the road",
+      "Discipleship is the door, but salvation is the road",
+      "Salvation is both the door and the end of the journey",
+      "A single decision is all the New Testament pattern requires"
+    ],
+    "correct_answer": "Salvation is the door, but discipleship is the road",
+    "difficulty_rating": 5
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The 'What Changed' summary ends with a set of contrasts capturing the whole lesson. Which set of contrasts does the text give?",
+    "answer_options": [
+      "Not improved but reborn; not tolerated but accepted in Christ; not self-made but grace-made; not left alone but called to follow",
+      "Not forgiven but ignored; not rescued but advised; not reborn but improved; not led but left alone",
+      "Not saved by grace but earned by works; not accepted but tolerated; not reborn but excused",
+      "Not a gift but a salary; not a turning but mere tears; not new life but a second chance"
+    ],
+    "correct_answer": "Not improved but reborn; not tolerated but accepted in Christ; not self-made but grace-made; not left alone but called to follow",
+    "difficulty_rating": 5
+  }
+]

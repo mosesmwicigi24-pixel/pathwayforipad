@@ -1,0 +1,122 @@
+[
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module begins by explaining where God came from. It says God is not a product of creation but is the One who created creation. According to the text, what is true about God's relationship to everything that exists?",
+    "answer_options": [
+      "Everything depends on Him, but He depends on nothing",
+      "He depends on creation to sustain His existence",
+      "He and creation came into being together",
+      "He created the world and then withdrew from it"
+    ],
+    "correct_answer": "Everything depends on Him, but He depends on nothing",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text teaches that the Bible reveals one true God who exists eternally as three distinct Persons. Which three Persons does it name as the Trinity?",
+    "answer_options": [
+      "The Father, the Son, and the Holy Spirit",
+      "The Father, the Son, and the angels",
+      "The Creator, the Word, and the prophets",
+      "The Father, the Spirit, and the Church"
+    ],
+    "correct_answer": "The Father, the Son, and the Holy Spirit",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module describes God as eternal, saying He has no beginning and no end. Based on this part of the text, what does being eternal mean about God?",
+    "answer_options": [
+      "He does not age, weaken, or run out",
+      "He grows stronger over time",
+      "He had a beginning but will have no end",
+      "He exists only outside of time and cannot act in it"
+    ],
+    "correct_answer": "He does not age, weaken, or run out",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "When discussing who Jesus is, John 1 is used to make a clear point. The text says Jesus is not merely a prophet or teacher. How does the module describe Jesus?",
+    "answer_options": [
+      "He is the eternal Word, who was God and through whom all things were made",
+      "He is the greatest of the prophets sent to teach",
+      "He is a force that guides believers into truth",
+      "He is a created being who later became divine"
+    ],
+    "correct_answer": "He is the eternal Word, who was God and through whom all things were made",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module corrects a common misunderstanding about the Holy Spirit. It states that in Acts 5 Peter says lying to the Holy Spirit is lying to God. What does the text conclude about the Holy Spirit?",
+    "answer_options": [
+      "He is not a force; He is God, and He is personal",
+      "He is an impersonal power that God sends out",
+      "He is a created helper who serves God",
+      "He is only the influence of God on the heart"
+    ],
+    "correct_answer": "He is not a force; He is God, and He is personal",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text says when you receive Christ you are not just 'trying to be better.' Drawing on John 1:12-13, what does the module say happens to a person who receives Him?",
+    "answer_options": [
+      "They are given the right to become children of God",
+      "They earn God's approval through better behavior",
+      "They are made into a force that guides others",
+      "They become prophets and teachers for God"
+    ],
+    "correct_answer": "They are given the right to become children of God",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module describes God's nature with several qualities meant to help you trust Him. It stresses that His justice is not cold and that He keeps His word and does not change. Which combination of qualities does the text use to describe God's nature?",
+    "answer_options": [
+      "Loving, relational, absolutely faithful, and unchanging",
+      "Loving but distant and sometimes changing",
+      "Faithful only to those who first obey Him",
+      "Just but unconcerned with love or relationship"
+    ],
+    "correct_answer": "Loving, relational, absolutely faithful, and unchanging",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module asks why God couldn't just forgive sin. It compares God to a judge and explains the consequence of ignoring evil. According to the text, why is simply overlooking sin not an option for God?",
+    "answer_options": [
+      "Because He is also just, and ignoring evil would make Him unjust",
+      "Because He is too distant to notice sin",
+      "Because forgiveness is not part of His nature",
+      "Because sin is too small for Him to care about"
+    ],
+    "correct_answer": "Because He is also just, and ignoring evil would make Him unjust",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The text connects God's justice to the work of salvation, explaining that sin must be judged truthfully because justice is part of who God is. Based on this reasoning, how does the module describe what salvation actually is?",
+    "answer_options": [
+      "God dealing with sin through Jesus, not God overlooking sin",
+      "God deciding to ignore sin out of love",
+      "God lowering His standard so sin no longer matters",
+      "God leaving people to fight sin on their own"
+    ],
+    "correct_answer": "God dealing with sin through Jesus, not God overlooking sin",
+    "difficulty_rating": 5
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module teaches that the Trinity matters because God did not save us by accident. Pulling together what the text says about the Father, Son, and Spirit, why does it say the Trinity is important for salvation?",
+    "answer_options": [
+      "Father, Son, and Spirit work together in one saving plan",
+      "Each Person offers a separate and competing path to God",
+      "Only the Son is involved in saving people",
+      "The three Persons take turns acting at different times"
+    ],
+    "correct_answer": "Father, Son, and Spirit work together in one saving plan",
+    "difficulty_rating": 5
+  }
+]

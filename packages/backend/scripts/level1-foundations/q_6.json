@@ -1,0 +1,122 @@
+[
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Module 6 teaches that fellowship is often called Koinonia. According to the definition section, what does Koinonia signify?",
+    "answer_options": [
+      "A deep, spiritual, and communal participation, or a shared life",
+      "A weekly meeting held only inside a church building",
+      "A natural friendship between people who enjoy the same hobbies",
+      "An occasional social visit between acquaintances"
+    ],
+    "correct_answer": "A deep, spiritual, and communal participation, or a shared life",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module names the first man the Bible explicitly presents as living in fellowship with God. Who is that man?",
+    "answer_options": [
+      "Enoch, who walked in close fellowship with God",
+      "Adam, who heard the Lord's voice in the garden",
+      "Moses, with whom God spoke mouth to mouth",
+      "David, who set apart singers to praise the Lord"
+    ],
+    "correct_answer": "Enoch, who walked in close fellowship with God",
+    "difficulty_rating": 1
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module says fellowship has a twofold and inseparable relationship. Which pair correctly describes these two dimensions?",
+    "answer_options": [
+      "A vertical connection with God and a horizontal unity among believers",
+      "A private prayer life and a public reputation among neighbors",
+      "An emotional bond and a financial partnership",
+      "A national identity and a family bloodline"
+    ],
+    "correct_answer": "A vertical connection with God and a horizontal unity among believers",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Module 6 lists three major types of fellowship in the Christian life. Which option correctly states what corporate fellowship is?",
+    "answer_options": [
+      "The church coming together to minister to the Lord and hear from Him together",
+      "One believer's private communion with God in prayer and obedience",
+      "Two believers encouraging one another in everyday conversation",
+      "A casual gathering of friends sharing a meal with no spiritual aim"
+    ],
+    "correct_answer": "The church coming together to minister to the Lord and hear from Him together",
+    "difficulty_rating": 2
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Under the nature of fellowship, the module describes settings where it can take place. According to the text, where can fellowship happen?",
+    "answer_options": [
+      "In personal conversation, in homes, in small studies, and in church gatherings",
+      "Only in formal Sunday church services led by ordained ministers",
+      "Only in private, since fellowship is strictly between God and one person",
+      "Only during large outdoor crusades and public revival meetings"
+    ],
+    "correct_answer": "In personal conversation, in homes, in small studies, and in church gatherings",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module presents 'ministering to the Lord' as one major purpose of fellowship. According to the text, what does ministering to the Lord include?",
+    "answer_options": [
+      "Thanksgiving, praise, prayer, songs, offerings, and obedience and reverence",
+      "Only silent, individual meditation with no spoken words",
+      "Mainly receiving material blessings and answers from God",
+      "Performing impressive worship to entertain the gathered congregation"
+    ],
+    "correct_answer": "Thanksgiving, praise, prayer, songs, offerings, and obedience and reverence",
+    "difficulty_rating": 3
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The module distinguishes the second purpose of fellowship from merely talking, saying true fellowship 'serves' and 'gives.' What does this purpose provide for believers?",
+    "answer_options": [
+      "Provision for both spiritual and physical interpersonal needs",
+      "A guarantee of wealth and material prosperity for every member",
+      "A platform for individuals to display their spiritual gifts publicly",
+      "Protection from ever again needing personal time alone with God"
+    ],
+    "correct_answer": "Provision for both spiritual and physical interpersonal needs",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "Among the benefits of fellowship, the module includes 'guardrails against deception.' How does the text explain this benefit?",
+    "answer_options": [
+      "Isolation often breeds error, while fellowship provides balance and safety",
+      "Fellowship removes the need for sound doctrine and correction",
+      "Deception is impossible for any believer who attends meetings regularly",
+      "Fellowship guarantees that believers will never face spiritual blind spots"
+    ],
+    "correct_answer": "Isolation often breeds error, while fellowship provides balance and safety",
+    "difficulty_rating": 4
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "In the section on misunderstandings and abuse, the module warns about church worship becoming performance. Which statement reflects the text's teaching on this?",
+    "answer_options": [
+      "Worship is not entertainment and ministry is not performance",
+      "Performance is acceptable as long as the music is excellent",
+      "Display before others is the highest goal of a church service",
+      "Worship should mainly impress visitors and attract new members"
+    ],
+    "correct_answer": "Worship is not entertainment and ministry is not performance",
+    "difficulty_rating": 5
+  },
+  {
+    "q_type": "MultipleChoice",
+    "question_text": "The 'Catch this' line for the abuse section states that fellowship dies under a certain condition. According to the module, when does fellowship die?",
+    "answer_options": [
+      "When form remains but God is no longer at the center",
+      "When believers meet in homes instead of a church building",
+      "When a gathering grows too large to know everyone personally",
+      "When members disagree about minor matters of doctrine"
+    ],
+    "correct_answer": "When form remains but God is no longer at the center",
+    "difficulty_rating": 5
+  }
+]
