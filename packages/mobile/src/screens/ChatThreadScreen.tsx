@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Image, Pressable, ScrollView, TextInput, View } from "react-native";
 import { launchImageLibrary } from "react-native-image-picker";
-import { ArrowLeft, Hash, ImagePlus, Play, Users } from "lucide-react-native";
+import { ArrowLeft, Hash, ImagePlus, Play, Users, Video } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/types";
 import type { ChatMessage } from "../api/types";
@@ -69,26 +69,33 @@ export function ChatThreadScreen(): ReactElement {
     }
   }
 
-  async function attachImage(): Promise<void> {
+  function attachImage(): void {
+    void attachMedia("photo");
+  }
+
+  // Photo + video share react-native-image-picker (already a dep). Voice/file
+  // would need new native modules + a device rebuild — deferred.
+  async function attachMedia(mode: "photo" | "video"): Promise<void> {
     // Media requires connectivity — bytes upload direct to storage, not queued (§4.5).
     if (!(await getConnectivity().isOnline())) {
-      setSendError("You're offline — images need a connection.");
+      setSendError(`You're offline — ${mode === "video" ? "videos" : "images"} need a connection.`);
       return;
     }
-    const result = await launchImageLibrary({ mediaType: "photo", quality: 0.8, selectionLimit: 1 });
+    const result = await launchImageLibrary({ mediaType: mode, quality: 0.8, selectionLimit: 1 });
     const asset = result.assets?.[0];
     if (!asset?.uri) return; // cancelled
+    const isVideo = mode === "video";
     setSending(true);
     setSendError(null);
     try {
-      const contentType = asset.type ?? "image/jpeg";
-      const name = asset.fileName ?? `photo-${Date.now()}.jpg`;
-      const sign = await NuruApi.signChatAttachment({ content_type: contentType, kind: "image" });
+      const contentType = asset.type ?? (isVideo ? "video/mp4" : "image/jpeg");
+      const name = asset.fileName ?? `${isVideo ? "video" : "photo"}-${Date.now()}.${isVideo ? "mp4" : "jpg"}`;
+      const sign = await NuruApi.signChatAttachment({ content_type: contentType, kind: isVideo ? "video" : "image" });
       const up = await NuruApi.uploadChatAttachment(sign, { uri: asset.uri, name, type: contentType });
       await NuruApi.sendChatMessage(conversationId, {
         message_id: uuidv4(),
         body: "",
-        msg_type: "image",
+        msg_type: isVideo ? "video" : "image",
         attachment_url: up.secure_url,
         attachment_meta: { public_id: up.public_id, bytes: up.bytes, name },
         client_mutation_id: uuidv4(),
@@ -158,6 +165,15 @@ export function ChatThreadScreen(): ReactElement {
                 style={({ pressed }) => [st.attachBtn, pressed && { transform: [{ scale: 0.95 }] }]}
               >
                 <ImagePlus size={20} color={palette.navy} />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Add video"
+                onPress={() => void attachMedia("video")}
+                disabled={sending}
+                style={({ pressed }) => [st.attachBtn, pressed && { transform: [{ scale: 0.95 }] }]}
+              >
+                <Video size={20} color={palette.navy} />
               </Pressable>
               <TextInput
                 value={text}
