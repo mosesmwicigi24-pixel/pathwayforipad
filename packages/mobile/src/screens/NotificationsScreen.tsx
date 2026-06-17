@@ -20,10 +20,10 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { NuruApi } from "../api/client";
-import { palette, spacing, shadow } from "../theme/tokens";
-import { T } from "../theme/components";
+import { palette, spacing } from "../theme/tokens";
+import { T, EmptyState, ErrorState } from "../theme/components";
 import { useNotifications } from "../api/hooks";
-import { invalidateQueries } from "../api/query";
+import { invalidateQueries, errorMessage } from "../api/query";
 import { Loading } from "../components/states";
 import type { NotificationRow } from "../api/types";
 
@@ -62,7 +62,7 @@ function ago(iso: string): string {
 
 export function NotificationsScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { data, isLoading, refetch } = useNotifications();
+  const { data, isLoading, error, refetch } = useNotifications();
   const unread = data?.unread ?? 0;
   const [refreshing, setRefreshing] = useState(false);
 
@@ -136,16 +136,14 @@ export function NotificationsScreen(): ReactElement {
           <View style={{ paddingTop: spacing.xl }}>
             <Loading label="Loading…" />
           </View>
+        ) : error ? (
+          <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />
         ) : (data?.data ?? []).length === 0 ? (
-          <View style={st.empty}>
-            <View style={st.emptyTile}>
-              <Sparkles size={22} color={palette.gold} />
-            </View>
-            <T variant="heading" style={{ marginTop: spacing.md }}>You're all caught up</T>
-            <T variant="caption" tone="secondary" style={{ marginTop: 4, textAlign: "center", maxWidth: 260 }}>
-              New encouragement, reflections, and event reminders will land here.
-            </T>
-          </View>
+          <EmptyState
+            icon={<Sparkles size={24} color={palette.gold} />}
+            title="You're all caught up"
+            message="New encouragement, reflections, and event reminders will land here."
+          />
         ) : (
           (data?.data ?? []).map((n) => {
             const meta = metaFor(n.template);
@@ -213,6 +211,4 @@ const st = {
   },
   typeTile: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.gold, marginTop: 6 },
-  empty: { alignItems: "center", paddingTop: 80, paddingHorizontal: spacing.lg },
-  emptyTile: { width: 56, height: 56, borderRadius: 18, backgroundColor: palette.white, alignItems: "center", justifyContent: "center", ...shadow.card },
 } as const;

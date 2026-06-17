@@ -3,9 +3,10 @@
 // On a real device, swap the keychain vault in here (setVault(new KeychainTokenVault()))
 // before installAuth — kept in-memory by default so this stays import-safe in tests.
 import { useEffect, type ReactElement } from "react";
-import { AppState, Platform } from "react-native";
+import { AppState, Platform, View } from "react-native";
 import { Provider } from "react-redux";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { OfflineBanner } from "./components/OfflineBanner";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { store } from "./store/store";
 import { RootNavigator } from "./navigation/RootNavigator";
@@ -66,7 +67,14 @@ export function App(): ReactElement {
   return (
     <Provider store={store}>
       <SafeAreaProvider>
-        <RootNavigator />
+        {/* Thin offline bar sits above the navigator (uses the top safe-area inset
+            so it clears the notch) and the navigator fills the rest. */}
+        <SafeAreaView edges={["top"]} style={{ flex: 0 }}>
+          <OfflineBanner />
+        </SafeAreaView>
+        <View style={{ flex: 1 }}>
+          <RootNavigator />
+        </View>
       </SafeAreaProvider>
     </Provider>
   );

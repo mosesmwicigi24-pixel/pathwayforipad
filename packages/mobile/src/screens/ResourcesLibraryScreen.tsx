@@ -5,7 +5,7 @@ import { Pressable, ScrollView, View } from "react-native";
 import { ArrowLeft, BookOpen, FileText, Headphones, Video, type LucideIcon } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
-import { T } from "../theme/components";
+import { T, EmptyState } from "../theme/components";
 import { useResources } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -69,8 +69,12 @@ export function ResourcesLibraryScreen(): ReactElement {
             </View>
           );
         })}
-        {!isLoading && shown.length === 0 ? (
-          <View style={[st.card, { justifyContent: "center" }]}><T variant="caption" tone="secondary">No resources in this category yet.</T></View>
+        {!isLoading && !error && shown.length === 0 ? (
+          <EmptyState
+            icon={<BookOpen size={24} color={palette.ink400} />}
+            title="Nothing here yet"
+            message={filter === "all" ? "Resources will appear here as they're added." : "No resources in this category yet."}
+          />
         ) : null}
       </ScrollView>
     </View>

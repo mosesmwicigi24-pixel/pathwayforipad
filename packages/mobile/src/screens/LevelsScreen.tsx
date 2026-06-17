@@ -30,6 +30,7 @@ import { Glow, T } from "../theme/components";
 import { useAchievements, usePathway, useScripture } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
+import { isLevelLocked, lockedLevelLabel } from "./levelGating";
 import type { PathwayLevel } from "../api/types";
 
 const RHYTHM: Array<{ key: string; label: string; Icon: LucideIcon }> = [
@@ -205,6 +206,7 @@ export function LevelsScreen(): ReactElement {
               <LevelRow
                 key={lvl.level_number}
                 level={lvl}
+                currentLevel={pathway.current_level}
                 isActive={active?.level_number === lvl.level_number}
                 onPress={() => nav.navigate("Level", { levelId: lvl.level_number })}
               />
@@ -227,14 +229,31 @@ export function LevelsScreen(): ReactElement {
   );
 }
 
-function LevelRow({ level, isActive, onPress }: { level: PathwayLevel; isActive: boolean; onPress: () => void }): ReactElement {
+function LevelRow({
+  level,
+  currentLevel,
+  isActive,
+  onPress,
+}: {
+  level: PathwayLevel;
+  currentLevel: number;
+  isActive: boolean;
+  onPress: () => void;
+}): ReactElement {
   const completed = level.status === "completed";
-  const locked = level.status === "locked";
+  // §1.9 hard-lock: a level above current_level is locked & non-tappable, even if
+  // the server status hasn't been recomputed. Server stays authoritative.
+  const locked = isLevelLocked(level.level_number, currentLevel, level.status);
   const pct = level.total_modules > 0 ? Math.round((level.completed_modules / level.total_modules) * 100) : 0;
   return (
     <Pressable
       onPress={locked ? undefined : onPress}
+      disabled={locked}
       accessibilityRole="button"
+      accessibilityState={{ disabled: locked }}
+      accessibilityLabel={
+        locked ? `Level ${level.level_number}: ${level.title}, locked. ${lockedLevelLabel(currentLevel)}` : undefined
+      }
       style={({ pressed }) => [
         st.levelRow,
         isActive && { backgroundColor: "rgba(201,162,39,0.10)", borderColor: "rgba(201,162,39,0.4)" },
@@ -253,11 +272,19 @@ function LevelRow({ level, isActive, onPress }: { level: PathwayLevel; isActive:
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <T variant="heading" style={{ fontSize: 14 }} numberOfLines={1}>{level.title}</T>
-        <View style={[st.miniTrack, { marginTop: 6 }]}>
-          <View style={{ width: `${pct}%`, height: "100%", borderRadius: 2, backgroundColor: completed || isActive ? palette.gold : palette.lockedFill }} />
-        </View>
+        {locked ? (
+          <T variant="micro" tone="tertiary" style={{ marginTop: 4 }}>{lockedLevelLabel(currentLevel)}</T>
+        ) : (
+          <View style={[st.miniTrack, { marginTop: 6 }]}>
+            <View style={{ width: `${pct}%`, height: "100%", borderRadius: 2, backgroundColor: completed || isActive ? palette.gold : palette.lockedFill }} />
+          </View>
+        )}
       </View>
-      <T variant="micro" tone="tertiary">{`${pct}%`}</T>
+      {locked ? (
+        <Lock size={13} color={palette.ink300} />
+      ) : (
+        <T variant="micro" tone="tertiary">{`${pct}%`}</T>
+      )}
     </Pressable>
   );
 }

@@ -246,6 +246,96 @@ export function SectionHeader({ overline, title }: { overline: string; title: st
   );
 }
 
+// --- EmptyState: centered icon chip + title + muted message + optional action.
+// For lists/screens that have nothing to show yet. Icons are passed in as nodes
+// (lucide-react-native) so the set stays swappable, matching the file's pattern.
+export function EmptyState({
+  icon,
+  title,
+  message,
+  action,
+}: {
+  icon?: ReactNode;
+  title: string;
+  message?: string;
+  action?: { label: string; onPress: () => void };
+}): ReactNode {
+  return (
+    <View style={s.stateWrap}>
+      {icon ? (
+        <View style={[s.stateChip, { backgroundColor: palette.mutedBg }]}>{icon}</View>
+      ) : null}
+      <Text style={[typ.heading, { color: palette.ink, textAlign: "center" }]}>{title}</Text>
+      {message ? <Text style={[typ.body, s.stateMsg, { color: palette.ink600 }]}>{message}</Text> : null}
+      {action ? (
+        <View style={{ marginTop: spacing.base }}>
+          <PButton variant="ghost" size="md" fullWidth={false} onPress={action.onPress}>
+            {action.label}
+          </PButton>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// --- ErrorState: centered error glyph + message + optional retry (palette.error
+// tones). The glyph is a token-tinted "!" disc so we add no icon dependency here.
+export function ErrorState({
+  message = "Something went wrong",
+  onRetry,
+}: {
+  message?: string;
+  onRetry?: () => void;
+}): ReactNode {
+  return (
+    <View style={s.stateWrap}>
+      <View style={[s.stateChip, { backgroundColor: "rgba(212,24,61,0.10)" }]}>
+        <Text style={{ color: palette.error, fontSize: 22, fontWeight: "700", lineHeight: 26 }}>!</Text>
+      </View>
+      <Text style={[typ.heading, { color: palette.ink, textAlign: "center" }]}>{message}</Text>
+      {onRetry ? (
+        <View style={{ marginTop: spacing.base }}>
+          <PButton variant="ghost" size="md" fullWidth={false} onPress={onRetry}>
+            Try again
+          </PButton>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// --- Skeleton: a static neutral placeholder block (no animation dependency).
+// Compose into list/card shapes while data loads.
+export function Skeleton({
+  height = 16,
+  width = "100%",
+  radius = radii.control,
+}: {
+  height?: number;
+  width?: number | `${number}%`;
+  radius?: number;
+}): ReactNode {
+  return <View style={{ height, width, borderRadius: radius, backgroundColor: palette.mutedBg }} />;
+}
+
+// --- SkeletonList: a stack of skeleton rows on inset surfaces — a quick standin
+// for a list of cards while the real rows load.
+export function SkeletonList({ rows = 3 }: { rows?: number }): ReactNode {
+  return (
+    <View style={{ gap: spacing.md }}>
+      {Array.from({ length: rows }, (_, i) => (
+        <View key={i} style={s.skeletonRow}>
+          <Skeleton height={40} width={40} radius={radii.control} />
+          <View style={{ flex: 1, gap: spacing.sm }}>
+            <Skeleton height={14} width="70%" />
+            <Skeleton height={10} width="40%" />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: palette.paper },
   card: {
@@ -269,4 +359,15 @@ const s = StyleSheet.create({
   btnIcon: { alignItems: "center", justifyContent: "center" },
   pill: { borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 6, alignSelf: "flex-start" },
   track: { width: "100%", overflow: "hidden" },
+  stateWrap: { alignItems: "center", justifyContent: "center", paddingVertical: spacing.xl, paddingHorizontal: spacing.base },
+  stateChip: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: spacing.base },
+  stateMsg: { textAlign: "center", marginTop: spacing.xs, maxWidth: 320 },
+  skeletonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: palette.surface,
+    borderRadius: radii.card,
+    padding: spacing.base,
+  },
 });
