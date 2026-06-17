@@ -895,10 +895,24 @@ export interface CertificateRow {
   user_id: string;
   full_name: string;
   level_number: number | null;
+  level_title: string | null;
   verification_code: string;
   issued_at: string;
   revoked_at: string | null;
   revoked_reason: string | null;
+  content_hash: string;
+  signature: string;
+}
+
+export interface CertificateVerification {
+  valid: boolean;
+  revoked?: boolean;
+  recipient_name?: string;
+  level_number?: number | null;
+  issued_at?: string;
+  verification_code?: string;
+  content_hash?: string;
+  signature?: string;
 }
 
 export interface FundSummary {
@@ -992,6 +1006,10 @@ export const ConfigApi = {
     api.post("/admin/certificates", body).then((r) => r.data),
   revokeCertificate: (id: string, reason: string) =>
     api.post(`/admin/certificates/${id}/revoke`, { reason }).then((r) => r.data),
+  // Public, server-authoritative verification: recomputes the hash + checks the
+  // signature + revocation (§5.5). 404 → no certificate with that code.
+  verifyCertificate: (code: string) =>
+    api.get<CertificateVerification>(`/verify/${encodeURIComponent(code)}`).then((r) => r.data),
 
   financeSummary: () => api.get<{ funds: FundSummary[] }>("/admin/finance/summary").then((r) => r.data),
   transactions: (q: { fund?: string; status?: string; before?: string } = {}) =>

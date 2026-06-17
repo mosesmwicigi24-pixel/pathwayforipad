@@ -33,10 +33,26 @@ describe("certificates (§5.5)", () => {
       valid: boolean;
       recipient_name: string;
       level_number: number;
+      content_hash: string;
+      signature: string;
     };
     expect(result.valid).toBe(true);
     expect(result.recipient_name).toBe("Grace M.");
     expect(result.level_number).toBe(2);
+    // the public verify surfaces the tamper-evident fields for display
+    expect(result.content_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.signature).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("admin register includes hash, signature and level title", async () => {
+    await svc().issue(user, 1);
+    const { data } = (await svc().listAll({ limit: 50 })) as {
+      data: Array<{ content_hash: string; signature: string; level_title: string | null; verification_code: string }>;
+    };
+    expect(data).toHaveLength(1);
+    expect(data[0]!.content_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(data[0]!.signature).toMatch(/^[0-9a-f]{64}$/);
+    expect(typeof data[0]!.level_title === "string" || data[0]!.level_title === null).toBe(true);
   });
 
   it("flags a tampered certificate as invalid", async () => {

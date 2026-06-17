@@ -1,17 +1,19 @@
 // Certificates — rebuilt to the "Final Pathway Portal" make, wired to the live
-// certificate API (ConfigApi.certificates / issueCertificate / revokeCertificate).
-// Issued list, a rendered certificate preview with PDF print, public verification
-// (matches a code against issued records), issue + revoke. The make's crypto
-// "document hash" isn't stored in our model, so real verification fields are shown.
+// certificate API (ConfigApi.certificates / issueCertificate / revokeCertificate /
+// verifyCertificate). Issued list, a rendered certificate preview with PDF print,
+// server-authoritative public verification (GET /verify/{code} recomputes the
+// content hash + checks the HMAC signature + revocation, §5.5), and the
+// signature / document-hash indicators, plus issue + revoke.
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
-import { Award, Check, ChevronRight, Copy, Download, Hash, Loader2, Printer, Search, ShieldCheck, ShieldX, Stamp, X, RotateCcw, Plus } from "lucide-react";
-import { ConfigApi, OpsApi, CurriculumApi, type CertificateRow, type MemberRow, type AdminLevel } from "../../api/client";
+import { Award, Check, ChevronRight, Copy, Download, Fingerprint, Hash, Loader2, Printer, Search, ShieldCheck, ShieldX, Stamp, X, RotateCcw, Plus } from "lucide-react";
+import { ConfigApi, OpsApi, CurriculumApi, type CertificateRow, type CertificateVerification, type MemberRow, type AdminLevel } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
 const statusOf = (c: CertificateRow): "Valid" | "Revoked" => (c.revoked_at ? "Revoked" : "Valid");
 const statusChip: Record<string, { bg: string; color: string }> = { Valid: { bg: "#E8F6EC", color: "#16A34A" }, Revoked: { bg: "#FDECEC", color: "#DC2626" } };
 const fmtDate = (iso: string): string => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 const initials = (n: string): string => n.split(/\s+/).map((p) => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
+const shortHash = (h: string): string => (h && h.length > 14 ? `${h.slice(0, 10)}…${h.slice(-4)}` : h || "—");
 
 function CertificateArt({ c, levelName }: { c: CertificateRow; levelName: string }): ReactElement {
   return (
@@ -58,7 +60,7 @@ export function Certificates(): ReactElement {
   const [query, setQuery] = useState("");
   const [verifyInput, setVerifyInput] = useState("");
   const [verifying, setVerifying] = useState(false);
-  const [result, setResult] = useState<null | { valid: boolean; cert?: CertificateRow }>(null);
+  const [result, setResult] = useState<null | { valid: boolean; revoked: boolean; notFound: boolean; v?: CertificateVerification }>(null);
   const [copied, setCopied] = useState(false);
   const [pdf, setPdf] = useState<CertificateRow | null>(null);
   const [issueOpen, setIssueOpen] = useState(false);
@@ -76,10 +78,18 @@ export function Certificates(): ReactElement {
   const filtered = useMemo(() => certs.filter((c) => `${c.full_name} ${c.verification_code}`.toLowerCase().includes(query.toLowerCase())), [certs, query]);
   const selected = certs.find((c) => c.certificate_id === selId) ?? null;
 
-  function runVerify(): void {
-    if (!verifyInput.trim()) return;
+  async function runVerify(): Promise<void> {
+    const code = verifyInput.trim();
+    if (!code) return;
     setVerifying(true); setResult(null);
-    setTimeout(() => { const f = certs.find((c) => c.verification_code.toLowerCase() === verifyInput.trim().toLowerCase()); setResult({ valid: !!f && !f.revoked_at, ...(f ? { cert: f } : {}) }); setVerifying(false); }, 400);
+    try {
+      const v = await ConfigApi.verifyCertificate(code);
+      setResult({ valid: v.valid, revoked: v.revoked ?? false, notFound: false, v });
+    } catch {
+      setResult({ valid: false, revoked: false, notFound: true });
+    } finally {
+      setVerifying(false);
+    }
   }
   async function revoke(c: CertificateRow): Promise<void> {
     const reason = window.prompt(`Revoke ${c.full_name}'s certificate? Enter a reason:`);
@@ -136,18 +146,22 @@ export function Certificates(): ReactElement {
             <div className="p-6">
               <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6 }}>Enter verification code</label>
               <div className="flex items-stretch gap-2 mt-2">
-                <div className="flex items-center gap-2 rounded-xl px-3 flex-1" style={{ background: "var(--input-background)", border: "1px solid var(--border)" }}><Hash size={14} style={{ color: "var(--muted-foreground)" }} /><input value={verifyInput} onChange={(e) => { setVerifyInput(e.target.value.toUpperCase()); if (result) setResult(null); }} onKeyDown={(e) => e.key === "Enter" && runVerify()} placeholder="NURU-…" className="flex-1 bg-transparent outline-none py-3" style={{ fontFamily: "var(--font-mono)", fontSize: 14, letterSpacing: 1 }} /></div>
-                <button onClick={runVerify} disabled={verifying} className="flex items-center gap-2 rounded-xl px-5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 600, border: "none" }}>{verifying ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Verify</button>
+                <div className="flex items-center gap-2 rounded-xl px-3 flex-1" style={{ background: "var(--input-background)", border: "1px solid var(--border)" }}><Hash size={14} style={{ color: "var(--muted-foreground)" }} /><input value={verifyInput} onChange={(e) => { setVerifyInput(e.target.value.toUpperCase()); if (result) setResult(null); }} onKeyDown={(e) => { if (e.key === "Enter") void runVerify(); }} placeholder="NURU-…" className="flex-1 bg-transparent outline-none py-3" style={{ fontFamily: "var(--font-mono)", fontSize: 14, letterSpacing: 1 }} /></div>
+                <button onClick={() => void runVerify()} disabled={verifying} className="flex items-center gap-2 rounded-xl px-5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 600, border: "none" }}>{verifying ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Verify</button>
               </div>
               {certs.length > 0 ? <div className="flex flex-wrap items-center gap-2 mt-3"><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>Try:</span>{certs.slice(0, 3).map((c) => <button key={c.certificate_id} onClick={() => { setVerifyInput(c.verification_code); setResult(null); }} className="rounded-md px-2 py-0.5" style={{ background: "var(--secondary)", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--foreground)" }}>{c.verification_code}</button>)}</div> : null}
               {result ? (
                 <div className="mt-5 rounded-xl p-4 flex items-start gap-3" style={{ background: result.valid ? "#F0FDF4" : "#FEF2F2", border: result.valid ? "1px solid #A8E0B8" : "1px solid #FCA5A5" }}>
                   <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: result.valid ? "#16A34A" : "#DC2626", color: "#fff" }}>{result.valid ? <ShieldCheck size={20} /> : <ShieldX size={20} />}</div>
-                  <div className="flex-1">
-                    <div style={{ fontSize: 14, fontWeight: 700, color: result.valid ? "#15803D" : "#B91C1C" }}>{result.valid ? "Valid certificate" : result.cert ? "Certificate revoked" : "No certificate found"}</div>
-                    {result.cert ? <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-2">
-                      <Row label="Name" value={result.cert.full_name} /><Row label="Level" value={result.cert.level_number ? `L${result.cert.level_number} · ${levelName(result.cert.level_number)}` : "Program"} /><Row label="Issued" value={fmtDate(result.cert.issued_at)} /><Row label="Code" value={result.cert.verification_code} mono />
-                    </div> : <div style={{ fontSize: 12, color: "#B91C1C", marginTop: 4 }}>This code does not match any certificate on record.</div>}
+                  <div className="flex-1 min-w-0">
+                    <div style={{ fontSize: 14, fontWeight: 700, color: result.valid ? "#15803D" : "#B91C1C" }}>{result.valid ? "Valid certificate" : result.notFound ? "No certificate found" : result.revoked ? "Certificate revoked" : "Certificate invalid"}</div>
+                    {result.v ? <>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-2">
+                        <Row label="Name" value={result.v.recipient_name ?? "—"} /><Row label="Level" value={result.v.level_number ? `L${result.v.level_number} · ${levelName(result.v.level_number)}` : "Program"} /><Row label="Issued" value={result.v.issued_at ? fmtDate(result.v.issued_at) : "—"} /><Row label="Code" value={result.v.verification_code ?? verifyInput} mono />
+                      </div>
+                      {result.v.content_hash ? <div style={{ marginTop: 8 }}><Row label="Document hash" value={shortHash(result.v.content_hash)} mono /></div> : null}
+                      <div className="flex items-center gap-1 mt-2" style={{ fontSize: 11, color: result.valid ? "#15803D" : "#B91C1C", fontWeight: 600 }}>{result.valid ? <><Check size={11} /> Hash + signature verified server-side</> : <><ShieldX size={11} /> {result.revoked ? "Revoked by an administrator" : "Signature check failed"}</>}</div>
+                    </> : <div style={{ fontSize: 12, color: "#B91C1C", marginTop: 4 }}>This code does not match any certificate on record.</div>}
                   </div>
                 </div>
               ) : null}
@@ -166,7 +180,27 @@ export function Certificates(): ReactElement {
                   <button onClick={() => setPdf(selected)} className="flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ background: "var(--nuru-navy)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none" }}><Download size={13} /> PDF</button>
                 </div>
               </div>
-              <CertificateArt c={selected} levelName={levelName(selected.level_number)} />
+              <CertificateArt c={selected} levelName={selected.level_title ?? levelName(selected.level_number)} />
+
+              {/* Signature + document-hash indicators (real crypto, §5.5) */}
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                <div className="rounded-xl p-3 flex items-start gap-3" style={{ background: "var(--secondary)" }}>
+                  <Fingerprint size={16} style={{ color: "var(--nuru-gold)", marginTop: 2 }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6 }}>Signature</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)", marginTop: 2 }}>Nuru Pathway</div>
+                    {statusOf(selected) === "Valid" ? <div className="flex items-center gap-1 mt-1" style={{ fontSize: 11, color: "#16A34A" }}><Check size={11} /> Cryptographically signed</div> : <div style={{ fontSize: 11, color: "#DC2626", marginTop: 1 }}>Revoked</div>}
+                  </div>
+                </div>
+                <div className="rounded-xl p-3 flex items-start gap-3" style={{ background: "var(--secondary)" }}>
+                  <Hash size={16} style={{ color: "var(--nuru-gold)", marginTop: 2 }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6 }}>Document hash</div>
+                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 700, color: "var(--foreground)", marginTop: 2 }}>{shortHash(selected.content_hash)}</div>
+                    <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 1 }}>SHA-256 · HMAC-signed</div>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : <div className="rounded-2xl p-12 text-center" style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted-foreground)" }}>Select a certificate to preview.</div>}
         </div>
@@ -179,7 +213,7 @@ export function Certificates(): ReactElement {
             <span style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>{pdf.full_name} — certificate</span>
             <div className="flex items-center gap-2"><button onClick={() => window.print()} className="flex items-center gap-1.5 rounded-xl px-4 py-2" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 600, border: "none" }}><Printer size={14} /> Save as PDF</button><button onClick={() => setPdf(null)} className="flex items-center justify-center rounded-xl" style={{ width: 36, height: 36, background: "rgba(255,255,255,0.12)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }}><X size={16} /></button></div>
           </div>
-          <div id="cert-print" className="w-full rounded-2xl" style={{ maxWidth: 960, background: "#fff", padding: 24 }} onClick={(e) => e.stopPropagation()}><CertificateArt c={pdf} levelName={levelName(pdf.level_number)} /></div>
+          <div id="cert-print" className="w-full rounded-2xl" style={{ maxWidth: 960, background: "#fff", padding: 24 }} onClick={(e) => e.stopPropagation()}><CertificateArt c={pdf} levelName={pdf.level_title ?? levelName(pdf.level_number)} /></div>
         </div>
       ) : null}
 

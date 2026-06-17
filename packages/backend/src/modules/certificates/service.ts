@@ -134,6 +134,9 @@ export class CertificateService {
       recipient_name: cert.full_name,
       level_number: cert.level_number,
       issued_at: cert.issued_at,
+      verification_code: code,
+      content_hash: cert.content_hash,
+      signature: cert.signature,
     };
   }
 
@@ -155,9 +158,12 @@ export class CertificateService {
     params.push(q.limit + 1);
     const rows = await many<Record<string, unknown>>(
       this.pool,
-      `SELECT c.certificate_id, c.user_id, u.full_name, c.level_number, c.verification_code,
-              c.issued_at, c.revoked_at, c.revoked_reason
-         FROM certificates c JOIN users u ON u.user_id = c.user_id
+      `SELECT c.certificate_id, c.user_id, u.full_name, c.level_number, lv.title AS level_title,
+              c.verification_code, c.issued_at, c.revoked_at, c.revoked_reason,
+              c.content_hash, c.signature
+         FROM certificates c
+         JOIN users u ON u.user_id = c.user_id
+         LEFT JOIN levels lv ON lv.level_number = c.level_number
         WHERE ${where}
         ORDER BY c.issued_at DESC
         LIMIT $${params.length}`,

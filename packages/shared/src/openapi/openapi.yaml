@@ -2955,6 +2955,10 @@ components:
       required: [valid]
       properties:
         valid: { type: boolean }
+        revoked: { type: boolean }
         recipient_name: { type: string }
         level_number: { type: [integer, "null"] }
         issued_at: { type: string, format: date-time }
+        verification_code: { type: string }
+        content_hash: { type: string, description: "SHA-256 over the issuance facts" }
+        signature: { type: string, description: "HMAC-SHA256 detached signature (§5.5 KMS stand-in)" }
