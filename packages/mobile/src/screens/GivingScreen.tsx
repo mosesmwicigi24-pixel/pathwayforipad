@@ -7,9 +7,9 @@
 // real intent (or schedule) and watch the ledger; we NEVER fake a gift. Methods
 // without a live provider (Equity/PayPal/wallet) are shown but flagged "soon".
 import { useCallback, useRef, useState, type ReactElement } from "react";
-import { Linking, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, TextInput, View } from "react-native";
 import {
-  ArrowLeft, BadgeCheck, BookOpen, Check, ChevronDown, ChevronUp, CreditCard, Delete, Gift, Globe,
+  ArrowLeft, BadgeCheck, BookOpen, CalendarClock, Check, ChevronDown, ChevronRight, ChevronUp, CreditCard, Delete, Gift, Globe,
   GripVertical, HandHeart, Landmark, Loader, Lock, Percent, Quote, Repeat, RotateCcw, ShieldCheck, Smartphone,
   Wallet, X, type LucideIcon,
 } from "lucide-react-native";
@@ -21,12 +21,15 @@ import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { Glow, PButton, T } from "../theme/components";
 import { useGivingHistory, useMe, useSchedules } from "../api/hooks";
 import { invalidateQueries } from "../api/query";
-import type { GivingMethod, GivingRecord } from "../api/types";
+import { freqLabel, historyStatusChip, methodLabel } from "./givingHelpers";
+import type { GivingMethod, GivingRecord, GivingSchedule } from "../api/types";
 
 const CURRENCY = "KES";
 const ksh = (n: number): string => `KSh ${n.toLocaleString()}`;
 const kshMinor = (m: number): string => `KSh ${(m / 100).toLocaleString()}`;
 const when = (iso: string): string => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const whenFull = (iso: string): string =>
+  new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 const thisYear = (iso: string): boolean => iso.slice(0, 4) === new Date().toISOString().slice(0, 4);
 const SETTLED = new Set(["succeeded", "settled", "completed"]);
 
@@ -71,8 +74,8 @@ type Ceremony = { phase: Phase; amount: number; fund: string; method: UIMethod; 
 
 export function GivingScreen(): ReactElement {
   const nav = useNavigation();
-  const { data: history } = useGivingHistory();
-  const { data: schedules, refetch: refetchSchedules } = useSchedules();
+  const { data: history, isLoading: historyLoading } = useGivingHistory();
+  const { data: schedules, isLoading: schedulesLoading, refetch: refetchSchedules } = useSchedules();
   const { data: me } = useMe();
 
   const [fundCode, setFundCode] = useState("tithe");
@@ -82,6 +85,8 @@ export function GivingScreen(): ReactElement {
   const [freq, setFreq] = useState<Freq>("once");
   const [coverFee, setCoverFee] = useState(false);
   const [sheet, setSheet] = useState<"none" | "keypad" | "details">("none");
+  const [scheduleDetail, setScheduleDetail] = useState<GivingSchedule | null>(null);
+  const [historyDetail, setHistoryDetail] = useState<GivingRecord | null>(null);
   const [ceremony, setCeremony] = useState<Ceremony | null>(null);
   const pollRef = useRef(false);
 
@@ -207,7 +212,30 @@ export function GivingScreen(): ReactElement {
     });
   }
   function dismiss(): void { pollRef.current = false; setCeremony(null); }
-  async function cancelSchedule(id: string): Promise<void> { try { await NuruApi.cancelSchedule(id); } finally { void refetchSchedules(); } }
+
+  // Cancel a recurring schedule. Money requires connectivity (§5.6) — a plain online
+  // POST, then invalidate the schedules query so the rail refreshes. No pause: the
+  // backend only cancels.
+  async function cancelSchedule(s: GivingSchedule): Promise<void> {
+    try {
+      await NuruApi.cancelSchedule(s.schedule_id);
+      invalidateQueries("schedules");
+      void refetchSchedules();
+      setScheduleDetail(null);
+    } catch {
+      Alert.alert("Couldn't cancel", "Please check your connection and try again.");
+    }
+  }
+  function confirmCancel(s: GivingSchedule): void {
+    Alert.alert(
+      "Cancel recurring gift?",
+      `Your ${freqLabel(s.frequency).toLowerCase()} gift of ${kshMinor(s.amount_minor)} to ${s.fund} will stop. You can set up a new one anytime.`,
+      [
+        { text: "Keep giving", style: "cancel" },
+        { text: "Cancel gift", style: "destructive", onPress: () => void cancelSchedule(s) },
+      ],
+    );
+  }
 
   return (
     <View style={st.screen}>
@@ -354,42 +382,82 @@ export function GivingScreen(): ReactElement {
           </View>
         </Pressable>
 
-        {/* Recent giving */}
-        {history && history.length > 0 ? (
-          <View>
-            <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>RECENT GIVING</T>
+        {/* Recurring giving — tap a row for detail + cancel */}
+        <View>
+          <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>RECURRING GIVING</T>
+          {schedulesLoading && active.length === 0 ? (
+            <View style={st.group}><View style={st.emptyRow}><T variant="caption" tone="tertiary">Loading…</T></View></View>
+          ) : active.length === 0 ? (
             <View style={st.group}>
-              {history.slice(0, 4).map((g, i, arr) => (
-                <View key={g.transaction_id} style={[st.histRow, i < arr.length - 1 && st.divider]}>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <T variant="heading" style={{ fontSize: 14, textTransform: "capitalize" }}>{g.fund}</T>
-                    <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{`${when(g.created_at)} · ${g.status}`}</T>
-                  </View>
-                  <T serif style={{ fontSize: 15, color: palette.ink }}>{kshMinor(g.amount_minor)}</T>
-                </View>
-              ))}
+              <View style={st.emptyRow}>
+                <View style={st.emptyIcon}><CalendarClock size={18} color={palette.ink400} /></View>
+                <T variant="caption" tone="secondary" style={{ marginTop: spacing.sm, textAlign: "center" }}>No recurring giving set up</T>
+                <T variant="micro" tone="tertiary" style={{ marginTop: 2, textAlign: "center" }}>Choose Weekly or Monthly above to set one up.</T>
+              </View>
             </View>
-          </View>
-        ) : null}
-
-        {active.length > 0 ? (
-          <View>
-            <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>RECURRING GIVING</T>
+          ) : (
             <View style={st.group}>
               {active.map((s, i) => (
-                <View key={s.schedule_id} style={[st.histRow, i < active.length - 1 && st.divider]}>
+                <Pressable
+                  key={s.schedule_id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${s.fund} ${freqLabel(s.frequency)}, ${kshMinor(s.amount_minor)}`}
+                  onPress={() => setScheduleDetail(s)}
+                  style={({ pressed }) => [st.histRow, i < active.length - 1 && st.divider, pressed && { backgroundColor: palette.surface }]}
+                >
+                  <View style={st.recurIcon}><Repeat size={15} color={palette.goldLo} /></View>
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <T variant="heading" style={{ fontSize: 14, textTransform: "capitalize" }}>{`${s.fund} · ${s.frequency}`}</T>
+                    <T variant="heading" style={{ fontSize: 14, textTransform: "capitalize" }}>{`${s.fund} · ${freqLabel(s.frequency).toLowerCase()}`}</T>
                     <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{`${kshMinor(s.amount_minor)} · next ${when(s.next_run_at)}`}</T>
                   </View>
-                  <Pressable accessibilityRole="button" onPress={() => void cancelSchedule(s.schedule_id)}>
-                    <T variant="caption" style={{ color: palette.error, fontWeight: "600" }}>Cancel</T>
-                  </Pressable>
-                </View>
+                  <ChevronRight size={18} color={palette.ink300} />
+                </Pressable>
               ))}
             </View>
-          </View>
-        ) : null}
+          )}
+        </View>
+
+        {/* Giving history */}
+        <View>
+          <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>GIVING HISTORY</T>
+          {historyLoading && (!history || history.length === 0) ? (
+            <View style={st.group}><View style={st.emptyRow}><T variant="caption" tone="tertiary">Loading…</T></View></View>
+          ) : !history || history.length === 0 ? (
+            <View style={st.group}>
+              <View style={st.emptyRow}>
+                <View style={st.emptyIcon}><HandHeart size={18} color={palette.ink400} /></View>
+                <T variant="caption" tone="secondary" style={{ marginTop: spacing.sm, textAlign: "center" }}>No giving yet</T>
+                <T variant="micro" tone="tertiary" style={{ marginTop: 2, textAlign: "center" }}>Your gifts will appear here once you give.</T>
+              </View>
+            </View>
+          ) : (
+            <View style={st.group}>
+              {history.map((g, i) => {
+                const chip = historyStatusChip(g.status);
+                return (
+                  <Pressable
+                    key={g.transaction_id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${g.fund} ${kshMinor(g.amount_minor)} ${chip.label}`}
+                    onPress={() => setHistoryDetail(g)}
+                    style={({ pressed }) => [st.histRow, i < history.length - 1 && st.divider, pressed && { backgroundColor: palette.surface }]}
+                  >
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <T variant="heading" style={{ fontSize: 14, textTransform: "capitalize" }}>{g.fund}</T>
+                      <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{when(g.created_at)}</T>
+                    </View>
+                    <View style={{ alignItems: "flex-end", gap: 4 }}>
+                      <T serif style={{ fontSize: 15, color: palette.ink }}>{kshMinor(g.amount_minor)}</T>
+                      <View style={[st.statusChip, { backgroundColor: chip.bg }]}>
+                        <T variant="micro" style={{ color: chip.fg, fontWeight: "700", fontSize: 9 }}>{chip.label.toUpperCase()}</T>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
 
         {/* Scripture strip */}
         <View style={st.verse}>
@@ -417,6 +485,12 @@ export function GivingScreen(): ReactElement {
       ) : null}
       {sheet === "details" ? (
         <PaymentDetailsSheet method={method} phoneHint={phoneHint} onClose={() => setSheet("none")} onGive={() => { setSheet("none"); void give(); }} />
+      ) : null}
+      {scheduleDetail ? (
+        <ScheduleDetailSheet schedule={scheduleDetail} onClose={() => setScheduleDetail(null)} onCancel={() => confirmCancel(scheduleDetail)} />
+      ) : null}
+      {historyDetail ? (
+        <HistoryDetailSheet record={historyDetail} onClose={() => setHistoryDetail(null)} />
       ) : null}
       {ceremony ? <CeremonyOverlay c={ceremony} onDismiss={dismiss} onRetry={() => { setCeremony(null); void give(); }} onConfirmPayPal={(id) => void confirmPayPal(id)} /> : null}
     </View>
@@ -530,6 +604,101 @@ function PaymentDetailsSheet({ method, phoneHint, onClose, onGive }: { method: U
   );
 }
 
+/* ---------- recurring schedule detail + cancel ---------- */
+function ScheduleDetailSheet({ schedule, onClose, onCancel }: { schedule: GivingSchedule; onClose: () => void; onCancel: () => void }): ReactElement {
+  const rows: Array<{ Icon: LucideIcon; label: string; value: string }> = [
+    { Icon: HandHeart, label: "Fund", value: schedule.fund },
+    { Icon: Repeat, label: "Frequency", value: freqLabel(schedule.frequency) },
+    { Icon: CalendarClock, label: "Next charge", value: whenFull(schedule.next_run_at) },
+    { Icon: CreditCard, label: "Method", value: methodLabel(schedule.method) },
+  ];
+  if (schedule.last_run_at) rows.push({ Icon: RotateCcw, label: "Last charge", value: whenFull(schedule.last_run_at) });
+  return (
+    <View style={st.sheetWrap}>
+      <Pressable style={st.scrim} onPress={onClose} accessibilityLabel="Close" />
+      <View style={st.sheet}>
+        <View style={st.grab} />
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <T variant="micro" tone="secondary" style={{ letterSpacing: 1.2 }}>RECURRING GIFT</T>
+          <Pressable onPress={onClose} accessibilityLabel="Close"><X size={18} color={palette.navy} /></Pressable>
+        </View>
+
+        <View style={{ flexDirection: "row", alignItems: "flex-start", marginTop: spacing.base }}>
+          <T serif style={{ fontSize: 24, color: palette.ink400, marginTop: 6 }}>KSh </T>
+          <T serif style={{ fontSize: 40, fontWeight: "700", color: palette.ink, letterSpacing: -1 }}>{(schedule.amount_minor / 100).toLocaleString()}</T>
+          <T variant="caption" tone="tertiary" style={{ marginLeft: 6, marginTop: 14 }}>{freqLabel(schedule.frequency).toLowerCase()}</T>
+        </View>
+
+        <View style={[st.group, { marginTop: spacing.base }]}>
+          {rows.map((r, i) => (
+            <View key={r.label} style={[st.detailRow, i < rows.length - 1 && st.divider]}>
+              <View style={st.detailIcon}><r.Icon size={16} color={palette.ink400} /></View>
+              <T variant="caption" tone="secondary" style={{ flex: 1 }}>{r.label}</T>
+              <T variant="heading" style={{ fontSize: 14, textTransform: "capitalize" }}>{r.value}</T>
+            </View>
+          ))}
+        </View>
+
+        <View style={{ marginTop: spacing.base }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cancel schedule"
+            onPress={onCancel}
+            style={({ pressed }) => [st.cancelBtn, pressed && { opacity: 0.85 }]}
+          >
+            <T variant="heading" style={{ fontSize: 15, color: palette.error, fontWeight: "700" }}>Cancel schedule</T>
+          </Pressable>
+        </View>
+        <T variant="micro" tone="tertiary" style={{ marginTop: spacing.sm, textAlign: "center" }}>Cancelling stops future charges. Past gifts are unaffected.</T>
+      </View>
+    </View>
+  );
+}
+
+/* ---------- giving history detail ---------- */
+function HistoryDetailSheet({ record, onClose }: { record: GivingRecord; onClose: () => void }): ReactElement {
+  const chip = historyStatusChip(record.status);
+  const rows: Array<{ Icon: LucideIcon; label: string; value: string }> = [
+    { Icon: HandHeart, label: "Fund", value: record.fund },
+    { Icon: CalendarClock, label: "Given", value: whenFull(record.created_at) },
+  ];
+  if (record.settled_at) rows.push({ Icon: Check, label: "Settled", value: whenFull(record.settled_at) });
+  return (
+    <View style={st.sheetWrap}>
+      <Pressable style={st.scrim} onPress={onClose} accessibilityLabel="Close" />
+      <View style={st.sheet}>
+        <View style={st.grab} />
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <T variant="micro" tone="secondary" style={{ letterSpacing: 1.2 }}>GIFT DETAIL</T>
+          <Pressable onPress={onClose} accessibilityLabel="Close"><X size={18} color={palette.navy} /></Pressable>
+        </View>
+
+        <View style={{ flexDirection: "row", alignItems: "flex-start", marginTop: spacing.base }}>
+          <T serif style={{ fontSize: 24, color: palette.ink400, marginTop: 6 }}>KSh </T>
+          <T serif style={{ fontSize: 40, fontWeight: "700", color: palette.ink, letterSpacing: -1 }}>{(record.amount_minor / 100).toLocaleString()}</T>
+        </View>
+        <View style={[st.statusChip, { backgroundColor: chip.bg, alignSelf: "flex-start", marginTop: spacing.sm }]}>
+          <T variant="micro" style={{ color: chip.fg, fontWeight: "700", fontSize: 10 }}>{chip.label.toUpperCase()}</T>
+        </View>
+
+        <View style={[st.group, { marginTop: spacing.base }]}>
+          {rows.map((r, i) => (
+            <View key={r.label} style={[st.detailRow, i < rows.length - 1 && st.divider]}>
+              <View style={st.detailIcon}><r.Icon size={16} color={palette.ink400} /></View>
+              <T variant="caption" tone="secondary" style={{ flex: 1 }}>{r.label}</T>
+              <T variant="heading" style={{ fontSize: 14, textTransform: "capitalize" }}>{r.value}</T>
+            </View>
+          ))}
+        </View>
+
+        <View style={{ marginTop: spacing.base }}>
+          <PButton variant="ghost" onPress={onClose}>Done</PButton>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 /* ---------- ceremony ---------- */
 function CeremonyOverlay({ c, onDismiss, onRetry, onConfirmPayPal }: { c: Ceremony; onDismiss: () => void; onRetry: () => void; onConfirmPayPal: (orderId: string) => void }): ReactElement {
   const mm = c.method === "mpesa" || c.method === "airtel";
@@ -629,8 +798,15 @@ const st = {
   switch: { width: 44, height: 26, borderRadius: 13, backgroundColor: "rgba(10,37,64,0.18)", padding: 3, justifyContent: "center" },
   knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: palette.white },
   group: { backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
-  histRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.base, paddingVertical: 13 },
+  histRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, justifyContent: "space-between", paddingHorizontal: spacing.base, paddingVertical: 13 },
   divider: { borderBottomWidth: 1, borderBottomColor: "rgba(10,37,64,0.06)" },
+  emptyRow: { alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.base, paddingVertical: spacing.lg },
+  emptyIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.mutedBg, alignItems: "center", justifyContent: "center" },
+  recurIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
+  statusChip: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3 },
+  detailRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.base, paddingVertical: 13 },
+  detailIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: palette.surface, alignItems: "center", justifyContent: "center" },
+  cancelBtn: { height: 52, borderRadius: radii.button, borderWidth: 1, borderColor: "rgba(212,24,61,0.4)", backgroundColor: "rgba(212,24,61,0.06)", alignItems: "center", justifyContent: "center" },
   verse: { backgroundColor: palette.verseBg, borderRadius: 18, borderWidth: 1, borderColor: "rgba(201,162,39,0.3)", padding: spacing.base },
   trust: { flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center", paddingVertical: spacing.sm },
   ctaBar: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: spacing.screen, paddingTop: spacing.md, paddingBottom: 28, backgroundColor: "rgba(244,240,232,0.96)", borderTopWidth: 1, borderTopColor: palette.border },

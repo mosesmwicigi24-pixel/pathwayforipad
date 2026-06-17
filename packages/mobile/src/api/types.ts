@@ -193,6 +193,7 @@ export interface GivingSchedule {
   method: GivingMethod;
   status: "active" | "cancelled";
   next_run_at: string;
+  last_run_at?: string | null;
   created_at: string;
 }
 
