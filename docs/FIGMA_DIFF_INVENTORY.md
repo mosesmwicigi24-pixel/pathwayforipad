@@ -89,6 +89,18 @@ Make is a 5-tab console: **Overview / Transactions / Ledger / Audit / Configurat
 ## 8. Dashboard ✅ FULL PARITY (diffed fresh Make `Dashboard.tsx` vs live, no work needed)
 Live Dashboard (built #65/#75) already matches this make revision exactly, wired to REAL data throughout (make uses hardcoded constants; live uses endpoints): hero stats + 6 KPI tiles incl. **Countries + Languages** (SystemApi active counts), Curriculum pipeline (real level counts), Pathway Report 3 tabs (Overview/Curriculum/Members) + status-distribution donut (engagementReport.bands) + breakdown + daily-engagement bar (attendanceReport), recent activity (audit), quick actions, upcoming events (calendar), and all 4 "Needs attention" risks (members_at_risk, reviews_overdue, guardian consents via consentsReport, videos stuck via MediaApi). Greeting/firstName from MeApi. Minor real-data label substitutions (pipeline Archived/Published vs make Awaiting/Live) are intentional. **No PR needed.**
 
+## 9. Certificates ✅ SHIPPED (#136) — server-authoritative verify + signature/hash display
+Backend already had SHA-256 `content_hash` + HMAC `signature` + public `/verify/:code`; the page hid it. Now: admin list + verify return hash/signature/level_title; public verify calls the real endpoint; preview shows Signature + Document-hash cards.
+
+## 10. Badges ✅ SHIPPED (#137) — admin catalog shows inactive + reactivate
+`GET /admin/badges` (incl. deactivated + is_active) + `reactivateBadge`; web shows status dot, Status filter, deactivate↔reactivate toggle, Active/Inactive summary. Public `/badges` stays active-only. Award-type + 7-category taxonomy intentionally skipped (no backend model).
+
+## 11. Notifications ✅ FULL PARITY (no work) — live (#76/#78) matches the make exactly: All/Unread tabs, info/success/warning/security chips, search, Recent/Archive paging (50/pg), day-grouping, per-item read/unread/dismiss, mark-all-read; server-persisted read state via NotificationsProvider.
+
+## 12. Profile ✅ FULL PARITY (no work) — live (#79) is *more real* than the make (which is all localStorage): 6 tabs (Profile/Password/2FA/Sessions/Preferences/Activity); Profile/Password/Activity wired to real /me endpoints; 2FA shows real require_2fa; Sessions/Preferences honestly labelled (no backend model). Header uses real name/email/status/created_at/role.
+
+## 13. Login ✅ FULL PARITY (no work) — live (#109) matches: signin/register/forgot modes + "Check your inbox" reset-sent (resend + 30-min note), wired to real POST /auth/login + /auth/password/forgot (make's submit is a fake setTimeout). Mode tabs, remember-me, terms, roles strip all present.
+
 ## STILL TO DIFF (current Figma not yet read this pass — pages persisted on disk may be stale vs the user's latest edits; re-fetch fresh before building each)
 Members, MemberProfile, CellEngagement/CellDetail, Chat (+ moderation/attachments already shipped — diff for new features), Events, Finance, Dashboard, Notifications, Profile, Login, Layout/nav, ReflectionQueue, Certificates, Badges, Countries, Languages, Roles, Users, ModulePreview. The user flagged **Members** and **Chat** as changed "in a big way / many places" — prioritize those next.
 
