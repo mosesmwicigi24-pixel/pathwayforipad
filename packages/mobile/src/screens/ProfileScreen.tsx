@@ -9,9 +9,10 @@ import { Alert, Clipboard, Linking, Modal, Platform, Pressable, ScrollView, Text
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import {
-  Award, Bell, Calendar, Check, ChevronRight, Compass, Copy, Download, Fingerprint, Globe,
-  Heart, KeyRound, Languages, LifeBuoy, Lock, LogOut, Mail, MapPin, Pencil, Phone,
-  ScrollText, Settings, ShieldCheck, Smartphone, Sparkles, Trash2, User, UserCog, X,
+  AtSign, Award, Bell, Calendar, Check, ChevronRight, Compass, Copy, Download,
+  Fingerprint, Globe, Heart, KeyRound, Languages, LifeBuoy, Link2, Lock, LogOut,
+  Mail, MapPin, Pencil, Phone, ScrollText, Settings, ShieldCheck, Smartphone, Sparkles, Tag,
+  Trash2, User, UserCog, X,
   type LucideIcon,
 } from "lucide-react-native";
 import type { RootStackParamList } from "../navigation/types";
@@ -20,7 +21,7 @@ import { T, Pill } from "../theme/components";
 import { useMe, useAchievements, useCertificates } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { apiBaseUrl } from "../config";
-import type { CertificateRow } from "../api/types";
+import type { Achievements, CertificateRow } from "../api/types";
 import { clearQueryCache, invalidateQueries } from "../api/query";
 import { getVault } from "../auth/vault";
 
@@ -80,6 +81,31 @@ function genderLabel(g?: string | null): string {
 
 const ALL_LANGUAGES = ["English", "Swahili", "Kikuyu", "Luo", "Luhya", "Kamba", "French", "Arabic"];
 
+type Badge = Achievements["badges"][number];
+
+// Social-media handles stored in users.socials (a key→value record). The order
+// here is the display + edit order; any extra keys already on the record are
+// appended so nothing the backend stores is hidden.
+const SOCIAL_LINKS: Array<{ key: string; label: string; Icon: LucideIcon; placeholder: string }> = [
+  { key: "instagram", label: "Instagram", Icon: AtSign, placeholder: "your.handle" },
+  { key: "x", label: "X (Twitter)", Icon: AtSign, placeholder: "yourhandle" },
+  { key: "facebook", label: "Facebook", Icon: Link2, placeholder: "your.profile or URL" },
+];
+function socialLabel(key: string): string {
+  const known = SOCIAL_LINKS.find((s) => s.key === key);
+  if (known) return known.label;
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+// Trim, drop empties → the record we persist (and compare for "anything set?").
+function cleanSocials(raw: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const t = (v ?? "").trim();
+    if (t) out[k] = t;
+  }
+  return out;
+}
+
 export function ProfileScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: me } = useMe();
@@ -117,6 +143,27 @@ export function ProfileScreen(): ReactElement {
   const [emailOn, setEmailOn] = useState(true);
   const [smsOn, setSmsOn] = useState(false);
   const [socials, setSocials] = useState<Record<string, boolean>>({ Google: true, Facebook: false, Instagram: true, X: false, LinkedIn: false, YouTube: false });
+  const [socialLinksOpen, setSocialLinksOpen] = useState(false);
+  const [openBadge, setOpenBadge] = useState<Badge | null>(null);
+
+  // Real social-media handles from /me (record key → handle). Edited via the
+  // "Social links" sheet; persisted through the same PATCH /me flow as fields.
+  const socialLinks = profileData?.socials ?? {};
+  const setSocialLinks = async (next: Record<string, string>): Promise<void> => {
+    setSocialLinksOpen(false);
+    const cleaned = cleanSocials(next);
+    try {
+      await NuruApi.updateMe({ socials: cleaned }, profileData?.row_version ?? 1);
+      invalidateQueries("me");
+    } catch (e) {
+      const stale = (e as { response?: { status?: number } }).response?.status === 409;
+      if (stale) invalidateQueries("me");
+      Alert.alert(
+        stale ? "Profile changed elsewhere" : "Couldn't save",
+        stale ? "We've refreshed it — please try your edit again." : "Please check your connection and try again.",
+      );
+    }
+  };
 
   // Map an edited row to the PATCH /me payload. Returns null when the value can't
   // be persisted (bad format), so the caller can warn instead of silently dropping.
@@ -180,7 +227,7 @@ export function ProfileScreen(): ReactElement {
 
   const badges = achievements?.badges ?? [];
   const milestones: Array<{ id: string; label: string; meta: string; status: "done" | "active" | "future" }> = [
-    { id: "baptism", label: "Baptism", meta: profileData?.is_baptized ? "Confirmed" : "Not yet recorded", status: profileData?.is_baptized ? "done" : "future" },
+    { id: "baptism", label: "Baptism", meta: profileData?.is_baptized ? "Baptised" : "Not yet recorded", status: profileData?.is_baptized ? "done" : "future" },
     ...(level > 1 ? [{ id: "l1", label: "Level 1 completed", meta: "Foundations of Faith", status: "done" as const }] : []),
     { id: "active", label: `Level ${level} · in progress`, meta: "Keep going", status: "active" },
     { id: "path", label: "Pathway completion", meta: "Your journey continues", status: "future" },
@@ -275,6 +322,31 @@ export function ProfileScreen(): ReactElement {
             ))}
           </Section>
 
+          <Section title="SOCIAL LINKS" Icon={Link2}>
+            {(() => {
+              const entries = Object.entries(socialLinks).filter(([, v]) => (v ?? "").trim());
+              return entries.length > 0 ? (
+                entries.map(([key, handle], i) => (
+                  <Row key={key} divider={i > 0}>
+                    <View style={st.fieldIcon}><AtSign size={15} color={palette.navy} /></View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <T variant="micro" tone="tertiary" style={st.fieldLabel}>{socialLabel(key).toUpperCase()}</T>
+                      <T variant="body" style={{ color: palette.navy, fontWeight: "500" }} numberOfLines={1}>{handle}</T>
+                    </View>
+                  </Row>
+                ))
+              ) : (
+                <T variant="caption" tone="secondary">Add your social links so cell-mates can connect.</T>
+              );
+            })()}
+            <View style={{ marginTop: spacing.sm }}>
+              <Pressable accessibilityRole="button" onPress={() => setSocialLinksOpen(true)} style={st.certOpenBtn}>
+                <Pencil size={14} color={palette.navy} />
+                <T variant="caption" style={{ color: palette.navy, fontWeight: "600" }}>Edit social links</T>
+              </Pressable>
+            </View>
+          </Section>
+
           <Section title="NOTIFICATIONS" Icon={Bell}>
             <PreferenceRow Icon={Bell} title="Push notifications" meta="Devotionals, events, reminders" on={pushOn} onToggle={() => setPushOn(!pushOn)} />
             <PreferenceRow divider Icon={Mail} title="Email" meta="Weekly summary & receipts" on={emailOn} onToggle={() => setEmailOn(!emailOn)} />
@@ -284,7 +356,7 @@ export function ProfileScreen(): ReactElement {
           <Section title="ACHIEVEMENTS" Icon={Sparkles}>
             {badges.length > 0 ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.md, paddingVertical: 4 }}>
-                {badges.map((b) => <Medallion key={b.code} name={b.name} />)}
+                {badges.map((b) => <Medallion key={b.code} name={b.name} onPress={() => setOpenBadge(b)} />)}
               </ScrollView>
             ) : (
               <T variant="caption" tone="secondary">Your badges will appear here as you grow.</T>
@@ -335,6 +407,14 @@ export function ProfileScreen(): ReactElement {
       ) : null}
       {languagesOpen ? (
         <LanguagesSheet selected={languages} fallbackDefault={defaultLanguage} onClose={() => setLanguagesOpen(false)} onSave={(sel, def) => { setLanguages(sel); setDefaultLanguage(def); setLanguagesOpen(false); void persistLocale(def); }} />
+      ) : null}
+      {openBadge ? <BadgeDetailSheet badge={openBadge} onClose={() => setOpenBadge(null)} /> : null}
+      {socialLinksOpen ? (
+        <SocialLinksSheet
+          current={socialLinks}
+          onClose={() => setSocialLinksOpen(false)}
+          onSave={(next) => void setSocialLinks(next)}
+        />
       ) : null}
       {sheet === "password" ? <PasswordSheet onClose={() => setSheet(null)} /> : null}
       {sheet === "twofa" ? <TwoFASheet onClose={() => setSheet(null)} onEnable={() => { setTwoFA(true); setSheet(null); }} /> : null}
@@ -400,12 +480,17 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }): ReactE
   );
 }
 
-function Medallion({ name }: { name: string }): ReactElement {
+function Medallion({ name, onPress }: { name: string; onPress: () => void }): ReactElement {
   return (
-    <View style={{ width: 66, alignItems: "center" }}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${name} badge details`}
+      onPress={onPress}
+      style={({ pressed }) => [{ width: 66, alignItems: "center" }, pressed ? { opacity: 0.6 } : null]}
+    >
       <View style={st.medallion}><Award size={20} color={palette.gold} /></View>
       <T variant="micro" style={{ color: palette.navy, fontWeight: "600", textAlign: "center", marginTop: 6 }} numberOfLines={2}>{name}</T>
-    </View>
+    </Pressable>
   );
 }
 
@@ -644,6 +729,80 @@ function InfoSheet({ title, body, onClose }: { title: string; body: string; onCl
   );
 }
 
+function BadgeDetailSheet({ badge, onClose }: { badge: Badge; onClose: () => void }): ReactElement {
+  return (
+    <SheetShell title="Badge" onClose={onClose}>
+      <View style={{ alignItems: "center", gap: spacing.sm }}>
+        <View style={st.badgeLarge}><Award size={40} color={palette.gold} /></View>
+        <T serif style={{ fontSize: 20, color: palette.navy, textAlign: "center" }}>{badge.name}</T>
+        <View style={st.categoryChip}>
+          <Tag size={11} color={GOLD_TEXT} />
+          <T variant="micro" style={{ color: GOLD_TEXT, fontWeight: "700", letterSpacing: 0.8 }}>{badge.category.toUpperCase()}</T>
+        </View>
+      </View>
+      <View style={st.badgeBody}>
+        <T variant="micro" tone="tertiary" style={st.fieldLabel}>HOW IT&apos;S EARNED</T>
+        <T variant="body" tone="secondary" style={{ lineHeight: 21, marginTop: 4 }}>{badge.description}</T>
+      </View>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: spacing.md, justifyContent: "center" }}>
+        <Calendar size={13} color={palette.ink400} />
+        <T variant="micro" tone="secondary">Earned {formatDate(badge.awarded_at)}</T>
+      </View>
+      <View style={{ marginTop: spacing.base }}><GoldButton label="Close" onPress={onClose} /></View>
+    </SheetShell>
+  );
+}
+
+function SocialLinksSheet({
+  current,
+  onClose,
+  onSave,
+}: {
+  current: Record<string, string>;
+  onClose: () => void;
+  onSave: (next: Record<string, string>) => void;
+}): ReactElement {
+  // Known links first, then any extra keys the backend already stores.
+  const extraKeys = Object.keys(current).filter((k) => !SOCIAL_LINKS.some((s) => s.key === k));
+  const seed: Record<string, string> = {};
+  for (const s of SOCIAL_LINKS) seed[s.key] = current[s.key] ?? "";
+  for (const k of extraKeys) seed[k] = current[k] ?? "";
+  const [draft, setDraft] = useState<Record<string, string>>(seed);
+  const rows = [
+    ...SOCIAL_LINKS,
+    ...extraKeys.map((k) => ({ key: k, label: socialLabel(k), Icon: Link2 as LucideIcon, placeholder: "handle or URL" })),
+  ];
+  return (
+    <SheetShell title="Social links" onClose={onClose}>
+      <T variant="caption" tone="secondary" style={{ marginBottom: spacing.sm }}>
+        Optional — leave blank to hide. Saved to your profile.
+      </T>
+      <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+        <View style={{ gap: spacing.md }}>
+          {rows.map((r) => (
+            <View key={r.key} style={{ gap: 6 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <r.Icon size={13} color={palette.navy} />
+                <T variant="micro" style={{ color: palette.navy, fontWeight: "700", letterSpacing: 0.4 }}>{r.label}</T>
+              </View>
+              <TextInput
+                value={draft[r.key] ?? ""}
+                onChangeText={(v) => setDraft((cur) => ({ ...cur, [r.key]: v }))}
+                placeholder={r.placeholder}
+                placeholderTextColor={palette.ink400}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={st.input}
+              />
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+      <View style={{ marginTop: spacing.base }}><GoldButton label="Save social links" onPress={() => onSave(draft)} /></View>
+    </SheetShell>
+  );
+}
+
 const st = {
   screen: { flex: 1, backgroundColor: CREAM },
   header: { backgroundColor: palette.navy, paddingTop: 54, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
@@ -685,4 +844,7 @@ const st = {
   defaultPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "rgba(201,162,39,0.4)" },
   goldBtn: { backgroundColor: palette.gold, borderRadius: 16, paddingVertical: 14, alignItems: "center" },
   qrBox: { alignSelf: "center", width: 160, height: 160, borderRadius: 16, backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center", marginTop: spacing.base },
+  badgeLarge: { width: 92, height: 92, borderRadius: 46, backgroundColor: palette.goldTint, borderWidth: 2, borderColor: palette.gold, alignItems: "center", justifyContent: "center" },
+  categoryChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(201,162,39,0.12)", borderWidth: 1, borderColor: "rgba(201,162,39,0.4)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  badgeBody: { backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: spacing.md, marginTop: spacing.base },
 } as const;
