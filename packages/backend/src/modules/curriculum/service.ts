@@ -7,7 +7,7 @@ import { z } from "zod";
 import { many, maybeOne, one, tx, recordChange, audit } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 import { cacheGetSet, cacheKeys } from "../../cache.js";
-import { loadEnrollment, loadModule, isModuleUnlocked } from "../progress/gating.js";
+import { loadEnrollment, loadModule, isModuleUnlocked, isEntryModule } from "../progress/gating.js";
 
 export class CurriculumService {
   constructor(
@@ -123,12 +123,13 @@ export class CurriculumService {
     const out: unknown[] = [];
     for (const m of modules) {
       const unlocked =
-        enrollment !== null &&
-        (await isModuleUnlocked(this.pool, enrollment, {
-          module_id: m.module_id,
-          level_number: m.level_number,
-          module_sequence_number: m.module_sequence_number,
-        }));
+        isEntryModule(m.level_number, m.module_sequence_number) ||
+        (enrollment !== null &&
+          (await isModuleUnlocked(this.pool, enrollment, {
+            module_id: m.module_id,
+            level_number: m.level_number,
+            module_sequence_number: m.module_sequence_number,
+          })));
       // Modules before the admin-set entry point are "covered" by the placement —
       // shown as completed (the member begins at the entry module).
       const covered =
@@ -167,11 +168,15 @@ export class CurriculumService {
       [moduleId],
     );
     if (!pub?.is_published) throw new ApiError("NOT_FOUND", "Module not found");
-    const enrollment = await loadEnrollment(this.pool, userId);
-    if (!enrollment || !(await isModuleUnlocked(this.pool, enrollment, module))) {
-      throw new ApiError("GATE_LOCKED", "Module is not yet unlocked", {
-        module_sequence_number: module.module_sequence_number,
-      });
+    // Level 1 · Module 1 is the universal entry point — always readable, even
+    // before an enrollment exists. Everything else stays gated (§1.9).
+    if (!isEntryModule(module.level_number, module.module_sequence_number)) {
+      const enrollment = await loadEnrollment(this.pool, userId);
+      if (!enrollment || !(await isModuleUnlocked(this.pool, enrollment, module))) {
+        throw new ApiError("GATE_LOCKED", "Module is not yet unlocked", {
+          module_sequence_number: module.module_sequence_number,
+        });
+      }
     }
     // Published lesson bodies are identical for every reader, so the (heavy)
     // content read is cached and busted whenever an admin edits the module.

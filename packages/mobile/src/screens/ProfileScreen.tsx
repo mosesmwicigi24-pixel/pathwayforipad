@@ -4,8 +4,8 @@
 // Help & privacy — with bottom-sheet editors. Seeded from real /me + achievements;
 // edits are session-local (the make itself keeps them in component state), so the
 // data shown is real while the interactions mirror the design exactly.
-import { useMemo, useState, type ReactElement, type ReactNode } from "react";
-import { Alert, Clipboard, Linking, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { Alert, Clipboard, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import {
@@ -557,16 +557,28 @@ function MilestoneRow({ label, meta, status, isLast }: { label: string; meta: st
 /* ---------- bottom sheets ---------- */
 
 function SheetShell({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }): ReactElement {
+  // Lift the sheet above the on-screen keyboard so the field being edited stays
+  // visible (the sheet is anchored to bottom:0, which the keyboard would cover).
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvt, (e) => setKbHeight(e.endCoordinates?.height ?? 0));
+    const hide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
       <Pressable style={st.backdrop} onPress={onClose} />
-      <View style={st.sheet}>
+      <View style={[st.sheet, { bottom: kbHeight }]}>
         <View style={st.grabber} />
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.base }}>
           <T serif style={{ fontSize: 20, color: palette.navy }}>{title}</T>
           <Pressable onPress={onClose} style={st.sheetClose}><X size={16} color={palette.navy} /></Pressable>
         </View>
-        {children}
+        <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          {children}
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -834,7 +846,7 @@ const st = {
   certOpenBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, borderRadius: 12, paddingVertical: 10 },
   dangerBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 16, borderWidth: 1, paddingVertical: 12 },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
-  sheet: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: palette.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: spacing.lg, paddingBottom: spacing.xxl, ...shadow.card },
+  sheet: { position: "absolute", left: 0, right: 0, bottom: 0, maxHeight: "88%", backgroundColor: palette.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: spacing.lg, paddingBottom: spacing.xxl, ...shadow.card },
   grabber: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: "rgba(11,31,51,0.15)", marginBottom: spacing.md },
   sheetClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center" },
   input: { backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 16, paddingHorizontal: spacing.base, paddingVertical: 12, fontSize: 15, color: palette.navy },

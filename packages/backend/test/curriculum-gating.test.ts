@@ -89,6 +89,22 @@ describe("curriculum + gating (§1.9)", () => {
     expect(l2.every((m) => m.locked)).toBe(true);
   });
 
+  it("ENTRY POINT: Level 1 · Module 1 is open even without an enrollment, rest stays gated", async () => {
+    const cong = await createCongregation();
+    const newcomer = (await createUser({ congregationId: cong, email: "newcomer@dev.local" })).user_id;
+    // No enrollment for this member — L1M1 must still be readable as the way in.
+    const m1 = (await curriculum().getModule(newcomer, l1m1)) as { locked: boolean };
+    expect(m1.locked).toBe(false);
+    const mods = (await curriculum().listModulesForLevel(newcomer, 1)) as Array<{
+      module_sequence_number: number;
+      locked: boolean;
+    }>;
+    expect(mods.find((m) => m.module_sequence_number === 1)!.locked).toBe(false);
+    expect(mods.find((m) => m.module_sequence_number === 2)!.locked).toBe(true);
+    // The hard lock still holds — no higher module opens for a non-enrolled member.
+    await expect(curriculum().getModule(newcomer, l2m1)).rejects.toMatchObject({ code: "GATE_LOCKED" });
+  });
+
   it("completeModule is idempotent on the client mutation id", async () => {
     const mut = "11111111-2222-3333-4444-555555555555";
     const first = await progress().completeModule(userId, l1m1, mut);

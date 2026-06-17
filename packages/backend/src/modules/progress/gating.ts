@@ -35,6 +35,16 @@ interface ModuleRow {
   module_sequence_number: number;
 }
 
+/**
+ * The pathway's universal entry point — Level 1, Module 1. Always open so every
+ * member has a way in (even before an enrollment exists). This is the floor of the
+ * curriculum, so opening it exposes no higher content; the hard-lock invariant
+ * still protects everything above the member's current_level.
+ */
+export function isEntryModule(levelNumber: number, moduleSequenceNumber: number): boolean {
+  return levelNumber === 1 && moduleSequenceNumber === 1;
+}
+
 export async function loadEnrollment(c: Queryable, userId: string): Promise<EnrollmentRef | null> {
   return maybeOne<EnrollmentRef>(
     c,
@@ -87,6 +97,8 @@ export async function isModuleUnlocked(
   enrollment: EnrollmentRef,
   module: ModuleRow,
 ): Promise<boolean> {
+  // Universal entry point: Level 1 · Module 1 is always open (§1.9 floor).
+  if (isEntryModule(module.level_number, module.module_sequence_number)) return true;
   // Hard lock: nothing above the member's current level (§1.9 invariant).
   if (module.level_number > enrollment.current_level) return false;
   // Levels strictly below the current one are fully unlocked (already passed).
