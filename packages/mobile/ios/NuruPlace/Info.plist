@@ -37,6 +37,8 @@
 	<string>NuruPlace connects to the Nuru Pathway server on your local network during development.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Kenya</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record voice notes to send in chat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Attach a photo to your conversations.</string>
 	<key>UILaunchStoryboardName</key>

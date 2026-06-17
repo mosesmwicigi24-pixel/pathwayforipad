@@ -29,5 +29,15 @@
     "turbo": "^2.0.9",
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.0.0"
+  },
+  "pnpm": {
+    "packageExtensions": {
+      "@react-navigation/core": { "peerDependencies": { "@types/react": "*" } },
+      "@react-navigation/routers": { "peerDependencies": { "@types/react": "*" } },
+      "@react-navigation/native": { "peerDependencies": { "@types/react": "*" } },
+      "@react-navigation/native-stack": { "peerDependencies": { "@types/react": "*" } },
+      "@react-navigation/bottom-tabs": { "peerDependencies": { "@types/react": "*" } },
+      "@react-navigation/elements": { "peerDependencies": { "@types/react": "*" } }
+    }
   }
 }
