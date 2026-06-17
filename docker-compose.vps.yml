@@ -1,0 +1,26 @@
+# VPS-specific overrides for the shared Hostinger box, layered on
+# docker-compose.prod.yml:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.vps.yml up -d
+#
+# A host-level nginx (not the prod Caddy service) owns 80/443 and terminates TLS,
+# so we publish the API on 127.0.0.1:8090 for nginx to proxy, and DON'T start
+# Caddy. The extra environment passthrough wires Brevo SMTP (password reset),
+# Nuru AI (Groq/Gemini), Cloudinary uploads, and the public app URL — all read
+# from the VPS-only .env (§5.10), never committed.
+services:
+  api:
+    ports:
+      - "127.0.0.1:8090:8080"
+    environment:
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_SECURE: ${SMTP_SECURE}
+      SMTP_TLS_SERVERNAME: ${SMTP_TLS_SERVERNAME}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      CLOUDINARY_URL: ${CLOUDINARY_URL:-}
+      EMAIL_FROM: ${EMAIL_FROM}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL}

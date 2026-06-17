@@ -1,0 +1,137 @@
+# Production stack for the Hostinger VPS (§1.6, §4.6 deploy stage).
+#
+# Unlike docker-compose.yml (which BUILDS the backend locally), this file PULLS a
+# prebuilt image from GHCR that CI published from a green main build. The VPS does
+# no compilation. Caddy terminates TLS (automatic Let's Encrypt) and proxies to
+# the API; the API itself is never published directly to the host.
+#
+# Deploy (run by .github/workflows/ci.yml over SSH, or by hand):
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml run --rm migrate   # migrations only
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Secrets come from a .env file that lives ONLY on the VPS (see .env.prod.example).
+# Never commit real secrets (§5.10).
+
+x-backend-env: &backend-env
+  NODE_ENV: production
+  PORT: "8080"
+  AWS_REGION: af-south-1
+  DATABASE_URL: postgres://nuru:${POSTGRES_PASSWORD}@pgbouncer:6432/nuru
+  DATABASE_REPLICA_URL: postgres://nuru:${POSTGRES_PASSWORD}@pgbouncer:6432/nuru
+  REDIS_URL: redis://redis:6379
+  JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
+  YOUVERSION_LANGUAGE_RANGES: en;sw
+  LOG_LEVEL: info
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nuru
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: nuru
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nuru -d nuru"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: nuru
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: nuru
+      POOL_MODE: transaction
+      AUTH_TYPE: scram-sha-256
+      LISTEN_PORT: "6432"
+      MAX_CLIENT_CONN: "200"
+      DEFAULT_POOL_SIZE: "25"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U nuru -d nuru"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  # One-shot migrations. Behind the "tools" profile so `up -d` never starts it;
+  # the deploy script runs it explicitly with `run --rm migrate`. NOTE: prod runs
+  # migrate:up ONLY — the dev seed (demo users) must never touch production.
+  migrate:
+    image: ${BACKEND_IMAGE:-ghcr.io/mosesmwicigi24-pixel/pathway-backend:latest}
+    profiles: ["tools"]
+    environment:
+      <<: *backend-env
+      DATABASE_URL: postgres://nuru:${POSTGRES_PASSWORD}@postgres:5432/nuru
+    command: ["sh", "-lc", "pnpm migrate:up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: ${BACKEND_IMAGE:-ghcr.io/mosesmwicigi24-pixel/pathway-backend:latest}
+    restart: unless-stopped
+    environment: *backend-env
+    command: ["node", "dist/index.js"]
+    expose:
+      - "8080"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    image: ${BACKEND_IMAGE:-ghcr.io/mosesmwicigi24-pixel/pathway-backend:latest}
+    restart: unless-stopped
+    environment: *backend-env
+    command: ["node", "dist/worker.js"]
+    # The image's HEALTHCHECK probes /healthz (API only); the worker has no HTTP
+    # server, so disable it here to avoid a false "unhealthy".
+    healthcheck:
+      disable: true
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
