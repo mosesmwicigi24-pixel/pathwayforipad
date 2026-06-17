@@ -582,6 +582,37 @@ paths:
         "200": { description: Deleted }
         "422": { $ref: "#/components/responses/Unprocessable" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/congregations:
+    get:
+      tags: [system]
+      summary: Admin. List congregations (branches/assemblies) with cell + member counts.
+      responses:
+        "200": { description: Congregations }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [system]
+      summary: Admin. Register a congregation (name, country, timezone).
+      responses:
+        "201": { description: Created }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/congregations/{id}:
+    put:
+      tags: [system]
+      summary: Admin. Update a congregation.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        "200": { description: Updated }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    delete:
+      tags: [system]
+      summary: Admin. Remove a congregation that has no cells or members.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        "200": { description: Deleted }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
   /admin/roles:
     get:
       tags: [system]

@@ -19,7 +19,7 @@ export const systemRouter: Router = Router();
 const PERM_MODULES = [
   "dashboard", "levels", "cms", "quiz", "videos", "cells", "members",
   "reflections", "events", "finance", "certificates", "badges",
-  "users", "rolesAdmin", "countries", "languages",
+  "users", "rolesAdmin", "countries", "languages", "congregations",
 ] as const;
 const CAPABILITIES = ["view", "create", "edit", "delete", "approve", "export"] as const;
 
@@ -80,8 +80,15 @@ const LanguageInput = z.object({
   status: z.enum(["active", "inactive"]).optional(),
 });
 
+const CongregationInput = z.object({
+  name: z.string().min(1).max(255),
+  country: z.string().length(2),
+  timezone: z.string().min(1).max(64).optional(),
+});
+
 const COUNTRY_COLS = "code, name, flag, region, subregion, dial_code, currency, status";
 const LANG_COLS = "code, name, native_name, direction, is_default, coverage, status";
+const CONG_COLS = "congregation_id, name, country, timezone, created_at";
 
 export function registerSystem(ctx: AppContext): Router {
   const auth = authenticate(ctx.env);
@@ -173,6 +180,68 @@ export function registerSystem(ctx: AppContext): Router {
       if (lang.is_default) throw new ApiError("UNPROCESSABLE", "The default language cannot be removed");
       await c.query(`DELETE FROM languages WHERE code = $1`, [code]);
       await audit(c, requirePrincipal(req).userId, "language.deleted", "languages", code, {});
+    });
+    res.json({ deleted: true });
+  }));
+
+  // ── Congregations (branches/assemblies; every cell + user belongs to one) ──
+  r.get("/admin/congregations", auth, perm("congregations", "view"), handler(async (_req, res) => {
+    res.json({ data: await many(read,
+      `SELECT ${CONG_COLS},
+              (SELECT count(*)::int FROM cell_groups g WHERE g.congregation_id = c.congregation_id) AS cell_count,
+              (SELECT count(*)::int FROM users u WHERE u.congregation_id = c.congregation_id AND u.deleted_at IS NULL) AS member_count
+         FROM congregations c
+        ORDER BY c.created_at`) });
+  }));
+
+  r.post("/admin/congregations", auth, perm("congregations", "create"), handler(async (req, res) => {
+    const input = parseBody(CongregationInput, req.body);
+    const country = input.country.toUpperCase();
+    const row = await tx(db, async (c) => {
+      const dup = await maybeOne(c, `SELECT 1 FROM congregations WHERE lower(name) = lower($1)`, [input.name]);
+      if (dup) throw new ApiError("CONFLICT", "A congregation with that name already exists");
+      const created = await one(c,
+        `INSERT INTO congregations (name, country, timezone)
+           VALUES ($1,$2,COALESCE($3,'Africa/Nairobi')) RETURNING ${CONG_COLS}`,
+        [input.name, country, input.timezone ?? null]);
+      await audit(c, requirePrincipal(req).userId, "congregation.created", "congregations", (created as { congregation_id: string }).congregation_id, {});
+      return created;
+    });
+    res.status(201).json(row);
+  }));
+
+  r.put("/admin/congregations/:id", auth, perm("congregations", "edit"), handler(async (req, res) => {
+    const id = String(req.params.id);
+    const input = parseBody(CongregationInput.partial(), req.body);
+    const cols: Record<string, unknown> = {
+      name: input.name,
+      country: input.country ? input.country.toUpperCase() : undefined,
+      timezone: input.timezone,
+    };
+    const keys = Object.keys(cols).filter((k) => cols[k] !== undefined);
+    const row = await tx(db, async (c) => {
+      if (!await maybeOne(c, `SELECT 1 FROM congregations WHERE congregation_id = $1`, [id])) {
+        throw new ApiError("NOT_FOUND", "Congregation not found");
+      }
+      if (keys.length) await c.query(`UPDATE congregations SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(", ")} WHERE congregation_id = $1`, [id, ...keys.map((k) => cols[k])]);
+      await audit(c, requirePrincipal(req).userId, "congregation.updated", "congregations", id, { fields: keys });
+      return one(c, `SELECT ${CONG_COLS} FROM congregations WHERE congregation_id = $1`, [id]);
+    });
+    res.json(row);
+  }));
+
+  r.delete("/admin/congregations/:id", auth, perm("congregations", "delete"), handler(async (req, res) => {
+    const id = String(req.params.id);
+    await tx(db, async (c) => {
+      if (!await maybeOne(c, `SELECT 1 FROM congregations WHERE congregation_id = $1`, [id])) {
+        throw new ApiError("NOT_FOUND", "Congregation not found");
+      }
+      const cells = await maybeOne(c, `SELECT 1 FROM cell_groups WHERE congregation_id = $1 LIMIT 1`, [id]);
+      if (cells) throw new ApiError("UNPROCESSABLE", "This congregation still has cells; reassign or remove them first");
+      const members = await maybeOne(c, `SELECT 1 FROM users WHERE congregation_id = $1 AND deleted_at IS NULL LIMIT 1`, [id]);
+      if (members) throw new ApiError("UNPROCESSABLE", "This congregation still has members; reassign them first");
+      await c.query(`DELETE FROM congregations WHERE congregation_id = $1`, [id]);
+      await audit(c, requirePrincipal(req).userId, "congregation.deleted", "congregations", id, {});
     });
     res.json({ deleted: true });
   }));

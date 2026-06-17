@@ -28,6 +28,7 @@ import { Profile } from "./components/pages/Profile";
 import { Notifications } from "./components/pages/Notifications";
 import { Users } from "./components/pages/Users";
 import { Roles } from "./components/pages/Roles";
+import { Congregations } from "./components/pages/Congregations";
 import { Countries } from "./components/pages/Countries";
 import { Languages } from "./components/pages/Languages";
 import { NotificationsProvider } from "./components/notifications/NotificationsProvider";
@@ -61,6 +62,7 @@ const router = createBrowserRouter([
       { path: "badges", element: <Badges /> },
       { path: "users", element: <Users /> },
       { path: "roles", element: <Roles /> },
+      { path: "congregations", element: <Congregations /> },
       { path: "countries", element: <Countries /> },
       { path: "languages", element: <Languages /> },
       { path: "*", element: <Navigate to="/" replace /> },

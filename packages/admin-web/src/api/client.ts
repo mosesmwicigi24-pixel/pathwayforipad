@@ -309,6 +309,15 @@ export interface Language {
   coverage: number;
   status: "active" | "inactive";
 }
+export interface Congregation {
+  congregation_id: string;
+  name: string;
+  country: string;
+  timezone: string;
+  created_at: string;
+  cell_count: number;
+  member_count: number;
+}
 export type Capability = "view" | "create" | "edit" | "delete" | "approve" | "export";
 export interface RolePermission { module_id: string; capability: Capability }
 export interface SystemRole {
@@ -343,6 +352,10 @@ export const SystemApi = {
   createLanguage: (body: Record<string, unknown>) => api.post<Language>("/admin/languages", body).then((r) => r.data),
   updateLanguage: (code: string, body: Record<string, unknown>) => api.put<Language>(`/admin/languages/${code}`, body).then((r) => r.data),
   deleteLanguage: (code: string) => api.delete<{ deleted: boolean }>(`/admin/languages/${code}`).then((r) => r.data),
+  congregations: () => unwrap(api.get<{ data: Congregation[] }>("/admin/congregations")),
+  createCongregation: (body: Record<string, unknown>) => api.post<Congregation>("/admin/congregations", body).then((r) => r.data),
+  updateCongregation: (id: string, body: Record<string, unknown>) => api.put<Congregation>(`/admin/congregations/${id}`, body).then((r) => r.data),
+  deleteCongregation: (id: string) => api.delete<{ deleted: boolean }>(`/admin/congregations/${id}`).then((r) => r.data),
   roles: () => unwrap(api.get<{ data: SystemRole[] }>("/admin/roles")),
   createRole: (body: { name: string; role_type?: string; description?: string; copy_from?: string }) =>
     api.post<SystemRole>("/admin/roles", body).then((r) => r.data),

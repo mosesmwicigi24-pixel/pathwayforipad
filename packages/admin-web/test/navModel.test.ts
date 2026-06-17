@@ -8,9 +8,9 @@ describe("portal nav model", () => {
     expect(navGroups.map((g) => g.label)).toEqual(["Portal", "Curriculum", "Operations", "System"]);
   });
 
-  it("exposes the System section (Users, Roles, Countries, Languages)", () => {
+  it("exposes the System section (Users, Roles, Congregations, Countries, Languages)", () => {
     const system = navGroups.find((g) => g.label === "System");
-    expect(system?.items.map((i) => i.path)).toEqual(["/users", "/roles", "/countries", "/languages"]);
+    expect(system?.items.map((i) => i.path)).toEqual(["/users", "/roles", "/congregations", "/countries", "/languages"]);
   });
 
   it("every nav item has a unique path", () => {

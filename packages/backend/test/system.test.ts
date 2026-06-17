@@ -3,7 +3,7 @@
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { agent, bearer } from "./helpers/app.js";
 import { resetDb, closeTestPool } from "./helpers/db.js";
-import { createCongregation, createUser } from "./helpers/factories.js";
+import { createCongregation, createUser, createCellGroup } from "./helpers/factories.js";
 
 let adminTok: string;
 let studentTok: string;
@@ -91,5 +91,50 @@ describe("system reference data (§ System section)", () => {
     const l = await agent().delete("/v1/admin/languages/en").set(auth(studentTok));
     expect(c.status).toBe(403);
     expect(l.status).toBe(403);
+  });
+});
+
+describe("congregations admin (System section)", () => {
+  it("lists the existing congregation with counts (Admin)", async () => {
+    const res = await agent().get("/v1/admin/congregations").set(auth(adminTok));
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.data[0]).toMatchObject({ cell_count: expect.any(Number), member_count: expect.any(Number) });
+  });
+
+  it("creates, updates and rejects duplicate congregations (Admin)", async () => {
+    const created = await agent().post("/v1/admin/congregations").set(auth(adminTok))
+      .send({ name: "Nairobi East", country: "ke", timezone: "Africa/Nairobi" });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ name: "Nairobi East", country: "KE", timezone: "Africa/Nairobi" });
+
+    const dup = await agent().post("/v1/admin/congregations").set(auth(adminTok)).send({ name: "nairobi east", country: "KE" });
+    expect(dup.status).toBe(409);
+
+    const upd = await agent().put(`/v1/admin/congregations/${created.body.congregation_id}`).set(auth(adminTok))
+      .send({ name: "Nairobi Central", timezone: "Africa/Kampala" });
+    expect(upd.status).toBe(200);
+    expect(upd.body).toMatchObject({ name: "Nairobi Central", timezone: "Africa/Kampala" });
+
+    const missing = await agent().put("/v1/admin/congregations/00000000-0000-0000-0000-000000000000").set(auth(adminTok)).send({ name: "X" });
+    expect(missing.status).toBe(404);
+  });
+
+  it("blocks deleting a congregation that still has cells, allows an empty one (Admin)", async () => {
+    const empty = await agent().post("/v1/admin/congregations").set(auth(adminTok)).send({ name: "Spare Branch", country: "KE" });
+    const withCells = await agent().post("/v1/admin/congregations").set(auth(adminTok)).send({ name: "Busy Branch", country: "KE" });
+    await createCellGroup(withCells.body.congregation_id, "Cell A");
+
+    const blocked = await agent().delete(`/v1/admin/congregations/${withCells.body.congregation_id}`).set(auth(adminTok));
+    expect(blocked.status).toBe(422);
+
+    const ok = await agent().delete(`/v1/admin/congregations/${empty.body.congregation_id}`).set(auth(adminTok));
+    expect(ok.status).toBe(200);
+    expect(ok.body).toEqual({ deleted: true });
+  });
+
+  it("denies congregation writes to non-admins (RBAC §5.4)", async () => {
+    const res = await agent().post("/v1/admin/congregations").set(auth(studentTok)).send({ name: "X", country: "KE" });
+    expect(res.status).toBe(403);
   });
 });
