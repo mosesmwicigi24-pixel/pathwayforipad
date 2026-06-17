@@ -10,11 +10,11 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement, type Reac
 import { useNavigate } from "react-router-dom";
 import {
   Search, Plus, ChevronDown, ArrowRight, Mail, UserCheck, UserPlus, Users as UsersIcon,
-  ChevronRight, CheckCircle2, Flag, Download, Printer, X, GraduationCap, MoreVertical,
+  ChevronRight, CheckCircle2, Flag, Download, Printer, X, GraduationCap, MoreVertical, Pencil, Check,
 } from "lucide-react";
 import {
   OpsApi, AdminApi, SystemApi,
-  type MemberRow, type MemberStatus, type EngagementCellRow, type Country, type Programme, type Gender,
+  type MemberRow, type MemberDetail, type MemberStatus, type EngagementCellRow, type Country, type Programme, type Gender,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -49,6 +49,7 @@ export function Members(): ReactElement {
   const [cellFilter, setCellFilter] = useState<string>("All");
   const [countryFilter, setCountryFilter] = useState<string>("All"); // ISO-2 code or "All"
   const [addOpen, setAddOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -195,7 +196,8 @@ export function Members(): ReactElement {
                   <button onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === m.user_id ? null : m.user_id); }} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, background: "var(--input-background)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}><MoreVertical size={15} /></button>
                   {menuFor === m.user_id ? (
                     <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-1 rounded-xl z-20" style={{ background: "#fff", border: "1px solid var(--border)", boxShadow: "0 12px 32px rgba(11,31,51,0.18)", minWidth: 168, overflow: "hidden" }}>
-                      <button onClick={() => void graduate(m.user_id, !isGraduated)} className="flex items-center gap-2 w-full text-left px-3 py-2.5" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", background: "none", border: "none" }}><GraduationCap size={14} style={{ color: "#7C3AED" }} /> {isGraduated ? "Un-graduate" : "Mark graduated"}</button>
+                      <button onClick={() => { setMenuFor(null); setEditId(m.user_id); }} className="flex items-center gap-2 w-full text-left px-3 py-2.5" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", background: "none", border: "none" }}><Pencil size={14} style={{ color: "var(--nuru-gold)" }} /> Edit member</button>
+                      <button onClick={() => void graduate(m.user_id, !isGraduated)} className="flex items-center gap-2 w-full text-left px-3 py-2.5" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", background: "none", border: "none", borderTop: "1px solid var(--border)" }}><GraduationCap size={14} style={{ color: "#7C3AED" }} /> {isGraduated ? "Un-graduate" : "Mark graduated"}</button>
                     </div>
                   ) : null}
                 </div>
@@ -212,6 +214,7 @@ export function Members(): ReactElement {
       </div>
 
       {addOpen ? <AddMemberModal cells={cells} countries={countries} onClose={() => setAddOpen(false)} onCreated={async () => { setAddOpen(false); await load(); }} /> : null}
+      {editId ? <EditMemberModal userId={editId} cells={cells} countries={countries} onClose={() => setEditId(null)} onSaved={async () => { setEditId(null); await load(); }} /> : null}
       {exportOpen ? <ExportModal members={filtered} countryByCode={countryByCode} onClose={() => setExportOpen(false)} /> : null}
     </div>
   );
@@ -332,6 +335,134 @@ function AddMemberModal({ cells, countries, onClose, onCreated }: { cells: Engag
         <div className="px-6 py-4 flex items-center justify-end gap-2" style={{ borderTop: "1px solid var(--border)" }}>
           <button onClick={onClose} className="rounded-xl px-4 py-2.5" style={{ background: "transparent", color: "var(--foreground)", fontSize: 13, fontWeight: 600, border: "none" }}>Cancel</button>
           <button onClick={() => void submit()} disabled={saving} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 600, border: "none", opacity: saving ? 0.6 : 1 }}><Plus size={14} /> Add member</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditMemberModal({ userId, cells, countries, onClose, onSaved }: { userId: string; cells: EngagementCellRow[]; countries: Country[]; onClose: () => void; onSaved: () => void }): ReactElement {
+  const [loaded, setLoaded] = useState(false);
+  const [full_name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone_number, setPhone] = useState("");
+  const [gender, setGender] = useState<"" | Gender>("");
+  const [date_of_birth, setDob] = useState("");
+  const [country_code, setCountry] = useState("");
+  const [city, setCity] = useState("");
+  const [language, setLanguage] = useState("");
+  const [cell_group_id, setCell] = useState("");
+  const [programme, setProgramme] = useState<"" | Programme>("");
+  const [is_baptized, setBaptized] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let live = true;
+    void OpsApi.memberDetail(userId)
+      .then((d: MemberDetail) => {
+        if (!live) return;
+        setName(d.full_name ?? "");
+        setEmail(d.email ?? "");
+        setPhone(d.phone_number ?? "");
+        setGender(d.gender ?? "");
+        setDob((d.date_of_birth ?? "").slice(0, 10));
+        setCountry(d.country_code ?? "");
+        setCity(d.city ?? "");
+        setLanguage(d.language ?? "");
+        setCell(d.cell_group_id ?? "");
+        setProgramme(d.programme ?? "");
+        setBaptized(!!d.is_baptized);
+        setLoaded(true);
+      })
+      .catch((e) => { if (live) setError(errorMessage(e, "Could not load this member.")); });
+    return () => { live = false; };
+  }, [userId]);
+
+  const selectedCell = useMemo(() => cells.find((c) => c.cell_group_id === cell_group_id) ?? null, [cells, cell_group_id]);
+
+  async function submit(): Promise<void> {
+    if (!full_name.trim()) { setError("Please enter the member's name."); return; }
+    if (!cell_group_id) { setError("Select a cell."); return; }
+    setSaving(true); setError("");
+    try {
+      await OpsApi.updateMember(userId, {
+        full_name: full_name.trim(),
+        phone_number: phone_number.trim() || "n/a",
+        email: email.trim() || null,
+        date_of_birth: date_of_birth || null,
+        gender: gender || null,
+        city: city.trim() || null,
+        programme: programme || null,
+        country_code: country_code || null,
+        language: language.trim() || null,
+        is_baptized,
+        cell_group_id,
+      });
+      onSaved();
+    } catch (e) { setError(errorMessage(e, "Could not save changes.")); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(11,31,51,0.55)" }} onClick={onClose}>
+      <div className="rounded-2xl overflow-hidden flex flex-col w-full" style={{ background: "var(--card)", maxWidth: 620, maxHeight: "92vh", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 py-5 flex items-start justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div>
+            <div className="flex items-center gap-2" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: "var(--nuru-gold)" }}><Pencil size={12} /> EDIT MEMBER</div>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)", marginTop: 2 }}>Edit member details</h2>
+            <p style={{ fontSize: 13, color: "var(--muted-foreground)", marginTop: 4 }}>Update their details or move them to another cell. Starting level/module and graduation are managed separately.</p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-2" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none" }}><X size={16} /></button>
+        </div>
+        <div className="px-6 py-5 flex flex-col gap-5 overflow-y-auto">
+          {!loaded && !error ? <div style={{ fontSize: 13, color: "var(--muted-foreground)", padding: "12px 0" }}>Loading member…</div> : null}
+          {loaded ? (
+            <>
+              <Section title="Personal details">
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Full name" required><input value={full_name} onChange={(e) => setName(e.target.value)} style={inputS} /></Field>
+                  <Field label="Email"><input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@email.com" style={inputS} /></Field>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Phone"><input value={phone_number} onChange={(e) => setPhone(e.target.value)} placeholder="+254 …" style={inputS} /></Field>
+                  <Field label="Gender"><select value={gender} onChange={(e) => setGender(e.target.value as "" | Gender)} style={inputS}><option value="">—</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></select></Field>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Date of birth"><input type="date" value={date_of_birth} onChange={(e) => setDob(e.target.value)} style={inputS} /></Field>
+                  <Field label="Country"><select value={country_code} onChange={(e) => setCountry(e.target.value)} style={inputS}><option value="">—</option>{countries.map((c) => <option key={c.code} value={c.code}>{c.flag} {c.name}</option>)}</select></Field>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="City"><input value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Nairobi" style={inputS} /></Field>
+                  <Field label="Language"><input value={language} onChange={(e) => setLanguage(e.target.value)} placeholder="e.g. en" maxLength={12} style={inputS} /></Field>
+                </div>
+              </Section>
+
+              <Section title="Pathway placement">
+                <Field label="Cell assignment" required>
+                  <select value={cell_group_id} onChange={(e) => setCell(e.target.value)} style={inputS}>{cells.map((c) => <option key={c.cell_group_id} value={c.cell_group_id}>{c.name}</option>)}</select>
+                </Field>
+                <Field label="Discipler"><input value={selectedCell?.discipler_name ?? "—"} readOnly style={{ ...inputS, background: "var(--secondary)", color: "var(--muted-foreground)" }} /></Field>
+                <Field label="Programme">
+                  <select value={programme} onChange={(e) => setProgramme(e.target.value as "" | Programme)} style={inputS}><option value="">—</option>{(Object.keys(PROGRAMME_LABELS) as Programme[]).map((p) => <option key={p} value={p}>{PROGRAMME_LABELS[p]}</option>)}</select>
+                </Field>
+              </Section>
+
+              <Section title="Discipleship">
+                <Field label="Baptized">
+                  <button type="button" onClick={() => setBaptized((b) => !b)} className="flex items-center justify-between w-full rounded-lg px-3" style={{ height: 42, border: "1.5px solid var(--border)", background: "var(--input-background)" }}>
+                    <span style={{ fontSize: 13, color: "var(--foreground)" }}>{is_baptized ? "Yes" : "No"}</span>
+                    <span className="rounded-full" style={{ width: 38, height: 22, background: is_baptized ? "#16A34A" : "var(--border)", position: "relative", transition: "background .15s" }}><span className="rounded-full" style={{ width: 18, height: 18, background: "#fff", position: "absolute", top: 2, left: is_baptized ? 18 : 2, transition: "left .15s" }} /></span>
+                  </button>
+                </Field>
+              </Section>
+            </>
+          ) : null}
+          {error ? <div style={{ fontSize: 12.5, color: "#DC2626", fontWeight: 600 }}>{error}</div> : null}
+        </div>
+        <div className="px-6 py-4 flex items-center justify-end gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+          <button onClick={onClose} className="rounded-xl px-4 py-2.5" style={{ background: "transparent", color: "var(--foreground)", fontSize: 13, fontWeight: 600, border: "none" }}>Cancel</button>
+          <button onClick={() => void submit()} disabled={saving || !loaded} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 600, border: "none", opacity: saving || !loaded ? 0.6 : 1 }}><Check size={14} /> Save changes</button>
         </div>
       </div>
     </div>

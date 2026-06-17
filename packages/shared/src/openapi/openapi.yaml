@@ -1661,6 +1661,16 @@ paths:
         "200": { description: Member profile }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [portal]
+      summary: Admin. Edit a member's details (name, contact, gender, city, programme, country, language, baptized, cell reassignment). Audited.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Member updated }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/members/{id}/enrollment:
     patch:
       tags: [portal]

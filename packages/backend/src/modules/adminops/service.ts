@@ -509,6 +509,86 @@ export class AdminOpsService {
     });
   }
 
+  static readonly UpdateMember = z
+    .object({
+      full_name: z.string().min(1).max(255).optional(),
+      phone_number: z.string().min(7).max(32).optional(),
+      email: z.string().email().nullable().optional(),
+      date_of_birth: z.string().nullable().optional(), // ISO date
+      gender: z.enum(AdminOpsService.GENDERS).nullable().optional(),
+      city: z.string().trim().max(120).nullable().optional(),
+      programme: z.enum(AdminOpsService.PROGRAMMES).nullable().optional(),
+      country_code: z.string().trim().length(2).toUpperCase().nullable().optional(),
+      language: z.string().trim().max(12).nullable().optional(), // -> users.locale
+      is_baptized: z.boolean().optional(),
+      cell_group_id: z.string().uuid().optional(),
+    })
+    .strict();
+
+  /** Edit an existing member's details (Members admin → edit). Mirrors addMember's
+   *  field set; reassigning the cell moves the member to that cell's congregation.
+   *  Audited. */
+  async updateMember(
+    adminId: string,
+    userId: string,
+    input: z.infer<typeof AdminOpsService.UpdateMember>,
+  ): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const exists = await maybeOne(
+        c,
+        `SELECT 1 FROM users WHERE user_id = $1 AND role = 'Student' AND deleted_at IS NULL`,
+        [userId],
+      );
+      if (!exists) throw new ApiError("NOT_FOUND", "Member not found");
+      if (input.email) {
+        const dup = await maybeOne(
+          c,
+          `SELECT 1 FROM users WHERE email = $1 AND user_id <> $2 AND deleted_at IS NULL`,
+          [input.email, userId],
+        );
+        if (dup) throw new ApiError("CONFLICT", "Another member already uses this email");
+      }
+      const cols: Record<string, unknown> = {
+        full_name: input.full_name,
+        phone_number: input.phone_number,
+        email: input.email,
+        date_of_birth: input.date_of_birth,
+        gender: input.gender,
+        city: input.city,
+        programme: input.programme,
+        country_code: input.country_code,
+        locale: input.language,
+        is_baptized: input.is_baptized,
+        cell_group_id: input.cell_group_id,
+      };
+      if (input.cell_group_id !== undefined) {
+        const cell = await maybeOne<{ congregation_id: string }>(
+          c,
+          `SELECT congregation_id FROM cell_groups WHERE cell_group_id = $1`,
+          [input.cell_group_id],
+        );
+        if (!cell) throw new ApiError("VALIDATION_FAILED", "Unknown cell group");
+        cols.congregation_id = cell.congregation_id;
+      }
+      const keys = Object.keys(cols).filter((k) => cols[k] !== undefined);
+      if (keys.length) {
+        await c.query(
+          `UPDATE users SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(", ")}, updated_at = now()
+             WHERE user_id = $1`,
+          [userId, ...keys.map((k) => cols[k])],
+        );
+      }
+      await audit(c, adminId, "member.updated", "users", userId, { fields: keys });
+      return one(
+        c,
+        `SELECT user_id, full_name, email, phone_number, cell_group_id, congregation_id, created_at,
+                gender, city, programme, country_code, locale AS language, is_baptized
+           FROM users WHERE user_id = $1`,
+        [userId],
+      );
+    });
+  }
+
   static readonly SetStart = z
     .object({
       start_level: z.coerce.number().int().min(1),

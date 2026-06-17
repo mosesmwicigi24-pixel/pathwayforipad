@@ -91,6 +91,13 @@ export function registerAdminOps(ctx: AppContext): Router {
     res.json(await svc.memberDetail(req.params.id ?? ""));
   }));
 
+  // Edit member details (name, contact, gender, city, programme, country, language,
+  // baptized, cell reassignment).
+  r.patch("/admin/members/:id", auth, perm("members", "edit"), handler(async (req, res) => {
+    const input = parseBody(AdminOpsService.UpdateMember, req.body);
+    res.json(await svc.updateMember(requirePrincipal(req).userId, req.params.id ?? "", input));
+  }));
+
   // Admin placement: set the member's starting level + entry module (§1.9).
   r.patch("/admin/members/:id/enrollment", auth, perm("members", "edit"), handler(async (req, res) => {
     const input = parseBody(AdminOpsService.SetStart, req.body);

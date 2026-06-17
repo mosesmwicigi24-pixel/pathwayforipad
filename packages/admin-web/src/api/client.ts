@@ -804,6 +804,22 @@ export const OpsApi = {
     start_level?: number;
     start_module_sequence?: number;
   }) => api.post<MemberRow>("/admin/members", body).then((r) => r.data),
+  updateMember: (
+    userId: string,
+    body: {
+      full_name?: string;
+      phone_number?: string;
+      email?: string | null;
+      date_of_birth?: string | null;
+      gender?: Gender | null;
+      city?: string | null;
+      programme?: Programme | null;
+      country_code?: string | null;
+      language?: string | null;
+      is_baptized?: boolean;
+      cell_group_id?: string;
+    },
+  ) => api.patch<MemberRow>(`/admin/members/${userId}`, body).then((r) => r.data),
   setMemberStart: (userId: string, body: { start_level: number; start_module_sequence: number }) =>
     api
       .patch<{ user_id: string; current_level: number; start_level: number; start_module_sequence: number }>(

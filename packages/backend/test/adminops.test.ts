@@ -221,6 +221,25 @@ describe("members administration", () => {
     expect(forbidden.status).toBe(403);
   });
 
+  it("edits an existing member (details + cell reassignment), audited; 404/403 guarded", async () => {
+    const otherCell = await createCellGroup(cong, "Cell Beta");
+    const upd = await agent().patch(`/v1/admin/members/${studentId}`).set(auth(adminTok)).send({
+      full_name: "Renamed Member", city: "Mombasa", gender: "female", programme: "foundations",
+      is_baptized: true, cell_group_id: otherCell,
+    });
+    expect(upd.status).toBe(200);
+    expect(upd.body).toMatchObject({ full_name: "Renamed Member", city: "Mombasa", gender: "female", programme: "foundations", is_baptized: true, cell_group_id: otherCell });
+
+    const detail = await agent().get(`/v1/admin/members/${studentId}`).set(auth(adminTok));
+    expect(detail.body).toMatchObject({ full_name: "Renamed Member", city: "Mombasa", cell_group_id: otherCell });
+
+    const missing = await agent().patch("/v1/admin/members/00000000-0000-4000-8000-000000000000").set(auth(adminTok)).send({ city: "X" });
+    expect(missing.status).toBe(404);
+
+    const forbidden = await agent().patch(`/v1/admin/members/${studentId}`).set(auth(studentTok)).send({ city: "X" });
+    expect(forbidden.status).toBe(403);
+  });
+
   it("synthesizes a notifications feed from real events (Admin); denies students", async () => {
     const res = await agent().get("/v1/admin/notifications").set(auth(adminTok));
     expect(res.status).toBe(200);

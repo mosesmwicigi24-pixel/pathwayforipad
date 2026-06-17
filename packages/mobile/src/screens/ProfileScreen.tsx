@@ -4,7 +4,7 @@
 // Help & privacy — with bottom-sheet editors. Seeded from real /me + achievements;
 // edits are session-local (the make itself keeps them in component state), so the
 // data shown is real while the interactions mirror the design exactly.
-import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { Alert, Clipboard, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -114,6 +114,16 @@ export function ProfileScreen(): ReactElement {
   const profileData = me?.profile;
   const level = me?.enrollment?.current_level ?? 1;
 
+  // Source of truth for the optimistic-concurrency token. `invalidateQueries("me")`
+  // clears the cache the instant a save returns, so reading `profileData.row_version`
+  // for the *next* edit would briefly see undefined (→ fall back to 1) and the server
+  // would reject it as a stale version. The ref survives that refetch window: it's
+  // seeded from the server and advanced to the version each save returns.
+  const versionRef = useRef<number>(profileData?.row_version ?? 1);
+  useEffect(() => {
+    if (typeof profileData?.row_version === "number") versionRef.current = profileData.row_version;
+  }, [profileData?.row_version]);
+
   const seeded = useMemo<Field[]>(() => {
     const p = profileData;
     return [
@@ -153,7 +163,8 @@ export function ProfileScreen(): ReactElement {
     setSocialLinksOpen(false);
     const cleaned = cleanSocials(next);
     try {
-      await NuruApi.updateMe({ socials: cleaned }, profileData?.row_version ?? 1);
+      const r = await NuruApi.updateMe({ socials: cleaned }, versionRef.current);
+      versionRef.current = r.row_version;
       invalidateQueries("me");
     } catch (e) {
       const stale = (e as { response?: { status?: number } }).response?.status === 409;
@@ -196,7 +207,8 @@ export function ProfileScreen(): ReactElement {
     const prev = fields;
     setProfile(fields.map((f) => (f.id === id ? { ...f, value } : f))); // optimistic
     try {
-      await NuruApi.updateMe(patch, profileData?.row_version ?? 1);
+      const r = await NuruApi.updateMe(patch, versionRef.current);
+      versionRef.current = r.row_version;
       invalidateQueries("me");
     } catch (e) {
       setProfile(prev);
@@ -208,7 +220,8 @@ export function ProfileScreen(): ReactElement {
 
   const persistLocale = async (lang: string): Promise<void> => {
     try {
-      await NuruApi.updateMe({ locale: LANG_TO_LOCALE[lang] ?? "en" }, profileData?.row_version ?? 1);
+      const r = await NuruApi.updateMe({ locale: LANG_TO_LOCALE[lang] ?? "en" }, versionRef.current);
+      versionRef.current = r.row_version;
       invalidateQueries("me");
     } catch { /* best-effort: language is a soft preference */ }
   };
