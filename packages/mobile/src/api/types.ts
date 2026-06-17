@@ -345,6 +345,26 @@ export interface SavedVerse {
   created_at: string;
 }
 
+// ---- Certificates (member, real + verifiable; GET /certificates, GET /verify/{code}) ----
+export interface CertificateRow {
+  certificate_id: string;
+  level_number: number;
+  verification_code: string;
+  issued_at: string;
+  download_url: string;
+}
+
+export interface CertificateVerification {
+  valid: boolean;
+  revoked?: boolean;
+  recipient_name?: string;
+  level_number?: number;
+  issued_at?: string;
+  verification_code?: string;
+  content_hash?: string;
+  signature?: string;
+}
+
 // ---- Module reflection review state (M3 over B3) ----
 export interface MyReflection {
   reflection_id: string;

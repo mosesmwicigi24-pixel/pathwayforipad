@@ -7,6 +7,7 @@ import type {
   Achievements,
   AssembledQuiz,
   CalendarOccurrence,
+  CertificateRow,
   EventDetail,
   GivingRecord,
   GiftQuestion,
@@ -68,6 +69,7 @@ export const queryKeys = {
   scripture: (ref: string, version: string) => `scripture:${ref}:${version}`,
   welcomeVideo: "welcomeVideo",
   featuredCell: "featuredCell",
+  certificates: "certificates",
 };
 
 export function useMe(): QueryResult<MeResponse> {
@@ -187,6 +189,11 @@ export function useWelcomeVideo(): QueryResult<WelcomeVideo | null> {
 /** Homepage-featured cell "This week at Nuru" (PR #125); null when none is set. */
 export function useFeaturedCell(): QueryResult<FeaturedCell | null> {
   return useQuery(queryKeys.featuredCell, () => NuruApi.featuredCell(), { staleMs: 5 * 60_000 });
+}
+
+/** Member's earned certificates (real + verifiable; GET /certificates). */
+export function useCertificates(): QueryResult<CertificateRow[]> {
+  return useQuery(queryKeys.certificates, () => NuruApi.certificates(), { staleMs: 60_000 });
 }
 
 export function useMyRsvps(): QueryResult<MyRsvp[]> {

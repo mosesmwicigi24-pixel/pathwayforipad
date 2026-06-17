@@ -11,6 +11,8 @@ import type {
   Achievements,
   AssembledQuiz,
   CalendarOccurrence,
+  CertificateRow,
+  CertificateVerification,
   CompleteResult,
   EventDetail,
   GivingIntentResult,
@@ -490,6 +492,17 @@ export const NuruApi = {
   // ---- Homepage-featured cell ("This week at Nuru", PR #125); null when none ----
   async featuredCell(): Promise<FeaturedCell | null> {
     const { data } = await api.get<FeaturedCell | null>("/home/featured-cell");
+    return data;
+  },
+
+  // ---- Certificates (member, real + verifiable) ----
+  async certificates(): Promise<CertificateRow[]> {
+    const { data } = await api.get<{ data: CertificateRow[] }>("/certificates");
+    return data.data;
+  },
+  /** Public verification endpoint (no auth needed; bearer is harmless). */
+  async verifyCertificate(code: string): Promise<CertificateVerification> {
+    const { data } = await api.get<CertificateVerification>(`/verify/${encodeURIComponent(code)}`);
     return data;
   },
 

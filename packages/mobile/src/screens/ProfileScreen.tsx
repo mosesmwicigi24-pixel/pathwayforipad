@@ -5,20 +5,22 @@
 // edits are session-local (the make itself keeps them in component state), so the
 // data shown is real while the interactions mirror the design exactly.
 import { useMemo, useState, type ReactElement, type ReactNode } from "react";
-import { Alert, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Alert, Clipboard, Linking, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import {
-  Award, Bell, Calendar, Check, ChevronRight, Compass, Download, Fingerprint, Globe,
+  Award, Bell, Calendar, Check, ChevronRight, Compass, Copy, Download, Fingerprint, Globe,
   Heart, KeyRound, Languages, LifeBuoy, Lock, LogOut, Mail, MapPin, Pencil, Phone,
   ScrollText, Settings, ShieldCheck, Smartphone, Sparkles, Trash2, User, UserCog, X,
   type LucideIcon,
 } from "lucide-react-native";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, spacing, shadow } from "../theme/tokens";
-import { T } from "../theme/components";
-import { useMe, useAchievements } from "../api/hooks";
+import { T, Pill } from "../theme/components";
+import { useMe, useAchievements, useCertificates } from "../api/hooks";
 import { NuruApi } from "../api/client";
+import { apiBaseUrl } from "../config";
+import type { CertificateRow } from "../api/types";
 import { clearQueryCache, invalidateQueries } from "../api/query";
 import { getVault } from "../auth/vault";
 
@@ -82,6 +84,7 @@ export function ProfileScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: me } = useMe();
   const { data: achievements } = useAchievements();
+  const { data: certificates, isLoading: certsLoading, error: certsError } = useCertificates();
   const profileData = me?.profile;
   const level = me?.enrollment?.current_level ?? 1;
 
@@ -182,7 +185,13 @@ export function ProfileScreen(): ReactElement {
     { id: "active", label: `Level ${level} · in progress`, meta: "Keep going", status: "active" },
     { id: "path", label: "Pathway completion", meta: "Your journey continues", status: "future" },
   ];
-  const certificates = level > 1 ? Array.from({ length: level - 1 }, (_, i) => ({ id: `c${i + 1}`, title: `Level ${i + 1} Certificate`, meta: `Completed · Level ${i + 1}` })) : [];
+  // Open a certificate PDF. download_url is a server-relative path
+  // ("/media/certificates/<code>"); resolve it against the configured API base.
+  const openCertificate = (downloadUrl: string): void => {
+    const base = apiBaseUrl().replace(/\/+$/, "");
+    const url = /^https?:\/\//i.test(downloadUrl) ? downloadUrl : `${base}${downloadUrl}`;
+    void Linking.openURL(url).catch(() => Alert.alert("Couldn't open", "Please check your connection and try again."));
+  };
 
   return (
     <View style={st.screen}>
@@ -290,17 +299,16 @@ export function ProfileScreen(): ReactElement {
           </Section>
 
           <Section title="CERTIFICATES" Icon={ScrollText}>
-            {certificates.length > 0 ? certificates.map((c) => (
-              <View key={c.id} style={st.certCard}>
-                <View style={st.certIcon}><Award size={20} color={palette.gold} /></View>
-                <View style={{ flex: 1 }}>
-                  <T variant="body" style={{ color: palette.navy, fontWeight: "600" }}>{c.title}</T>
-                  <T variant="micro" tone="secondary">{c.meta}</T>
-                </View>
-                <View style={st.certDownload}><Download size={15} color={palette.gold} /></View>
-              </View>
-            )) : (
-              <T variant="caption" tone="secondary">Complete a level to earn your first certificate.</T>
+            {certsLoading && !certificates ? (
+              <T variant="caption" tone="secondary">Loading your certificates…</T>
+            ) : certsError ? (
+              <T variant="caption" tone="secondary">Couldn't load certificates. Pull to refresh and try again.</T>
+            ) : certificates && certificates.length > 0 ? (
+              certificates.map((c) => (
+                <CertificateCard key={c.certificate_id} cert={c} onOpen={() => openCertificate(c.download_url)} />
+              ))
+            ) : (
+              <T variant="caption" tone="secondary">No certificates yet — complete a level to earn your first.</T>
             )}
           </Section>
 
@@ -397,6 +405,47 @@ function Medallion({ name }: { name: string }): ReactElement {
     <View style={{ width: 66, alignItems: "center" }}>
       <View style={st.medallion}><Award size={20} color={palette.gold} /></View>
       <T variant="micro" style={{ color: palette.navy, fontWeight: "600", textAlign: "center", marginTop: 6 }} numberOfLines={2}>{name}</T>
+    </View>
+  );
+}
+
+function CertificateCard({ cert, onOpen }: { cert: CertificateRow; onOpen: () => void }): ReactElement {
+  const [copied, setCopied] = useState(false);
+  const copyCode = (): void => {
+    try {
+      Clipboard.setString(cert.verification_code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      Alert.alert("Verification code", cert.verification_code);
+    }
+  };
+  return (
+    <View style={st.certCard}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+        <View style={st.certIcon}><Award size={20} color={palette.gold} /></View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <T variant="body" style={{ color: palette.navy, fontWeight: "600" }} numberOfLines={1}>Level {cert.level_number} Certificate</T>
+          <T variant="micro" tone="secondary">Issued {formatDate(cert.issued_at)}</T>
+        </View>
+        <View style={st.signedPill}>
+          <ShieldCheck size={11} color={palette.successText} />
+          <Pill bg="transparent" color={palette.successText}>Signed</Pill>
+        </View>
+      </View>
+
+      <Pressable accessibilityRole="button" accessibilityLabel="Copy verification code" onPress={copyCode} style={st.codeRow}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <T variant="micro" tone="tertiary" style={st.fieldLabel}>VERIFICATION CODE</T>
+          <T variant="caption" style={st.codeText} numberOfLines={1}>{cert.verification_code}</T>
+        </View>
+        {copied ? <Check size={15} color={palette.success} strokeWidth={3} /> : <Copy size={15} color={palette.navy} />}
+      </Pressable>
+
+      <Pressable accessibilityRole="button" accessibilityLabel="Download or view certificate PDF" onPress={onOpen} style={st.certOpenBtn}>
+        <Download size={15} color={palette.navy} />
+        <T variant="caption" style={{ color: palette.navy, fontWeight: "600" }}>Download / View PDF</T>
+      </Pressable>
     </View>
   );
 }
@@ -618,9 +667,12 @@ const st = {
   knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff" },
   medallion: { width: 56, height: 56, borderRadius: 28, backgroundColor: palette.goldTint, borderWidth: 1.5, borderColor: palette.gold, alignItems: "center", justifyContent: "center" },
   msDot: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  certCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: spacing.md, marginBottom: spacing.sm },
+  certCard: { gap: spacing.sm, backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: spacing.md, marginBottom: spacing.sm },
   certIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(201,162,39,0.18)", borderWidth: 1, borderColor: "rgba(201,162,39,0.4)", alignItems: "center", justifyContent: "center" },
-  certDownload: { width: 36, height: 36, borderRadius: 12, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
+  signedPill: { flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: palette.successBg, borderRadius: 999, paddingLeft: 8 },
+  codeRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, borderRadius: 12, paddingHorizontal: spacing.md, paddingVertical: 10 },
+  codeText: { color: palette.navy, fontWeight: "600", marginTop: 2, fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }), letterSpacing: 0.5 },
+  certOpenBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, borderRadius: 12, paddingVertical: 10 },
   dangerBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 16, borderWidth: 1, paddingVertical: 12 },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
   sheet: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: palette.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: spacing.lg, paddingBottom: spacing.xxl, ...shadow.card },
