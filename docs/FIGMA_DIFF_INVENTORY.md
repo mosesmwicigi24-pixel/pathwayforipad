@@ -101,7 +101,24 @@ Backend already had SHA-256 `content_hash` + HMAC `signature` + public `/verify/
 
 ## 13. Login ✅ FULL PARITY (no work) — live (#109) matches: signin/register/forgot modes + "Check your inbox" reset-sent (resend + 30-min note), wired to real POST /auth/login + /auth/password/forgot (make's submit is a fake setTimeout). Mode tabs, remember-me, terms, roles strip all present.
 
-## STILL TO DIFF (current Figma not yet read this pass — pages persisted on disk may be stale vs the user's latest edits; re-fetch fresh before building each)
+## 14. ReflectionQueue ✅ CORE PARITY (no work) — live (#80) matches: state tabs + filters, split list/workspace, Approve/Return/Defer (OpsApi.decideReflection), history drawer (reflectionHistory), growth panel (memberDetail aggregate: curriculum/attendance/habits), engagement band, priority, minor flag, reviewer note leader-private. Make extras intentionally skipped — discrete reflection **prompt** (modules store no reflection_prompt column; would need schema + per-module content authoring) and a **previous-decisions** per-member timeline (needs a new query, marginal pastoral value).
+
+## 15. System group ✅ PARITY (no work) — all 4 built together at #74 to this make, wired to real CRUD.
+- **Roles & Permissions** — fully diffed: core-role cards ("Key roles in the pathway"), configured-roles table, create-role modal (name/type/description/copy-from), permissions **matrix drawer** (16 modules × 6 caps, row/column toggles, super_admin locked, reset/save) → SystemApi.roles/createRole/updateRole/setRolePermissions/deleteRole. Match.
+- **Users** — table + create/edit/delete + role assignment → SystemApi.users/createUser/updateUser/deleteUser (+ roles/countries/languages lookups). Structural match.
+- **Countries / Languages** — reference CRUD tables → SystemApi.{countries,languages}/create/update(/delete). Structural match.
+
+## 16. Curriculum group ✅ PARITY (no work) — all built #58/#61/#76 to this make.
+- **CurriculumLevels** (360 lines) — KPI strip, learners-by-level pie, completion bars, enrolment trend, activity, six level cards, active-level deep-dive + linked actions → real `AdminApi.levelsReport`. Match.
+- **CmsCurriculum** (476 lines) — curriculum tree, level/module create + edit + publish/status → `CurriculumApi.levels/modules/createLevel/createModule/updateLevel`. Match.
+- **ModulePreview** (201 lines) — learner preview reading the editor's localStorage draft; renders hero/objectives/video/lesson(markdown)/scripture/tags + all 6 quiz question types non-interactively. Match.
+
+---
+
+## ✅ SOURCE-OF-TRUTH PASS COMPLETE (2026-06-17)
+Every page in the make has been diffed vs live. **Real gaps shipped this pass:** Video Library (#120–122), Quiz (#117–119), Members (#123–124), Featured-cell (#125–126), Level Detail (earlier), Events (#127–128), Chat (#129), Finance (#130–131), Certificates (#136), Badges (#137). **Confirmed at parity (no change needed):** Dashboard, Notifications, Profile, Login, ReflectionQueue (core), System (Users/Roles/Countries/Languages), CurriculumLevels, CmsCurriculum, ModulePreview. Documented intentional deviations: external-video best-effort gate; Chat "support" type; Finance config read-only/no-secrets; Badges award-type + 7-category; ReflectionQueue prompt + previous-decisions; quiz manual-scored items excluded from §1.9 gating.
+
+## STILL TO DIFF (none — pass complete) (current Figma not yet read this pass — pages persisted on disk may be stale vs the user's latest edits; re-fetch fresh before building each)
 Members, MemberProfile, CellEngagement/CellDetail, Chat (+ moderation/attachments already shipped — diff for new features), Events, Finance, Dashboard, Notifications, Profile, Login, Layout/nav, ReflectionQueue, Certificates, Badges, Countries, Languages, Roles, Users, ModulePreview. The user flagged **Members** and **Chat** as changed "in a big way / many places" — prioritize those next.
 
 ## Build order proposal (each = green PR, backend + web + mobile as needed)
