@@ -2,6 +2,10 @@
 **/node_modules
 **/dist
 **/.turbo
+# Stale incremental build-info WITHOUT its dist makes composite `tsc` skip emit, so
+# @nuru/shared never builds in-image and the backend can't resolve it. Force a
+# clean compile every time.
+**/*.tsbuildinfo
 .turbo
 .git
 .env
