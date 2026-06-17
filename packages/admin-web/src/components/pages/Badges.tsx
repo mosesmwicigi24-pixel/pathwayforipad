@@ -1,13 +1,14 @@
-// Badges — rebuilt to the "Final Pathway Portal" make, wired to the live badge
-// catalog (ConfigApi.badges / createBadge / retireBadge). Medallion grid, summary,
-// category/search/sort filters, a detail drawer, a real create modal (criteria
-// builder matching the server's registered rules), and retire. Badges are for
-// encouragement, not competition — no public leaderboards (pastoral note kept).
+// Badges — rebuilt to the "Final Pathway Portal" make, wired to the live admin
+// badge catalog (ConfigApi.adminBadges / createBadge / retireBadge /
+// reactivateBadge). Medallion grid, summary, category/status/sort filters, an
+// active/inactive status dot + deactivate↔reactivate toggle, a detail drawer, and
+// a real create modal (criteria builder matching the server's registered rules).
+// Badges are for encouragement, not competition — no public leaderboards.
 import { useCallback, useEffect, useId, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Award, BookOpen, ChevronDown, ChevronRight, Users, Flame, HandHeart, Heart,
-  Eye, Filter, Plus, Search, ShieldCheck, Sparkles, Star, X, AlertTriangle, type LucideIcon,
+  Award, BookOpen, ChevronDown, ChevronRight, Clock, Users, Flame, HandHeart, Heart,
+  Eye, Filter, Plus, Power, Search, ShieldCheck, Sparkles, Star, X, type LucideIcon,
 } from "lucide-react";
 import { ConfigApi, type BadgeRow } from "../../api/client";
 import { errorMessage } from "../../util/error";
@@ -46,28 +47,40 @@ export function Badges(): ReactElement {
   const [badges, setBadges] = useState<BadgeRow[]>([]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<"All" | Category>("All");
+  const [statusFilter, setStatusFilter] = useState<"All" | "Active" | "Inactive">("All");
   const [sort, setSort] = useState<"Most earned" | "Least earned" | "Name">("Most earned");
   const [detail, setDetail] = useState<BadgeRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => { try { setBadges(await ConfigApi.badges()); } catch (e) { setError(errorMessage(e, "Could not load badges.")); } }, []);
+  // Admin catalog includes deactivated badges; treat a missing flag as active.
+  const isActive = (b: BadgeRow): boolean => b.is_active !== false;
+  const load = useCallback(async () => { try { setBadges(await ConfigApi.adminBadges()); } catch (e) { setError(errorMessage(e, "Could not load badges.")); } }, []);
   useEffect(() => { void load(); }, [load]);
 
   const filtered = useMemo(() => {
-    let l = badges.filter((b) => (category === "All" || b.category === category) && (!query || `${b.name} ${b.description}`.toLowerCase().includes(query.toLowerCase())));
+    let l = badges.filter((b) =>
+      (category === "All" || b.category === category) &&
+      (statusFilter === "All" || (statusFilter === "Active" ? isActive(b) : !isActive(b))) &&
+      (!query || `${b.name} ${b.description}`.toLowerCase().includes(query.toLowerCase())));
     if (sort === "Most earned") l = [...l].sort((a, b) => b.earned_count - a.earned_count);
     else if (sort === "Least earned") l = [...l].sort((a, b) => a.earned_count - b.earned_count);
     else l = [...l].sort((a, b) => a.name.localeCompare(b.name));
     return l;
-  }, [badges, category, query, sort]);
+  }, [badges, category, statusFilter, query, sort]);
   const totalAwards = badges.reduce((s, b) => s + b.earned_count, 0);
+  const activeCount = badges.filter(isActive).length;
+  const inactiveCount = badges.length - activeCount;
 
   async function retire(b: BadgeRow): Promise<void> {
-    if (!window.confirm(`Retire "${b.name}"? It stops being awarded (existing earners keep it).`)) return;
-    try { await ConfigApi.retireBadge(b.code); setDetail(null); setNotice(`Retired ${b.name}.`); await load(); }
-    catch (e) { setError(errorMessage(e, "Could not retire badge.")); }
+    if (!window.confirm(`Deactivate "${b.name}"? It stops being awarded (existing earners keep it).`)) return;
+    try { await ConfigApi.retireBadge(b.code); setDetail(null); setNotice(`Deactivated ${b.name}.`); await load(); }
+    catch (e) { setError(errorMessage(e, "Could not deactivate badge.")); }
+  }
+  async function reactivate(b: BadgeRow): Promise<void> {
+    try { await ConfigApi.reactivateBadge(b.code); setDetail(null); setNotice(`Reactivated ${b.name}.`); await load(); }
+    catch (e) { setError(errorMessage(e, "Could not reactivate badge.")); }
   }
 
   return (
@@ -87,9 +100,10 @@ export function Badges(): ReactElement {
       {error ? <p style={{ color: "#A8281F", marginBottom: 12 }}>{error}</p> : null}
       {notice ? <p style={{ color: "#0F6B33", marginBottom: 12 }}>{notice}</p> : null}
 
-      <div className="grid grid-cols-1 gap-4 mb-6 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 mb-6 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "Badges in catalog", value: String(badges.length), color: "#16A34A", bg: "#E8F6EC", icon: Award },
+          { label: "Active badges", value: String(activeCount), color: "#16A34A", bg: "#E8F6EC", icon: Award },
+          { label: "Inactive badges", value: String(inactiveCount), color: "#6B7280", bg: "#F3F4F6", icon: Clock },
           { label: "Total badge awards", value: totalAwards.toLocaleString(), color: "#A87616", bg: "#FFF6E0", icon: Star },
           { label: "Categories", value: String(new Set(badges.map((b) => b.category)).size), color: "#4F46E5", bg: "#EEF0FF", icon: Sparkles },
         ].map((s) => { const Icon = s.icon; return (
@@ -103,21 +117,22 @@ export function Badges(): ReactElement {
       <div className="rounded-2xl p-3 mb-6 flex items-center gap-3 flex-wrap" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
         <div className="flex items-center gap-2 rounded-xl px-3 py-2 flex-1" style={{ background: "var(--input-background)", border: "1px solid var(--border)", minWidth: 260 }}><Search size={14} style={{ color: "var(--muted-foreground)" }} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search badges by name or description" className="flex-1 bg-transparent outline-none" style={{ fontSize: 13 }} /></div>
         <Select value={category === "All" ? "All categories" : catMeta[category].label} onChange={(v) => setCategory(v === "All categories" ? "All" : (CATS.find((c) => catMeta[c].label === v) ?? "All"))} options={["All categories", ...CATS.map((c) => catMeta[c].label)]} label="Category" />
+        <Select value={statusFilter} onChange={(v) => setStatusFilter(v as "All" | "Active" | "Inactive")} options={["All", "Active", "Inactive"]} label="Status" />
         <Select value={sort} onChange={(v) => setSort(v as typeof sort)} options={["Most earned", "Least earned", "Name"]} label="Sort" leadingIcon={<Filter size={12} />} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2 grid grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((b) => { const cc = catMeta[b.category]; return (
-            <div key={b.code} onClick={() => setDetail(b)} className="group rounded-2xl p-4 flex flex-col items-center text-center cursor-pointer transition-all hover:-translate-y-0.5" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-              <div className="w-full flex items-center justify-between mb-2"><Pill bg={cc.bg} color={cc.color}>{cc.label}</Pill></div>
-              <Medallion icon={cc.icon} size={76} color={cc.color} />
+          {filtered.map((b) => { const cc = catMeta[b.category]; const active = isActive(b); return (
+            <div key={b.code} onClick={() => setDetail(b)} className="group rounded-2xl p-4 flex flex-col items-center text-center cursor-pointer transition-all hover:-translate-y-0.5" style={{ background: "var(--card)", border: "1px solid var(--border)", opacity: active ? 1 : 0.72 }}>
+              <div className="w-full flex items-center justify-between mb-2"><Pill bg={cc.bg} color={cc.color}>{cc.label}</Pill><span title={active ? "Active" : "Inactive"} className="shrink-0" style={{ width: 9, height: 9, borderRadius: 999, background: active ? "#16A34A" : "#9CA3AF" }} /></div>
+              <div style={{ filter: active ? "none" : "grayscale(0.5)" }}><Medallion icon={cc.icon} size={76} color={cc.color} /></div>
               <div style={{ fontFamily: "var(--font-display)", fontSize: 16.5, color: "var(--foreground)", lineHeight: 1.2, marginTop: 12 }}>{b.name}</div>
               <p style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginTop: 4, lineHeight: 1.4, minHeight: 32 }}>{b.description.length > 64 ? `${b.description.slice(0, 64)}…` : b.description}</p>
               <div className="flex items-center gap-2 mt-3"><span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1" style={{ background: "var(--secondary)", fontSize: 11.5, fontWeight: 700, color: "var(--nuru-navy)" }}><Users size={12} style={{ color: "var(--nuru-gold)" }} /> {b.earned_count}</span></div>
               <div className="flex items-center justify-center gap-1.5 mt-4 pt-3 w-full" style={{ borderTop: "1px solid var(--border)" }}>
                 <button onClick={(e) => { e.stopPropagation(); setDetail(b); }} title="View" className="rounded-lg p-2" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}><Eye size={15} /></button>
-                <button onClick={(e) => { e.stopPropagation(); void retire(b); }} title="Retire" className="rounded-lg p-2" style={{ color: "#DC2626", background: "none", border: "none" }}><AlertTriangle size={15} /></button>
+                <button onClick={(e) => { e.stopPropagation(); void (active ? retire(b) : reactivate(b)); }} title={active ? "Deactivate" : "Reactivate"} className="rounded-lg p-2" style={{ color: active ? "#DC2626" : "#16A34A", background: "none", border: "none" }}><Power size={15} /></button>
               </div>
             </div>
           ); })}
@@ -148,7 +163,7 @@ export function Badges(): ReactElement {
             <div className="px-6 py-5" style={{ background: "var(--nuru-navy)", color: "#fff" }}>
               <div className="flex items-start gap-4">
                 <Medallion icon={catMeta[detail.category].icon} size={64} color={catMeta[detail.category].color} />
-                <div className="flex-1"><div className="mb-1"><Pill bg={catMeta[detail.category].bg} color={catMeta[detail.category].color}>{catMeta[detail.category].label}</Pill></div><div style={{ fontFamily: "var(--font-display)", fontSize: 24, lineHeight: 1.15 }}>{detail.name}</div><div style={{ fontSize: 12, color: "rgba(232,239,245,0.7)", marginTop: 4 }}>{detail.earned_count} earners · code {detail.code}</div></div>
+                <div className="flex-1"><div className="mb-1 flex items-center gap-1.5"><Pill bg={catMeta[detail.category].bg} color={catMeta[detail.category].color}>{catMeta[detail.category].label}</Pill><Pill bg={isActive(detail) ? "#E8F6EC" : "#F3F4F6"} color={isActive(detail) ? "#16A34A" : "#6B7280"}>● {isActive(detail) ? "Active" : "Inactive"}</Pill></div><div style={{ fontFamily: "var(--font-display)", fontSize: 24, lineHeight: 1.15 }}>{detail.name}</div><div style={{ fontSize: 12, color: "rgba(232,239,245,0.7)", marginTop: 4 }}>{detail.earned_count} earners · code {detail.code}</div></div>
                 <button onClick={() => setDetail(null)} className="rounded-lg p-1.5" style={{ background: "rgba(255,255,255,0.1)", border: "none" }}><X size={16} color="#fff" /></button>
               </div>
             </div>
@@ -158,7 +173,9 @@ export function Badges(): ReactElement {
               <button onClick={() => navigate("/members")} className="mt-5 flex items-center gap-1.5" style={{ fontSize: 12, fontWeight: 600, color: "var(--nuru-gold)", background: "none", border: "none" }}>See members <ChevronRight size={13} /></button>
             </div>
             <div className="px-6 py-4 flex items-center justify-end" style={{ background: "var(--secondary)", borderTop: "1px solid var(--border)" }}>
-              <button onClick={() => void retire(detail)} className="flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ background: "#FEF2F2", color: "#DC2626", border: "1px solid #FCA5A5", fontSize: 12, fontWeight: 600 }}><AlertTriangle size={12} /> Retire badge</button>
+              {isActive(detail)
+                ? <button onClick={() => void retire(detail)} className="flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ background: "#FEF2F2", color: "#DC2626", border: "1px solid #FCA5A5", fontSize: 12, fontWeight: 600 }}><Power size={12} /> Deactivate badge</button>
+                : <button onClick={() => void reactivate(detail)} className="flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ background: "#E8F6EC", color: "#0F6B33", border: "1px solid #A8E0B8", fontSize: 12, fontWeight: 600 }}><Power size={12} /> Reactivate badge</button>}
             </div>
           </div>
         </div>

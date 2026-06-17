@@ -61,6 +61,22 @@ describe("award evaluation (server-derived, §G.2)", () => {
     const ach = (await svc().myAchievements(u)) as { badges: unknown[] };
     expect(ach.badges).toHaveLength(0);
   });
+
+  it("admin catalog shows inactive badges; reactivate restores to the public list", async () => {
+    const admin = (await createUser({ congregationId: cong, role: "Admin", email: "a2@dev.local" })).user_id;
+    await svc().deactivateBadge(admin, "first_module");
+    // public catalog (members) hides it…
+    const pub = (await svc().listBadges()) as Array<{ code: string }>;
+    expect(pub.some((b) => b.code === "first_module")).toBe(false);
+    // …admin catalog still lists it, flagged inactive
+    const all = (await svc().listAllBadges()) as Array<{ code: string; is_active: boolean }>;
+    const fm = all.find((b) => b.code === "first_module");
+    expect(fm?.is_active).toBe(false);
+    // reactivate brings it back to the public list
+    expect((await svc().reactivateBadge(admin, "first_module")).reactivated).toBe(true);
+    const pub2 = (await svc().listBadges()) as Array<{ code: string }>;
+    expect(pub2.some((b) => b.code === "first_module")).toBe(true);
+  });
 });
 
 describe("cell milestones — aggregate only + k-anonymity (§G.4)", () => {

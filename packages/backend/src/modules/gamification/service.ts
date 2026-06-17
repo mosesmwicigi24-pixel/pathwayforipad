@@ -160,6 +160,19 @@ export class GamificationService {
     );
   }
 
+  /** Admin catalog — ALL badges incl. deactivated ones, with their active flag.
+   *  Members never see this (it would leak retired badges); the public /badges
+   *  list stays is_active-only. */
+  listAllBadges(): Promise<unknown[]> {
+    return many(
+      this.pool,
+      `SELECT b.code, b.name, b.description, b.category, b.icon_key, b.is_active,
+              (SELECT count(*)::int FROM user_badges ub
+                WHERE ub.badge_id = b.badge_id AND ub.revoked_at IS NULL) AS earned_count
+         FROM badges b ORDER BY b.is_active DESC, b.category, b.code`,
+    );
+  }
+
   /** Aggregate-only cell encouragement; suppressed below the k-anonymity floor. */
   async cellMilestones(principal: Principal, cellId: string): Promise<unknown> {
     await assertCellInScope(this.pool, principal, cellId);
@@ -228,6 +241,16 @@ export class GamificationService {
       // Deactivation never revokes already-earned badges (§G.2).
       await audit(c, adminId, "badge.deactivated", "badges", code, {});
       return { deactivated: true };
+    });
+  }
+
+  /** Re-activate a previously deactivated badge so it is awarded again. */
+  async reactivateBadge(adminId: string, code: string): Promise<{ reactivated: boolean }> {
+    return tx(this.pool, async (c) => {
+      const r = await c.query(`UPDATE badges SET is_active = TRUE WHERE code = $1`, [code]);
+      if (r.rowCount === 0) throw new ApiError("NOT_FOUND", "Badge not found");
+      await audit(c, adminId, "badge.reactivated", "badges", code, {});
+      return { reactivated: true };
     });
   }
 

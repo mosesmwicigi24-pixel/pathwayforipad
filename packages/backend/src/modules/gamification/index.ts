@@ -32,6 +32,11 @@ export function registerGamification(ctx: AppContext): Router {
   }));
 
   // Admin catalog (audited). Deactivation never revokes earned badges.
+  // Admin catalog — ALL badges incl. deactivated (members get the public /badges).
+  r.get("/admin/badges", auth, perm("badges", "view"), handler(async (_req, res) => {
+    res.json({ data: await svc.listAllBadges() });
+  }));
+
   r.post("/admin/badges", auth, perm("badges", "create"), handler(async (req, res) => {
     const input = parseBody(GamificationService.BadgeInput, req.body ?? {});
     res.status(201).json(await svc.createBadge(requirePrincipal(req).userId, input));
@@ -39,6 +44,10 @@ export function registerGamification(ctx: AppContext): Router {
 
   r.delete("/admin/badges/:code", auth, perm("badges", "delete"), handler(async (req, res) => {
     res.json(await svc.deactivateBadge(requirePrincipal(req).userId, req.params.code ?? ""));
+  }));
+
+  r.post("/admin/badges/:code/reactivate", auth, perm("badges", "edit"), handler(async (req, res) => {
+    res.json(await svc.reactivateBadge(requirePrincipal(req).userId, req.params.code ?? ""));
   }));
 
   r.post("/admin/members/:id/badges/:code/revoke", auth, perm("badges", "delete"), handler(async (req, res) => {

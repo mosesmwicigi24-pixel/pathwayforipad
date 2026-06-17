@@ -888,6 +888,7 @@ export interface BadgeRow {
   category: "journey" | "consistency" | "community" | "service";
   icon_key: string | null;
   earned_count: number;
+  is_active?: boolean;
 }
 
 export interface CertificateRow {
@@ -993,8 +994,11 @@ export interface AuditRow {
 
 export const ConfigApi = {
   badges: () => api.get<{ data: BadgeRow[] }>("/badges").then((r) => r.data.data),
+  // Admin catalog incl. deactivated badges (is_active flag); members use badges().
+  adminBadges: () => api.get<{ data: BadgeRow[] }>("/admin/badges").then((r) => r.data.data),
   createBadge: (body: Record<string, unknown>) => api.post("/admin/badges", body).then((r) => r.data),
   retireBadge: (code: string) => api.delete(`/admin/badges/${code}`).then((r) => r.data),
+  reactivateBadge: (code: string) => api.post(`/admin/badges/${code}/reactivate`, {}).then((r) => r.data),
 
   certificates: (before?: string) =>
     api

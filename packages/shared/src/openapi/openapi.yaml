@@ -1379,6 +1379,12 @@ paths:
         "200": { description: Achievements }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
   /admin/badges:
+    get:
+      tags: [system]
+      summary: Admin (view). Full badge catalog incl. deactivated (is_active flag). Members use /badges.
+      responses:
+        "200": { description: Badge catalog }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
     post:
       tags: [system]
       summary: Admin. Create a badge (criteria validated against the registered rule schema).
@@ -1395,6 +1401,16 @@ paths:
       responses:
         "200": { description: Deactivated }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/badges/{code}/reactivate:
+    post:
+      tags: [system]
+      summary: Admin. Re-activate a deactivated badge so it is awarded again.
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Reactivated }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/members/{id}/badges/{code}/revoke:
     post:
       tags: [system]
