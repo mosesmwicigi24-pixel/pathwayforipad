@@ -4,7 +4,7 @@
 // offline they queue (chat_messages:create) and replay on reconnect (§1.7).
 // Opening the thread marks it read.
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Image, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Image, Keyboard, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { launchImageLibrary } from "react-native-image-picker";
 import AudioRecorderPlayer from "react-native-audio-recorder-player";
 import { pick as pickDocument, isCancel } from "react-native-document-picker";
@@ -56,6 +56,21 @@ export function ChatThreadScreen(): ReactElement {
   const recordingPath = useRef<string | null>(null);
   const recordDurationMs = useRef(0);
   const scrollRef = useRef<ScrollView>(null);
+
+  // Lift the composer above the on-screen keyboard (same approach as the Profile
+  // sheets): track the keyboard height and add it as bottom margin so the input
+  // stays visible; the flex:1 message list shrinks to fill the space above it.
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvt, (e) => {
+      setKbHeight(e.endCoordinates?.height ?? 0);
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    });
+    const hide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
 
   // Tear down any in-flight recorder/player when the thread unmounts.
   useEffect(() => {
@@ -346,7 +361,7 @@ export function ChatThreadScreen(): ReactElement {
             ) : null}
           </ScrollView>
 
-          <View style={st.composer}>
+          <View style={[st.composer, { marginBottom: kbHeight }]}>
             {recording ? (
               <View style={st.recordRow}>
                 <View style={st.recDot} />
