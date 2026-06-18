@@ -91,6 +91,91 @@ describe("series → projection → materialization → RSVP (§C.2/§C.3)", () 
   });
 });
 
+describe("admin portal Create-event contract (POST /admin/events/series)", () => {
+  let cong: string, admin: string, member: string;
+  beforeEach(async () => {
+    await resetDb();
+    cong = await createCongregation();
+    admin = (await createUser({ congregationId: cong, role: "Admin", email: "a@dev.local" })).user_id;
+    member = (await createUser({ congregationId: cong, role: "Student", email: "m@dev.local" })).user_id;
+  });
+  afterAll(async () => {
+    await closeTestPool();
+  });
+
+  it("normalizes the portal payload (start_date/start_time, members visibility) to the series model", () => {
+    const parsed = CalendarService.CreateSeries.parse({
+      title: "Sunday Worship Service",
+      category: "worship",
+      timezone: "Africa/Nairobi",
+      starts_at: "2026-07-19T15:00:00.000Z",
+      start_date: "2026-07-19",
+      start_time: "18:00",
+      duration_min: 180,
+      visibility: "members",
+      rsvp_enabled: true,
+      qr_enabled: true,
+      manual_checkin_enabled: true,
+      status: "active",
+    });
+    expect(parsed).toMatchObject({
+      title: "Sunday Worship Service",
+      timezone: "Africa/Nairobi",
+      dtstart_local: "2026-07-19T18:00:00", // wall-clock from start_date + start_time
+      duration_min: 180,
+      visibility: "congregation", // "members" → congregation
+      status: "active",
+    });
+    // Presentational-only fields are dropped, not rejected (no .strict() failure).
+    expect((parsed as Record<string, unknown>).category).toBeUndefined();
+    expect((parsed as Record<string, unknown>).manual_checkin_enabled).toBeUndefined();
+  });
+
+  it("bounds the portal's open-ended RRULE so it passes validation and creates", async () => {
+    // The modal emits FREQ=WEEKLY;BYDAY=SU with no COUNT/UNTIL — previously a 422.
+    const parsed = CalendarService.CreateSeries.parse({
+      title: "Weekly Service",
+      timezone: "Africa/Nairobi",
+      start_date: "2026-07-05",
+      start_time: "09:00",
+      duration_min: 90,
+      visibility: "members",
+      rrule: "FREQ=WEEKLY;BYDAY=SU",
+    });
+    expect(parsed.rrule).toMatch(/UNTIL=\d{8}T\d{6}Z$/);
+    const s = (await svc().createSeries(principal(admin, "Admin", cong), parsed)) as { series_id: string };
+    const projected = await svc().projectRange(member, "2026-07-01T00:00:00Z", "2026-08-15T00:00:00Z");
+    expect(projected.length).toBeGreaterThan(0);
+    expect((projected[0] as { series_id: string }).series_id).toBe(s.series_id);
+  });
+
+  it("Save as draft: hidden from members, visible to the admin, and not materialized", async () => {
+    const parsed = CalendarService.CreateSeries.parse({
+      title: "Draft Service",
+      timezone: "Africa/Nairobi",
+      start_date: "2026-07-05",
+      start_time: "09:00",
+      duration_min: 90,
+      visibility: "members",
+      rrule: "FREQ=WEEKLY;BYDAY=SU",
+      status: "draft",
+    });
+    expect(parsed.status).toBe("draft");
+    const s = (await svc().createSeries(principal(admin, "Admin", cong), parsed)) as { series_id: string };
+
+    const seenByMember = await svc().projectRange(member, "2026-07-01T00:00:00Z", "2026-08-15T00:00:00Z");
+    expect(seenByMember.length).toBe(0); // drafts never reach members
+
+    const seenByAdmin = await svc().projectRange(admin, "2026-07-01T00:00:00Z", "2026-08-15T00:00:00Z");
+    expect(seenByAdmin.length).toBeGreaterThan(0); // creator still sees the draft
+    expect((seenByAdmin[0] as { status: string }).status).toBe("draft");
+
+    // A draft is not materialized (no occurrence rows / reminders) until published.
+    const ev = await testPool().query("SELECT COUNT(*)::int AS n FROM events WHERE series_id = $1", [s.series_id]);
+    expect(ev.rows[0].n).toBe(0);
+  });
+});
+
 describe("visibility scoping + RBAC (§5.4)", () => {
   let cong: string, admin: string, leader: string, cellA: string, cellB: string, memberA: string, memberB: string;
   beforeEach(async () => {

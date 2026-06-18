@@ -33,6 +33,70 @@ interface SeriesRow {
   reminders_enabled?: boolean;
   checkin_opens_min_before?: number | null;
   is_paused?: boolean;
+  status?: "draft" | "active";
+}
+
+// The admin portal's Create-event modal posts a richer, UI-shaped payload than
+// the series model: separate start_date / start_time (or a precomputed
+// starts_at) rather than dtstart_local, a member-facing visibility vocabulary,
+// and a few presentational fields (category, manual_checkin_enabled, …).
+// Normalize it to the series schema so creation succeeds whatever client shape
+// arrives, then let zod validate the normalized object. Unknown keys are dropped.
+function normalizeSeriesInput(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const r = raw as Record<string, unknown>;
+
+  const startDate = typeof r.start_date === "string" ? r.start_date.trim() : "";
+  const startTime = typeof r.start_time === "string" && r.start_time.trim() ? r.start_time.trim() : "09:00";
+  const dtstartLocal =
+    (typeof r.dtstart_local === "string" && r.dtstart_local) ||
+    (startDate ? `${startDate}T${startTime}:00` : undefined) ||
+    (typeof r.starts_at === "string" && r.starts_at ? r.starts_at : undefined);
+
+  // Map the UI's visibility words onto the DB enum (congregation | cell | leaders).
+  const visAliases: Record<string, "congregation" | "cell" | "leaders"> = {
+    members: "congregation",
+    member: "congregation",
+    public: "congregation",
+    all: "congregation",
+    congregation: "congregation",
+    cell: "cell",
+    cells: "cell",
+    leaders: "leaders",
+    leader: "leaders",
+  };
+  const visibility =
+    typeof r.visibility === "string" ? (visAliases[r.visibility.toLowerCase()] ?? r.visibility) : r.visibility;
+
+  // The portal builds open-ended rules (FREQ=WEEKLY;BYDAY=SU, …), but the spec
+  // (§C.4) forbids unbounded recurrence. Bound any rule that lacks COUNT/UNTIL to
+  // a default 12-month horizon so the portal's payload validates.
+  let rrule = r.rrule;
+  if (typeof rrule === "string" && rrule.trim()) {
+    const up = rrule.toUpperCase();
+    if (!up.includes("COUNT=") && !up.includes("UNTIL=")) {
+      const until = DateTime.utc().plus({ months: 12 }).toFormat("yyyyLLdd'T'HHmmss'Z'");
+      rrule = `${rrule.trim()};UNTIL=${until}`;
+    }
+  }
+
+  const out: Record<string, unknown> = {
+    title: r.title,
+    description: r.description,
+    location: r.location,
+    timezone: r.timezone,
+    duration_min: r.duration_min,
+    rrule,
+    rsvp_enabled: r.rsvp_enabled,
+    qr_enabled: r.qr_enabled,
+    reminders_enabled: r.reminders_enabled,
+    checkin_opens_min_before: r.checkin_opens_min_before,
+  };
+  if (r.cell_group_id !== undefined) out.cell_group_id = r.cell_group_id;
+  if (dtstartLocal !== undefined) out.dtstart_local = dtstartLocal;
+  if (visibility !== undefined) out.visibility = visibility;
+  if (r.status !== undefined) out.status = r.status;
+  return out;
 }
 
 interface UserScope {
@@ -75,9 +139,11 @@ export class CalendarService {
       c,
       `SELECT series_id, congregation_id, cell_group_id, title, description, location, timezone,
               to_char(dtstart_local, 'YYYY-MM-DD"T"HH24:MI:SS') AS dtstart_local,
-              duration_min, rrule, visibility, is_paused
+              duration_min, rrule, visibility, is_paused, status
          FROM event_series es
         WHERE es.deleted_at IS NULL AND es.is_paused = FALSE AND es.congregation_id = $1
+          -- Drafts are visible only to leaders/admins ($4), never to members.
+          AND (es.status = 'active' OR $4)
           AND (
             es.visibility = 'congregation'
             OR (es.visibility = 'cell' AND (es.cell_group_id = $2 OR es.cell_group_id = ANY($3::uuid[])))
@@ -119,6 +185,7 @@ export class CalendarService {
           title: s.title,
           location: s.location,
           visibility: s.visibility,
+          status: s.status ?? "active",
           cell_group_id: s.cell_group_id,
           start_at: start,
           end_at: end,
@@ -133,24 +200,29 @@ export class CalendarService {
 
   // ---------------- Admin: series CRUD ----------------
 
-  static readonly CreateSeries = z
-    .object({
-      cell_group_id: z.string().uuid().nullable().optional(),
-      title: z.string().min(1).max(255),
-      description: z.string().nullable().optional(),
-      location: z.string().max(255).nullable().optional(),
-      timezone: z.string().min(1).max(64),
-      dtstart_local: z.string().min(1), // ISO-ish wall clock
-      duration_min: z.number().int().min(5).max(720),
-      rrule: z.string().nullable().optional(),
-      visibility: z.enum(["congregation", "cell", "leaders"]).default("cell"),
-      // Ops toggles (Contract Matrix B2) — copied onto materialized occurrences.
-      rsvp_enabled: z.boolean().default(true),
-      qr_enabled: z.boolean().default(true),
-      reminders_enabled: z.boolean().default(true),
-      checkin_opens_min_before: z.number().int().min(0).max(1440).nullable().optional(),
-    })
-    .strict();
+  // Canonical series fields. The wire payload is normalized first (see
+  // normalizeSeriesInput) so both the mobile/canonical shape and the admin
+  // portal's Create-event shape validate against this.
+  static readonly SeriesShape = z.object({
+    cell_group_id: z.string().uuid().nullable().optional(),
+    title: z.string().min(1).max(255),
+    description: z.string().nullable().optional(),
+    location: z.string().max(255).nullable().optional(),
+    timezone: z.string().min(1).max(64),
+    dtstart_local: z.string().min(1), // ISO-ish wall clock
+    duration_min: z.number().int().min(5).max(720),
+    rrule: z.string().nullable().optional(),
+    visibility: z.enum(["congregation", "cell", "leaders"]).default("cell"),
+    // Ops toggles (Contract Matrix B2) — copied onto materialized occurrences.
+    rsvp_enabled: z.boolean().default(true),
+    qr_enabled: z.boolean().default(true),
+    reminders_enabled: z.boolean().default(true),
+    checkin_opens_min_before: z.number().int().min(0).max(1440).nullable().optional(),
+    // Draft series are recorded but not materialized or shown to members.
+    status: z.enum(["draft", "active"]).default("active"),
+  });
+
+  static readonly CreateSeries = z.preprocess(normalizeSeriesInput, CalendarService.SeriesShape);
 
   async createSeries(principal: Principal, input: z.infer<typeof CalendarService.CreateSeries>): Promise<unknown> {
     if (input.rrule) validateRrule(input.rrule);
@@ -164,8 +236,8 @@ export class CalendarService {
         c,
         `INSERT INTO event_series
            (congregation_id, cell_group_id, title, description, location, timezone, dtstart_local, duration_min, rrule, visibility, created_by,
-            rsvp_enabled, qr_enabled, reminders_enabled, checkin_opens_min_before)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING series_id`,
+            rsvp_enabled, qr_enabled, reminders_enabled, checkin_opens_min_before, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING series_id`,
         [
           principal.congregationId,
           input.cell_group_id ?? null,
@@ -182,10 +254,14 @@ export class CalendarService {
           input.qr_enabled ?? true,
           input.reminders_enabled ?? true,
           input.checkin_opens_min_before ?? null,
+          input.status ?? "active",
         ],
       );
-      await enqueueOutbox(c, "calendar.materialize", { series_id: row.series_id });
-      await audit(c, principal.userId, "calendar.series_created", "event_series", row.series_id, {});
+      // Drafts are not materialized (no occurrences / reminders) until published.
+      if ((input.status ?? "active") !== "draft") {
+        await enqueueOutbox(c, "calendar.materialize", { series_id: row.series_id });
+      }
+      await audit(c, principal.userId, "calendar.series_created", "event_series", row.series_id, { status: input.status ?? "active" });
       return one(c, `SELECT * FROM event_series WHERE series_id = $1`, [row.series_id]);
     });
   }
@@ -208,7 +284,7 @@ export class CalendarService {
     throw new ApiError("FORBIDDEN_SCOPE", "Not permitted to create events in this scope");
   }
 
-  static readonly UpdateSeries = CalendarService.CreateSeries.partial();
+  static readonly UpdateSeries = z.preprocess(normalizeSeriesInput, CalendarService.SeriesShape.partial());
 
   async updateSeries(principal: Principal, seriesId: string, input: z.infer<typeof CalendarService.UpdateSeries>): Promise<unknown> {
     if (input.rrule) validateRrule(input.rrule);
@@ -227,6 +303,7 @@ export class CalendarService {
         duration_min: input.duration_min,
         rrule: input.rrule,
         visibility: input.visibility,
+        status: input.status,
       };
       const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
       if (keys.length > 0) {

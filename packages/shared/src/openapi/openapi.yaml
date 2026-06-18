@@ -1262,7 +1262,12 @@ paths:
   /admin/events/series:
     post:
       tags: [system]
-      summary: Leader+/Admin. Create an event series (validated RRULE).
+      summary: >-
+        Leader+/Admin. Create an event series (validated RRULE). Accepts either the
+        canonical body (dtstart_local) or the portal's shape (start_date + start_time
+        / starts_at, and a members|public|leaders visibility vocabulary). Open-ended
+        RRULEs are bounded server-side (§C.4). status=draft records the series without
+        materializing occurrences or showing it to members until published.
       responses:
         "201": { description: Series created }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
