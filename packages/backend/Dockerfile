@@ -9,7 +9,13 @@ FROM node:20-bookworm-slim AS build
 RUN corepack enable
 WORKDIR /repo
 COPY . .
-RUN pnpm install --frozen-lockfile \
+# Install ONLY the backend's subgraph (backend + @nuru/shared + their npm deps).
+# `pnpm install` without a filter pulls the whole workspace — including the heavy
+# React-Native mobile tree, which the backend image neither needs nor ships. That
+# bloated both the install and the runtime `COPY /repo` on this small VPS and made
+# deploys crawl. A `cache` mount on the pnpm store keeps re-installs fast.
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --filter "@nuru/backend..." \
  && pnpm --filter @nuru/shared build \
  && pnpm --filter @nuru/backend build
 
