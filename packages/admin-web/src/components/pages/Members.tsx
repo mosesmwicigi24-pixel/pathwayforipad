@@ -380,6 +380,10 @@ function EditMemberModal({ userId, cells, countries, onClose, onSaved }: { userI
   }, [userId]);
 
   const selectedCell = useMemo(() => cells.find((c) => c.cell_group_id === cell_group_id) ?? null, [cells, cell_group_id]);
+  // If the member has no cell yet (cell_group_id empty), default to the first cell
+  // so the dropdown's visible selection matches state — otherwise it shows the first
+  // option while state stays "" and "Select a cell." fires on save.
+  useEffect(() => { if (loaded && !cell_group_id && cells[0]) setCell(cells[0].cell_group_id); }, [loaded, cell_group_id, cells]);
 
   async function submit(): Promise<void> {
     if (!full_name.trim()) { setError("Please enter the member's name."); return; }

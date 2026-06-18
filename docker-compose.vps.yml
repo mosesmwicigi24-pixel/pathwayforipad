@@ -24,3 +24,12 @@ services:
       CLOUDINARY_URL: ${CLOUDINARY_URL:-}
       EMAIL_FROM: ${EMAIL_FROM}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL}
+      # M-Pesa (Daraja) STK push — read from the VPS-only .env (§5.10). The provider
+      # is "ready" only when key+secret+passkey+shortcode+callback URL are all set.
+      MPESA_CONSUMER_KEY: ${MPESA_CONSUMER_KEY:-}
+      MPESA_CONSUMER_SECRET: ${MPESA_CONSUMER_SECRET:-}
+      MPESA_PASSKEY: ${MPESA_PASSKEY:-}
+      MPESA_SHORTCODE: ${MPESA_SHORTCODE:-}
+      MPESA_ENV: ${MPESA_ENV:-sandbox}
+      MPESA_TX_TYPE: ${MPESA_TX_TYPE:-CustomerPayBillOnline}
+      MPESA_CALLBACK_URL: ${MPESA_CALLBACK_URL:-https://pathway.nuruplace.org/v1/webhooks/mobilemoney/mpesa}

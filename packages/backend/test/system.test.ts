@@ -7,12 +7,14 @@ import { createCongregation, createUser, createCellGroup } from "./helpers/facto
 
 let adminTok: string;
 let studentTok: string;
+let adminId: string;
 
 beforeEach(async () => {
   await resetDb();
   const cong = await createCongregation();
   const admin = await createUser({ congregationId: cong, role: "Admin", email: "admin@dev.local" });
   const student = await createUser({ congregationId: cong, role: "Student", email: "s@dev.local" });
+  adminId = admin.user_id;
   adminTok = bearer({ sub: admin.user_id, role: "Admin", cong });
   studentTok = bearer({ sub: student.user_id, role: "Student", cong });
 });
@@ -136,5 +138,18 @@ describe("congregations admin (System section)", () => {
   it("denies congregation writes to non-admins (RBAC §5.4)", async () => {
     const res = await agent().post("/v1/admin/congregations").set(auth(studentTok)).send({ name: "X", country: "KE" });
     expect(res.status).toBe(403);
+  });
+});
+
+describe("create system user — congregation fallback", () => {
+  it("creates a portal user even when the admin's token carries no congregation", async () => {
+    // SuperAdmins can be provisioned without a congregation → principal.congregationId
+    // is "" (not a valid UUID). The handler must fall back to the first congregation.
+    const noCongTok = bearer({ sub: adminId, role: "SuperAdmin", cong: "" });
+    const res = await agent().post("/v1/admin/users").set(auth(noCongTok)).send({
+      full_name: "New Staff", email: "new.staff@dev.local", password: "Sup3rSecret!", role_keys: ["system_admin"],
+    });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ full_name: "New Staff", email: "new.staff@dev.local" });
   });
 });

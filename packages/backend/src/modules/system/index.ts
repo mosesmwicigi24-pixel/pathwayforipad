@@ -371,12 +371,22 @@ export function registerSystem(ctx: AppContext): Router {
       if (await maybeOne(c, `SELECT 1 FROM users WHERE email = $1 AND deleted_at IS NULL`, [input.email])) {
         throw new ApiError("CONFLICT", "A user with this email already exists");
       }
+      // Portal accounts belong to a congregation. The principal's congregation can be
+      // empty (e.g. a SuperAdmin provisioned without one) — an empty string is not a
+      // valid UUID and would crash the insert, so fall back to the first congregation.
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      let congregationId = UUID_RE.test(principal.congregationId ?? "") ? principal.congregationId : null;
+      if (!congregationId) {
+        const first = await maybeOne<{ congregation_id: string }>(c, `SELECT congregation_id FROM congregations ORDER BY created_at LIMIT 1`);
+        if (!first) throw new ApiError("VALIDATION_FAILED", "No congregation configured");
+        congregationId = first.congregation_id;
+      }
       const created = await one<{ user_id: string }>(c,
         `INSERT INTO users (full_name, email, password_hash, phone_number, date_of_birth, congregation_id,
                             role, country_code, locale, account_status, require_2fa)
            VALUES ($1,$2,$3,$4,'1990-01-01',$5,$6,$7,COALESCE($8,'en'),COALESCE($9,'active'),COALESCE($10,FALSE))
          RETURNING user_id`,
-        [input.full_name, input.email, password_hash, input.phone_number ?? "", principal.congregationId,
+        [input.full_name, input.email, password_hash, input.phone_number ?? "", congregationId,
          legacyRoleFor(roleKeys), input.country_code ?? null, input.locale ?? null, input.account_status ?? null, input.require_2fa ?? null]);
       for (const rk of roleKeys) {
         await c.query(`INSERT INTO rbac_user_roles (user_id, role_key, assigned_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
