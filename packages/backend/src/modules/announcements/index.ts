@@ -50,9 +50,35 @@ export function registerAnnouncements(ctx: AppContext, svc?: AnnouncementService
     res.json(await service.cancel(requirePrincipal(req).userId, id));
   }));
 
+  // Hard-stop delete (soft, any status) — Edit/Delete on the portal.
+  r.delete("/admin/announcements/:id", ...adminOnly, handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    res.json(await service.remove(requirePrincipal(req).userId, id));
+  }));
+
+  // Feature / unfeature on the mobile homepage (single featured).
+  r.post("/admin/announcements/:id/homepage", ...adminOnly, handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    res.json(await service.setFeatured(requirePrincipal(req).userId, id, true));
+  }));
+  r.delete("/admin/announcements/:id/homepage", ...adminOnly, handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    res.json(await service.setFeatured(requirePrincipal(req).userId, id, false));
+  }));
+
   // ---- Member ----
   r.get("/me/announcements", auth, handler(async (req, res) => {
     res.json(await service.myAnnouncements(requirePrincipal(req).userId));
+  }));
+
+  // The single homepage-featured announcement for the mobile Home screen.
+  r.get("/home/featured-announcement", auth, handler(async (_req, res) => {
+    res.json({ data: await service.featured() });
+  }));
+
+  r.get("/announcements/:id", auth, handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    res.json(await service.memberDetail(requirePrincipal(req).userId, id));
   }));
 
   r.post("/announcements/:id/open", auth, handler(async (req, res) => {

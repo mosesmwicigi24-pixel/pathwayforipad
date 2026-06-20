@@ -29,6 +29,9 @@ import type {
   ScripturePassage,
   WelcomeVideo,
   FeaturedCell,
+  AnnouncementDetail,
+  FeaturedEvent,
+  FeaturedAnnouncement,
   LevelModule,
   ModuleDetail,
   PathwaySummary,
@@ -77,6 +80,9 @@ export const queryKeys = {
   scripture: (ref: string, version: string) => `scripture:${ref}:${version}`,
   welcomeVideo: "welcomeVideo",
   featuredCell: "featuredCell",
+  featuredEvent: "featuredEvent",
+  featuredAnnouncement: "featuredAnnouncement",
+  announcement: (id: string) => `announcement:${id}`,
   certificates: "certificates",
 };
 
@@ -213,6 +219,19 @@ export function useWelcomeVideo(): QueryResult<WelcomeVideo | null> {
 /** Homepage-featured cell "This week at Nuru" (PR #125); null when none is set. */
 export function useFeaturedCell(): QueryResult<FeaturedCell | null> {
   return useQuery(queryKeys.featuredCell, () => NuruApi.featuredCell(), { staleMs: 5 * 60_000 });
+}
+
+/** Full announcement detail (carousel images + body). */
+export function useAnnouncement(id: string | null): QueryResult<AnnouncementDetail> {
+  return useQuery(id ? queryKeys.announcement(id) : null, () => NuruApi.announcement(id as string), { staleMs: 60_000 });
+}
+
+/** Homepage-featured event / announcement (null when none is set). */
+export function useFeaturedEvent(): QueryResult<FeaturedEvent | null> {
+  return useQuery(queryKeys.featuredEvent, () => NuruApi.featuredEvent(), { staleMs: 5 * 60_000 });
+}
+export function useFeaturedAnnouncement(): QueryResult<FeaturedAnnouncement | null> {
+  return useQuery(queryKeys.featuredAnnouncement, () => NuruApi.featuredAnnouncement(), { staleMs: 5 * 60_000 });
 }
 
 /** Member's earned certificates (real + verifiable; GET /certificates). */

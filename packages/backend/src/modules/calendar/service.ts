@@ -86,6 +86,8 @@ function normalizeSeriesInput(raw: unknown): unknown {
     description: r.description,
     location: r.location,
     category: r.category,
+    primary_image_url: r.primary_image_url,
+    gallery_image_urls: r.gallery_image_urls,
     timezone: r.timezone,
     duration_min: r.duration_min,
     rrule,
@@ -345,6 +347,11 @@ export class CalendarService {
     description: z.string().nullable().optional(),
     location: z.string().max(255).nullable().optional(),
     category: z.string().max(24).nullable().optional(),
+    // Optional cover image + a small gallery (up to 5 extra → 6 total) shown as a
+    // carousel on the mobile event detail. URLs come from a Cloudinary upload or
+    // a pasted link.
+    primary_image_url: z.string().url().max(2048).nullable().optional(),
+    gallery_image_urls: z.array(z.string().url().max(2048)).max(5).optional(),
     timezone: z.string().min(1).max(64),
     dtstart_local: z.string().min(1), // ISO-ish wall clock
     duration_min: z.number().int().min(5).max(720),
@@ -373,8 +380,8 @@ export class CalendarService {
         c,
         `INSERT INTO event_series
            (congregation_id, cell_group_id, title, description, location, category, timezone, dtstart_local, duration_min, rrule, visibility, created_by,
-            rsvp_enabled, qr_enabled, reminders_enabled, checkin_opens_min_before, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING series_id`,
+            rsvp_enabled, qr_enabled, reminders_enabled, checkin_opens_min_before, status, primary_image_url, gallery_image_urls)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING series_id`,
         [
           principal.congregationId,
           input.cell_group_id ?? null,
@@ -393,6 +400,8 @@ export class CalendarService {
           input.reminders_enabled ?? true,
           input.checkin_opens_min_before ?? null,
           input.status ?? "active",
+          input.primary_image_url ?? null,
+          input.gallery_image_urls ?? [],
         ],
       );
       // Drafts are not materialized (no occurrences / reminders) until published.
@@ -436,6 +445,9 @@ export class CalendarService {
         title: input.title,
         description: input.description,
         location: input.location,
+        category: input.category,
+        primary_image_url: input.primary_image_url,
+        gallery_image_urls: input.gallery_image_urls,
         timezone: input.timezone,
         dtstart_local: input.dtstart_local,
         duration_min: input.duration_min,
@@ -651,9 +663,25 @@ export class CalendarService {
   }
 
   async getEvent(userId: string, eventId: string): Promise<unknown> {
-    const ev = await maybeOne<{ event_id: string; title: string; occurs_at: string; congregation_id: string }>(
+    // Join the parent series for the descriptive fields + cover image / gallery
+    // (the materialized `events` row only carries title + occurs_at).
+    const ev = await maybeOne<{
+      event_id: string;
+      title: string;
+      occurs_at: string;
+      congregation_id: string;
+      description: string | null;
+      location: string | null;
+      category: string | null;
+      primary_image_url: string | null;
+      gallery_image_urls: string[] | null;
+    }>(
       this.pool,
-      `SELECT event_id, title, occurs_at, congregation_id FROM events WHERE event_id = $1`,
+      `SELECT e.event_id, e.title, e.occurs_at, e.congregation_id,
+              s.description, s.location, s.category, s.primary_image_url, s.gallery_image_urls
+         FROM events e
+         LEFT JOIN event_series s ON s.series_id = e.series_id
+        WHERE e.event_id = $1`,
       [eventId],
     );
     if (!ev) throw new ApiError("NOT_FOUND", "Event not found");
@@ -663,13 +691,55 @@ export class CalendarService {
       [eventId],
     );
     const mine = await maybeOne<{ status: string }>(this.pool, `SELECT status FROM event_rsvps WHERE event_id = $1 AND user_id = $2`, [eventId, userId]);
+    // Primary first, then the gallery — what the mobile detail carousel renders.
+    const images = [ev.primary_image_url, ...(ev.gallery_image_urls ?? [])].filter((u): u is string => !!u);
     return {
       event_id: ev.event_id,
       title: ev.title,
       occurs_at: ev.occurs_at,
+      description: ev.description ?? null,
+      location: ev.location ?? null,
+      category: ev.category ?? null,
+      primary_image_url: ev.primary_image_url ?? null,
+      images,
       rsvp_counts: Object.fromEntries(counts.map((r) => [r.status, r.n])),
       my_rsvp: mine?.status ?? null,
     };
+  }
+
+  // ---------------- Homepage feature toggle (single featured event) ----------------
+
+  /** Feature one event series on the mobile homepage. Exactly one may be featured
+   *  at a time (partial unique index); unset others in the same tx. Admin+ only. */
+  async setSeriesFeatured(principal: Principal, seriesId: string, featured: boolean): Promise<{ is_featured: boolean }> {
+    if (principal.role !== "Admin" && principal.role !== "SuperAdmin") {
+      throw new ApiError("FORBIDDEN_SCOPE", "Only admins can feature events on the homepage");
+    }
+    return tx(this.pool, async (c) => {
+      const s = await maybeOne<{ congregation_id: string }>(c, `SELECT congregation_id FROM event_series WHERE series_id = $1 AND deleted_at IS NULL`, [seriesId]);
+      if (!s) throw new ApiError("NOT_FOUND", "Series not found");
+      if (s.congregation_id !== principal.congregationId && principal.role !== "SuperAdmin") {
+        throw new ApiError("FORBIDDEN_SCOPE", "Series outside your congregation");
+      }
+      if (featured) await c.query(`UPDATE event_series SET is_featured = false WHERE is_featured = true`);
+      await c.query(`UPDATE event_series SET is_featured = $2 WHERE series_id = $1`, [seriesId, featured]);
+      await audit(c, principal.userId, "calendar.series_featured", "event_series", seriesId, { featured });
+      return { is_featured: featured };
+    });
+  }
+
+  /** The single homepage-featured event for the mobile Home screen (or null). */
+  async featuredEvent(congregationId: string): Promise<unknown | null> {
+    return (
+      (await maybeOne(
+        this.pool,
+        `SELECT series_id, title, description, location, category, primary_image_url, gallery_image_urls, dtstart_local
+           FROM event_series
+          WHERE is_featured = true AND deleted_at IS NULL AND congregation_id = $1
+          LIMIT 1`,
+        [congregationId],
+      )) ?? null
+    );
   }
 
   // ---------------- Leader: RSVP roster (Events page) ----------------

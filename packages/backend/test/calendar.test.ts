@@ -404,3 +404,66 @@ describe("series pause / resume (Events page)", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
+
+describe("event images + homepage feature (migration 52)", () => {
+  let cong: string, admin: string, member: string;
+  beforeEach(async () => {
+    await resetDb();
+    cong = await createCongregation();
+    admin = (await createUser({ congregationId: cong, role: "Admin", email: "a@dev.local" })).user_id;
+    member = (await createUser({ congregationId: cong, role: "Student", email: "m@dev.local" })).user_id;
+  });
+  afterAll(async () => {
+    await closeTestPool();
+  });
+
+  it("stores a cover + gallery, surfaces them on the member detail carousel, and features one on the homepage", async () => {
+    const s = (await svc().createSeries(principal(admin, "Admin", cong), {
+      title: "Easter Convention",
+      timezone: "Africa/Nairobi",
+      dtstart_local: "2026-06-07T09:00:00",
+      duration_min: 90,
+      rrule: "FREQ=WEEKLY;BYDAY=SU;COUNT=8",
+      visibility: "congregation",
+      primary_image_url: "https://res.cloudinary.com/x/cover.jpg",
+      gallery_image_urls: ["https://res.cloudinary.com/x/g1.jpg", "https://res.cloudinary.com/x/g2.jpg"],
+    })) as { series_id: string };
+
+    await svc().materialize(s.series_id);
+    const ev = await testPool().query("SELECT event_id FROM events WHERE series_id=$1 ORDER BY occurrence_start LIMIT 1", [s.series_id]);
+    const detail = (await svc().getEvent(member, ev.rows[0].event_id)) as { images: string[]; primary_image_url: string };
+    expect(detail.primary_image_url).toContain("cover.jpg");
+    expect(detail.images).toHaveLength(3); // primary + 2 gallery
+    expect(detail.images[0]).toContain("cover.jpg");
+
+    // No featured event yet.
+    expect(await svc().featuredEvent(cong)).toBeNull();
+    // Feature it on the homepage.
+    const feat = await svc().setSeriesFeatured(principal(admin, "Admin", cong), s.series_id, true);
+    expect(feat.is_featured).toBe(true);
+    const home = (await svc().featuredEvent(cong)) as { series_id: string; primary_image_url: string };
+    expect(home.series_id).toBe(s.series_id);
+    expect(home.primary_image_url).toContain("cover.jpg");
+    // Unfeature.
+    await svc().setSeriesFeatured(principal(admin, "Admin", cong), s.series_id, false);
+    expect(await svc().featuredEvent(cong)).toBeNull();
+  });
+
+  it("updateSeries can change the cover image and gallery", async () => {
+    const s = (await svc().createSeries(principal(admin, "Admin", cong), {
+      title: "Prayer Night",
+      timezone: "Africa/Nairobi",
+      dtstart_local: "2026-06-07T18:00:00",
+      duration_min: 60,
+      rrule: "FREQ=WEEKLY;BYDAY=FR;COUNT=2",
+      visibility: "congregation",
+    })) as { series_id: string };
+    await svc().updateSeries(principal(admin, "Admin", cong), s.series_id, {
+      primary_image_url: "https://res.cloudinary.com/x/new.jpg",
+      gallery_image_urls: ["https://res.cloudinary.com/x/extra.jpg"],
+    });
+    const row = await testPool().query("SELECT primary_image_url, gallery_image_urls FROM event_series WHERE series_id=$1", [s.series_id]);
+    expect(row.rows[0].primary_image_url).toContain("new.jpg");
+    expect(row.rows[0].gallery_image_urls).toHaveLength(1);
+  });
+});

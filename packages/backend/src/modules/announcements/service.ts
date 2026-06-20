@@ -26,12 +26,16 @@ export interface AnnouncementRow {
   scheduled_at: string | null;
   sent_at: string | null;
   banner_expires_at: string | null;
+  primary_image_url: string | null;
+  gallery_image_urls: string[] | null;
+  is_featured: boolean;
   created_by: string;
   created_at: string;
 }
 
 const SELECT_COLS = `announcement_id, title, body, channels, audience_kind, audience_cells,
-  audience_level, status, scheduled_at, sent_at, banner_expires_at, created_by, created_at`;
+  audience_level, status, scheduled_at, sent_at, banner_expires_at,
+  primary_image_url, gallery_image_urls, is_featured, created_by, created_at`;
 
 export class AnnouncementService {
   private readonly notifications: NotificationService;
@@ -64,6 +68,10 @@ export class AnnouncementService {
       ]),
       scheduled_at: z.string().datetime().optional(), // omit = stays a draft until /send
       banner_expires_at: z.string().datetime().optional(),
+      // Optional cover image + a small gallery (up to 5 extra → 6 total) shown as a
+      // carousel on the mobile announcement detail.
+      primary_image_url: z.string().url().max(2048).nullable().optional(),
+      gallery_image_urls: z.array(z.string().url().max(2048)).max(5).optional(),
     })
     .strict();
 
@@ -82,8 +90,8 @@ export class AnnouncementService {
       this.pool,
       `INSERT INTO announcements
          (title, body, channels, audience_kind, audience_cells, audience_level,
-          status, scheduled_at, banner_expires_at, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          status, scheduled_at, banner_expires_at, created_by, primary_image_url, gallery_image_urls)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING ${SELECT_COLS}`,
       [
         input.title,
@@ -96,6 +104,8 @@ export class AnnouncementService {
         input.scheduled_at ?? null,
         input.banner_expires_at ?? null,
         adminId,
+        input.primary_image_url ?? null,
+        input.gallery_image_urls ?? [],
       ],
     );
     await audit(this.pool, adminId, "announcement.created", "announcements", row.announcement_id, {
@@ -117,9 +127,10 @@ export class AnnouncementService {
       `UPDATE announcements
           SET title=$2, body=$3, channels=$4, audience_kind=$5, audience_cells=$6,
               audience_level=$7, scheduled_at=$8, banner_expires_at=$9,
+              primary_image_url=$10, gallery_image_urls=$11,
               status = CASE WHEN $8::timestamptz IS NULL THEN 'draft' ELSE 'scheduled' END,
               updated_at = now()
-        WHERE announcement_id = $1 AND status IN ('draft','scheduled')
+        WHERE announcement_id = $1 AND status IN ('draft','scheduled') AND deleted_at IS NULL
         RETURNING ${SELECT_COLS}`,
       [
         id,
@@ -131,6 +142,8 @@ export class AnnouncementService {
         a.kind === "level" ? a.level_number : null,
         input.scheduled_at ?? null,
         input.banner_expires_at ?? null,
+        input.primary_image_url ?? null,
+        input.gallery_image_urls ?? [],
       ],
     );
     if (!row) throw new ApiError("CONFLICT", "Only draft or scheduled announcements can be edited");
@@ -151,6 +164,67 @@ export class AnnouncementService {
     return row;
   }
 
+  /** Soft-delete an announcement (any status). Removes it from admin lists, the
+   *  member feed, and the homepage feature. */
+  async remove(adminId: string, id: string): Promise<{ deleted: boolean }> {
+    const row = await maybeOne<{ announcement_id: string }>(
+      this.pool,
+      `UPDATE announcements SET deleted_at = now(), is_featured = false, updated_at = now()
+        WHERE announcement_id = $1 AND deleted_at IS NULL
+        RETURNING announcement_id`,
+      [id],
+    );
+    if (!row) throw new ApiError("NOT_FOUND", "Announcement not found");
+    await audit(this.pool, adminId, "announcement.deleted", "announcements", id, {});
+    return { deleted: true };
+  }
+
+  /** Feature one announcement on the mobile homepage. Exactly one may be featured
+   *  at a time (partial unique index); unset others in the same tx. */
+  async setFeatured(adminId: string, id: string, featured: boolean): Promise<{ is_featured: boolean }> {
+    return tx(this.pool, async (c) => {
+      const a = await maybeOne<{ announcement_id: string }>(c, `SELECT announcement_id FROM announcements WHERE announcement_id = $1 AND deleted_at IS NULL`, [id]);
+      if (!a) throw new ApiError("NOT_FOUND", "Announcement not found");
+      if (featured) await c.query(`UPDATE announcements SET is_featured = false WHERE is_featured = true`);
+      await c.query(`UPDATE announcements SET is_featured = $2, updated_at = now() WHERE announcement_id = $1`, [id, featured]);
+      await audit(c, adminId, "announcement.featured", "announcements", id, { featured });
+      return { is_featured: featured };
+    });
+  }
+
+  /** The single homepage-featured announcement for the mobile Home screen (or null). */
+  async featured(): Promise<unknown | null> {
+    return (
+      (await maybeOne(
+        this.pool,
+        `SELECT announcement_id, title, body, primary_image_url, gallery_image_urls, sent_at
+           FROM announcements
+          WHERE is_featured = true AND deleted_at IS NULL AND status = 'sent'
+          LIMIT 1`,
+      )) ?? null
+    );
+  }
+
+  /** Member-facing detail for one announcement (carousel images + body). Scoped to
+   *  members who actually received it (a banner delivery row exists). */
+  async memberDetail(userId: string, id: string): Promise<unknown> {
+    const row = await maybeOne(
+      this.pool,
+      `SELECT a.announcement_id, a.title, a.body, a.sent_at, a.banner_expires_at,
+              a.primary_image_url, a.gallery_image_urls,
+              d.opened_at IS NOT NULL AS opened
+         FROM announcement_deliveries d
+         JOIN announcements a USING (announcement_id)
+        WHERE d.user_id = $1 AND d.channel = 'banner' AND a.status = 'sent' AND a.deleted_at IS NULL
+          AND a.announcement_id = $2`,
+      [userId, id],
+    );
+    if (!row) throw new ApiError("NOT_FOUND", "Announcement not found");
+    const r = row as { primary_image_url: string | null; gallery_image_urls: string[] | null };
+    const images = [r.primary_image_url, ...(r.gallery_image_urls ?? [])].filter((u): u is string => !!u);
+    return { ...row, images };
+  }
+
   async list(q: z.infer<typeof AnnouncementService.List>): Promise<{ data: unknown[] }> {
     const rows = await many(
       this.pool,
@@ -160,7 +234,7 @@ export class AnnouncementService {
               (SELECT count(*)::int FROM announcement_deliveries d
                 WHERE d.announcement_id = a.announcement_id AND d.opened_at IS NOT NULL) AS opened_count
          FROM announcements a
-        WHERE ($1::text IS NULL OR status = $1)
+        WHERE ($1::text IS NULL OR status = $1) AND a.deleted_at IS NULL
         ORDER BY created_at DESC
         LIMIT $2`,
       [q.status ?? null, q.limit],
@@ -172,7 +246,7 @@ export class AnnouncementService {
   async get(id: string): Promise<unknown> {
     const row = await maybeOne<AnnouncementRow>(
       this.pool,
-      `SELECT ${SELECT_COLS} FROM announcements WHERE announcement_id = $1`,
+      `SELECT ${SELECT_COLS} FROM announcements WHERE announcement_id = $1 AND deleted_at IS NULL`,
       [id],
     );
     if (!row) throw new ApiError("NOT_FOUND", "Announcement not found");
@@ -248,10 +322,11 @@ export class AnnouncementService {
     const rows = await many(
       this.pool,
       `SELECT a.announcement_id, a.title, a.body, a.sent_at, a.banner_expires_at,
+              a.primary_image_url, a.gallery_image_urls,
               d.opened_at IS NOT NULL AS opened
          FROM announcement_deliveries d
          JOIN announcements a USING (announcement_id)
-        WHERE d.user_id = $1 AND d.channel = 'banner' AND a.status = 'sent'
+        WHERE d.user_id = $1 AND d.channel = 'banner' AND a.status = 'sent' AND a.deleted_at IS NULL
           AND (a.banner_expires_at IS NULL OR a.banner_expires_at > now())
         ORDER BY a.sent_at DESC
         LIMIT 50`,

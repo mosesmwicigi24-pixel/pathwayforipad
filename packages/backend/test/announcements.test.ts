@@ -220,3 +220,51 @@ describe("scheduling", () => {
     expect(await svc.dispatchDue(new Date(Date.now() + 120_000))).toBe(0);
   });
 });
+
+describe("images + homepage feature + delete + member detail (migration 52)", () => {
+  it("stores a primary image + gallery, features on homepage, serves member detail, and soft-deletes", async () => {
+    const created = await agent()
+      .post("/v1/admin/announcements")
+      .set(auth(adminTok))
+      .send(
+        compose({
+          primary_image_url: "https://res.cloudinary.com/x/a.jpg",
+          gallery_image_urls: ["https://res.cloudinary.com/x/b.jpg", "https://res.cloudinary.com/x/c.jpg"],
+        }),
+      );
+    expect(created.status).toBe(201);
+    expect(created.body.primary_image_url).toContain("a.jpg");
+    expect(created.body.gallery_image_urls).toHaveLength(2);
+    const id = created.body.announcement_id as string;
+
+    // Send so memberA receives a banner delivery (needed for member detail + featured read).
+    expect((await agent().post(`/v1/admin/announcements/${id}/send`).set(auth(adminTok))).status).toBe(200);
+
+    // Feature on the homepage (single featured invariant).
+    const feat = await agent().post(`/v1/admin/announcements/${id}/homepage`).set(auth(adminTok));
+    expect(feat.body.is_featured).toBe(true);
+    const home = await agent().get("/v1/home/featured-announcement").set(auth(memberATok));
+    expect(home.body.data.announcement_id).toBe(id);
+
+    // Member detail returns the carousel images (primary first → 3 total).
+    const detail = await agent().get(`/v1/announcements/${id}`).set(auth(memberATok));
+    expect(detail.status).toBe(200);
+    expect(detail.body.images).toHaveLength(3);
+    expect(detail.body.images[0]).toContain("a.jpg");
+
+    // Soft delete → gone from admin list, featured cleared.
+    const del = await agent().delete(`/v1/admin/announcements/${id}`).set(auth(adminTok));
+    expect(del.body.deleted).toBe(true);
+    const list = await agent().get("/v1/admin/announcements").set(auth(adminTok));
+    expect((list.body.data as Array<{ announcement_id: string }>).some((a) => a.announcement_id === id)).toBe(false);
+    expect((await agent().get("/v1/home/featured-announcement").set(auth(memberATok))).body.data).toBeNull();
+  });
+
+  it("rejects a gallery larger than 5 images", async () => {
+    const tooMany = await agent()
+      .post("/v1/admin/announcements")
+      .set(auth(adminTok))
+      .send(compose({ gallery_image_urls: Array.from({ length: 6 }, (_, i) => `https://res.cloudinary.com/x/${i}.jpg`) }));
+    expect(tooMany.status).toBe(400);
+  });
+});

@@ -5,7 +5,7 @@
 // verse for today (WEB default per D-M4), encouragement, and announcements —
 // real data wherever the API serves it; spec demo content elsewhere.
 import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { Linking, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Image, Linking, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import {
   BadgeCheck,
   Bell,
@@ -32,6 +32,8 @@ import {
   useAchievements,
   useCalendar,
   useFeaturedCell,
+  useFeaturedEvent,
+  useFeaturedAnnouncement,
   useMe,
   useMyAnnouncements,
   useNotifications,
@@ -96,6 +98,8 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: verse } = useScripture("Psalm 119:105");
   const { data: welcomeVideo, refetch: refetchWelcomeVideo } = useWelcomeVideo();
   const { data: featuredCell, refetch: refetchFeaturedCell } = useFeaturedCell();
+  const { data: featuredEvent, refetch: refetchFeaturedEvent } = useFeaturedEvent();
+  const { data: featuredAnnouncement, refetch: refetchFeaturedAnnouncement } = useFeaturedAnnouncement();
   const [refreshing, setRefreshing] = useState(false);
 
   // Pull-to-refresh re-pulls every Home data source from the backend.
@@ -110,11 +114,13 @@ export function HomeDashboardScreen(): ReactElement {
         refetchAnnouncements(),
         refetchWelcomeVideo(),
         refetchFeaturedCell(),
+        refetchFeaturedEvent(),
+        refetchFeaturedAnnouncement(),
       ]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetch, refetchMe, refetchAch, refetchNotifs, refetchAnnouncements, refetchWelcomeVideo, refetchFeaturedCell]);
+  }, [refetch, refetchMe, refetchAch, refetchNotifs, refetchAnnouncements, refetchWelcomeVideo, refetchFeaturedCell, refetchFeaturedEvent, refetchFeaturedAnnouncement]);
   const [fromIso, toIso] = useMemo(() => {
     const now = new Date();
     return [now.toISOString(), new Date(now.getTime() + 7 * 86_400_000).toISOString()];
@@ -157,14 +163,14 @@ export function HomeDashboardScreen(): ReactElement {
   // openable link (hosted videos with no key come back as url:null).
   const welcomeUrl = welcomeVideo ? welcomeVideoUrl(welcomeVideo) : null;
 
-  const openAnnouncement = (id: string): void => {
+  const openAnnouncement = (id: string, title?: string): void => {
     void NuruApi.openAnnouncement(id)
       .then(() => {
         invalidateQueries("myAnnouncements");
         void refetchAnnouncements();
       })
       .catch(() => undefined);
-    nav.navigate("Tabs", { screen: "Events" });
+    nav.navigate("AnnouncementDetail", { announcementId: id, ...(title ? { title } : {}) });
   };
 
   return (
@@ -292,6 +298,48 @@ export function HomeDashboardScreen(): ReactElement {
               </View>
             ) : null}
           </View>
+        ) : null}
+
+        {/* ── Featured event (homepage toggle) ───────────────────────── */}
+        {featuredEvent ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() =>
+              nav.navigate("EventDetail", {
+                eventId: featuredEvent.series_id,
+                title: featuredEvent.title,
+                startAt: featuredEvent.dtstart_local,
+                ...(featuredEvent.location ? { location: featuredEvent.location } : {}),
+              })
+            }
+            style={({ pressed }) => [st.card, { padding: 0, overflow: "hidden" }, pressed && { opacity: 0.9 }]}
+          >
+            {featuredEvent.primary_image_url ? (
+              <Image source={{ uri: featuredEvent.primary_image_url }} style={{ width: "100%", height: 150 }} resizeMode="cover" />
+            ) : null}
+            <View style={{ padding: spacing.base }}>
+              <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>FEATURED EVENT</T>
+              <T serif style={{ fontSize: 18, color: palette.ink, marginTop: spacing.sm }}>{featuredEvent.title}</T>
+              {featuredEvent.location ? <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>{featuredEvent.location}</T> : null}
+            </View>
+          </Pressable>
+        ) : null}
+
+        {/* ── Featured announcement (homepage toggle) ────────────────── */}
+        {featuredAnnouncement ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => openAnnouncement(featuredAnnouncement.announcement_id, featuredAnnouncement.title)}
+            style={({ pressed }) => [st.card, { padding: 0, overflow: "hidden" }, pressed && { opacity: 0.9 }]}
+          >
+            {featuredAnnouncement.primary_image_url ? (
+              <Image source={{ uri: featuredAnnouncement.primary_image_url }} style={{ width: "100%", height: 150 }} resizeMode="cover" />
+            ) : null}
+            <View style={{ padding: spacing.base }}>
+              <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>FEATURED ANNOUNCEMENT</T>
+              <T serif style={{ fontSize: 18, color: palette.ink, marginTop: spacing.sm }}>{featuredAnnouncement.title}</T>
+            </View>
+          </Pressable>
         ) : null}
 
         {/* ── Resume card (real pathway data) ────────────────────────── */}

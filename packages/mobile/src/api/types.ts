@@ -106,6 +106,11 @@ export interface EventDetail {
   event_id: string;
   title: string;
   occurs_at: string;
+  description?: string | null;
+  location?: string | null;
+  category?: string | null;
+  primary_image_url?: string | null;
+  images?: string[];
   rsvp_counts: { going?: number; maybe?: number; declined?: number };
   my_rsvp: "going" | "maybe" | "declined" | null;
 }
@@ -446,7 +451,43 @@ export interface MyAnnouncement {
   body: string;
   sent_at: string | null;
   banner_expires_at: string | null;
+  primary_image_url?: string | null;
+  gallery_image_urls?: string[] | null;
   opened: boolean;
+}
+
+// Full announcement detail (carousel images + body), served by GET /announcements/:id.
+export interface AnnouncementDetail {
+  announcement_id: string;
+  title: string;
+  body: string;
+  sent_at: string | null;
+  banner_expires_at: string | null;
+  primary_image_url: string | null;
+  gallery_image_urls: string[] | null;
+  images: string[];
+  opened: boolean;
+}
+
+// Homepage-featured items for the mobile Home screen (null when none).
+export interface FeaturedEvent {
+  series_id: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  category: string | null;
+  primary_image_url: string | null;
+  gallery_image_urls: string[] | null;
+  dtstart_local: string;
+}
+
+export interface FeaturedAnnouncement {
+  announcement_id: string;
+  title: string;
+  body: string;
+  primary_image_url: string | null;
+  gallery_image_urls: string[] | null;
+  sent_at: string | null;
 }
 
 export interface ScripturePassage {

@@ -12,6 +12,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { GradientBg, Glow, T } from "../theme/components";
+import { ImageCarousel } from "../components/ImageCarousel";
 import { useEvent } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
@@ -100,6 +101,13 @@ export function EventDetailScreen(): ReactElement {
         </View>
 
         <View style={{ paddingHorizontal: spacing.screen, marginTop: -spacing.lg }}>
+          {/* Image carousel (cover + gallery) — only when the event has images */}
+          {event?.images && event.images.length > 0 ? (
+            <View style={{ marginBottom: spacing.base }}>
+              <ImageCarousel images={event.images} height={210} />
+            </View>
+          ) : null}
+
           {/* Meta card (2×2) */}
           <View style={st.metaCard}>
             <View style={st.metaRow}>
@@ -116,7 +124,9 @@ export function EventDetailScreen(): ReactElement {
           <View style={[st.card, { marginTop: spacing.base }]}>
             <T variant="micro" style={st.cardKicker}>ABOUT THIS GATHERING</T>
             <T variant="body" tone="secondary" style={{ marginTop: spacing.sm, lineHeight: 22 }}>
-              Part of your church and pathway schedule. Add it to your plans and arrive a few minutes early.
+              {event?.description?.trim()
+                ? event.description
+                : "Part of your church and pathway schedule. Add it to your plans and arrive a few minutes early."}
             </T>
           </View>
 

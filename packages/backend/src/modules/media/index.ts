@@ -4,7 +4,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { AppContext } from "../../http/context.js";
-import { authenticate, requirePermission } from "../../http/auth.js";
+import { authenticate, requirePermission, requireRole } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { MediaService } from "./service.js";
 import { VideoService } from "./video.js";
@@ -35,6 +35,21 @@ export function registerMedia(ctx: AppContext): Router {
     auth,
     handler(async (req, res) => {
       res.json(await video.manifest(requirePrincipal(req).userId, req.params.id ?? ""));
+    }),
+  );
+
+  // Broker Cloudinary signed-upload params for an admin image (event/announcement
+  // cover or gallery). Client POSTs bytes directly to Cloudinary (§4.5). Instructor+
+  // (events are Instructor-creatable; announcements are Admin-gated at their route).
+  r.post(
+    "/admin/media/images/sign",
+    auth, requireRole("Instructor"),
+    handler(async (req, res) => {
+      const { folder } = parseBody(
+        z.object({ folder: z.enum(["events", "announcements"]).default("events") }),
+        req.body ?? {},
+      );
+      res.status(201).json(media.signUpload({ folder: `nuru/${folder}` }));
     }),
   );
 

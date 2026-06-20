@@ -50,6 +50,9 @@ import type {
   NuruTurn,
   WelcomeVideo,
   FeaturedCell,
+  AnnouncementDetail,
+  FeaturedEvent,
+  FeaturedAnnouncement,
 } from "./types";
 
 export const api: AxiosInstance = axios.create({
@@ -464,6 +467,18 @@ export const NuruApi = {
   async openAnnouncement(id: string): Promise<unknown> {
     const { data } = await api.post(`/announcements/${id}/open`);
     return data;
+  },
+  async announcement(id: string): Promise<AnnouncementDetail> {
+    const { data } = await api.get<AnnouncementDetail>(`/announcements/${id}`);
+    return data;
+  },
+  async featuredEvent(): Promise<FeaturedEvent | null> {
+    const { data } = await api.get<{ data: FeaturedEvent | null }>("/home/featured-event");
+    return data.data;
+  },
+  async featuredAnnouncement(): Promise<FeaturedAnnouncement | null> {
+    const { data } = await api.get<{ data: FeaturedAnnouncement | null }>("/home/featured-announcement");
+    return data.data;
   },
   async scripture(ref: string, version?: string): Promise<ScripturePassage> {
     const { data } = await api.get<ScripturePassage>("/scripture", {

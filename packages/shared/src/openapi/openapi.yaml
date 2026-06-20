@@ -1708,6 +1708,70 @@ paths:
       responses:
         "200": { description: Featured cell or null }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/media/images/sign:
+    post:
+      tags: [media]
+      summary: Instructor+. Broker Cloudinary signed-upload params for an event/announcement cover or gallery image (client POSTs bytes directly to Cloudinary).
+      responses:
+        "201": { description: Signed upload params }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/events/series/{id}/homepage:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [calendar]
+      summary: Admin. Feature this event series on the mobile homepage (single featured at a time; unsets any other).
+      responses:
+        "200": { description: Featured }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [calendar]
+      summary: Admin. Remove this event series from the homepage feature.
+      responses:
+        "200": { description: Unfeatured }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /home/featured-event:
+    get:
+      tags: [calendar]
+      summary: Member. The current homepage-featured event (cover image + descriptive fields) or null.
+      responses:
+        "200": { description: Featured event or null }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/announcements/{id}/homepage:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [announcements]
+      summary: Admin. Feature this announcement on the mobile homepage (single featured at a time; unsets any other).
+      responses:
+        "200": { description: Featured }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [announcements]
+      summary: Admin. Remove this announcement from the homepage feature.
+      responses:
+        "200": { description: Unfeatured }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /home/featured-announcement:
+    get:
+      tags: [announcements]
+      summary: Member. The current homepage-featured announcement (cover image + body) or null.
+      responses:
+        "200": { description: Featured announcement or null }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /announcements/{id}:
+    get:
+      tags: [announcements]
+      summary: Member. Full detail for one announcement received by the caller (carousel images + body); 404 if not delivered to them.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Announcement detail }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/members:
     get:
       tags: [portal]
@@ -2042,6 +2106,15 @@ paths:
         "200": { description: Updated }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [announcements]
+      summary: Admin. Soft-delete an announcement (any status); removes it from lists, the member feed, and the homepage feature.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Deleted }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/announcements/{id}/send:
     post:
       tags: [announcements]

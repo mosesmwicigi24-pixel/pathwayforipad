@@ -21,8 +21,12 @@ import {
   Download,
   Eye,
   Filter,
+  Image as ImageIcon,
   Mail,
   MapPin,
+  Pencil,
+  Star,
+  Trash2,
   MessageSquare,
   Mic2,
   MoreHorizontal,
@@ -55,6 +59,7 @@ import {
   type MemberRow,
   type AnnouncementRow,
   type AnnouncementStats,
+  uploadToCloudinary,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -510,6 +515,158 @@ function SectionDivider({ label }: { label: string }): ReactElement {
   );
 }
 
+// A controlled toggle (vs the uncontrolled ToggleRow). Used for "Feature on homepage".
+function Toggle({ on, onChange, label, icon }: { on: boolean; onChange: (v: boolean) => void; label: string; icon: ReactNode }): ReactElement {
+  return (
+    <button type="button" onClick={() => onChange(!on)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left w-full" style={{ background: "var(--input-background)", border: "1px solid var(--border)" }}>
+      <span className="rounded-md flex items-center justify-center" style={{ width: 32, height: 18, background: on ? "#16A34A" : "#D1D5DB", position: "relative" }}>
+        <span className="rounded-full bg-white absolute" style={{ width: 14, height: 14, top: 2, left: on ? 16 : 2, transition: "left 0.15s" }} />
+      </span>
+      <span style={{ color: "var(--muted-foreground)" }}>{icon}</span>
+      <span style={{ fontSize: 13, color: "var(--foreground)" }}>{label}</span>
+    </button>
+  );
+}
+
+// Cover image + a small gallery (up to 5 extra). Each slot can be filled by a
+// Cloudinary upload OR a pasted image URL — so it works even before prod
+// Cloudinary is configured. Bytes go straight to Cloudinary, never our server.
+function ImagesField({
+  folder,
+  primary,
+  gallery,
+  onPrimary,
+  onGallery,
+}: {
+  folder: "events" | "announcements";
+  primary: string;
+  gallery: string[];
+  onPrimary: (url: string) => void;
+  onGallery: (urls: string[]) => void;
+}): ReactElement {
+  const [busy, setBusy] = useState(false);
+  const [uErr, setUErr] = useState<string | null>(null);
+  const [pasteUrl, setPasteUrl] = useState("");
+
+  async function uploadFile(file: File): Promise<string | null> {
+    setBusy(true);
+    setUErr(null);
+    try {
+      const sign = await OpsApi.signAdminImage(folder);
+      const { secure_url } = await uploadToCloudinary(sign, file);
+      return secure_url;
+    } catch (e) {
+      setUErr(errorMessage(e, "Upload failed — paste an image URL instead."));
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function pickPrimary(): void {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const f = input.files?.[0];
+      if (f) void uploadFile(f).then((url) => url && onPrimary(url));
+    };
+    input.click();
+  }
+
+  function pickGallery(): void {
+    if (gallery.length >= 5) return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const f = input.files?.[0];
+      if (f) void uploadFile(f).then((url) => url && onGallery([...gallery, url].slice(0, 5)));
+    };
+    input.click();
+  }
+
+  const thumb = { width: 64, height: 64, borderRadius: 10, objectFit: "cover" as const, border: "1px solid var(--border)" };
+  const btn = { fontSize: 12, fontWeight: 600, borderRadius: 10, padding: "8px 12px", border: "1px solid var(--border)", background: "var(--secondary)", color: "var(--foreground)", cursor: "pointer" };
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Primary */}
+      <div className="flex items-center gap-3">
+        {primary ? (
+          <img src={primary} alt="cover" style={thumb} />
+        ) : (
+          <div style={{ ...thumb, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--secondary)", color: "var(--muted-foreground)" }}>
+            <ImageIcon size={20} />
+          </div>
+        )}
+        <div className="flex flex-col gap-2 flex-1">
+          <div className="flex gap-2">
+            <button type="button" onClick={pickPrimary} disabled={busy} style={btn}>{busy ? "Uploading…" : "Upload cover"}</button>
+            {primary ? <button type="button" onClick={() => onPrimary("")} style={{ ...btn, color: "#B91C1C" }}>Remove</button> : null}
+          </div>
+          <input
+            value={primary}
+            onChange={(e) => onPrimary(e.target.value)}
+            placeholder="…or paste a cover image URL"
+            className="w-full rounded-lg px-3 py-2 outline-none"
+            style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 12 }}
+          />
+        </div>
+      </div>
+
+      {/* Gallery */}
+      <div>
+        <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginBottom: 6 }}>More images (up to 5) — shown in the carousel after the cover.</div>
+        <div className="flex flex-wrap items-center gap-2">
+          {gallery.map((url, i) => (
+            <div key={`${url}-${i}`} style={{ position: "relative" }}>
+              <img src={url} alt={`gallery ${i + 1}`} style={thumb} />
+              <button
+                type="button"
+                onClick={() => onGallery(gallery.filter((_, j) => j !== i))}
+                style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 10, background: "#B91C1C", color: "#fff", border: "none", cursor: "pointer", fontSize: 11, lineHeight: "20px" }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {gallery.length < 5 ? (
+            <button type="button" onClick={pickGallery} disabled={busy} style={{ ...thumb, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--secondary)", color: "var(--muted-foreground)", cursor: "pointer" }}>
+              <Plus size={18} />
+            </button>
+          ) : null}
+        </div>
+        {gallery.length < 5 ? (
+          <div className="flex gap-2 mt-2">
+            <input
+              value={pasteUrl}
+              onChange={(e) => setPasteUrl(e.target.value)}
+              placeholder="…or paste an image URL"
+              className="flex-1 rounded-lg px-3 py-2 outline-none"
+              style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 12 }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const u = pasteUrl.trim();
+                if (u) {
+                  onGallery([...gallery, u].slice(0, 5));
+                  setPasteUrl("");
+                }
+              }}
+              style={btn}
+            >
+              Add
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {uErr ? <div style={{ fontSize: 11, color: "#B91C1C" }}>{uErr}</div> : null}
+    </div>
+  );
+}
+
 function EmptyState({ icon, title, body, cta, onCta }: { icon: ReactNode; title: string; body: string; cta: string; onCta?: () => void }): ReactElement {
   return (
     <div className="flex flex-col items-center text-center py-10">
@@ -588,7 +745,9 @@ export function Events(): ReactElement {
   const [announcementDrawerId, setAnnouncementDrawerId] = useState<string | null>(null);
 
   const [showCreateEvent, setShowCreateEvent] = useState(false);
+  const [editEvent, setEditEvent] = useState<EditEventInit | null>(null);
   const [showCreateAnnouncement, setShowCreateAnnouncement] = useState(false);
+  const [editAnnouncement, setEditAnnouncement] = useState<AnnouncementRow | null>(null);
   const [showQrScreen, setShowQrScreen] = useState<string | null>(null);
   const [manualCheckinFor, setManualCheckinFor] = useState<string | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -1364,7 +1523,30 @@ export function Events(): ReactElement {
               <DrawerAction icon={<Users size={13} />} label="View attendance" onClick={() => setAttendanceDrawerId(drawerOcc.id)} />
               <DrawerAction icon={<CheckCircle2 size={13} />} label="Manual check-in" onClick={() => setManualCheckinFor(drawerOcc.id)} />
               <DrawerAction icon={<RefreshCw size={13} />} label="Reschedule" onClick={() => setShowRescheduleModal(true)} />
+              <DrawerAction
+                icon={<Pencil size={13} />}
+                label="Edit event"
+                onClick={() => {
+                  setEditEvent({ series_id: drawerOcc.seriesId, title: drawerOcc.title, location: drawerOcc.location });
+                  setDrawerOccId(null);
+                }}
+              />
               <DrawerAction icon={<X size={13} />} label="Cancel occurrence" onClick={() => setShowCancelModal(true)} danger />
+              <DrawerAction
+                icon={<Trash2 size={13} />}
+                label="Delete event"
+                danger
+                onClick={() => {
+                  if (!window.confirm("Delete this entire event series? This cannot be undone.")) return;
+                  void OpsApi.deleteSeries(drawerOcc.seriesId)
+                    .then(() => {
+                      setDrawerOccId(null);
+                      setNotice("Event deleted.");
+                      void refetch();
+                    })
+                    .catch((e) => setError(errorMessage(e, "Could not delete event.")));
+                }}
+              />
             </div>
 
             <div className="rounded-xl mt-4 p-3 flex items-start gap-2" style={{ background: "#FFFBEB", border: "1px solid #F5E0A8" }}>
@@ -1524,6 +1706,30 @@ export function Events(): ReactElement {
             setAnnouncementDrawerId(null);
             setAnnouncements(await AnnouncementsApi.list().catch(() => announcements));
           }}
+          onEdit={(a) => {
+            setAnnouncementDrawerId(null);
+            setEditAnnouncement(a);
+          }}
+          onDeleted={async () => {
+            setNotice("Announcement deleted.");
+            setAnnouncementDrawerId(null);
+            setAnnouncements(await AnnouncementsApi.list().catch(() => announcements));
+          }}
+          onError={setError}
+        />
+      )}
+
+      {/* Edit Announcement modal → AnnouncementsApi.update */}
+      {editAnnouncement && (
+        <CreateAnnouncementModal
+          events={upcoming}
+          editing={editAnnouncement}
+          onClose={() => setEditAnnouncement(null)}
+          onCreated={async () => {
+            setEditAnnouncement(null);
+            setNotice("Announcement updated.");
+            setAnnouncements(await AnnouncementsApi.list().catch(() => announcements));
+          }}
           onError={setError}
         />
       )}
@@ -1535,6 +1741,20 @@ export function Events(): ReactElement {
           onCreated={async () => {
             setShowCreateEvent(false);
             setNotice("Event created. Occurrences generated and QR attendance is ready.");
+            await refetch();
+          }}
+          onError={setError}
+        />
+      )}
+
+      {/* Edit Event modal → OpsApi.updateSeries */}
+      {editEvent && (
+        <CreateEventModal
+          editing={editEvent}
+          onClose={() => setEditEvent(null)}
+          onCreated={async () => {
+            setEditEvent(null);
+            setNotice("Event updated.");
             await refetch();
           }}
           onError={setError}
@@ -1795,7 +2015,7 @@ function AttendanceDrawer({ occ, roster, onClose, onManualCheckin }: { occ: UiOc
 /* Announcement drawer (real detail + send/cancel)                     */
 /* ------------------------------------------------------------------ */
 
-function AnnouncementDrawer({ row, onClose, onSent, onCancelled, onError }: { row: AnnouncementRow; onClose: () => void; onSent: () => void; onCancelled: () => void; onError: (m: string) => void }): ReactElement {
+function AnnouncementDrawer({ row, onClose, onSent, onCancelled, onError, onEdit, onDeleted }: { row: AnnouncementRow; onClose: () => void; onSent: () => void; onCancelled: () => void; onError: (m: string) => void; onEdit: (a: AnnouncementRow) => void; onDeleted: () => void }): ReactElement {
   const [detail, setDetail] = useState<(AnnouncementRow & { stats: AnnouncementStats[] }) | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -1820,6 +2040,18 @@ function AnnouncementDrawer({ row, onClose, onSent, onCancelled, onError }: { ro
       onCancelled();
     } catch (e) {
       onError(errorMessage(e, "Could not cancel announcement."));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove(): Promise<void> {
+    if (!window.confirm("Delete this announcement? This cannot be undone.")) return;
+    setBusy(true);
+    try {
+      await AnnouncementsApi.remove(row.announcement_id);
+      onDeleted();
+    } catch (e) {
+      onError(errorMessage(e, "Could not delete announcement."));
     } finally {
       setBusy(false);
     }
@@ -1861,6 +2093,14 @@ function AnnouncementDrawer({ row, onClose, onSent, onCancelled, onError }: { ro
           {a.status === "scheduled" && (
             <button onClick={() => void cancel()} disabled={busy} className="rounded-lg px-3 py-2" style={{ background: "#FEE2E2", color: "#B91C1C", fontSize: 12, fontWeight: 600, border: "none" }}>Cancel scheduled send</button>
           )}
+          {(a.status === "draft" || a.status === "scheduled") && (
+            <button onClick={() => onEdit(a)} disabled={busy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "var(--secondary)", color: "var(--foreground)", fontSize: 12, fontWeight: 600, border: "1px solid var(--border)" }}>
+              <Pencil size={12} /> Edit
+            </button>
+          )}
+          <button onClick={() => void remove()} disabled={busy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "#FEE2E2", color: "#B91C1C", fontSize: 12, fontWeight: 600, border: "none" }}>
+            <Trash2 size={12} /> Delete
+          </button>
         </div>
       </div>
     </Drawer>
@@ -2006,10 +2246,20 @@ const EVENT_TYPES: { label: string; category: EventCategory }[] = [
 const RECURRENCE = ["One-time", "Daily", "Weekly", "Monthly", "Custom"] as const;
 const WEEKDAY_RRULE = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 
-function CreateEventModal({ onClose, onCreated, onError }: { onClose: () => void; onCreated: () => void; onError: (m: string) => void }): ReactElement {
-  const [title, setTitle] = useState("");
+interface EditEventInit {
+  series_id: string;
+  title: string;
+  location?: string | null;
+  primary_image_url?: string | null;
+  gallery_image_urls?: string[] | null;
+  is_featured?: boolean;
+}
+
+function CreateEventModal({ onClose, onCreated, onError, editing }: { onClose: () => void; onCreated: () => void; onError: (m: string) => void; editing?: EditEventInit }): ReactElement {
+  const isEdit = !!editing;
+  const [title, setTitle] = useState(editing?.title ?? "");
   const [typeLabel, setTypeLabel] = useState(EVENT_TYPES[0]!.label);
-  const [location, setLocation] = useState("");
+  const [location, setLocation] = useState(editing?.location ?? "");
   const [startDate, setStartDate] = useState("");
   const [startTime, setStartTime] = useState("09:00");
   const [durationMin, setDurationMin] = useState(90);
@@ -2019,6 +2269,9 @@ function CreateEventModal({ onClose, onCreated, onError }: { onClose: () => void
   const [rsvp, setRsvp] = useState(true);
   const [qr, setQr] = useState(true);
   const [manual, setManual] = useState(true);
+  const [primaryImage, setPrimaryImage] = useState(editing?.primary_image_url ?? "");
+  const [gallery, setGallery] = useState<string[]>(editing?.gallery_image_urls ?? []);
+  const [featured, setFeatured] = useState(editing?.is_featured ?? false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -2031,6 +2284,41 @@ function CreateEventModal({ onClose, onCreated, onError }: { onClose: () => void
       return sel.length ? `FREQ=WEEKLY;BYDAY=${sel.join(",")}` : "FREQ=WEEKLY";
     }
     return undefined;
+  }
+
+  const images = { primary_image_url: primaryImage.trim() || null, gallery_image_urls: gallery.filter(Boolean) };
+
+  // Edit path: patch the editable fields (incl. images), then sync the homepage
+  // feature flag. Date/recurrence editing is out of scope here — those stay as set.
+  async function saveEdit(): Promise<void> {
+    if (!editing) return;
+    setErr(null);
+    if (!title.trim()) {
+      setErr("Event title is required.");
+      return;
+    }
+    const category = EVENT_TYPES.find((t) => t.label === typeLabel)?.category ?? undefined;
+    setBusy(true);
+    try {
+      await OpsApi.updateSeries(editing.series_id, {
+        title: title.trim(),
+        visibility,
+        ...(category ? { category } : {}),
+        location: location.trim() || null,
+        ...images,
+      });
+      if (featured !== (editing.is_featured ?? false)) {
+        if (featured) await OpsApi.setSeriesHomepage(editing.series_id);
+        else await OpsApi.clearSeriesHomepage(editing.series_id);
+      }
+      onCreated();
+    } catch (e) {
+      const msg = errorMessage(e, "Could not update event.");
+      setErr(msg);
+      onError(msg);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function submit(asDraft: boolean): Promise<void> {
@@ -2055,12 +2343,14 @@ function CreateEventModal({ onClose, onCreated, onError }: { onClose: () => void
       manual_checkin_enabled: manual,
       status: asDraft ? "draft" : "active",
       ...(location.trim() ? { location: location.trim() } : {}),
+      ...images,
     };
     const rrule = buildRrule();
     if (rrule) body.rrule = rrule;
     setBusy(true);
     try {
-      await OpsApi.createSeries(body);
+      const created = (await OpsApi.createSeries(body)) as { series_id?: string };
+      if (featured && created?.series_id) await OpsApi.setSeriesHomepage(created.series_id);
       onCreated();
     } catch (e) {
       const msg = errorMessage(e, "Could not create event.");
@@ -2075,8 +2365,8 @@ function CreateEventModal({ onClose, onCreated, onError }: { onClose: () => void
     <Modal onClose={onClose} width={720}>
       <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--nuru-gold)", letterSpacing: 0.5, textTransform: "uppercase" }}>New event</div>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)" }}>Create event</h2>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--nuru-gold)", letterSpacing: 0.5, textTransform: "uppercase" }}>{isEdit ? "Edit event" : "New event"}</div>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)" }}>{isEdit ? "Edit event" : "Create event"}</h2>
         </div>
         <button onClick={onClose} className="rounded-lg p-2" style={{ background: "var(--secondary)", border: "none" }}>
           <X size={16} />
@@ -2185,6 +2475,12 @@ function CreateEventModal({ onClose, onCreated, onError }: { onClose: () => void
           <ToggleRow label="Reminder 1 hour before" defaultOn icon={<Bell size={13} />} />
           <ToggleRow label="Respect quiet hours (10pm – 6am)" defaultOn icon={<ShieldCheck size={13} />} />
         </div>
+
+        <SectionDivider label="Images" />
+        <ImagesField folder="events" primary={primaryImage} gallery={gallery} onPrimary={setPrimaryImage} onGallery={setGallery} />
+
+        <SectionDivider label="Homepage" />
+        <Toggle on={featured} onChange={setFeatured} label="Feature this event on the mobile homepage" icon={<Star size={13} />} />
       </div>
 
       {err ? (
@@ -2192,10 +2488,18 @@ function CreateEventModal({ onClose, onCreated, onError }: { onClose: () => void
       ) : null}
       <div className="px-6 py-4 flex items-center justify-end gap-2" style={{ background: "var(--secondary)", borderTop: "1px solid var(--border)" }}>
         <button onClick={onClose} className="rounded-xl px-4 py-2.5" style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)", background: "transparent", border: "none" }}>Cancel</button>
-        <button onClick={() => void submit(true)} disabled={busy} className="rounded-xl px-4 py-2.5" style={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{busy ? "Saving…" : "Save as draft"}</button>
-        <button onClick={() => void submit(false)} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none" }}>
-          <QrCode size={14} /> Create event
-        </button>
+        {isEdit ? (
+          <button onClick={() => void saveEdit()} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none" }}>
+            <CheckCircle2 size={14} /> {busy ? "Saving…" : "Save changes"}
+          </button>
+        ) : (
+          <>
+            <button onClick={() => void submit(true)} disabled={busy} className="rounded-xl px-4 py-2.5" style={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{busy ? "Saving…" : "Save as draft"}</button>
+            <button onClick={() => void submit(false)} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none" }}>
+              <QrCode size={14} /> Create event
+            </button>
+          </>
+        )}
       </div>
     </Modal>
   );
@@ -2225,13 +2529,56 @@ const CHANNELS: { key: "push" | "email" | "sms" | "whatsapp" | "banner"; label: 
   { key: "banner", label: "In-app banner", icon: <Mic2 size={14} /> },
 ];
 
-function CreateAnnouncementModal({ events, onClose, onCreated, onError }: { events: UiOccurrence[]; onClose: () => void; onCreated: () => void; onError: (m: string) => void }): ReactElement {
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [channels, setChannels] = useState<Set<string>>(new Set(["push", "email"]));
-  const [audience, setAudience] = useState<"all" | "cells" | "level">("all");
+function CreateAnnouncementModal({ events, onClose, onCreated, onError, editing }: { events: UiOccurrence[]; onClose: () => void; onCreated: () => void; onError: (m: string) => void; editing?: AnnouncementRow }): ReactElement {
+  const isEdit = !!editing;
+  const [title, setTitle] = useState(editing?.title ?? "");
+  const [body, setBody] = useState(editing?.body ?? "");
+  const [channels, setChannels] = useState<Set<string>>(new Set(editing?.channels ?? ["push", "email"]));
+  const [audience, setAudience] = useState<"all" | "cells" | "level">(editing?.audience_kind ?? "all");
   const [schedule, setSchedule] = useState<"now" | "schedule">("now");
+  const [primaryImage, setPrimaryImage] = useState(editing?.primary_image_url ?? "");
+  const [gallery, setGallery] = useState<string[]>(editing?.gallery_image_urls ?? []);
+  const [featured, setFeatured] = useState(editing?.is_featured ?? false);
   const [busy, setBusy] = useState(false);
+
+  const images = { primary_image_url: primaryImage.trim() || null, gallery_image_urls: gallery.filter(Boolean) };
+
+  // The backend expects a discriminated `audience` object. This modal only picks
+  // the kind (no cell/level sub-picker yet), so cells/level fall back to "all".
+  function audiencePayload(): Record<string, unknown> {
+    if (audience === "level") return { kind: "level", level_number: 1 };
+    return { kind: "all" };
+  }
+
+  async function syncFeatured(id: string): Promise<void> {
+    if (featured === (editing?.is_featured ?? false)) return;
+    if (featured) await AnnouncementsApi.setHomepage(id);
+    else await AnnouncementsApi.clearHomepage(id);
+  }
+
+  async function saveEdit(): Promise<void> {
+    if (!editing) return;
+    if (!title.trim() || !body.trim()) {
+      onError("Announcement title and body are required.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await AnnouncementsApi.update(editing.announcement_id, {
+        title: title.trim(),
+        body: body.trim(),
+        channels: Array.from(channels),
+        audience: audiencePayload(),
+        ...images,
+      });
+      await syncFeatured(editing.announcement_id);
+      onCreated();
+    } catch (e) {
+      onError(errorMessage(e, "Could not update announcement."));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit(asDraft: boolean): Promise<void> {
     if (!title.trim() || !body.trim()) {
@@ -2242,8 +2589,9 @@ function CreateAnnouncementModal({ events, onClose, onCreated, onError }: { even
       title: title.trim(),
       body: body.trim(),
       channels: Array.from(channels),
-      audience_kind: audience,
+      audience: audiencePayload(),
       status: asDraft ? "draft" : schedule === "now" ? "draft" : "scheduled",
+      ...images,
     };
     setBusy(true);
     try {
@@ -2251,6 +2599,7 @@ function CreateAnnouncementModal({ events, onClose, onCreated, onError }: { even
       if (!asDraft && schedule === "now") {
         await AnnouncementsApi.send(created.announcement_id).catch(() => undefined);
       }
+      if (featured) await AnnouncementsApi.setHomepage(created.announcement_id).catch(() => undefined);
       onCreated();
     } catch (e) {
       onError(errorMessage(e, "Could not create announcement."));
@@ -2263,8 +2612,8 @@ function CreateAnnouncementModal({ events, onClose, onCreated, onError }: { even
     <Modal onClose={onClose} width={700}>
       <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--nuru-gold)", letterSpacing: 0.5, textTransform: "uppercase" }}>New announcement</div>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)" }}>Create announcement</h2>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--nuru-gold)", letterSpacing: 0.5, textTransform: "uppercase" }}>{isEdit ? "Edit announcement" : "New announcement"}</div>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)" }}>{isEdit ? "Edit announcement" : "Create announcement"}</h2>
         </div>
         <button onClick={onClose} className="rounded-lg p-2" style={{ background: "var(--secondary)", border: "none" }}>
           <X size={16} />
@@ -2343,6 +2692,12 @@ function CreateAnnouncementModal({ events, onClose, onCreated, onError }: { even
           })}
         </div>
 
+        <SectionDivider label="Images" />
+        <ImagesField folder="announcements" primary={primaryImage} gallery={gallery} onPrimary={setPrimaryImage} onGallery={setGallery} />
+
+        <SectionDivider label="Homepage" />
+        <Toggle on={featured} onChange={setFeatured} label="Feature this announcement on the mobile homepage" icon={<Star size={13} />} />
+
         <SectionDivider label="Live preview" />
         <div className="rounded-xl p-4" style={{ background: "var(--nuru-navy)", color: "#fff" }}>
           <div style={{ fontSize: 11, color: "rgba(232,239,245,0.7)", textTransform: "uppercase", letterSpacing: 0.5 }}>Nuru Church · Push notification</div>
@@ -2352,10 +2707,18 @@ function CreateAnnouncementModal({ events, onClose, onCreated, onError }: { even
       </div>
       <div className="px-6 py-4 flex items-center justify-end gap-2" style={{ background: "var(--secondary)", borderTop: "1px solid var(--border)" }}>
         <button onClick={onClose} className="rounded-xl px-4 py-2.5" style={{ fontSize: 13, fontWeight: 600, background: "transparent", border: "none", color: "var(--foreground)" }}>Cancel</button>
-        <button onClick={() => void submit(true)} disabled={busy} className="rounded-xl px-4 py-2.5" style={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>Save draft</button>
-        <button onClick={() => void submit(false)} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-navy)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none" }}>
-          <Send size={13} /> {schedule === "now" ? "Send now" : "Schedule"}
-        </button>
+        {isEdit ? (
+          <button onClick={() => void saveEdit()} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-navy)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none" }}>
+            <CheckCircle2 size={13} /> {busy ? "Saving…" : "Save changes"}
+          </button>
+        ) : (
+          <>
+            <button onClick={() => void submit(true)} disabled={busy} className="rounded-xl px-4 py-2.5" style={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>Save draft</button>
+            <button onClick={() => void submit(false)} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-navy)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none" }}>
+              <Send size={13} /> {schedule === "now" ? "Send now" : "Schedule"}
+            </button>
+          </>
+        )}
       </div>
     </Modal>
   );

@@ -41,4 +41,5 @@ export type RootStackParamList = {
   Mentor: undefined; // discipler + meeting notes (D5)
   Resources: undefined; // resource library (D5)
   EventDetail: { eventId: string; title: string; startAt: string; endAt?: string; location?: string | null };
+  AnnouncementDetail: { announcementId: string; title?: string };
 };

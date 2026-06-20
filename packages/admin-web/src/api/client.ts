@@ -856,7 +856,19 @@ export const OpsApi = {
     api.post(`/admin/events/${eventId}/checkins`, body).then((r) => r.data),
   addGuest: (eventId: string, body: { guest_name: string; phone?: string; first_time?: boolean }) =>
     api.post(`/admin/events/${eventId}/guests`, body).then((r) => r.data),
+  // Signed image upload for events/announcements. Bytes go direct to Cloudinary
+  // (see uploadToCloudinary), never our server.
+  signAdminImage: (folder: "events" | "announcements") =>
+    api.post<CloudinarySignResult>("/admin/media/images/sign", { folder }).then((r) => r.data),
   createSeries: (body: Record<string, unknown>) => api.post("/admin/events/series", body).then((r) => r.data),
+  updateSeries: (seriesId: string, body: Record<string, unknown>) =>
+    api.put(`/admin/events/series/${seriesId}`, body).then((r) => r.data),
+  deleteSeries: (seriesId: string) =>
+    api.delete(`/admin/events/series/${seriesId}`).then((r) => r.data),
+  setSeriesHomepage: (seriesId: string) =>
+    api.post(`/admin/events/series/${seriesId}/homepage`, {}).then((r) => r.data),
+  clearSeriesHomepage: (seriesId: string) =>
+    api.delete(`/admin/events/series/${seriesId}/homepage`).then((r) => r.data),
   pauseSeries: (seriesId: string) =>
     api.post<EventSeriesRow>(`/admin/events/series/${seriesId}/pause`, {}).then((r) => r.data),
   resumeSeries: (seriesId: string) =>
@@ -889,6 +901,9 @@ export interface AnnouncementRow {
   created_at: string;
   delivered_count?: number;
   opened_count?: number;
+  primary_image_url: string | null;
+  gallery_image_urls: string[] | null;
+  is_featured: boolean;
 }
 
 export interface AnnouncementStats {
@@ -911,6 +926,13 @@ export const AnnouncementsApi = {
   send: (id: string) =>
     api.post<{ recipients: number; deliveries: number }>(`/admin/announcements/${id}/send`).then((r) => r.data),
   cancel: (id: string) => api.post(`/admin/announcements/${id}/cancel`).then((r) => r.data),
+  update: (id: string, body: Record<string, unknown>) =>
+    api.put<AnnouncementRow>(`/admin/announcements/${id}`, body).then((r) => r.data),
+  remove: (id: string) => api.delete(`/admin/announcements/${id}`).then((r) => r.data),
+  setHomepage: (id: string) =>
+    api.post(`/admin/announcements/${id}/homepage`, {}).then((r) => r.data),
+  clearHomepage: (id: string) =>
+    api.delete(`/admin/announcements/${id}/homepage`).then((r) => r.data),
 };
 
 // ---- Badges / Certificates / Finance / Audit (W4 over B1 + gamification) ----

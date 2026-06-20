@@ -161,6 +161,31 @@ export function registerCalendar(ctx: AppContext): Router {
     }),
   );
 
+  // Feature / unfeature a series on the mobile homepage (single featured, Admin+).
+  r.post(
+    "/admin/events/series/:id/homepage",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      res.json(await svc.setSeriesFeatured(requirePrincipal(req), req.params.id ?? "", true));
+    }),
+  );
+  r.delete(
+    "/admin/events/series/:id/homepage",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      res.json(await svc.setSeriesFeatured(requirePrincipal(req), req.params.id ?? "", false));
+    }),
+  );
+
+  // The single homepage-featured event for the mobile Home screen.
+  r.get(
+    "/home/featured-event",
+    auth,
+    handler(async (req, res) => {
+      res.json({ data: await svc.featuredEvent(requirePrincipal(req).congregationId) });
+    }),
+  );
+
   // Pause / resume a series — paused series stop projecting future occurrences.
   r.post(
     "/admin/events/series/:id/pause",
