@@ -4,11 +4,11 @@
 // offline they queue (chat_messages:create) and replay on reconnect (§1.7).
 // Opening the thread marks it read.
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Image, Keyboard, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
-import { launchImageLibrary } from "react-native-image-picker";
+import { ActivityIndicator, Image, Keyboard, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { launchCamera, launchImageLibrary } from "react-native-image-picker";
 import AudioRecorderPlayer from "react-native-audio-recorder-player";
 import { pick as pickDocument, isCancel } from "react-native-document-picker";
-import { ArrowLeft, FileText, Hash, ImagePlus, Mic, Paperclip, Play, Sparkles, Square, Users, Video } from "lucide-react-native";
+import { ArrowLeft, Camera, FileText, Hash, ImagePlus, Mic, Paperclip, Play, Plus, Send, Smile, Sparkles, Square, Users, Video, X } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -17,8 +17,8 @@ import { avatarColor, initials } from "./chatInbox";
 import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
-import { PButton, T } from "../theme/components";
-import { useChatConversation, queryKeys } from "../api/hooks";
+import { T } from "../theme/components";
+import { useChatConversation, useMe, queryKeys } from "../api/hooks";
 import { errorMessage, refreshQueries } from "../api/query";
 import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
@@ -38,6 +38,7 @@ const QUICK = ["🙏", "❤️", "🔥", "🎉"];
 
 // Tap-to-fill suggested replies above the composer (mobile Chat make).
 const QUICK_REPLIES = ["Amen 🙏", "Praying for you 💛", "On my way 🏃", "Thank you 🙏"];
+const EMOJIS = ["🙏", "❤️", "🔥", "🎉", "🙌", "😊", "🥹", "💛", "✝️", "🕊️", "👏", "🤝"];
 
 /** A short subtitle under the thread title: kind (+ room type) and member count. */
 function threadSubtitle(convo: ChatThreadDetail): string {
@@ -61,10 +62,14 @@ export function ChatThreadScreen(): ReactElement {
   const route = useRoute<RouteProp<RootStackParamList, "ChatThread">>();
   const { conversationId } = route.params;
   const { data: convo, isLoading, error, refetch } = useChatConversation(conversationId);
+  const { data: me } = useMe();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [reactingId, setReactingId] = useState<string | null>(null);
+  const [showAttach, setShowAttach] = useState(false); // the "+" attachment grid
+  const [showEmoji, setShowEmoji] = useState(false); // the emoji strip
+  const [aiBusy, setAiBusy] = useState(false); // sparkle → AI drafting
   const [recording, setRecording] = useState(false);
   const [recordMs, setRecordMs] = useState(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -128,20 +133,18 @@ export function ChatThreadScreen(): ReactElement {
     }
   }
 
-  function attachImage(): void {
-    void attachMedia("photo");
-  }
-
-  // Photo + video share react-native-image-picker; voice notes use
-  // react-native-audio-recorder-player and files use react-native-document-picker
-  // (see startRecording/attachFile below). All upload direct, never queued (§4.5).
-  async function attachMedia(mode: "photo" | "video"): Promise<void> {
+  // Photo + video share react-native-image-picker (library or camera); voice
+  // notes use react-native-audio-recorder-player and files use
+  // react-native-document-picker. All upload direct, never queued (§4.5).
+  async function attachMedia(mode: "photo" | "video", fromCamera = false): Promise<void> {
     // Media requires connectivity — bytes upload direct to storage, not queued (§4.5).
     if (!(await getConnectivity().isOnline())) {
       setSendError(`You're offline — ${mode === "video" ? "videos" : "images"} need a connection.`);
       return;
     }
-    const result = await launchImageLibrary({ mediaType: mode, quality: 0.8, selectionLimit: 1 });
+    const result = fromCamera
+      ? await launchCamera({ mediaType: mode, quality: 0.8, saveToPhotos: false })
+      : await launchImageLibrary({ mediaType: mode, quality: 0.8, selectionLimit: 1 });
     const asset = result.assets?.[0];
     if (!asset?.uri) return; // cancelled
     const isVideo = mode === "video";
@@ -333,6 +336,37 @@ export function ChatThreadScreen(): ReactElement {
     }
   }
 
+  // Run an attachment action and close the "+" panel.
+  function runAttach(fn: () => void): void {
+    setShowAttach(false);
+    fn();
+  }
+
+  // AI in the text box (sparkle): draft when empty, polish when there's a draft.
+  // Server-authoritative via the Nuru assistant; the result fills the input for
+  // the member to review and send (we never auto-send).
+  async function aiAssist(): Promise<void> {
+    if (aiBusy) return;
+    setShowEmoji(false);
+    setAiBusy(true);
+    setSendError(null);
+    try {
+      const draft = text.trim();
+      const prompt = draft
+        ? `Rewrite this chat message for a warm Christian community — keep it kind, natural and concise, first person, no quotes or preamble, reply with ONLY the message:\n\n${draft}`
+        : `Suggest one short, warm, encouraging message to send in a Christian community chat. First person. Reply with ONLY the message, no quotes.`;
+      const { reply } = await NuruApi.assistantChat({ messages: [{ role: "user", text: prompt }] });
+      const clean = (reply ?? "").trim().replace(/^["“]|["”]$/g, "");
+      if (clean) setText(clean);
+    } catch (e) {
+      setSendError(errorMessage(e));
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  const myInitials = initials(me?.profile?.full_name) || "ME";
+
   return (
     <View style={st.screen}>
       <View style={st.header}>
@@ -436,58 +470,88 @@ export function ChatThreadScreen(): ReactElement {
               </View>
             ) : (
               <>
-                <View style={{ flexDirection: "row", alignItems: "flex-end", gap: spacing.sm }}>
+                {/* "+" attachment grid (Photo · Video · Camera · File · Document · Audio) */}
+                {showAttach ? (
+                  <View style={st.attachPanel}>
+                    <View style={st.attachGrid}>
+                      <AttachTile color="#16A34A" Icon={ImagePlus} label="Photo" onPress={() => runAttach(() => void attachMedia("photo"))} />
+                      <AttachTile color="#DC2626" Icon={Video} label="Video" onPress={() => runAttach(() => void attachMedia("video"))} />
+                      <AttachTile color="#0B1F33" Icon={Camera} label="Camera" onPress={() => runAttach(() => void attachMedia("photo", true))} />
+                      <AttachTile color="#0B84E8" Icon={Paperclip} label="File" onPress={() => runAttach(() => void attachFile())} />
+                      <AttachTile color="#7C3AED" Icon={FileText} label="Document" onPress={() => runAttach(() => void attachFile())} />
+                      <AttachTile color="#DB2777" Icon={Mic} label="Audio" onPress={() => runAttach(() => void startRecording())} />
+                    </View>
+                  </View>
+                ) : null}
+
+                {/* Emoji strip (smiley toggle) */}
+                {showEmoji && !showAttach ? (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ maxHeight: 48 }} contentContainerStyle={st.emojiStrip}>
+                    {EMOJIS.map((e) => (
+                      <Pressable key={e} accessibilityRole="button" accessibilityLabel={`Insert ${e}`} onPress={() => setText((t) => t + e)} style={({ pressed }) => [st.emojiKey, pressed && { transform: [{ scale: 0.9 }] }]}>
+                        <T style={{ fontSize: 24 }}>{e}</T>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                ) : null}
+
+                {sendError ? <T variant="caption" style={{ color: palette.error, marginBottom: 6, marginLeft: 56 }}>{sendError}</T> : null}
+
+                <View style={st.composerRow}>
+                  {/* My avatar */}
+                  <View style={[st.composerAvatar, { backgroundColor: palette.navy }]}>
+                    <T variant="heading" style={{ color: "#fff", fontSize: 13 }}>{myInitials}</T>
+                  </View>
+
+                  {/* Rounded input pill: + · text · AI · emoji */}
+                  <View style={st.inputPill}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={showAttach ? "Close attachments" : "Add attachment"}
+                      onPress={() => { setShowEmoji(false); setShowAttach((v) => !v); }}
+                      style={({ pressed }) => [showAttach ? st.plusOpen : st.plusBtn, pressed && { opacity: 0.7 }]}
+                    >
+                      {showAttach ? <X size={18} color={palette.goldLo} /> : <Plus size={24} color={palette.ink400} />}
+                    </Pressable>
+                    <TextInput
+                      value={text}
+                      onChangeText={setText}
+                      onFocus={() => { setShowAttach(false); setShowEmoji(false); }}
+                      placeholder="Message"
+                      placeholderTextColor={palette.ink400}
+                      accessibilityLabel="Message"
+                      multiline
+                      style={st.inputFlex}
+                    />
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Nuru AI — draft or polish this message"
+                      onPress={() => void aiAssist()}
+                      disabled={aiBusy}
+                      style={({ pressed }) => [st.aiBtn, pressed && { transform: [{ scale: 0.92 }] }]}
+                    >
+                      {aiBusy ? <ActivityIndicator size="small" color={palette.goldLo} /> : <Sparkles size={18} color={palette.goldLo} />}
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Emoji"
+                      onPress={() => { setShowAttach(false); setShowEmoji((v) => !v); }}
+                      style={({ pressed }) => [st.emojiBtn, pressed && { transform: [{ scale: 0.92 }] }]}
+                    >
+                      <Smile size={20} color={palette.ink400} />
+                    </Pressable>
+                  </View>
+
+                  {/* Send when there's text, else record a voice note */}
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Add photo"
-                    onPress={() => void attachImage()}
+                    accessibilityLabel={text.trim().length > 0 ? "Send" : "Record voice note"}
+                    onPress={() => (text.trim().length > 0 ? void send() : void startRecording())}
                     disabled={sending}
-                    style={({ pressed }) => [st.attachBtn, pressed && { transform: [{ scale: 0.95 }] }]}
+                    style={({ pressed }) => [st.sendBtn, pressed && { transform: [{ scale: 0.94 }] }]}
                   >
-                    <ImagePlus size={20} color={palette.navy} />
+                    {text.trim().length > 0 ? <Send size={20} color="#fff" /> : <Mic size={20} color="#fff" />}
                   </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Add video"
-                    onPress={() => void attachMedia("video")}
-                    disabled={sending}
-                    style={({ pressed }) => [st.attachBtn, pressed && { transform: [{ scale: 0.95 }] }]}
-                  >
-                    <Video size={20} color={palette.navy} />
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Attach file"
-                    onPress={() => void attachFile()}
-                    disabled={sending}
-                    style={({ pressed }) => [st.attachBtn, pressed && { transform: [{ scale: 0.95 }] }]}
-                  >
-                    <Paperclip size={20} color={palette.navy} />
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Record voice note"
-                    onPress={() => void startRecording()}
-                    disabled={sending}
-                    style={({ pressed }) => [st.attachBtn, pressed && { transform: [{ scale: 0.95 }] }]}
-                  >
-                    <Mic size={20} color={palette.navy} />
-                  </Pressable>
-                  <TextInput
-                    value={text}
-                    onChangeText={setText}
-                    placeholder="Message…"
-                    placeholderTextColor={palette.ink400}
-                    accessibilityLabel="Message"
-                    multiline
-                    style={[st.input, { flex: 1 }]}
-                  />
-                </View>
-                {sendError ? <T variant="caption" style={{ color: palette.error, marginTop: 4 }}>{sendError}</T> : null}
-                <View style={{ marginTop: spacing.sm }}>
-                  <PButton variant="gold" onPress={() => void send()} disabled={sending || text.trim().length === 0}>
-                    {sending ? "Sending…" : "Send"}
-                  </PButton>
                 </View>
               </>
             )}
@@ -495,6 +559,16 @@ export function ChatThreadScreen(): ReactElement {
         </>
       )}
     </View>
+  );
+}
+
+/** One tile in the "+" attachment grid (Photo/Video/Camera/File/Document/Audio). */
+function AttachTile({ color, Icon, label, onPress }: { color: string; Icon: typeof Mic; label: string; onPress: () => void }): ReactElement {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [st.attachTile, pressed && { transform: [{ scale: 0.96 }] }]}>
+      <View style={[st.attachTileIcon, { backgroundColor: color }]}><Icon size={22} color="#fff" /></View>
+      <T variant="caption" style={{ color: palette.ink, fontWeight: "600" }}>{label}</T>
+    </Pressable>
   );
 }
 
@@ -628,8 +702,29 @@ const st = {
   recStop: { width: 46, height: 46, borderRadius: 23, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
   composer: {
     borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.white,
-    paddingHorizontal: spacing.screen, paddingTop: spacing.md, paddingBottom: spacing.lg,
+    paddingHorizontal: spacing.base, paddingTop: spacing.md, paddingBottom: spacing.lg,
   },
+  // Composer row: avatar · input pill · send/mic
+  composerRow: { flexDirection: "row", alignItems: "flex-end", gap: spacing.sm },
+  composerAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  inputPill: {
+    flex: 1, flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: palette.coolPaper, borderRadius: 26, borderWidth: 1, borderColor: palette.border,
+    paddingLeft: 6, paddingRight: 8, minHeight: 48,
+  },
+  plusBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  plusOpen: { width: 36, height: 36, borderRadius: 11, borderWidth: 1.5, borderColor: "rgba(201,162,39,0.6)", backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
+  inputFlex: { flex: 1, paddingVertical: Platform.OS === "ios" ? 12 : 6, paddingHorizontal: 2, maxHeight: 120, fontSize: 16, color: palette.ink, textAlignVertical: "center" },
+  aiBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
+  emojiBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  sendBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
+  // "+" attachment grid
+  attachPanel: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, marginBottom: spacing.md, ...shadow.card },
+  attachGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: spacing.base },
+  attachTile: { width: "31%", alignItems: "center", gap: 8, paddingVertical: spacing.sm, borderRadius: 16, backgroundColor: palette.surface },
+  attachTileIcon: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
+  emojiStrip: { gap: spacing.sm, paddingHorizontal: 56, paddingVertical: spacing.sm, alignItems: "center" },
+  emojiKey: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   input: {
     backgroundColor: palette.coolPaper, borderRadius: radii.control, borderWidth: 1, borderColor: palette.border,
     paddingHorizontal: spacing.base, paddingTop: spacing.md, minHeight: 48, maxHeight: 120, fontSize: 15, color: palette.ink, textAlignVertical: "top",
