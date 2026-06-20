@@ -146,6 +146,20 @@ describe("public spaces", () => {
     expect((list.body.conversations as Array<{ conversation_id: string }>).some((c) => c.conversation_id === uuid(9))).toBe(true);
     expect((list.body.discover_spaces as Array<{ conversation_id: string }>).some((s) => s.conversation_id === uuid(9))).toBe(false);
   });
+
+  it("carries a space category through discover, inbox, and the thread head", async () => {
+    await agent().post("/v1/chat/spaces").set(auth(leaderTok))
+      .send({ conversation_id: uuid(11), title: "Youth Ablaze", topic: "For the youth", category: "youth" });
+
+    const discover = await agent().get("/v1/chat/conversations").set(auth(aTok));
+    const found = (discover.body.discover_spaces as Array<{ conversation_id: string; category: string }>).find((s) => s.conversation_id === uuid(11))!;
+    expect(found.category).toBe("youth");
+
+    await agent().post(`/v1/chat/spaces/${uuid(11)}/join`).set(auth(aTok)).send({});
+    const head = await agent().get(`/v1/chat/conversations/${uuid(11)}`).set(auth(aTok));
+    expect(head.body.category).toBe("youth");
+    expect(head.body.member_count).toBeGreaterThanOrEqual(1);
+  });
 });
 
 describe("moderation (Admin/SuperAdmin)", () => {

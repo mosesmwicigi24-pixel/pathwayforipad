@@ -1,41 +1,55 @@
-// Chat tab (new design, mobile "Chat" make). A unified inbox — DMs, your cell
-// group, and joined spaces — with unread counts + last-message previews, a
-// "Discover spaces" rail, and a doorway to the Nuru AI assistant. All data is
-// real (GET /chat/conversations). Tapping a conversation opens the thread; a
-// space you haven't joined opens its preview first.
-import { useCallback, useState, type ReactElement } from "react";
-import { Pressable, RefreshControl, ScrollView, View } from "react-native";
-import { Hash, Sparkles, Users } from "lucide-react-native";
+// Chat tab — "Nuru Connect" workspace (mobile Chat make). A Slack-style inbox
+// split into three sections via a segmented control: #My Space (joined public
+// spaces + discoverable ones), DM (direct messages), and My Groups (cell / cohort
+// / leader rooms). A search field filters the active section; a "Quick help from
+// Nuru" card opens the AI assistant; the compose FAB opens the DM directory. All
+// data is real (GET /chat/conversations). Tapping a conversation opens its thread;
+// an undiscovered space opens its preview first.
+import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
+import { Bell, ChevronRight, Hash, Pencil, Plus, Search, Sparkles, Users } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import type { ChatConversation, DiscoverSpace } from "../api/types";
-import { palette, spacing, shadow } from "../theme/tokens";
-import { Glow, T } from "../theme/components";
-import { useChatInbox } from "../api/hooks";
-import { errorMessage } from "../api/query";
+import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
+import { GradientBg, Glow, T } from "../theme/components";
+import { useChatInbox, queryKeys } from "../api/hooks";
+import { errorMessage, refreshQueries } from "../api/query";
+import { NuruApi } from "../api/client";
 import { Loading, ErrorState } from "../components/states";
+import {
+  groupInbox,
+  inboxStats,
+  tabCounts,
+  matchesConversation,
+  matchesDiscover,
+  previewText,
+  initials,
+  avatarColor,
+  inboxTime,
+  groupKindLabel,
+  categoryTag,
+  type ChatTab,
+} from "./chatInbox";
 
-function ago(iso: string | null): string {
-  if (!iso) return "";
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days <= 0) return "today";
-  if (days === 1) return "yesterday";
-  if (days < 7) return `${days}d`;
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function preview(c: ChatConversation): string {
-  if (!c.last_body && !c.last_type) return c.topic ?? "No messages yet";
-  if (c.last_type && c.last_type !== "text") return `📎 ${c.last_type}`;
-  const who = c.last_author ? `${c.last_author.split(" ")[0]}: ` : "";
-  return `${who}${c.last_body ?? ""}`;
-}
+const TABS: { key: ChatTab; label: string }[] = [
+  { key: "spaces", label: "#My Space" },
+  { key: "dms", label: "DM" },
+  { key: "groups", label: "My Groups" },
+];
 
 export function ChatScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data, isLoading, error, refetch } = useChatInbox();
   const [refreshing, setRefreshing] = useState(false);
+  const [tab, setTab] = useState<ChatTab>("spaces");
+  const [query, setQuery] = useState("");
+  const [joiningId, setJoiningId] = useState<string | null>(null);
+
+  const grouped = useMemo(() => groupInbox(data), [data]);
+  const stats = useMemo(() => inboxStats(data), [data]);
+  const counts = useMemo(() => tabCounts(grouped), [grouped]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -46,155 +60,408 @@ export function ChatScreen(): ReactElement {
     }
   }, [refetch]);
 
+  const openConvo = useCallback(
+    (c: ChatConversation) =>
+      nav.navigate("ChatThread", { conversationId: c.conversation_id, ...(c.title ? { title: c.title } : {}) }),
+    [nav],
+  );
+
+  async function join(space: DiscoverSpace): Promise<void> {
+    setJoiningId(space.conversation_id);
+    try {
+      await NuruApi.joinSpace(space.conversation_id);
+      refreshQueries(queryKeys.chatInbox);
+      await refetch();
+      nav.navigate("ChatThread", { conversationId: space.conversation_id, ...(space.title ? { title: space.title } : {}) });
+    } catch {
+      /* best-effort; the card stays so the user can retry */
+    } finally {
+      setJoiningId(null);
+    }
+  }
+
+  const spaces = grouped.spaces.filter((c) => matchesConversation(c, query));
+  const dms = grouped.dms.filter((c) => matchesConversation(c, query));
+  const groups = grouped.groups.filter((c) => matchesConversation(c, query));
+  const discover = grouped.discover.filter((s) => matchesDiscover(s, query));
+
   return (
     <View style={st.screen}>
       <View style={st.header}>
-        <Glow size={200} color="rgba(201,162,39,0.10)" style={{ right: -50, top: -40 }} />
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <View>
-            <T variant="micro" tone="gold" style={st.kicker}>YOUR PEOPLE</T>
-            <T serif tone="onNavy" style={{ fontSize: 26, marginTop: 2 }}>Chat</T>
+        <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -60, top: -50 }} />
+        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
+          <View style={{ flex: 1 }}>
+            <T variant="micro" tone="gold" style={st.kicker}>WORKSPACE</T>
+            <T serif tone="onNavy" style={{ fontSize: 30, marginTop: 2 }}>Nuru Connect</T>
+            <T variant="caption" style={{ color: "rgba(255,255,255,0.65)", marginTop: 4 }}>
+              {stats.unread} unread · {stats.spaces} {stats.spaces === 1 ? "space" : "spaces"}
+            </T>
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Ask Nuru"
-            onPress={() => nav.navigate("Nuru")}
-            style={({ pressed }) => [st.nuruBtn, pressed && { transform: [{ scale: 0.96 }] }]}
+            accessibilityLabel="Notifications"
+            onPress={() => nav.navigate("Notifications")}
+            style={({ pressed }) => [st.bellBtn, pressed && { transform: [{ scale: 0.95 }] }]}
           >
-            <Sparkles size={18} color="#fff" />
-            <T variant="micro" style={{ color: "#fff", fontWeight: "700" }}>Nuru</T>
+            <Bell size={20} color={palette.onNavy} />
+            <View style={st.bellDot} />
           </Pressable>
+        </View>
+
+        <View style={st.search}>
+          <Search size={18} color="rgba(255,255,255,0.5)" />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search spaces, people, messages"
+            placeholderTextColor="rgba(255,255,255,0.5)"
+            accessibilityLabel="Search chat"
+            autoCorrect={false}
+            style={st.searchInput}
+          />
         </View>
       </View>
 
       <ScrollView
-        contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }}
+        contentContainerStyle={{ padding: spacing.screen, paddingBottom: tabBarSpace + spacing.xl }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
       >
         {isLoading ? <Loading label="Loading your conversations…" /> : null}
         {error ? <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /> : null}
 
-        {/* Ask Nuru banner */}
         {!isLoading && !error ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => nav.navigate("Nuru")}
-            style={({ pressed }) => [st.nuruCard, pressed && { transform: [{ scale: 0.99 }] }]}
-          >
-            <View style={st.nuruOrb}><Sparkles size={20} color="#fff" /></View>
-            <View style={{ flex: 1 }}>
-              <T variant="heading" tone="onNavy" style={{ fontSize: 15 }}>Ask Nuru ✨</T>
-              <T variant="caption" style={{ color: "rgba(255,255,255,0.7)", marginTop: 2 }}>
-                Summarize a chat, draft an encouragement, find prayer
-              </T>
-            </View>
-          </Pressable>
-        ) : null}
-
-        {/* Conversations */}
-        {(data?.conversations ?? []).map((c) => (
-          <Pressable
-            key={c.conversation_id}
-            accessibilityRole="button"
-            onPress={() => nav.navigate("ChatThread", { conversationId: c.conversation_id, ...(c.title ? { title: c.title } : {}) })}
-            style={({ pressed }) => [st.row, pressed && { transform: [{ scale: 0.99 }] }]}
-          >
-            <ConvoAvatar conversation={c} />
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-                <T variant="heading" style={{ flex: 1, fontSize: 15 }} numberOfLines={1}>{c.title ?? "Conversation"}</T>
-                <T variant="micro" tone="tertiary">{ago(c.last_at)}</T>
-              </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: 2 }}>
-                <T variant="caption" tone="secondary" style={{ flex: 1 }} numberOfLines={1}>{preview(c)}</T>
-                {c.unread > 0 ? (
-                  <View style={st.badge}><T variant="micro" style={{ color: palette.navy, fontWeight: "800" }}>{c.unread}</T></View>
-                ) : null}
-              </View>
-            </View>
-          </Pressable>
-        ))}
-
-        {!isLoading && !error && (data?.conversations ?? []).length === 0 ? (
-          <View style={st.card}>
-            <T variant="heading">No conversations yet</T>
-            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>
-              Join a space below, or message someone from your cell.
-            </T>
-          </View>
-        ) : null}
-
-        {/* Discover spaces */}
-        {(data?.discover_spaces ?? []).length > 0 ? (
           <>
-            <T variant="overline" tone="secondary" style={{ marginTop: spacing.lg, marginBottom: spacing.sm }}>DISCOVER SPACES</T>
-            {(data?.discover_spaces ?? []).map((s: DiscoverSpace) => (
-              <Pressable
-                key={s.conversation_id}
-                accessibilityRole="button"
-                onPress={() => nav.navigate("SpacePreview", { conversationId: s.conversation_id, ...(s.title ? { title: s.title } : {}) })}
-                style={({ pressed }) => [st.spaceRow, pressed && { transform: [{ scale: 0.99 }] }]}
-              >
-                <View style={st.spaceIcon}><Hash size={18} color={palette.gold} /></View>
-                <View style={{ flex: 1 }}>
-                  <T variant="heading" style={{ fontSize: 15 }} numberOfLines={1}>{s.title ?? "Space"}</T>
-                  <T variant="caption" tone="secondary" numberOfLines={1}>
-                    {s.topic ?? "A public space"} · {s.member_count} {s.member_count === 1 ? "member" : "members"}
-                  </T>
+            {/* Quick help from Nuru */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Quick help from Nuru"
+              onPress={() => nav.navigate("Nuru")}
+              style={({ pressed }) => [st.nuruCard, pressed && { transform: [{ scale: 0.99 }] }]}
+            >
+              <GradientBg colors={["#2A1A5E", "#173049", "#0F3D30"]} radius={20} />
+              <View style={st.nuruOrb}><Sparkles size={20} color="#fff" /></View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                  <T serif tone="onNavy" style={{ fontSize: 17 }}>Quick help from Nuru</T>
+                  <View style={st.aiTag}><T variant="micro" style={{ color: "#fff", fontWeight: "800" }}>AI</T></View>
                 </View>
-              </Pressable>
-            ))}
+                <T variant="caption" style={{ color: "rgba(255,255,255,0.7)", marginTop: 2 }}>
+                  The AI assistant · {stats.unread} updates across {stats.spaces} spaces
+                </T>
+              </View>
+              <View style={st.nuruChevron}><ChevronRight size={18} color="rgba(255,255,255,0.8)" /></View>
+            </Pressable>
+
+            {/* Segmented control */}
+            <View style={st.segmented}>
+              {TABS.map((t) => {
+                const active = tab === t.key;
+                return (
+                  <Pressable
+                    key={t.key}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    accessibilityLabel={t.label}
+                    onPress={() => setTab(t.key)}
+                    style={[st.segment, active && st.segmentActive]}
+                  >
+                    <T variant="label" style={{ color: active ? palette.onNavy : palette.ink600 }}>{t.label}</T>
+                    <View style={[st.segCount, active && st.segCountActive]}>
+                      <T variant="micro" style={{ color: active ? palette.navy : palette.ink600, fontWeight: "800" }}>{counts[t.key]}</T>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Tab content */}
+            {tab === "spaces" ? (
+              <SpacesTab spaces={spaces} discover={discover} joiningId={joiningId} onOpen={openConvo} onJoin={join} nav={nav} />
+            ) : tab === "dms" ? (
+              <DmsTab dms={dms} onOpen={openConvo} onCompose={() => nav.navigate("NewMessage")} />
+            ) : (
+              <GroupsTab groups={groups} onOpen={openConvo} />
+            )}
           </>
         ) : null}
       </ScrollView>
+
+      {/* Compose FAB */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="New message"
+        onPress={() => nav.navigate("NewMessage")}
+        style={({ pressed }) => [st.fab, pressed && { transform: [{ scale: 0.94 }] }]}
+      >
+        <Pencil size={22} color="#fff" />
+      </Pressable>
     </View>
   );
 }
 
-function ConvoAvatar({ conversation }: { conversation: ChatConversation }): ReactElement {
-  if (conversation.kind === "space") {
-    return <View style={st.avatarSpace}><Hash size={18} color={palette.gold} /></View>;
-  }
-  if (conversation.kind === "group") {
-    return <View style={st.avatarGroup}><Users size={18} color={palette.navy} /></View>;
-  }
-  const initials = (conversation.title ?? "?")
-    .split(" ")
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-  return <View style={st.avatarDm}><T variant="heading" style={{ color: "#fff", fontSize: 15 }}>{initials || "·"}</T></View>;
+function SpacesTab({
+  spaces,
+  discover,
+  joiningId,
+  onOpen,
+  onJoin,
+  nav,
+}: {
+  spaces: ChatConversation[];
+  discover: DiscoverSpace[];
+  joiningId: string | null;
+  onOpen: (c: ChatConversation) => void;
+  onJoin: (s: DiscoverSpace) => void;
+  nav: NativeStackNavigationProp<RootStackParamList>;
+}): ReactElement {
+  return (
+    <>
+      <SectionLabel icon="#" text="YOUR SPACES" />
+      {spaces.length === 0 ? (
+        <EmptyHint text="No spaces yet — discover one below to join the conversation." />
+      ) : (
+        <View style={st.group}>
+          {spaces.map((c, i) => (
+            <ConvoRow key={c.conversation_id} c={c} first={i === 0} onPress={() => onOpen(c)} hash />
+          ))}
+        </View>
+      )}
+
+      {discover.length > 0 ? (
+        <>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.lg }}>
+            <SectionLabel icon="◎" text="DISCOVER SPACES" inline />
+            <T variant="caption" tone="tertiary">{discover.length}</T>
+          </View>
+          {discover.map((s) => (
+            <View key={s.conversation_id} style={st.discoverCard}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Preview ${s.title ?? "space"}`}
+                onPress={() => nav.navigate("SpacePreview", { conversationId: s.conversation_id, ...(s.title ? { title: s.title } : {}) })}
+                style={{ flexDirection: "row", gap: spacing.md }}
+              >
+                <View style={[st.avatarSquare, { backgroundColor: avatarColor(s.conversation_id) }]}>
+                  <Hash size={20} color="#fff" />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                    <T variant="heading" style={{ flexShrink: 1, fontSize: 16 }} numberOfLines={1}>{s.title ?? "Space"}</T>
+                    <CategoryPill category={s.category} />
+                  </View>
+                  <T variant="caption" tone="secondary" style={{ marginTop: 2 }} numberOfLines={2}>
+                    {s.topic ?? "A public space in your congregation."}
+                  </T>
+                </View>
+              </Pressable>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.md }}>
+                <T variant="caption" tone="tertiary">
+                  {s.member_count} {s.member_count === 1 ? "member" : "members"}
+                </T>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Join ${s.title ?? "space"}`}
+                  disabled={joiningId === s.conversation_id}
+                  onPress={() => onJoin(s)}
+                  style={({ pressed }) => [st.joinBtn, pressed && { transform: [{ scale: 0.96 }] }]}
+                >
+                  <Plus size={15} color="#fff" />
+                  <T variant="label" style={{ color: "#fff" }}>{joiningId === s.conversation_id ? "Joining…" : "Join"}</T>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function DmsTab({
+  dms,
+  onOpen,
+  onCompose,
+}: {
+  dms: ChatConversation[];
+  onOpen: (c: ChatConversation) => void;
+  onCompose: () => void;
+}): ReactElement {
+  return (
+    <>
+      {/* Story rail */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.base, paddingVertical: spacing.sm }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="New message" onPress={onCompose} style={st.story}>
+          <View style={[st.storyAvatar, { backgroundColor: palette.navy }]}>
+            <T variant="heading" style={{ color: "#fff", fontSize: 15 }}>ME</T>
+            <View style={st.storyPlus}><Plus size={12} color={palette.navy} /></View>
+          </View>
+          <T variant="micro" tone="tertiary" numberOfLines={1}>Your note</T>
+        </Pressable>
+        {dms.map((c) => (
+          <Pressable key={c.conversation_id} accessibilityRole="button" accessibilityLabel={c.title ?? "Chat"} onPress={() => onOpen(c)} style={st.story}>
+            <View style={[st.storyAvatar, st.storyRing, { backgroundColor: avatarColor(c.conversation_id) }]}>
+              <T variant="heading" style={{ color: "#fff", fontSize: 15 }}>{initials(c.title)}</T>
+            </View>
+            <T variant="micro" tone="secondary" numberOfLines={1} style={{ maxWidth: 64, textAlign: "center" }}>
+              {(c.title ?? "").split(" ")[0] || "Chat"}
+            </T>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      <SectionLabel icon="✉" text="DIRECT MESSAGES" />
+      {dms.length === 0 ? (
+        <EmptyHint text="No direct messages yet — tap the pencil to start one." />
+      ) : (
+        <View style={st.group}>
+          {dms.map((c, i) => (
+            <ConvoRow key={c.conversation_id} c={c} first={i === 0} onPress={() => onOpen(c)} />
+          ))}
+        </View>
+      )}
+    </>
+  );
+}
+
+function GroupsTab({ groups, onOpen }: { groups: ChatConversation[]; onOpen: (c: ChatConversation) => void }): ReactElement {
+  return (
+    <>
+      <SectionLabel icon="◇" text="YOUR GROUPS" />
+      {groups.length === 0 ? (
+        <EmptyHint text="You're not in any group rooms yet — they appear when your cell is set up." />
+      ) : (
+        <View style={st.group}>
+          {groups.map((c, i) => (
+            <ConvoRow key={c.conversation_id} c={c} first={i === 0} onPress={() => onOpen(c)} group />
+          ))}
+        </View>
+      )}
+    </>
+  );
+}
+
+/** A single conversation row inside a grouped white card. */
+function ConvoRow({
+  c,
+  first,
+  onPress,
+  hash,
+  group,
+}: {
+  c: ChatConversation;
+  first: boolean;
+  onPress: () => void;
+  hash?: boolean;
+  group?: boolean;
+}): ReactElement {
+  const subtype = group ? groupKindLabel(c) : null;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={c.title ?? "Conversation"}
+      onPress={onPress}
+      style={({ pressed }) => [st.row, !first && st.rowDivider, pressed && { backgroundColor: palette.surface }]}
+    >
+      {hash ? (
+        <View style={[st.avatarSquare, { backgroundColor: avatarColor(c.conversation_id) }]}><Hash size={20} color="#fff" /></View>
+      ) : group ? (
+        <View style={[st.avatarSquare, { backgroundColor: avatarColor(c.conversation_id) }]}><Users size={20} color="#fff" /></View>
+      ) : (
+        <View style={[st.avatarRound, { backgroundColor: avatarColor(c.conversation_id) }]}>
+          <T variant="heading" style={{ color: "#fff", fontSize: 15 }}>{initials(c.title)}</T>
+        </View>
+      )}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+          <T variant="heading" style={{ flexShrink: 1, fontSize: 15 }} numberOfLines={1}>
+            {c.title ?? "Conversation"}{subtype ? <T variant="caption" tone="tertiary"> · {subtype}</T> : null}
+          </T>
+          {hash ? <CategoryPill category={c.category} /> : null}
+          <View style={{ flex: 1 }} />
+          <T variant="micro" tone={c.unread > 0 ? "gold" : "tertiary"} style={c.unread > 0 ? { fontWeight: "700" } : undefined}>
+            {inboxTime(c.last_at)}
+          </T>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: 3 }}>
+          <T variant="caption" tone="secondary" style={{ flex: 1 }} numberOfLines={1}>{previewText(c)}</T>
+          {c.unread > 0 ? (
+            <View style={st.badge}><T variant="micro" style={{ color: palette.navy, fontWeight: "800" }}>{c.unread}</T></View>
+          ) : null}
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+/** A small colored category pill for a public space (e.g. YOUTH, MARKETPLACE). */
+function CategoryPill({ category }: { category: string | null }): ReactElement | null {
+  const label = categoryTag(category);
+  if (!label) return null;
+  const color = avatarColor(label);
+  return (
+    <View style={[st.tag, { backgroundColor: `${color}1A` }]}>
+      <T variant="micro" style={{ color, fontWeight: "800", letterSpacing: 0.5 }}>{label}</T>
+    </View>
+  );
+}
+
+function SectionLabel({ icon, text, inline }: { icon: string; text: string; inline?: boolean }): ReactElement {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: inline ? 0 : spacing.lg, marginBottom: spacing.sm }}>
+      <T variant="overline" tone="gold">{icon}</T>
+      <T variant="overline" tone="gold">{text}</T>
+    </View>
+  );
+}
+
+function EmptyHint({ text }: { text: string }): ReactElement {
+  return (
+    <View style={st.emptyCard}>
+      <T variant="caption" tone="secondary" style={{ textAlign: "center" }}>{text}</T>
+    </View>
+  );
 }
 
 const st = {
-  screen: { flex: 1, backgroundColor: palette.coolPaper },
-  header: { backgroundColor: palette.navy, paddingHorizontal: spacing.lg, paddingTop: 54, paddingBottom: spacing.lg, overflow: "hidden" },
-  kicker: { letterSpacing: 1.8, textTransform: "uppercase" },
-  nuruBtn: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: "#7c3aed", paddingHorizontal: spacing.md, height: 38, borderRadius: 19,
+  screen: { flex: 1, backgroundColor: palette.paper },
+  header: { backgroundColor: palette.navy, paddingHorizontal: spacing.lg, paddingTop: 56, paddingBottom: spacing.base, overflow: "hidden", borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
+  kicker: { letterSpacing: 2, textTransform: "uppercase" },
+  bellBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center" },
+  bellDot: { position: "absolute", top: 11, right: 12, width: 8, height: 8, borderRadius: 4, backgroundColor: palette.gold },
+  search: {
+    flexDirection: "row", alignItems: "center", gap: spacing.sm,
+    backgroundColor: "rgba(255,255,255,0.08)", borderRadius: radii.pill, paddingHorizontal: spacing.base, height: 48, marginTop: spacing.base,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
   },
+  searchInput: { flex: 1, color: palette.onNavy, fontSize: 15, paddingVertical: 0 },
   nuruCard: {
     flexDirection: "row", alignItems: "center", gap: spacing.md,
-    backgroundColor: palette.navy, borderRadius: 18, padding: spacing.base, marginBottom: spacing.base,
-    ...shadow.card,
+    borderRadius: 20, padding: spacing.base, marginBottom: spacing.base, overflow: "hidden",
+    borderWidth: 1, borderColor: "rgba(201,162,39,0.35)", ...shadow.card,
   },
-  nuruOrb: { width: 44, height: 44, borderRadius: 14, backgroundColor: "#7c3aed", alignItems: "center", justifyContent: "center" },
-  row: {
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.border,
-    padding: spacing.base, marginBottom: spacing.sm, ...shadow.card,
-  },
-  spaceRow: {
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: "rgba(201,162,39,0.25)",
-    padding: spacing.base, marginBottom: spacing.sm,
-  },
-  card: { backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.border, padding: spacing.base },
+  nuruOrb: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#7c3aed", alignItems: "center", justifyContent: "center" },
+  aiTag: { backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 },
+  nuruChevron: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" },
+  segmented: { flexDirection: "row", backgroundColor: palette.white, borderRadius: radii.pill, padding: 5, marginBottom: spacing.base, borderWidth: 1, borderColor: palette.border, ...shadow.card },
+  segment: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 40, borderRadius: radii.pill },
+  segmentActive: { backgroundColor: palette.navy },
+  segCount: { minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: palette.mutedBg, alignItems: "center", justifyContent: "center" },
+  segCountActive: { backgroundColor: palette.gold },
+  group: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
+  row: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.base },
+  rowDivider: { borderTopWidth: 1, borderTopColor: palette.border },
   badge: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: palette.gold, alignItems: "center", justifyContent: "center" },
-  avatarSpace: { width: 46, height: 46, borderRadius: 14, backgroundColor: "rgba(201,162,39,0.14)", alignItems: "center", justifyContent: "center" },
-  avatarGroup: { width: 46, height: 46, borderRadius: 14, backgroundColor: "rgba(11,31,51,0.08)", alignItems: "center", justifyContent: "center" },
-  avatarDm: { width: 46, height: 46, borderRadius: 23, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
-  spaceIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: "rgba(201,162,39,0.14)", alignItems: "center", justifyContent: "center" },
+  tag: { paddingHorizontal: 8, height: 20, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  avatarSquare: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  avatarRound: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  discoverCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: spacing.base, marginBottom: spacing.sm, ...shadow.card },
+  joinBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: palette.navy, paddingHorizontal: spacing.base, height: 38, borderRadius: radii.pill },
+  story: { alignItems: "center", gap: 6, width: 72 },
+  storyAvatar: { width: 60, height: 60, borderRadius: 30, alignItems: "center", justifyContent: "center" },
+  storyRing: { borderWidth: 2, borderColor: palette.gold },
+  storyPlus: { position: "absolute", bottom: -2, right: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: palette.gold, borderWidth: 2, borderColor: palette.paper, alignItems: "center", justifyContent: "center" },
+  emptyCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: spacing.lg },
+  fab: { position: "absolute", right: spacing.lg, bottom: tabBarSpace, width: 60, height: 60, borderRadius: 30, backgroundColor: palette.gold, alignItems: "center", justifyContent: "center", ...shadow.card },
 } as const;

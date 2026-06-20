@@ -2358,7 +2358,7 @@ paths:
   /chat/spaces:
     post:
       tags: [progress]
-      summary: Leader curates a public space for the congregation (Instructor+).
+      summary: Leader curates a public space for the congregation (Instructor+); optional category tag (e.g. youth, marketplace).
       responses:
         "201": { description: Created }
         "401": { $ref: "#/components/responses/Unauthorized" }

@@ -31,6 +31,7 @@ export type RootStackParamList = {
   Notifications: undefined; // notification center (D1)
   ChatThread: { conversationId: string; title?: string }; // DM/group/space thread (Chat make)
   SpacePreview: { conversationId: string; title?: string }; // public space preview + join
+  NewMessage: undefined; // DM directory / compose picker (Chat make)
   Nuru: undefined; // AI assistant (Chat make)
   Devotional: undefined; // daily devotional (D5)
   MemoryVerses: undefined; // memory-verse library (D5)

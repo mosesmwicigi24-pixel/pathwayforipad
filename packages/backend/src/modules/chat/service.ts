@@ -54,6 +54,7 @@ export class ChatService {
     conversation_id: z.string().uuid(),
     title: z.string().min(3).max(200),
     topic: z.string().max(300).optional(),
+    category: z.string().max(24).optional(),
     client_mutation_id: z.string().uuid().optional(),
   });
 
@@ -211,7 +212,7 @@ export class ChatService {
     const conversations = await many(
       this.pool,
       `SELECT cv.conversation_id, cv.kind, cv.is_public,
-              cv.title, cv.topic,
+              cv.title, cv.topic, cv.category,
               (SELECT count(*)::int FROM chat_members m2 WHERE m2.conversation_id = cv.conversation_id) AS member_count,
               lm.body AS last_body, lm.msg_type AS last_type, lm.created_at AS last_at,
               la.full_name AS last_author,
@@ -240,7 +241,7 @@ export class ChatService {
       this.pool,
       `SELECT cv.conversation_id, cv.kind, cv.is_public,
               CASE WHEN cv.kind = 'dm' THEN other.full_name ELSE cv.title END AS title,
-              cv.topic,
+              cv.topic, cv.category,
               (SELECT count(*)::int FROM chat_members m2 WHERE m2.conversation_id = cv.conversation_id) AS member_count,
               lm.body AS last_body, lm.msg_type AS last_type, lm.created_at AS last_at,
               la.full_name AS last_author,
@@ -268,7 +269,7 @@ export class ChatService {
     );
     const discover = await many(
       this.pool,
-      `SELECT cv.conversation_id, cv.title, cv.topic,
+      `SELECT cv.conversation_id, cv.title, cv.topic, cv.category,
               (SELECT count(*)::int FROM chat_members m2 WHERE m2.conversation_id = cv.conversation_id) AS member_count
          FROM chat_conversations cv
          JOIN users u ON u.user_id = $1
@@ -294,8 +295,9 @@ export class ChatService {
       : await this.access(this.pool, userId, conversationId);
     const head = await one<Record<string, unknown>>(
       this.pool,
-      `SELECT cv.conversation_id, cv.kind, cv.is_public, cv.topic,
+      `SELECT cv.conversation_id, cv.kind, cv.is_public, cv.topic, cv.category,
               CASE WHEN cv.kind = 'dm' THEN other.full_name ELSE cv.title END AS title,
+              (SELECT count(*)::int FROM chat_members m2 WHERE m2.conversation_id = cv.conversation_id) AS member_count,
               EXISTS (SELECT 1 FROM chat_members m WHERE m.conversation_id = cv.conversation_id AND m.user_id = $1) AS joined
          FROM chat_conversations cv
          LEFT JOIN LATERAL (
@@ -437,9 +439,9 @@ export class ChatService {
       }
       const me = await this.me(c, userId);
       const res = await c.query(
-        `INSERT INTO chat_conversations (conversation_id, kind, title, topic, congregation_id, is_public, created_by, client_mutation_id)
-         VALUES ($1, 'space', $2, $3, $4, TRUE, $5, $6) ON CONFLICT (conversation_id) DO NOTHING RETURNING conversation_id`,
-        [input.conversation_id, input.title, input.topic ?? null, me.congregation_id, userId, input.client_mutation_id ?? null],
+        `INSERT INTO chat_conversations (conversation_id, kind, title, topic, category, congregation_id, is_public, created_by, client_mutation_id)
+         VALUES ($1, 'space', $2, $3, $4, $5, TRUE, $6, $7) ON CONFLICT (conversation_id) DO NOTHING RETURNING conversation_id`,
+        [input.conversation_id, input.title, input.topic ?? null, input.category ?? null, me.congregation_id, userId, input.client_mutation_id ?? null],
       );
       if (res.rowCount === 0) return { conversation_id: input.conversation_id, duplicate: true };
       await c.query(`INSERT INTO chat_members (conversation_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`, [input.conversation_id, userId]);

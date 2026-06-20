@@ -35,6 +35,7 @@ import type {
   ThreadSummary,
   ChatInbox,
   ChatThreadDetail,
+  ChatPerson,
 } from "./types";
 
 export const queryKeys = {
@@ -59,6 +60,7 @@ export const queryKeys = {
   thread: (id: string) => `thread:${id}`,
   chatInbox: "chatInbox",
   chatConvo: (id: string) => `chatConvo:${id}`,
+  chatPeople: (q: string) => `chatPeople:${q}`,
   giftQuestions: "giftQuestions",
   myGifts: "myGifts",
   prayers: "prayers",
@@ -141,6 +143,10 @@ export function useChatConversation(conversationId: string | null): QueryResult<
     () => NuruApi.chatConversation(conversationId ?? ""),
     { staleMs: 5_000 },
   );
+}
+
+export function useChatPeople(query: string): QueryResult<{ people: ChatPerson[] }> {
+  return useQuery(queryKeys.chatPeople(query), () => NuruApi.chatPeople(query || undefined), { staleMs: 30_000 });
 }
 
 export function useGiftQuestions(): QueryResult<GiftQuestion[]> {

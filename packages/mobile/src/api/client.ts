@@ -43,6 +43,7 @@ import type {
   ThreadSummary,
   ChatInbox,
   ChatThreadDetail,
+  ChatPerson,
   NuruTurn,
   WelcomeVideo,
   FeaturedCell,
@@ -318,6 +319,10 @@ export const NuruApi = {
   },
   async createDm(userId: string): Promise<{ conversation_id: string }> {
     const { data } = await api.post<{ conversation_id: string }>("/chat/dms", { user_id: userId });
+    return data;
+  },
+  async chatPeople(q?: string): Promise<{ people: ChatPerson[] }> {
+    const { data } = await api.get<{ people: ChatPerson[] }>("/chat/people", q ? { params: { q } } : undefined);
     return data;
   },
   async joinSpace(conversationId: string): Promise<{ conversation_id: string; joined: boolean }> {

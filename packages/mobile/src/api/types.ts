@@ -239,6 +239,7 @@ export interface ChatConversation {
   is_public: boolean;
   title: string | null;
   topic: string | null;
+  category: string | null;
   member_count: number;
   last_body: string | null;
   last_type: string | null;
@@ -251,12 +252,20 @@ export interface DiscoverSpace {
   conversation_id: string;
   title: string | null;
   topic: string | null;
+  category: string | null;
   member_count: number;
 }
 
 export interface ChatInbox {
   conversations: ChatConversation[];
   discover_spaces: DiscoverSpace[];
+}
+
+/** A member the caller may start a DM with (GET /chat/people). */
+export interface ChatPerson {
+  user_id: string;
+  full_name: string;
+  role: string;
 }
 
 export interface ChatReaction {
@@ -289,6 +298,8 @@ export interface ChatThreadDetail {
   is_public: boolean;
   title: string | null;
   topic: string | null;
+  category: string | null;
+  member_count: number;
   joined: boolean;
   messages: ChatMessage[];
 }

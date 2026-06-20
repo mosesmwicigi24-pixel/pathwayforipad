@@ -8,10 +8,12 @@ import { Image, Keyboard, Linking, PermissionsAndroid, Platform, Pressable, Scro
 import { launchImageLibrary } from "react-native-image-picker";
 import AudioRecorderPlayer from "react-native-audio-recorder-player";
 import { pick as pickDocument, isCancel } from "react-native-document-picker";
-import { ArrowLeft, FileText, Hash, ImagePlus, Mic, Paperclip, Play, Square, Users, Video } from "lucide-react-native";
+import { ArrowLeft, FileText, Hash, ImagePlus, Mic, Paperclip, Play, Sparkles, Square, Users, Video } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
-import type { ChatMessage } from "../api/types";
+import type { ChatMessage, ChatThreadDetail } from "../api/types";
+import { avatarColor, initials } from "./chatInbox";
 import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
@@ -34,6 +36,19 @@ import {
 
 const QUICK = ["🙏", "❤️", "🔥", "🎉"];
 
+// Tap-to-fill suggested replies above the composer (mobile Chat make).
+const QUICK_REPLIES = ["Amen 🙏", "Praying for you 💛", "On my way 🏃", "Thank you 🙏"];
+
+/** A short subtitle under the thread title: kind (+ room type) and member count. */
+function threadSubtitle(convo: ChatThreadDetail): string {
+  if (convo.kind === "dm") return "Direct message";
+  const members = `${convo.member_count} ${convo.member_count === 1 ? "member" : "members"}`;
+  if (convo.kind === "space") return `${convo.is_public ? "Public space" : "Space"} · ${members}`;
+  const t = (convo.title ?? "").toLowerCase();
+  const kind = t.includes("cohort") ? "Cohort group" : t.includes("leader") || t.includes("multiplier") ? "Leaders group" : "Cell group";
+  return `${kind} · ${members}`;
+}
+
 // react-native-audio-recorder-player v4 exports a singleton instance (no `new`).
 const recorder = AudioRecorderPlayer;
 
@@ -42,7 +57,7 @@ function when(iso: string): string {
 }
 
 export function ChatThreadScreen(): ReactElement {
-  const nav = useNavigation();
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, "ChatThread">>();
   const { conversationId } = route.params;
   const { data: convo, isLoading, error, refetch } = useChatConversation(conversationId);
@@ -324,10 +339,24 @@ export function ChatThreadScreen(): ReactElement {
         <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={({ pressed }) => [st.iconBtn, pressed && { transform: [{ scale: 0.95 }] }]}>
           <ArrowLeft size={20} color={palette.onNavy} />
         </Pressable>
-        {convo?.kind === "space" ? <Hash size={16} color={palette.gold} /> : convo?.kind === "group" ? <Users size={16} color={palette.gold} /> : null}
-        <T variant="heading" tone="onNavy" style={{ flex: 1 }} numberOfLines={1}>
-          {convo?.title ?? route.params.title ?? "Conversation"}
-        </T>
+        <View style={[st.headAvatar, { backgroundColor: avatarColor(conversationId) }]}>
+          {convo?.kind === "space" ? (
+            <Hash size={18} color="#fff" />
+          ) : convo?.kind === "group" ? (
+            <Users size={18} color="#fff" />
+          ) : (
+            <T variant="heading" style={{ color: "#fff", fontSize: 14 }}>{initials(convo?.title ?? route.params.title)}</T>
+          )}
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <T variant="heading" tone="onNavy" numberOfLines={1}>
+            {convo?.title ?? route.params.title ?? "Conversation"}
+          </T>
+          {convo ? <T variant="micro" style={{ color: "rgba(255,255,255,0.6)", marginTop: 1 }}>{threadSubtitle(convo)}</T> : null}
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Ask Nuru" onPress={() => nav.navigate("Nuru")} style={({ pressed }) => [st.iconBtn, pressed && { transform: [{ scale: 0.95 }] }]}>
+          <Sparkles size={18} color={palette.gold} />
+        </Pressable>
       </View>
 
       {isLoading ? (
@@ -360,6 +389,28 @@ export function ChatThreadScreen(): ReactElement {
               </T>
             ) : null}
           </ScrollView>
+
+          {!recording && text.trim().length === 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              style={{ maxHeight: 52 }}
+              contentContainerStyle={st.quickRow}
+            >
+              {QUICK_REPLIES.map((q) => (
+                <Pressable
+                  key={q}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Quick reply: ${q}`}
+                  onPress={() => setText(q)}
+                  style={({ pressed }) => [st.quickChip, pressed && { transform: [{ scale: 0.96 }] }]}
+                >
+                  <T variant="caption" style={{ color: palette.ink }}>{q}</T>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
 
           <View style={[st.composer, { marginBottom: kbHeight }]}>
             {recording ? (
@@ -556,6 +607,9 @@ const st = {
     backgroundColor: palette.navy, paddingTop: 54, paddingBottom: spacing.base, paddingHorizontal: spacing.lg,
   },
   iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center" },
+  headAvatar: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  quickRow: { gap: spacing.sm, paddingHorizontal: spacing.screen, paddingVertical: spacing.sm },
+  quickChip: { backgroundColor: palette.white, borderRadius: radii.pill, borderWidth: 1, borderColor: palette.border, paddingHorizontal: spacing.base, height: 38, alignItems: "center", justifyContent: "center", ...shadow.card },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   bubble: { maxWidth: "82%", borderRadius: 18, paddingHorizontal: spacing.base, paddingVertical: spacing.sm, ...shadow.card },
   bubbleMine: { backgroundColor: palette.navy, borderBottomRightRadius: 6 },

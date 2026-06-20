@@ -20,6 +20,7 @@ import { CommunityScreen } from "../screens/CommunityScreen.js";
 import { ChatScreen } from "../screens/ChatScreen.js";
 import { ChatThreadScreen } from "../screens/ChatThreadScreen.js";
 import { SpacePreviewScreen } from "../screens/SpacePreviewScreen.js";
+import { NewMessageScreen } from "../screens/NewMessageScreen.js";
 import { NuruAssistantScreen } from "../screens/NuruAssistantScreen.js";
 import { ThreadScreen } from "../screens/ThreadScreen.js";
 import { CohortDiscussionsScreen } from "../screens/CohortDiscussionsScreen.js";
@@ -73,6 +74,7 @@ export function RootNavigator(): ReactElement {
         <Stack.Screen name="Thread" component={ThreadScreen} />
         <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
         <Stack.Screen name="SpacePreview" component={SpacePreviewScreen} />
+        <Stack.Screen name="NewMessage" component={NewMessageScreen} />
         <Stack.Screen name="Nuru" component={NuruAssistantScreen} />
         <Stack.Screen name="CohortDiscussions" component={CohortDiscussionsScreen} />
         <Stack.Screen name="Gifts" component={GiftsScreen} />
