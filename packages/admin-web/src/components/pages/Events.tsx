@@ -2020,6 +2020,7 @@ function CreateEventModal({ onClose, onCreated, onError }: { onClose: () => void
   const [qr, setQr] = useState(true);
   const [manual, setManual] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   function buildRrule(): string | undefined {
     if (recurrence === "One-time") return undefined;
@@ -2033,8 +2034,9 @@ function CreateEventModal({ onClose, onCreated, onError }: { onClose: () => void
   }
 
   async function submit(asDraft: boolean): Promise<void> {
+    setErr(null);
     if (!title.trim() || !startDate.trim()) {
-      onError("Event title and start date are required.");
+      setErr("Event title and start date are required.");
       return;
     }
     const category = EVENT_TYPES.find((t) => t.label === typeLabel)?.category ?? "special";
@@ -2061,7 +2063,9 @@ function CreateEventModal({ onClose, onCreated, onError }: { onClose: () => void
       await OpsApi.createSeries(body);
       onCreated();
     } catch (e) {
-      onError(errorMessage(e, "Could not create event."));
+      const msg = errorMessage(e, "Could not create event.");
+      setErr(msg);
+      onError(msg);
     } finally {
       setBusy(false);
     }
@@ -2183,9 +2187,12 @@ function CreateEventModal({ onClose, onCreated, onError }: { onClose: () => void
         </div>
       </div>
 
+      {err ? (
+        <div className="mx-6 mb-1 rounded-lg" role="alert" style={{ background: "#FDECEC", color: "#A8281F", fontSize: 12.5, padding: "9px 12px", border: "1px solid #F5C6C2" }}>{err}</div>
+      ) : null}
       <div className="px-6 py-4 flex items-center justify-end gap-2" style={{ background: "var(--secondary)", borderTop: "1px solid var(--border)" }}>
         <button onClick={onClose} className="rounded-xl px-4 py-2.5" style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)", background: "transparent", border: "none" }}>Cancel</button>
-        <button onClick={() => void submit(true)} disabled={busy} className="rounded-xl px-4 py-2.5" style={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>Save as draft</button>
+        <button onClick={() => void submit(true)} disabled={busy} className="rounded-xl px-4 py-2.5" style={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{busy ? "Saving…" : "Save as draft"}</button>
         <button onClick={() => void submit(false)} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none" }}>
           <QrCode size={14} /> Create event
         </button>

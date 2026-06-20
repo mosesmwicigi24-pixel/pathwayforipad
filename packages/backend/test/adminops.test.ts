@@ -301,6 +301,25 @@ describe("cells administration", () => {
     const forbidden = await agent().post("/v1/admin/cells").set(auth(studentTok)).send({ name: "Hacker Cell" });
     expect(forbidden.status).toBe(403);
   });
+
+  it("edits a cell (Admin) — PATCH updates the supplied fields", async () => {
+    const created = await agent().post("/v1/admin/cells").set(auth(adminTok)).send({ name: "Editable Cell", room: "Hall A" });
+    const id = created.body.cell_group_id as string;
+
+    const upd = await agent().patch(`/v1/admin/cells/${id}`).set(auth(adminTok)).send({ name: "Renamed Cell", room: "Hall C", discipler_name: "John K" });
+    expect(upd.status).toBe(200);
+    expect(upd.body.name).toBe("Renamed Cell");
+    expect(upd.body.room).toBe("Hall C");
+    expect(upd.body.discipler_name).toBe("John K");
+
+    // Name uniqueness still enforced against other cells.
+    await agent().post("/v1/admin/cells").set(auth(adminTok)).send({ name: "Other Cell" });
+    const clash = await agent().patch(`/v1/admin/cells/${id}`).set(auth(adminTok)).send({ name: "other cell" });
+    expect(clash.status).toBe(409);
+
+    const forbidden = await agent().patch(`/v1/admin/cells/${id}`).set(auth(studentTok)).send({ name: "Nope" });
+    expect(forbidden.status).toBe(403);
+  });
 });
 
 describe("homepage-featured cell (\"This week at Nuru\", single-row invariant)", () => {

@@ -1640,6 +1640,17 @@ paths:
         "400": { description: Validation failed }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "409": { description: A cell with that name already exists }
+  /admin/cells/{id}:
+    patch:
+      tags: [portal]
+      summary: Admin. Edit a cell's details (name + discipler/focus/level/meeting metadata). Only supplied fields change; name stays unique per congregation. Audited.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Cell updated }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: A cell with that name already exists }
   /admin/cells/{id}/homepage:
     post:
       tags: [portal]

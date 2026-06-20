@@ -61,6 +61,12 @@ export function registerAdminOps(ctx: AppContext): Router {
     res.status(201).json(await svc.createCell(requirePrincipal(req).userId, input));
   }));
 
+  // Edit a cell's details (Cell Engagement "Edit").
+  r.patch("/admin/cells/:id", auth, perm("members", "edit"), handler(async (req, res) => {
+    const input = parseBody(AdminOpsService.UpdateCell, req.body);
+    res.json(await svc.updateCell(requirePrincipal(req).userId, req.params.id ?? "", input));
+  }));
+
   // Homepage-featured cell ("This week at Nuru", single-row invariant): set / clear.
   r.post("/admin/cells/:id/homepage", auth, perm("members", "edit"), handler(async (req, res) => {
     res.json(await svc.setFeaturedCell(requirePrincipal(req).userId, req.params.id ?? ""));

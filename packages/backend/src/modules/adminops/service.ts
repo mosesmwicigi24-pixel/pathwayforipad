@@ -135,6 +135,67 @@ export class AdminOpsService {
     });
   }
 
+  static readonly UpdateCell = z
+    .object({
+      name: z.string().trim().min(1).max(150).optional(),
+      discipler_name: z.string().trim().max(150).nullable().optional(),
+      discipler_role: z.string().trim().max(80).nullable().optional(),
+      focus: z.string().trim().max(200).nullable().optional(),
+      level_label: z.string().trim().max(120).nullable().optional(),
+      meets: z.string().trim().max(120).nullable().optional(),
+      room: z.string().trim().max(120).nullable().optional(),
+      next_session: z.string().trim().max(160).nullable().optional(),
+      tone: z.enum(["amber", "blue", "green", "violet", "rose", "red"]).nullable().optional(),
+      meeting_cadence: z.coerce.number().int().min(1).max(31).optional(),
+    })
+    .strict();
+
+  /**
+   * Edit a cell's details (Figma Cell Engagement "Edit"). Only the supplied
+   * fields change; the name stays unique per congregation. Engagement metrics
+   * remain derived (§1.1), so they are returned fresh, not stored. Audited.
+   */
+  async updateCell(adminId: string, cellId: string, input: z.infer<typeof AdminOpsService.UpdateCell>): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const cell = await maybeOne<{ congregation_id: string }>(
+        c,
+        `SELECT congregation_id FROM cell_groups WHERE cell_group_id = $1`,
+        [cellId],
+      );
+      if (!cell) throw new ApiError("NOT_FOUND", "Cell not found");
+      if (input.name) {
+        const dup = await maybeOne(
+          c,
+          `SELECT 1 FROM cell_groups WHERE congregation_id = $1 AND lower(name) = lower($2) AND cell_group_id <> $3`,
+          [cell.congregation_id, input.name, cellId],
+        );
+        if (dup) throw new ApiError("CONFLICT", "A cell with that name already exists");
+      }
+      const cols: Array<keyof typeof input> = [
+        "name", "discipler_name", "discipler_role", "focus", "level_label",
+        "meets", "room", "next_session", "tone", "meeting_cadence",
+      ];
+      const set: string[] = [];
+      const vals: unknown[] = [];
+      for (const k of cols) {
+        if (input[k] !== undefined) { set.push(`${k} = $${set.length + 2}`); vals.push(input[k]); }
+      }
+      if (set.length > 0) {
+        await c.query(`UPDATE cell_groups SET ${set.join(", ")} WHERE cell_group_id = $1`, [cellId, ...vals]);
+      }
+      await audit(c, adminId, "cell.updated", "cell_groups", cellId, { fields: set.length });
+      return one(
+        c,
+        `SELECT cg.cell_group_id, cg.name, cg.discipler_name, cg.discipler_role, cg.focus, cg.level_label,
+                cg.meets, cg.room, cg.next_session, cg.tone, cg.meeting_cadence, cg.is_featured,
+                (SELECT count(*)::int FROM users u WHERE u.cell_group_id = cg.cell_group_id AND u.deleted_at IS NULL) AS members,
+                0::float AS avg_engagement, 0 AS at_risk
+           FROM cell_groups cg WHERE cg.cell_group_id = $1`,
+        [cellId],
+      );
+    });
+  }
+
   // ---------------- Homepage-featured cell ("This week at Nuru") ----------------
 
   /** Feature THIS cell on the mobile homepage; unsets any other. Exactly one

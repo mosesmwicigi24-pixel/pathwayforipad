@@ -5,7 +5,7 @@
 // our model, so real per-cell metrics (members, avg engagement, at-risk) are shown.
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronRight, CircleAlert, Sparkles, TrendingUp, Users, ArrowUpRight, Plus, X, Home, UserCheck, Target, CalendarClock, MapPin, CalendarPlus, GraduationCap, Star } from "lucide-react";
+import { ChevronRight, CircleAlert, Sparkles, TrendingUp, Users, ArrowUpRight, Plus, X, Home, UserCheck, Target, CalendarClock, MapPin, CalendarPlus, GraduationCap, Star, Pencil } from "lucide-react";
 import { AdminApi, type EngagementCellRow, type CreateCellBody } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -23,6 +23,7 @@ export function CellEngagement(): ReactElement {
   const [cells, setCells] = useState<EngagementCellRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [editCell, setEditCell] = useState<EngagementCellRow | null>(null);
   const [featuringId, setFeaturingId] = useState<string | null>(null);
 
   const load = useCallback(
@@ -40,6 +41,15 @@ export function CellEngagement(): ReactElement {
       catch (e) { setError(errorMessage(e, "Cell created, but could not feature it on the homepage.")); }
     }
     setCells((prev) => [created, ...prev]);
+  };
+
+  const handleUpdate = (updated: EngagementCellRow): void => {
+    setEditCell(null);
+    // Preserve the derived metrics already loaded (the PATCH echoes zeros for
+    // avg_engagement/at_risk); only the edited metadata changes here.
+    setCells((prev) => prev.map((c) => (c.cell_group_id === updated.cell_group_id
+      ? { ...c, ...updated, avg_engagement: c.avg_engagement, at_risk: c.at_risk, members: c.members }
+      : c)));
   };
 
   // Toggle the homepage-featured cell ("This week at Nuru"). The server keeps the
@@ -114,7 +124,21 @@ export function CellEngagement(): ReactElement {
                     <span className="flex h-12 w-12 items-center justify-center rounded-2xl text-sm font-extrabold" style={{ background: `${tone}18`, color: tone }}>{initials(cell.name)}</span>
                     <div><h3 style={{ fontSize: 16, fontWeight: 800, color: "#0B1F33", lineHeight: 1.15 }}>{cell.name}</h3><p style={{ fontSize: 11.5, fontWeight: 600, color: "var(--muted-foreground)", marginTop: 2 }}>{cell.members} members</p></div>
                   </div>
-                  <span className="inline-flex items-center gap-0.5 rounded-full px-2 py-1" style={{ fontSize: 11, fontWeight: 800, color: "#0B1F33", background: "rgba(255,255,255,0.7)", border: "1px solid var(--border)" }}>View <ChevronRight size={12} /></span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      title="Edit this cell"
+                      aria-label={`Edit ${cell.name}`}
+                      onClick={(e) => { e.stopPropagation(); setEditCell(cell); }}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setEditCell(cell); } }}
+                      className="inline-flex items-center gap-0.5 rounded-full px-2 py-1"
+                      style={{ fontSize: 11, fontWeight: 800, color: "#0B1F33", background: "rgba(255,255,255,0.7)", border: "1px solid var(--border)", cursor: "pointer" }}
+                    >
+                      <Pencil size={11} /> Edit
+                    </span>
+                    <span className="inline-flex items-center gap-0.5 rounded-full px-2 py-1" style={{ fontSize: 11, fontWeight: 800, color: "#0B1F33", background: "rgba(255,255,255,0.7)", border: "1px solid var(--border)" }}>View <ChevronRight size={12} /></span>
+                  </div>
                 </div>
                 <div className="mt-3">
                   <span
@@ -185,7 +209,8 @@ export function CellEngagement(): ReactElement {
         </div>
       </section>
 
-      {addOpen && <NewCellModal onClose={() => setAddOpen(false)} onCreate={(c, f) => { void handleCreate(c, f); }} />}
+      {addOpen && <CellModal onClose={() => setAddOpen(false)} onCreate={(c, f) => { void handleCreate(c, f); }} />}
+      {editCell && <CellModal cell={editCell} onClose={() => setEditCell(null)} onUpdate={handleUpdate} />}
     </main>
   );
 }
@@ -212,16 +237,17 @@ function Field({ label, icon, children }: { label: string; icon?: ReactElement; 
   );
 }
 
-function NewCellModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c: EngagementCellRow, featureOnHomepage: boolean) => void }): ReactElement {
-  const [name, setName] = useState("");
-  const [discipler, setDiscipler] = useState("");
-  const [disciplerRole, setDisciplerRole] = useState(ROLE_OPTIONS[0] as string);
-  const [level, setLevel] = useState(LEVEL_OPTIONS[1] as string);
-  const [focus, setFocus] = useState("");
-  const [meets, setMeets] = useState("");
-  const [room, setRoom] = useState("");
-  const [nextSession, setNextSession] = useState("");
-  const [tone, setTone] = useState("amber");
+function CellModal({ cell, onClose, onCreate, onUpdate }: { cell?: EngagementCellRow; onClose: () => void; onCreate?: (c: EngagementCellRow, featureOnHomepage: boolean) => void; onUpdate?: (c: EngagementCellRow) => void }): ReactElement {
+  const editing = Boolean(cell);
+  const [name, setName] = useState(cell?.name ?? "");
+  const [discipler, setDiscipler] = useState(cell?.discipler_name ?? "");
+  const [disciplerRole, setDisciplerRole] = useState(cell?.discipler_role ?? (ROLE_OPTIONS[0] as string));
+  const [level, setLevel] = useState(cell?.level_label ?? (LEVEL_OPTIONS[1] as string));
+  const [focus, setFocus] = useState(cell?.focus ?? "");
+  const [meets, setMeets] = useState(cell?.meets ?? "");
+  const [room, setRoom] = useState(cell?.room ?? "");
+  const [nextSession, setNextSession] = useState(cell?.next_session ?? "");
+  const [tone, setTone] = useState(cell?.tone ?? "amber");
   const [featureOnHomepage, setFeatureOnHomepage] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -238,8 +264,13 @@ function NewCellModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c
       ...(room.trim() ? { room: room.trim() } : {}),
       ...(nextSession.trim() ? { next_session: nextSession.trim() } : {}),
     };
-    try { onCreate(await AdminApi.createCell(body), featureOnHomepage); }
-    catch (e) { setErr(errorMessage(e, "Could not register the cell.")); setSaving(false); }
+    try {
+      if (editing && cell) onUpdate?.(await AdminApi.updateCell(cell.cell_group_id, body));
+      else onCreate?.(await AdminApi.createCell(body), featureOnHomepage);
+    } catch (e) {
+      setErr(errorMessage(e, editing ? "Could not update the cell." : "Could not register the cell."));
+      setSaving(false);
+    }
   };
 
   const withIcon = { ...fieldStyle, paddingLeft: 34 } as const;
@@ -250,8 +281,8 @@ function NewCellModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: "rgba(200,155,60,0.12)", color: "var(--nuru-gold)" }}><Users size={18} /></span>
             <div>
-              <h3 style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--nuru-navy)", lineHeight: 1.1 }}>Register a new cell</h3>
-              <p style={{ fontSize: 12.5, color: "var(--muted-foreground)", marginTop: 2 }}>Assign a discipler and set how the cell meets.</p>
+              <h3 style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--nuru-navy)", lineHeight: 1.1 }}>{editing ? "Edit cell" : "Register a new cell"}</h3>
+              <p style={{ fontSize: 12.5, color: "var(--muted-foreground)", marginTop: 2 }}>{editing ? "Update the discipler and how this cell meets." : "Assign a discipler and set how the cell meets."}</p>
             </div>
           </div>
           <button onClick={onClose} style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}><X size={18} /></button>
@@ -274,7 +305,7 @@ function NewCellModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c
               ))}
             </div>
           </div>
-          <div className="sm:col-span-2">
+          {!editing && <div className="sm:col-span-2">
             <button
               type="button"
               role="switch"
@@ -294,14 +325,14 @@ function NewCellModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c
                 <span style={{ display: "block", width: 18, height: 18, borderRadius: 9, background: "#fff", transform: featureOnHomepage ? "translateX(18px)" : "translateX(0)", transition: "transform 0.15s" }} />
               </span>
             </button>
-          </div>
+          </div>}
         </div>
 
         {err && <div className="mx-6 rounded-md" style={{ background: "#FDECEC", color: "#A8281F", fontSize: 12, padding: "8px 10px", border: "1px solid #F5C6C2", marginBottom: 8 }}>{err}</div>}
 
         <div className="flex items-center justify-end gap-2" style={{ padding: "0 24px 22px" }}>
           <button onClick={onClose} className="rounded-lg px-4" style={{ height: 40, background: "var(--input-background)", border: "1.5px solid var(--border)", fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>Cancel</button>
-          <button onClick={() => void submit()} disabled={saving} className="flex items-center gap-2 rounded-lg px-4" style={{ height: 40, background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none", opacity: saving ? 0.6 : 1 }}><Plus size={14} /> {saving ? "Registering…" : "Register cell"}</button>
+          <button onClick={() => void submit()} disabled={saving} className="flex items-center gap-2 rounded-lg px-4" style={{ height: 40, background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none", opacity: saving ? 0.6 : 1 }}>{editing ? <Pencil size={14} /> : <Plus size={14} />} {saving ? (editing ? "Saving…" : "Registering…") : (editing ? "Save changes" : "Register cell")}</button>
         </div>
       </div>
     </div>

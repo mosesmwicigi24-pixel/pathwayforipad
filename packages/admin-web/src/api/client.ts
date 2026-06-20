@@ -207,6 +207,10 @@ export const AdminApi = {
     const { data } = await api.post<EngagementCellRow>("/admin/cells", body);
     return data;
   },
+  async updateCell(cellId: string, body: Partial<CreateCellBody>): Promise<EngagementCellRow> {
+    const { data } = await api.patch<EngagementCellRow>(`/admin/cells/${cellId}`, body);
+    return data;
+  },
   // Feature this cell on the mobile homepage ("This week at Nuru"); unsets any
   // other (single-row invariant enforced server-side, PR #125).
   setFeaturedCell: (cellId: string) =>
