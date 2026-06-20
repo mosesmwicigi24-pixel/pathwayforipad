@@ -49,6 +49,40 @@ export function monthLabel(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase();
 }
 
+export interface DayGroup {
+  key: string; // "2026-05-18"
+  label: string; // "Mon, 18 May 2026"
+  totalMinor: number; // settled-only day total
+  records: GivingRecord[]; // most-recent first
+}
+
+/** Group records by calendar day, newest day first, each carrying a settled-only
+ *  subtotal. Records within a day stay newest-first. Used by the statement so
+ *  every gift is listed under its own date heading. */
+export function groupByDay(records: GivingRecord[]): DayGroup[] {
+  const sorted = [...records].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const groups = new Map<string, GivingRecord[]>();
+  for (const r of sorted) {
+    const key = r.created_at.slice(0, 10); // YYYY-MM-DD
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(r);
+    else groups.set(key, [r]);
+  }
+  return [...groups.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, rows]) => ({
+      key,
+      label: dayLabel(rows[0]!.created_at),
+      totalMinor: statementTotalMinor(rows),
+      records: rows,
+    }));
+}
+
+/** "Mon, 18 May 2026" from an ISO timestamp. */
+export function dayLabel(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
 /** A short, uppercase provider reference for display ("Ref QFR8K2"). */
 export function shortRef(ref: string | null): string | null {
   if (!ref) return null;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isSettled, statementTotalMinor, groupByMonth, monthLabel, shortRef } from "./givingStatement";
+import { isSettled, statementTotalMinor, groupByMonth, groupByDay, monthLabel, shortRef } from "./givingStatement";
 import type { GivingRecord } from "../api/types";
 
 function rec(over: Partial<GivingRecord>): GivingRecord {
@@ -50,6 +50,22 @@ describe("groupByMonth", () => {
     expect(groups[1]!.totalMinor).toBe(250000); // refund excluded
     // newest-first within the month
     expect(groups[0]!.records.map((r) => r.transaction_id)).toEqual(["1", "2", "3"]);
+  });
+});
+
+describe("groupByDay", () => {
+  it("buckets by calendar day, newest first, with settled-only subtotals", () => {
+    const sameDay: GivingRecord[] = [
+      rec({ transaction_id: "a", amount_minor: 100000, status: "succeeded", created_at: "2026-05-25T14:30:00Z" }),
+      rec({ transaction_id: "b", amount_minor: 50000, status: "succeeded", created_at: "2026-05-25T09:00:00Z" }),
+      rec({ transaction_id: "c", amount_minor: 70000, status: "processing", created_at: "2026-05-18T09:00:00Z" }),
+    ];
+    const groups = groupByDay(sameDay);
+    expect(groups.map((g) => g.key)).toEqual(["2026-05-25", "2026-05-18"]);
+    // both gifts on the 25th are bucketed together, newest first
+    expect(groups[0]!.records.map((r) => r.transaction_id)).toEqual(["a", "b"]);
+    expect(groups[0]!.totalMinor).toBe(150000); // 100000 + 50000
+    expect(groups[1]!.totalMinor).toBe(0); // lone processing gift excluded from total
   });
 });
 

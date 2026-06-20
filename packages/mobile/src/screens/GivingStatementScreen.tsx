@@ -18,13 +18,13 @@ import { useGivingHistory, useGivingDetail } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
 import { historyStatusChip, methodLabel } from "./givingHelpers";
-import { groupByMonth, statementTotalMinor, shortRef } from "./givingStatement";
+import { groupByDay, statementTotalMinor, shortRef } from "./givingStatement";
 import { apiBaseUrl } from "../config";
 import { getVault } from "../auth/vault";
 import type { GivingRecord } from "../api/types";
 
 const kshMinor = (m: number): string => `KSh ${(m / 100).toLocaleString()}`;
-const dayFull = (iso: string): string => new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+const timeLabel = (iso: string): string => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 const dateTimeFull = (iso: string): string => new Date(iso).toLocaleString("en-US", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 
 type FundVisual = { Icon: LucideIcon; tint: string; fg: string };
@@ -45,7 +45,7 @@ export function GivingStatementScreen(): ReactElement {
   const nav = useNavigation();
   const { data: history, isLoading, error, refetch } = useGivingHistory();
   const records = history ?? [];
-  const groups = useMemo(() => groupByMonth(records), [records]);
+  const groups = useMemo(() => groupByDay(records), [records]);
   const total = statementTotalMinor(records);
   const [selected, setSelected] = useState<GivingRecord | null>(null);
 
@@ -132,7 +132,7 @@ function StatementRow({ r, divider, onPress }: { r: GivingRecord; divider: boole
       <View style={[st.fundIcon, { backgroundColor: v.tint }]}><v.Icon size={18} color={v.fg} /></View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <T variant="heading" style={{ fontSize: 15 }}>{cap(r.fund)}</T>
-        <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>{dayFull(r.created_at)}{r.method ? ` · ${methodLabel(r.method)}` : ""}</T>
+        <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>{timeLabel(r.created_at)}{r.method ? ` · ${methodLabel(r.method)}` : ""}</T>
         {ref ? <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>Ref {ref}</T> : null}
       </View>
       <View style={{ alignItems: "flex-end", gap: 6 }}>

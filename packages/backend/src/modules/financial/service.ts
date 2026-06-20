@@ -408,24 +408,25 @@ export class FinancialService {
     const settled = (s: string): boolean => s === "succeeded" || s === "settled" || s === "completed";
     const ksh = (m: number): string => `KSh ${(m / 100).toLocaleString("en-US")}`;
     const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v)); // pg returns timestamps as Date
-    const monthKey = (v: unknown): string => iso(v).slice(0, 7);
-    const monthLabel = (v: unknown): string => new Date(iso(v)).toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase();
-    const dayLabel = (v: unknown): string => new Date(iso(v)).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+    const dayKey = (v: unknown): string => iso(v).slice(0, 10); // YYYY-MM-DD
+    const dayLabel = (v: unknown): string => new Date(iso(v)).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+    const timeLabel = (v: unknown): string => new Date(iso(v)).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     const methodLabel = (m: string): string => ({ mpesa: "M-Pesa", airtel: "Airtel Money", card: "Card", paypal: "PayPal" } as Record<string, string>)[m] ?? m;
 
-    const byMonth = new Map<string, typeof rows>();
+    // Group by calendar day, newest first — mirrors the in-app statement layout.
+    const byDay = new Map<string, typeof rows>();
     for (const r of rows) {
-      const k = monthKey(r.created_at);
-      (byMonth.get(k) ?? byMonth.set(k, []).get(k)!).push(r);
+      const k = dayKey(r.created_at);
+      (byDay.get(k) ?? byDay.set(k, []).get(k)!).push(r);
     }
-    const groups = [...byMonth.entries()]
+    const groups = [...byDay.entries()]
       .sort((a, b) => b[0].localeCompare(a[0]))
       .map(([, recs]) => ({
-        label: monthLabel(recs[0]!.created_at),
+        label: dayLabel(recs[0]!.created_at),
         totalLabel: ksh(recs.reduce((s, r) => s + (settled(r.status) ? r.amount_minor : 0), 0)),
         rows: recs.map((r) => {
           const ref = (r.provider_ref ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(-8).toUpperCase();
-          return `${r.fund[0]!.toUpperCase()}${r.fund.slice(1)}  ${ksh(r.amount_minor)}  ${dayLabel(r.created_at)}  ${methodLabel(r.method)}  ${r.status.toUpperCase()}${ref ? `  Ref ${ref}` : ""}`;
+          return `${r.fund[0]!.toUpperCase()}${r.fund.slice(1)}  ${ksh(r.amount_minor)}  ${timeLabel(r.created_at)}  ${methodLabel(r.method)}  ${r.status.toUpperCase()}${ref ? `  Ref ${ref}` : ""}`;
         }),
       }));
     const total = rows.reduce((s, r) => s + (settled(r.status) ? r.amount_minor : 0), 0);
