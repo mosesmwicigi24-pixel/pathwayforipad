@@ -29,7 +29,10 @@ type Segment = "today" | "upcoming" | "rsvps";
 
 export function EventsScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const now = Date.now();
+  // Snapshot "now" ONCE per mount. (Date.now() in render would change every
+  // render → new calendar from/to ISO → new query key → infinite refetch storm
+  // that drains the rate limiter and 429s every screen.)
+  const now = useMemo(() => Date.now(), []);
   const [fromIso, toIso] = useMemo(() => {
     const n = new Date(now);
     return [new Date(n.getTime() - 7 * 86_400_000).toISOString(), new Date(n.getTime() + 45 * 86_400_000).toISOString()];

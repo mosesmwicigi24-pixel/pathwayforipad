@@ -4,6 +4,7 @@
 // screens loading/error/refresh states, request de-duplication, stale-time, and
 // targeted invalidation so writes can refresh exactly the reads they affect.
 import { useCallback, useEffect, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type Status = "idle" | "loading" | "success" | "error";
 
@@ -19,6 +20,47 @@ const listeners = new Map<string, Set<() => void>>();
 
 function emit(key: string): void {
   listeners.get(key)?.forEach((l) => l());
+}
+
+// --- Offline persistence (§1.7 offline-first) -----------------------------
+// Successful reads are mirrored to AsyncStorage so the last-known data survives
+// an app restart and shows instantly — even with no network. On launch we hydrate
+// the cache from disk (marked stale), so a mounted screen renders cached data
+// immediately and refetches in the background: when the DB changed, the fresh
+// result replaces it; when it hasn't, the cached copy simply stays.
+const PERSIST_PREFIX = "rq:";
+let persistEnabled = false;
+
+function persist(key: string, entry: Entry): void {
+  if (!persistEnabled || entry.status !== "success" || entry.data === undefined) return;
+  void AsyncStorage.setItem(PERSIST_PREFIX + key, JSON.stringify({ d: entry.data, t: entry.fetchedAt ?? 0 })).catch(() => undefined);
+}
+
+/** Load persisted reads into the cache (call once at app start). Each entry is
+ *  hydrated stale so a mounted useQuery shows it immediately and refreshes in the
+ *  background. Never throws — if AsyncStorage is unavailable the app just runs
+ *  in-memory only. */
+export async function hydrateQueryCache(): Promise<void> {
+  persistEnabled = true;
+  try {
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(PERSIST_PREFIX));
+    if (keys.length === 0) return;
+    const pairs = await Promise.all(keys.map(async (k) => [k, await AsyncStorage.getItem(k)] as const));
+    for (const [k, v] of pairs) {
+      if (!v) continue;
+      const key = k.slice(PERSIST_PREFIX.length);
+      if (cache.has(key)) continue; // a live fetch already populated this — don't clobber
+      try {
+        const parsed = JSON.parse(v) as { d: unknown; t?: number };
+        cache.set(key, { status: "success", data: parsed.d, fetchedAt: parsed.t ?? 0 });
+        emit(key);
+      } catch {
+        /* skip a corrupt entry */
+      }
+    }
+  } catch {
+    /* AsyncStorage unavailable — stay in-memory only */
+  }
 }
 
 function subscribe(key: string, fn: () => void): () => void {
@@ -43,7 +85,9 @@ async function runFetch<T>(key: string, fetcher: () => Promise<T>): Promise<void
   emit(key);
   try {
     const data = await fetcher();
-    cache.set(key, { status: "success", data, fetchedAt: Date.now() });
+    const ok: Entry<T> = { status: "success", data, fetchedAt: Date.now() };
+    cache.set(key, ok);
+    persist(key, ok);
   } catch (error) {
     const cur = cache.get(key);
     const failed: Entry<T> = { status: "error", error };
@@ -88,15 +132,21 @@ export function refreshQueries(prefix: string): void {
  *  until the next explicit refresh/invalidate. */
 export function setQueryData<T>(key: string, updater: (prev: T | undefined) => T): void {
   const prev = cache.get(key) as Entry<T> | undefined;
-  cache.set(key, { status: "success", data: updater(prev?.data), fetchedAt: Date.now() });
+  const next: Entry<T> = { status: "success", data: updater(prev?.data), fetchedAt: Date.now() };
+  cache.set(key, next);
+  persist(key, next);
   emit(key);
 }
 
-/** Wipe all cached data (used on sign-out so a new session never sees stale data). */
+/** Wipe all cached data (used on sign-out so a new session never sees stale
+ *  data) — both in memory and the persisted mirror. */
 export function clearQueryCache(): void {
   const keys = [...cache.keys()];
   cache.clear();
   keys.forEach(emit);
+  void AsyncStorage.getAllKeys()
+    .then((ks) => Promise.all(ks.filter((k) => k.startsWith(PERSIST_PREFIX)).map((k) => AsyncStorage.removeItem(k))))
+    .catch(() => undefined);
 }
 
 export interface QueryResult<T> {

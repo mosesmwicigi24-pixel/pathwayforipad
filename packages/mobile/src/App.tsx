@@ -19,6 +19,7 @@ import type { KeyValueStore } from "./db/keyValueStore";
 import { EncryptedKeyValueStore } from "./db/encryptedKeyValueStore";
 import { createKeychainCipher } from "./db/keychainCipher";
 import { getSyncEngine } from "./sync/engineProvider";
+import { hydrateQueryCache } from "./api/query";
 import { getConnectivity, setConnectivity } from "./net/connectivity";
 import { NetInfoConnectivity, onReconnect } from "./net/netInfoConnectivity";
 import { startSyncLifecycle } from "./sync/syncLifecycle";
@@ -39,6 +40,7 @@ export function App(): ReactElement {
     configureApiBase(apiBaseUrl(Platform.OS, metroDevHost()));
     setConnectivity(new NetInfoConnectivity()); // real online/offline detection
     installAuth(getVault()); // attach Bearer + 401-refresh-retry against the vault
+    void hydrateQueryCache(); // restore last-known reads so screens show instantly + work offline (§1.7)
 
     let cancelled = false;
     let stopSync = (): void => {};
