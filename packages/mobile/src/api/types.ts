@@ -91,6 +91,8 @@ export interface GivingRecord {
   currency: string;
   status: string;
   fund: string;
+  method: GivingMethod;
+  provider_ref: string | null;
   created_at: string;
   settled_at: string | null;
 }

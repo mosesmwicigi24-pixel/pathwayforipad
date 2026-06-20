@@ -14,6 +14,8 @@ import {
   Wallet, X, type LucideIcon,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/types";
 import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { assertOnlineForGiving, getConnectivity } from "../net/connectivity";
@@ -73,9 +75,9 @@ type Phase = "stk" | "success" | "failed";
 type Ceremony = { phase: Phase; amount: number; fund: string; method: UIMethod; ref: string; note?: string; scheduled?: boolean };
 
 export function GivingScreen(): ReactElement {
-  const nav = useNavigation();
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: history, isLoading: historyLoading } = useGivingHistory();
-  const { data: schedules, isLoading: schedulesLoading, refetch: refetchSchedules } = useSchedules();
+  const { data: schedules, refetch: refetchSchedules } = useSchedules();
   const { data: me } = useMe();
 
   const [fundCode, setFundCode] = useState("tithe");
@@ -263,7 +265,7 @@ export function GivingScreen(): ReactElement {
             <View style={st.repeatIcon}><RotateCcw size={18} color={palette.goldLo} /></View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <T variant="heading" style={{ fontSize: 15 }}>Repeat last gift</T>
-              <T variant="micro" tone="tertiary" style={{ marginTop: 2, textTransform: "capitalize" }}>{`${kshMinor(lastGift.amount_minor)} · ${lastGift.fund}`}</T>
+              <T variant="micro" tone="tertiary" style={{ marginTop: 2, textTransform: "capitalize" }}>{`${kshMinor(lastGift.amount_minor)} · ${lastGift.fund} · via ${methodLabel(lastGift.method)}`}</T>
             </View>
             <Pressable accessibilityRole="button" onPress={repeatLast} style={({ pressed }) => [st.repeatBtn, pressed && { opacity: 0.85 }]}>
               <T variant="caption" style={{ color: palette.navy, fontWeight: "700" }}>Give again</T>
@@ -382,44 +384,43 @@ export function GivingScreen(): ReactElement {
           </View>
         </Pressable>
 
-        {/* Recurring giving — tap a row for detail + cancel */}
-        <View>
-          <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>RECURRING GIVING</T>
-          {schedulesLoading && active.length === 0 ? (
-            <View style={st.group}><View style={st.emptyRow}><T variant="caption" tone="tertiary">Loading…</T></View></View>
-          ) : active.length === 0 ? (
-            <View style={st.group}>
-              <View style={st.emptyRow}>
-                <View style={st.emptyIcon}><CalendarClock size={18} color={palette.ink400} /></View>
-                <T variant="caption" tone="secondary" style={{ marginTop: spacing.sm, textAlign: "center" }}>No recurring giving set up</T>
-                <T variant="micro" tone="tertiary" style={{ marginTop: 2, textAlign: "center" }}>Choose Weekly or Monthly above to set one up.</T>
-              </View>
-            </View>
-          ) : (
-            <View style={st.group}>
-              {active.map((s, i) => (
+        {/* Active schedules — side-by-side summary cards (tap for detail + cancel) */}
+        {active.length > 0 ? (
+          <View>
+            <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>ACTIVE SCHEDULES</T>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+              {active.map((s) => (
                 <Pressable
                   key={s.schedule_id}
                   accessibilityRole="button"
                   accessibilityLabel={`${s.fund} ${freqLabel(s.frequency)}, ${kshMinor(s.amount_minor)}`}
                   onPress={() => setScheduleDetail(s)}
-                  style={({ pressed }) => [st.histRow, i < active.length - 1 && st.divider, pressed && { backgroundColor: palette.surface }]}
+                  style={({ pressed }) => [st.scheduleCard, pressed && { backgroundColor: palette.surface }]}
                 >
-                  <View style={st.recurIcon}><Repeat size={15} color={palette.goldLo} /></View>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <T variant="heading" style={{ fontSize: 14, textTransform: "capitalize" }}>{`${s.fund} · ${freqLabel(s.frequency).toLowerCase()}`}</T>
-                    <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{`${kshMinor(s.amount_minor)} · next ${when(s.next_run_at)}`}</T>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Repeat size={14} color={palette.goldLo} />
+                    <T variant="micro" tone="gold" style={{ fontWeight: "700", letterSpacing: 0.8 }}>{s.frequency === "weekly" ? "WEEKLY" : "MONTHLY"}</T>
                   </View>
-                  <ChevronRight size={18} color={palette.ink300} />
+                  <T serif style={{ fontSize: 22, color: palette.ink, marginTop: spacing.sm }}>{kshMinor(s.amount_minor)}</T>
+                  <T variant="caption" tone="secondary" style={{ marginTop: 2, textTransform: "capitalize" }}>{s.fund}</T>
+                  <T variant="micro" tone="tertiary" style={{ marginTop: spacing.sm }}>{`Next ${when(s.next_run_at)}`}</T>
                 </Pressable>
               ))}
             </View>
-          )}
-        </View>
+          </View>
+        ) : null}
 
-        {/* Giving history */}
+        {/* Recent giving — quick peek; full ledger lives in the statement */}
         <View>
-          <T variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>GIVING HISTORY</T>
+          <View style={st.payHead}>
+            <T variant="overline" tone="secondary">RECENT GIVING</T>
+            <Pressable accessibilityRole="button" accessibilityLabel="View statement" onPress={() => nav.navigate("GivingStatement")} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <T variant="caption" tone="gold" style={{ fontWeight: "700" }}>View statement</T>
+                <ChevronRight size={14} color={palette.goldLo} />
+              </View>
+            </Pressable>
+          </View>
           {historyLoading && (!history || history.length === 0) ? (
             <View style={st.group}><View style={st.emptyRow}><T variant="caption" tone="tertiary">Loading…</T></View></View>
           ) : !history || history.length === 0 ? (
@@ -432,29 +433,21 @@ export function GivingScreen(): ReactElement {
             </View>
           ) : (
             <View style={st.group}>
-              {history.map((g, i) => {
-                const chip = historyStatusChip(g.status);
-                return (
-                  <Pressable
-                    key={g.transaction_id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${g.fund} ${kshMinor(g.amount_minor)} ${chip.label}`}
-                    onPress={() => setHistoryDetail(g)}
-                    style={({ pressed }) => [st.histRow, i < history.length - 1 && st.divider, pressed && { backgroundColor: palette.surface }]}
-                  >
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <T variant="heading" style={{ fontSize: 14, textTransform: "capitalize" }}>{g.fund}</T>
-                      <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{when(g.created_at)}</T>
-                    </View>
-                    <View style={{ alignItems: "flex-end", gap: 4 }}>
-                      <T serif style={{ fontSize: 15, color: palette.ink }}>{kshMinor(g.amount_minor)}</T>
-                      <View style={[st.statusChip, { backgroundColor: chip.bg }]}>
-                        <T variant="micro" style={{ color: chip.fg, fontWeight: "700", fontSize: 9 }}>{chip.label.toUpperCase()}</T>
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              })}
+              {history.slice(0, 3).map((g, i, arr) => (
+                <Pressable
+                  key={g.transaction_id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${g.fund} ${kshMinor(g.amount_minor)}`}
+                  onPress={() => setHistoryDetail(g)}
+                  style={({ pressed }) => [st.histRow, i < arr.length - 1 && st.divider, pressed && { backgroundColor: palette.surface }]}
+                >
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <T variant="heading" style={{ fontSize: 14, textTransform: "capitalize" }}>{g.fund}</T>
+                    <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{`${when(g.created_at)} · ${methodLabel(g.method)}`}</T>
+                  </View>
+                  <T serif style={{ fontSize: 15, color: palette.ink }}>{kshMinor(g.amount_minor)}</T>
+                </Pressable>
+              ))}
             </View>
           )}
         </View>
@@ -803,6 +796,7 @@ const st = {
   emptyRow: { alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.base, paddingVertical: spacing.lg },
   emptyIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.mutedBg, alignItems: "center", justifyContent: "center" },
   recurIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
+  scheduleCard: { flexGrow: 1, flexBasis: "46%", minWidth: 150, backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   statusChip: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3 },
   detailRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.base, paddingVertical: 13 },
   detailIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: palette.surface, alignItems: "center", justifyContent: "center" },

@@ -343,16 +343,27 @@ export class FinancialService {
     };
   }
 
-  /** A member's giving history (§3.3). */
+  /** A member's giving history (§3.3). Includes the payment method + a short
+   *  provider reference so the mobile statement can show "via M-Pesa · Ref …".
+   *  `provider` is 'stripe' for cards; we surface that as method 'card' and fall
+   *  back to the Stripe payment-intent id when there's no mobile-money ref. */
   async listGiving(userId: string): Promise<unknown[]> {
     const rows = await many<Record<string, unknown>>(
       this.pool,
-      `SELECT t.transaction_id, t.amount_minor, t.currency, t.status, f.code AS fund, t.created_at, t.settled_at
+      `SELECT t.transaction_id, t.amount_minor, t.currency, t.status, f.code AS fund,
+              t.provider,
+              COALESCE(t.provider_ref, t.stripe_payment_intent) AS provider_ref,
+              t.created_at, t.settled_at
          FROM transactions t LEFT JOIN funds f ON f.fund_id = t.fund_id
         WHERE t.user_id = $1 ORDER BY t.created_at DESC`,
       [userId],
     );
-    return rows.map((r) => ({ ...r, amount_minor: Number(r.amount_minor) }));
+    return rows.map((r) => {
+      const provider = (r.provider as string | null) ?? "stripe";
+      const { provider: _omit, ...rest } = r;
+      void _omit;
+      return { ...rest, amount_minor: Number(r.amount_minor), method: provider === "stripe" ? "card" : provider };
+    });
   }
 
   // ---------------- Recurring giving (Contract Matrix B7) ----------------

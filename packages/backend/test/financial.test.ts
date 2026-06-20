@@ -65,6 +65,18 @@ describe("financial / giving (§1.10 C, §3.5)", () => {
     expect(rows[0].n).toBe(1);
   });
 
+  it("listGiving surfaces method + provider_ref for the mobile statement", async () => {
+    // Card (Stripe) gift → provider 'stripe' is surfaced as method 'card', and
+    // provider_ref falls back to the Stripe payment-intent id.
+    await svc.createGivingIntent(user, { fund: "tithe", amount_minor: 5000, currency: "kes", idempotency_key: "give-card" });
+
+    const rows = (await svc.listGiving(user)) as Array<{ fund: string; method: string; provider_ref: string | null; amount_minor: number }>;
+    const card = rows.find((r) => r.fund === "tithe")!;
+    expect(card.method).toBe("card"); // 'stripe' provider mapped to 'card'
+    expect(card.provider_ref).toBeTruthy(); // Stripe payment-intent id (COALESCE fallback)
+    expect(card.amount_minor).toBe(5000);
+  });
+
   it("PayPal: creates a USD order, then settles on capture (COMPLETED)", async () => {
     const pp = new FakePayPalGateway("completed");
     const s = new FinancialService(testPool(), gw, undefined, pp);

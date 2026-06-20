@@ -37,6 +37,7 @@ import { ResourcesLibraryScreen } from "../screens/ResourcesLibraryScreen.js";
 import { ModuleScreen } from "../screens/ModuleScreen.js";
 import { QuizScreen } from "../screens/QuizScreen.js";
 import { GivingScreen } from "../screens/GivingScreen.js";
+import { GivingStatementScreen } from "../screens/GivingStatementScreen.js";
 import { LevelCompleteScreen } from "../screens/LevelCompleteScreen.js";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -70,6 +71,7 @@ export function RootNavigator(): ReactElement {
         <Stack.Screen name="Quiz" component={QuizScreen} />
         <Stack.Screen name="LevelComplete" component={LevelCompleteScreen} />
         <Stack.Screen name="Giving" component={GivingScreen} />
+        <Stack.Screen name="GivingStatement" component={GivingStatementScreen} />
         <Stack.Screen name="Calendar" component={CalendarScreen} />
         <Stack.Screen name="Thread" component={ThreadScreen} />
         <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
