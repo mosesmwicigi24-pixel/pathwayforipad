@@ -265,7 +265,7 @@ export function GivingScreen(): ReactElement {
             <View style={st.repeatIcon}><RotateCcw size={18} color={palette.goldLo} /></View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <T variant="heading" style={{ fontSize: 15 }}>Repeat last gift</T>
-              <T variant="micro" tone="tertiary" style={{ marginTop: 2, textTransform: "capitalize" }}>{`${kshMinor(lastGift.amount_minor)} · ${lastGift.fund} · via ${methodLabel(lastGift.method)}`}</T>
+              <T variant="micro" tone="tertiary" style={{ marginTop: 2, textTransform: "capitalize" }}>{`${kshMinor(lastGift.amount_minor)} · ${lastGift.fund}${lastGift.method ? ` · via ${methodLabel(lastGift.method)}` : ""}`}</T>
             </View>
             <Pressable accessibilityRole="button" onPress={repeatLast} style={({ pressed }) => [st.repeatBtn, pressed && { opacity: 0.85 }]}>
               <T variant="caption" style={{ color: palette.navy, fontWeight: "700" }}>Give again</T>
@@ -443,7 +443,7 @@ export function GivingScreen(): ReactElement {
                 >
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <T variant="heading" style={{ fontSize: 14, textTransform: "capitalize" }}>{g.fund}</T>
-                    <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{`${when(g.created_at)} · ${methodLabel(g.method)}`}</T>
+                    <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{`${when(g.created_at)}${g.method ? ` · ${methodLabel(g.method)}` : ""}`}</T>
                   </View>
                   <T serif style={{ fontSize: 15, color: palette.ink }}>{kshMinor(g.amount_minor)}</T>
                 </Pressable>
@@ -507,7 +507,7 @@ function KeypadSheet({ fundLabel, initial, onClose, onSubmit }: { fundLabel: str
         <T variant="micro" tone="secondary" style={{ letterSpacing: 1.2 }}>{`CUSTOM AMOUNT · ${fundLabel.toUpperCase()}`}</T>
         <View style={{ flexDirection: "row", alignItems: "flex-start", marginTop: spacing.sm }}>
           <T serif style={{ fontSize: 24, color: palette.ink400, marginTop: 8 }}>KSh </T>
-          <T serif style={{ fontSize: 40, fontWeight: "700", color: palette.ink, letterSpacing: -1 }}>{value.toLocaleString()}</T>
+          <T serif style={{ fontSize: 40, lineHeight: 46, fontWeight: "700", color: palette.ink, letterSpacing: -1 }}>{value.toLocaleString()}</T>
         </View>
         <View style={st.keypad}>
           {keys.map((k) => (
@@ -618,7 +618,7 @@ function ScheduleDetailSheet({ schedule, onClose, onCancel }: { schedule: Giving
 
         <View style={{ flexDirection: "row", alignItems: "flex-start", marginTop: spacing.base }}>
           <T serif style={{ fontSize: 24, color: palette.ink400, marginTop: 6 }}>KSh </T>
-          <T serif style={{ fontSize: 40, fontWeight: "700", color: palette.ink, letterSpacing: -1 }}>{(schedule.amount_minor / 100).toLocaleString()}</T>
+          <T serif style={{ fontSize: 40, lineHeight: 46, fontWeight: "700", color: palette.ink, letterSpacing: -1 }}>{(schedule.amount_minor / 100).toLocaleString()}</T>
           <T variant="caption" tone="tertiary" style={{ marginLeft: 6, marginTop: 14 }}>{freqLabel(schedule.frequency).toLowerCase()}</T>
         </View>
 
@@ -668,7 +668,7 @@ function HistoryDetailSheet({ record, onClose }: { record: GivingRecord; onClose
 
         <View style={{ flexDirection: "row", alignItems: "flex-start", marginTop: spacing.base }}>
           <T serif style={{ fontSize: 24, color: palette.ink400, marginTop: 6 }}>KSh </T>
-          <T serif style={{ fontSize: 40, fontWeight: "700", color: palette.ink, letterSpacing: -1 }}>{(record.amount_minor / 100).toLocaleString()}</T>
+          <T serif style={{ fontSize: 40, lineHeight: 46, fontWeight: "700", color: palette.ink, letterSpacing: -1 }}>{(record.amount_minor / 100).toLocaleString()}</T>
         </View>
         <View style={[st.statusChip, { backgroundColor: chip.bg, alignSelf: "flex-start", marginTop: spacing.sm }]}>
           <T variant="micro" style={{ color: chip.fg, fontWeight: "700", fontSize: 10 }}>{chip.label.toUpperCase()}</T>

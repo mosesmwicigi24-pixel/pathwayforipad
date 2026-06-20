@@ -88,7 +88,9 @@ export function GivingStatementScreen(): ReactElement {
         showsVerticalScrollIndicator={false}
       >
         {isLoading && records.length === 0 ? <Loading label="Loading your statement…" /> : null}
-        {error ? <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /> : null}
+        {/* Only block the screen when we have nothing to show — a transient refetch
+            error (e.g. a 429) shouldn't hide a statement that already loaded. */}
+        {error && records.length === 0 ? <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /> : null}
 
         {!isLoading && !error && records.length === 0 ? (
           <View style={st.empty}>
@@ -124,7 +126,7 @@ function StatementRow({ r, divider }: { r: GivingRecord; divider: boolean }): Re
       <View style={[st.fundIcon, { backgroundColor: v.tint }]}><v.Icon size={18} color={v.fg} /></View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <T variant="heading" style={{ fontSize: 15 }}>{cap(r.fund)}</T>
-        <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>{dayFull(r.created_at)} · {methodLabel(r.method)}</T>
+        <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>{dayFull(r.created_at)}{r.method ? ` · ${methodLabel(r.method)}` : ""}</T>
         {ref ? <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>Ref {ref}</T> : null}
       </View>
       <View style={{ alignItems: "flex-end", gap: 6 }}>

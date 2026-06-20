@@ -122,7 +122,10 @@ export function createApp(ctx: AppContext): Express {
   // Global limiter (per user/IP) + stricter buckets on auth, payment and sync (§5.8).
   app.use(rateLimit({ store: rl, name: "global", capacity: 300, refillPerSec: 5, keyBy: byUserOrIp }));
   app.use("/v1/auth", rateLimit({ store: rl, name: "auth", capacity: 20, refillPerSec: 0.5, keyBy: byIp }));
-  app.use("/v1/giving", rateLimit({ store: rl, name: "pay", capacity: 30, refillPerSec: 1, keyBy: byUserOrIp }));
+  // Strict payment bucket guards money WRITES (intents, schedule create/cancel).
+  // Read GETs (history, schedules, statement) skip it — they'd otherwise drain the
+  // 30-token bucket on a normal Give→Statement visit and 429 — and fall to global.
+  app.use("/v1/giving", rateLimit({ store: rl, name: "pay", capacity: 30, refillPerSec: 1, keyBy: byUserOrIp, skip: (req) => req.method === "GET" }));
   app.use("/v1/sync", rateLimit({ store: rl, name: "sync", capacity: 120, refillPerSec: 4, keyBy: byUserOrIp }));
   app.use("/v1/assistant", rateLimit({ store: rl, name: "ai", capacity: 20, refillPerSec: 0.2, keyBy: byUserOrIp }));
 

@@ -101,11 +101,19 @@ export interface RateLimitOptions {
   capacity: number;
   refillPerSec: number;
   keyBy?: (req: Request) => string;
+  /** When it returns true, the request bypasses THIS bucket (still subject to
+   *  others, e.g. the global limiter). Used to keep the strict payment bucket on
+   *  writes only — read GETs (history, schedules) shouldn't drain it. */
+  skip?: (req: Request) => boolean;
 }
 
 export function rateLimit(opts: RateLimitOptions) {
   const keyBy = opts.keyBy ?? byIp;
   return (req: Request, res: Response, next: NextFunction): void => {
+    if (opts.skip?.(req)) {
+      next();
+      return;
+    }
     void opts.store.consume(`${opts.name}:${keyBy(req)}`, opts.capacity, opts.refillPerSec).then((r) => {
       res.setHeader("X-RateLimit-Limit", String(r.limit));
       res.setHeader("X-RateLimit-Remaining", String(r.remaining));

@@ -38,4 +38,22 @@ describe("rateLimit middleware (§5.8)", () => {
     clock.t += 2_000;
     await api.get("/x").expect(200);
   });
+
+  it("skip() lets a request bypass the bucket entirely", async () => {
+    const store = new InMemoryRateLimitStore(() => 1_000_000);
+    const app = express();
+    // Only POSTs count against the bucket; GETs skip (mirrors the /v1/giving fix).
+    app.use(rateLimit({ store, name: "pay", capacity: 1, refillPerSec: 0, keyBy: () => "fixed", skip: (req) => req.method === "GET" }));
+    app.get("/x", (_req, res) => res.json({ ok: true }));
+    app.post("/x", (_req, res) => res.json({ ok: true }));
+    app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      res.status(err instanceof ApiError ? err.status : 500).json({ code: err instanceof ApiError ? err.code : "INTERNAL" });
+    });
+    const api = supertest(app);
+    // Many GETs never 429 even though the bucket holds 1 token and never refills.
+    for (let i = 0; i < 5; i++) await api.get("/x").expect(200);
+    // The single write token is still there; the second write 429s.
+    await api.post("/x").expect(200);
+    await api.post("/x").expect(429);
+  });
 });

@@ -2413,7 +2413,7 @@ SPEC CHECKSUMS:
   AsyncStorage: dba9d05b9aa34413760ea5a74f63a7e7f9fddf73
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
   hermes-engine: b683d9258af2be2ba8f36d8caf660aeae1b39ac7
-  NitroAudioRecorderPlayer: d1af94da4e77a4a54f026a86e1fef620bc7a67ae
+  NitroAudioRecorderPlayer: ca0e789a247f3dccc3679801a3effd9deae8e12d
   NitroModules: 8308314b644c15567ffad50bb10667e8c1d82666
   RCTDeprecation: 2a74a2c57675e64419bd89078efde81f7c1de90b
   RCTRequired: 30451112e6fef4e6f31b4e7eee0845156e35e4b0
