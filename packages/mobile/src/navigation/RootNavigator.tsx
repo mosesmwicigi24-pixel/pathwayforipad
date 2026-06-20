@@ -16,7 +16,7 @@ import { LevelScreen } from "../screens/LevelScreen.js";
 import { CalendarScreen } from "../screens/CalendarScreen.js";
 import { EventDetailScreen } from "../screens/EventDetailScreen.js";
 import { ProfileScreen } from "../screens/ProfileScreen.js";
-import { CommunityScreen } from "../screens/CommunityScreen.js";
+import { EventsScreen } from "../screens/EventsScreen.js";
 import { ChatScreen } from "../screens/ChatScreen.js";
 import { ChatThreadScreen } from "../screens/ChatThreadScreen.js";
 import { SpacePreviewScreen } from "../screens/SpacePreviewScreen.js";
@@ -52,7 +52,7 @@ function Tabs(): ReactElement {
     >
       <Tab.Screen name="Home" component={HomeDashboardScreen} />
       <Tab.Screen name="Pathway" component={LevelsScreen} />
-      <Tab.Screen name="Community" component={CommunityScreen} />
+      <Tab.Screen name="Events" component={EventsScreen} />
       <Tab.Screen name="Chat" component={ChatScreen} />
       <Tab.Screen name="Give" component={GivingScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />

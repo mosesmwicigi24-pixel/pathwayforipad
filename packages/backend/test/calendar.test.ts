@@ -91,6 +91,73 @@ describe("series → projection → materialization → RSVP (§C.2/§C.3)", () 
   });
 });
 
+describe("Events tab: category, going counts, series follow, cell summary", () => {
+  let cong: string, admin: string, member: string, cell: string;
+  beforeEach(async () => {
+    await resetDb();
+    cong = await createCongregation();
+    cell = await createCellGroup(cong, "Karen East");
+    admin = (await createUser({ congregationId: cong, role: "Admin", email: "a@dev.local" })).user_id;
+    member = (await createUser({ congregationId: cong, cellGroupId: cell, role: "Student", email: "m@dev.local" })).user_id;
+  });
+  afterAll(async () => {
+    await closeTestPool();
+  });
+
+  it("projects a series category and real per-occurrence going counts", async () => {
+    const s = (await svc().createSeries(principal(admin, "Admin", cong), {
+      title: "Sunday Worship Service",
+      category: "worship",
+      timezone: "Africa/Nairobi",
+      dtstart_local: "2026-06-07T09:00:00",
+      duration_min: 90,
+      rrule: "FREQ=WEEKLY;BYDAY=SU;COUNT=4",
+      visibility: "congregation",
+    })) as { series_id: string };
+    await svc().materialize(s.series_id);
+    const ev = await testPool().query("SELECT event_id FROM events WHERE series_id=$1 ORDER BY occurrence_start LIMIT 1", [s.series_id]);
+    await svc().setRsvp(member, ev.rows[0].event_id, { status: "going" });
+
+    const projected = (await svc().projectRange(member, "2026-06-01T00:00:00Z", "2026-07-15T00:00:00Z")) as Array<{ category: string; going: number }>;
+    expect(projected[0]!.category).toBe("worship");
+    // materialize only creates future occurrences, so the RSVP lands on whichever
+    // occurrence got materialized — assert exactly one "going" across the series.
+    expect(projected.reduce((sum, o) => sum + o.going, 0)).toBe(1);
+  });
+
+  it("follows then unfollows a series (idempotent toggle)", async () => {
+    const s = (await svc().createSeries(principal(admin, "Admin", cong), {
+      title: "Midweek Cell",
+      timezone: "Africa/Nairobi",
+      dtstart_local: "2026-06-10T18:30:00",
+      duration_min: 60,
+      rrule: "FREQ=WEEKLY;BYDAY=WE;COUNT=6",
+      visibility: "congregation",
+    })) as { series_id: string };
+
+    let list = (await svc().listSeries(member)) as Array<{ series_id: string; following: boolean; cadence: string }>;
+    const before = list.find((x) => x.series_id === s.series_id)!;
+    expect(before.following).toBe(false);
+    expect(before.cadence).toContain("Wednesday");
+
+    const on = await svc().toggleFollow(member, s.series_id);
+    expect(on.following).toBe(true);
+    list = (await svc().listSeries(member)) as Array<{ series_id: string; following: boolean }>;
+    expect(list.find((x) => x.series_id === s.series_id)!.following).toBe(true);
+
+    const off = await svc().toggleFollow(member, s.series_id);
+    expect(off.following).toBe(false);
+  });
+
+  it("summarizes the member's cell (name, members, attendance, next)", async () => {
+    const summary = (await svc().cellSummary(member)) as { cell: { name: string; members: number; attendance: { expected: number } } | null };
+    expect(summary.cell).not.toBeNull();
+    expect(summary.cell!.name).toBe("Karen East");
+    expect(summary.cell!.members).toBeGreaterThanOrEqual(1);
+    expect(summary.cell!.attendance.expected).toBeGreaterThan(0);
+  });
+});
+
 describe("admin portal Create-event contract (POST /admin/events/series)", () => {
   let cong: string, admin: string, member: string;
   beforeEach(async () => {
@@ -126,8 +193,9 @@ describe("admin portal Create-event contract (POST /admin/events/series)", () =>
       visibility: "congregation", // "members" → congregation
       status: "active",
     });
-    // Presentational-only fields are dropped, not rejected (no .strict() failure).
-    expect((parsed as Record<string, unknown>).category).toBeUndefined();
+    // category is now persisted (Events make filter + badge); other presentational-only
+    // fields are still dropped, not rejected (no .strict() failure).
+    expect((parsed as Record<string, unknown>).category).toBe("worship");
     expect((parsed as Record<string, unknown>).manual_checkin_enabled).toBeUndefined();
   });
 

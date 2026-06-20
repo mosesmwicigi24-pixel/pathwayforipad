@@ -54,6 +54,31 @@ export function registerCalendar(ctx: AppContext): Router {
     }),
   );
 
+  // Events tab: followable series + follow toggle ("Series you follow").
+  r.get(
+    "/calendar/series",
+    auth,
+    handler(async (req, res) => {
+      res.json({ data: await svc.listSeries(requirePrincipal(req).userId) });
+    }),
+  );
+  r.post(
+    "/calendar/series/:id/follow",
+    auth,
+    handler(async (req, res) => {
+      res.json(await svc.toggleFollow(requirePrincipal(req).userId, req.params.id ?? ""));
+    }),
+  );
+
+  // Events tab: the member's cell summary card (cell · members · attendance · next).
+  r.get(
+    "/me/cell-summary",
+    auth,
+    handler(async (req, res) => {
+      res.json(await svc.cellSummary(requirePrincipal(req).userId));
+    }),
+  );
+
   // ---- Leader attendance ops (Contract Matrix B2; cell-scoped, audited) ----
   r.post(
     "/admin/events/:id/checkins",

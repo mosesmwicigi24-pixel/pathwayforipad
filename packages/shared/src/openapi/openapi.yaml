@@ -1506,6 +1506,30 @@ paths:
       responses:
         "200": { description: RSVPs }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /calendar/series:
+    get:
+      tags: [system]
+      summary: Followable event series for the member (Events make "Series you follow") — cadence, next occurrence, following flag, new count.
+      responses:
+        "200": { description: Series }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /calendar/series/{id}/follow:
+    post:
+      tags: [system]
+      summary: Follow / unfollow an event series (idempotent toggle).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Follow state }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /me/cell-summary:
+    get:
+      tags: [system]
+      summary: The member's cell summary for the Events tab (cell, members, this-month attendance, next gathering). Returns cell=null without a cell.
+      responses:
+        "200": { description: Cell summary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /admin/events/{id}/checkins:
     post:
       tags: [portal]

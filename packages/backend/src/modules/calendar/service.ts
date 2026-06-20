@@ -28,6 +28,7 @@ interface SeriesRow {
   duration_min: number;
   rrule: string | null;
   visibility: "congregation" | "cell" | "leaders";
+  category?: string | null;
   rsvp_enabled?: boolean;
   qr_enabled?: boolean;
   reminders_enabled?: boolean;
@@ -84,6 +85,7 @@ function normalizeSeriesInput(raw: unknown): unknown {
     title: r.title,
     description: r.description,
     location: r.location,
+    category: r.category,
     timezone: r.timezone,
     duration_min: r.duration_min,
     rrule,
@@ -139,7 +141,7 @@ export class CalendarService {
       c,
       `SELECT series_id, congregation_id, cell_group_id, title, description, location, timezone,
               to_char(dtstart_local, 'YYYY-MM-DD"T"HH24:MI:SS') AS dtstart_local,
-              duration_min, rrule, visibility, is_paused, status
+              duration_min, rrule, visibility, category, is_paused, status
          FROM event_series es
         WHERE es.deleted_at IS NULL AND es.is_paused = FALSE AND es.congregation_id = $1
           -- Drafts are visible only to leaders/admins ($4), never to members.
@@ -183,19 +185,153 @@ export class CalendarService {
           occurrence_id: occurrenceId(s.series_id, o.start_at),
           series_id: s.series_id,
           title: s.title,
+          description: s.description,
           location: s.location,
           visibility: s.visibility,
+          category: s.category ?? null,
           status: s.status ?? "active",
           cell_group_id: s.cell_group_id,
           start_at: start,
           end_at: end,
           original_start_at: o.start_at,
           rescheduled: Boolean(ex && !ex.is_cancelled && ex.new_start_at),
+          going: 0,
         });
+      }
+    }
+    // Attach real "going" counts: materialized events carry (series_id,
+    // occurrence_start) + RSVPs. One batched query keyed by series + instant
+    // avoids an N+1 over the projected occurrences.
+    if (out.length > 0) {
+      const seriesIds = [...new Set(series.map((s) => s.series_id))];
+      const counts = await many<{ series_id: string; occurrence_start: string; going: number }>(
+        this.pool,
+        `SELECT e.series_id, e.occurrence_start,
+                count(*) FILTER (WHERE r.status = 'going')::int AS going
+           FROM events e LEFT JOIN event_rsvps r ON r.event_id = e.event_id
+          WHERE e.series_id = ANY($1::uuid[]) AND e.occurrence_start BETWEEN $2 AND $3
+          GROUP BY e.series_id, e.occurrence_start`,
+        [seriesIds, from.toISOString(), to.toISOString()],
+      );
+      const goingByKey = new Map(counts.map((c) => [`${c.series_id}|${new Date(c.occurrence_start).getTime()}`, c.going]));
+      for (const o of out as Array<{ series_id: string; original_start_at: string; going: number }>) {
+        o.going = goingByKey.get(`${o.series_id}|${new Date(o.original_start_at).getTime()}`) ?? 0;
       }
     }
     out.sort((a, b) => String((a as { start_at: string }).start_at).localeCompare(String((b as { start_at: string }).start_at)));
     return out;
+  }
+
+  // ---------------- Events tab: series follow + cell summary ----------------
+
+  /** Human cadence for a series from its RRULE + anchor ("Every Sunday · 9:00 AM"). */
+  private cadenceLabel(s: SeriesRow): string {
+    const time = DateTime.fromISO(s.dtstart_local).toFormat("h:mm a");
+    if (!s.rrule) return `One-off · ${time}`;
+    const up = s.rrule.toUpperCase();
+    const freq = /FREQ=([A-Z]+)/.exec(up)?.[1];
+    const byday = /BYDAY=([A-Z,]+)/.exec(up)?.[1];
+    const DAYS: Record<string, string> = { SU: "Sunday", MO: "Monday", TU: "Tuesday", WE: "Wednesday", TH: "Thursday", FR: "Friday", SA: "Saturday" };
+    if (freq === "WEEKLY" && byday && !byday.includes(",")) return `Every ${DAYS[byday] ?? "week"} · ${time}`;
+    if (freq === "WEEKLY") return `Weekly · ${time}`;
+    if (freq === "MONTHLY") return `Monthly · ${time}`;
+    if (freq === "DAILY") return `Daily · ${time}`;
+    return `Recurring · ${time}`;
+  }
+
+  /**
+   * The member's followable series (Events make "Series you follow"): every
+   * visible series with a `following` flag, a human cadence, the next upcoming
+   * occurrence, and a `new_count` of upcoming instances in the next 14 days.
+   */
+  async listSeries(userId: string): Promise<unknown[]> {
+    const scope = await this.scopeOf(this.pool, userId);
+    const series = await this.visibleSeries(this.pool, scope);
+    const follows = await many<{ series_id: string }>(this.pool, `SELECT series_id FROM event_series_follows WHERE user_id = $1`, [userId]);
+    const followed = new Set(follows.map((f) => f.series_id));
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 45 * 86_400_000);
+    const soon = new Date(now.getTime() + 14 * 86_400_000);
+    return series
+      .map((s) => {
+        const occ = expandOccurrences(s, now, horizon, 8).filter((o) => new Date(o.start_at) >= now);
+        const next = occ[0];
+        return {
+          series_id: s.series_id,
+          title: s.title,
+          category: s.category ?? null,
+          cadence: this.cadenceLabel(s),
+          next_at: next?.start_at ?? null,
+          following: followed.has(s.series_id),
+          new_count: occ.filter((o) => new Date(o.start_at) <= soon).length,
+        };
+      })
+      .sort((a, b) => Number(b.following) - Number(a.following) || (a.next_at ?? "").localeCompare(b.next_at ?? ""));
+  }
+
+  /** Follow / unfollow a series (idempotent toggle). */
+  async toggleFollow(userId: string, seriesId: string): Promise<{ series_id: string; following: boolean }> {
+    const series = await maybeOne<{ series_id: string }>(this.pool, `SELECT series_id FROM event_series WHERE series_id = $1 AND deleted_at IS NULL`, [seriesId]);
+    if (!series) throw new ApiError("NOT_FOUND", "Series not found");
+    const del = await this.pool.query(`DELETE FROM event_series_follows WHERE user_id = $1 AND series_id = $2`, [userId, seriesId]);
+    if ((del.rowCount ?? 0) > 0) return { series_id: seriesId, following: false };
+    await this.pool.query(
+      `INSERT INTO event_series_follows (user_id, series_id, last_seen_at) VALUES ($1, $2, now()) ON CONFLICT DO NOTHING`,
+      [userId, seriesId],
+    );
+    return { series_id: seriesId, following: true };
+  }
+
+  /**
+   * "Your cell" summary for the Events tab: the member's cell, its size, a
+   * this-month attendance ratio (check-ins vs the cell's expected cadence), and
+   * the next cell gathering. Returns { cell: null } for members without a cell.
+   * Note: this app has no separate "cohort" entity (the Cohort→Cell rename is
+   * pending), so only real cell data is returned — no fabricated cohort.
+   */
+  async cellSummary(userId: string): Promise<unknown> {
+    const me = await one<{ cell_group_id: string | null; congregation_id: string }>(
+      this.pool,
+      `SELECT cell_group_id, congregation_id FROM users WHERE user_id = $1`,
+      [userId],
+    );
+    if (!me.cell_group_id) return { cell: null };
+    const cell = await one<{ name: string; meeting_cadence: number }>(
+      this.pool,
+      `SELECT name, meeting_cadence FROM cell_groups WHERE cell_group_id = $1`,
+      [me.cell_group_id],
+    );
+    const members = await one<{ n: number }>(
+      this.pool,
+      `SELECT count(*)::int AS n FROM users WHERE cell_group_id = $1 AND deleted_at IS NULL`,
+      [me.cell_group_id],
+    );
+    const attended = await one<{ n: number }>(
+      this.pool,
+      `SELECT count(*)::int AS n FROM attendance_logs a JOIN events e ON e.event_id = a.event_id
+        WHERE a.user_id = $1 AND e.cell_group_id = $2 AND a.checked_in_at >= now() - INTERVAL '30 days'`,
+      [userId, me.cell_group_id],
+    );
+    // Next cell gathering: expand this cell's visible series over the next 30 days.
+    const scope = await this.scopeOf(this.pool, userId);
+    const series = (await this.visibleSeries(this.pool, scope)).filter((s) => s.cell_group_id === me.cell_group_id);
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 30 * 86_400_000);
+    let next: { start_at: string; location: string | null } | null = null;
+    for (const s of series) {
+      for (const o of expandOccurrences(s, now, horizon, 4)) {
+        if (new Date(o.start_at) >= now && (!next || o.start_at < next.start_at)) next = { start_at: o.start_at, location: s.location };
+      }
+    }
+    return {
+      cell: {
+        cell_group_id: me.cell_group_id,
+        name: cell.name,
+        members: members.n,
+        attendance: { attended: attended.n, expected: cell.meeting_cadence },
+        next: next ? { start_at: next.start_at, location: next.location } : null,
+      },
+    };
   }
 
   // ---------------- Admin: series CRUD ----------------
@@ -208,6 +344,7 @@ export class CalendarService {
     title: z.string().min(1).max(255),
     description: z.string().nullable().optional(),
     location: z.string().max(255).nullable().optional(),
+    category: z.string().max(24).nullable().optional(),
     timezone: z.string().min(1).max(64),
     dtstart_local: z.string().min(1), // ISO-ish wall clock
     duration_min: z.number().int().min(5).max(720),
@@ -235,15 +372,16 @@ export class CalendarService {
       const row = await one<{ series_id: string }>(
         c,
         `INSERT INTO event_series
-           (congregation_id, cell_group_id, title, description, location, timezone, dtstart_local, duration_min, rrule, visibility, created_by,
+           (congregation_id, cell_group_id, title, description, location, category, timezone, dtstart_local, duration_min, rrule, visibility, created_by,
             rsvp_enabled, qr_enabled, reminders_enabled, checkin_opens_min_before, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING series_id`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING series_id`,
         [
           principal.congregationId,
           input.cell_group_id ?? null,
           input.title,
           input.description ?? null,
           input.location ?? null,
+          input.category ?? null,
           input.timezone,
           input.dtstart_local,
           input.duration_min,

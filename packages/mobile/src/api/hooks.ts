@@ -7,6 +7,8 @@ import type {
   Achievements,
   AssembledQuiz,
   CalendarOccurrence,
+  EventSeries,
+  CellSummary,
   CertificateRow,
   EventDetail,
   GivingRecord,
@@ -68,6 +70,8 @@ export const queryKeys = {
   myReflection: (moduleId: string) => `myReflection:${moduleId}`,
   notifications: "notifications",
   myAnnouncements: "myAnnouncements",
+  eventSeries: "eventSeries",
+  cellSummary: "cellSummary",
   scripture: (ref: string, version: string) => `scripture:${ref}:${version}`,
   welcomeVideo: "welcomeVideo",
   featuredCell: "featuredCell",
@@ -178,6 +182,14 @@ export function useNotifications(): QueryResult<{ data: NotificationRow[]; unrea
 
 export function useMyAnnouncements(): QueryResult<MyAnnouncement[]> {
   return useQuery(queryKeys.myAnnouncements, () => NuruApi.myAnnouncements(), { staleMs: 30_000 });
+}
+
+export function useEventSeries(): QueryResult<EventSeries[]> {
+  return useQuery(queryKeys.eventSeries, () => NuruApi.eventSeries(), { staleMs: 60_000 });
+}
+
+export function useCellSummary(): QueryResult<CellSummary> {
+  return useQuery(queryKeys.cellSummary, () => NuruApi.cellSummary(), { staleMs: 60_000 });
 }
 
 /** Verse of the day (WEB default per D-M4 — public-domain translation). */

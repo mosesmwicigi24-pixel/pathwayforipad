@@ -92,7 +92,7 @@ export function NotificationsScreen(): ReactElement {
     }
     // Deep-link routing (D-M9 / Chat make's routeTarget): every notification
     // family lands somewhere sensible.
-    if (n.template.startsWith("announcement")) nav.navigate("Tabs", { screen: "Community" });
+    if (n.template.startsWith("announcement")) nav.navigate("Tabs", { screen: "Events" });
     else if (n.template.startsWith("event")) nav.navigate("Calendar");
     else if (n.template.startsWith("reflection")) nav.navigate("Tabs", { screen: "Pathway" });
     else if (

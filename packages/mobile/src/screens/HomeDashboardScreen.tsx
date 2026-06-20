@@ -164,7 +164,7 @@ export function HomeDashboardScreen(): ReactElement {
         void refetchAnnouncements();
       })
       .catch(() => undefined);
-    nav.navigate("Tabs", { screen: "Community" });
+    nav.navigate("Tabs", { screen: "Events" });
   };
 
   return (
@@ -496,7 +496,7 @@ export function HomeDashboardScreen(): ReactElement {
           <View style={st.card}>
             <View style={{ flexDirection: "row", alignItems: "baseline" }}>
               <T variant="heading" style={{ flex: 1, fontSize: 15 }}>Announcements</T>
-              <Pressable onPress={() => nav.navigate("Tabs", { screen: "Community" })}>
+              <Pressable onPress={() => nav.navigate("Tabs", { screen: "Events" })}>
                 <T variant="micro" style={{ color: palette.goldLo, fontWeight: "600" }}>View all ›</T>
               </Pressable>
             </View>
@@ -534,7 +534,7 @@ export function HomeDashboardScreen(): ReactElement {
           </View>
           <Pressable
             accessibilityRole="button"
-            onPress={() => nav.navigate("Tabs", { screen: "Community" })}
+            onPress={() => nav.navigate("Tabs", { screen: "Events" })}
             style={({ pressed }) => [st.cohortBtn, pressed && { opacity: 0.85 }]}
           >
             <T variant="caption" style={{ fontWeight: "600", color: palette.navy }}>Open community ›</T>

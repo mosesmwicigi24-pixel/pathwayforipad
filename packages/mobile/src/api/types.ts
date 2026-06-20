@@ -69,12 +69,37 @@ export interface CalendarOccurrence {
   occurrence_id: string;
   series_id: string;
   title: string;
+  description: string | null;
   location: string | null;
   visibility: string;
+  category: string | null;
   cell_group_id: string | null;
   start_at: string;
   end_at: string;
   rescheduled: boolean;
+  going: number;
+}
+
+/** A followable event series (Events tab "Series you follow"). */
+export interface EventSeries {
+  series_id: string;
+  title: string;
+  category: string | null;
+  cadence: string;
+  next_at: string | null;
+  following: boolean;
+  new_count: number;
+}
+
+/** The member's cell summary card on the Events tab. */
+export interface CellSummary {
+  cell: {
+    cell_group_id: string;
+    name: string;
+    members: number;
+    attendance: { attended: number; expected: number };
+    next: { start_at: string; location: string | null } | null;
+  } | null;
 }
 
 export interface EventDetail {

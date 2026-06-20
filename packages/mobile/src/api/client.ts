@@ -11,6 +11,8 @@ import type {
   Achievements,
   AssembledQuiz,
   CalendarOccurrence,
+  EventSeries,
+  CellSummary,
   CertificateRow,
   CertificateVerification,
   CompleteResult,
@@ -205,6 +207,18 @@ export const NuruApi = {
   },
   async rsvp(eventId: string, status: "going" | "maybe" | "declined"): Promise<unknown> {
     const { data } = await api.post(`/events/${eventId}/rsvp`, { status });
+    return data;
+  },
+  async eventSeries(): Promise<EventSeries[]> {
+    const { data } = await api.get<{ data: EventSeries[] }>("/calendar/series");
+    return data.data;
+  },
+  async followSeries(seriesId: string): Promise<{ series_id: string; following: boolean }> {
+    const { data } = await api.post<{ series_id: string; following: boolean }>(`/calendar/series/${seriesId}/follow`, {});
+    return data;
+  },
+  async cellSummary(): Promise<CellSummary> {
+    const { data } = await api.get<CellSummary>("/me/cell-summary");
     return data;
   },
   // ---- Giving / achievements ----
