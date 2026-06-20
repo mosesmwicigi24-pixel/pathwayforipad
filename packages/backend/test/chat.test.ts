@@ -3,7 +3,7 @@
 // DMs (D-M6).
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { agent, bearer } from "./helpers/app.js";
-import { resetDb, closeTestPool } from "./helpers/db.js";
+import { resetDb, closeTestPool, testPool } from "./helpers/db.js";
 import { createCongregation, createCellGroup, createUser, createLeaderAssignment } from "./helpers/factories.js";
 
 let cong: string, cellA: string, cellB: string;
@@ -230,6 +230,22 @@ describe("DM directory (people)", () => {
     const res = await agent().get("/v1/chat/people").set(auth(minorTok));
     expect(res.status).toBe(200);
     expect(res.body.people).toEqual([]);
+  });
+
+  it("excludes users with a NULL congregation, and a NULL-congregation caller sees nobody", async () => {
+    // An unattached user (e.g. a fresh self-signup) — congregation set to NULL.
+    const orphan = await createUser({ congregationId: cong, email: "orphan@dev.local", fullName: "Orphan One" });
+    await testPool().query("UPDATE users SET congregation_id = NULL WHERE user_id = $1", [orphan.user_id]);
+    const orphanTok = bearer({ sub: orphan.user_id, role: "Student", cong });
+
+    // The orphan never appears in another member's directory.
+    const seen = await agent().get("/v1/chat/people").set(auth(aTok));
+    expect((seen.body.people as Array<{ user_id: string }>).map((p) => p.user_id)).not.toContain(orphan.user_id);
+
+    // The orphan (NULL congregation) sees nobody.
+    const mine = await agent().get("/v1/chat/people").set(auth(orphanTok));
+    expect(mine.status).toBe(200);
+    expect(mine.body.people).toEqual([]);
   });
 });
 

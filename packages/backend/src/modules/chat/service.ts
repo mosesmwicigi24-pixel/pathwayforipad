@@ -150,13 +150,18 @@ export class ChatService {
    */
   async listPeople(userId: string, q?: string): Promise<{ people: unknown[] }> {
     const me = await this.me(this.pool, userId);
+    // A caller with no congregation sees nobody (can't be scoped to a directory).
     if (me.is_minor || !me.congregation_id) return { people: [] };
     const term = (q ?? "").trim();
     const people = await many(
       this.pool,
+      // Only real congregation members appear: a user with a NULL congregation
+      // (e.g. an unattached signup) is never DM-able. `= $1` already excludes
+      // NULLs; the explicit IS NOT NULL locks the guarantee.
       `SELECT u.user_id, u.full_name, u.role
          FROM users u
         WHERE u.congregation_id = $1
+          AND u.congregation_id IS NOT NULL
           AND u.user_id <> $2
           AND u.deleted_at IS NULL
           AND u.is_minor = FALSE
