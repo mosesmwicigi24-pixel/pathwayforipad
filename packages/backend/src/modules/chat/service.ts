@@ -66,24 +66,105 @@ export class ChatService {
     );
   }
 
-  /** Ensure the caller's cell has a group room and the caller is a member of it. */
-  private async ensureCellGroup(c: Queryable, userId: string): Promise<void> {
-    const me = await this.me(c, userId);
-    if (!me.cell_group_id) return;
-    const cell = await one<{ name: string }>(c, `SELECT name FROM cell_groups WHERE cell_group_id = $1`, [me.cell_group_id]);
+  /**
+   * Ensure a cell has its group room and return its conversation id, without the
+   * write-on-read churn of the previous DO UPDATE (which bumped updated_at on
+   * every inbox load). Derives congregation + title from the cell itself, so it
+   * works for any cell — not just the caller's. Returns null if the cell is gone.
+   */
+  private async ensureGroupForCell(c: Queryable, cellGroupId: string): Promise<string | null> {
+    const existing = await maybeOne<{ conversation_id: string }>(
+      c,
+      `SELECT conversation_id FROM chat_conversations WHERE cell_group_id = $1 AND kind = 'group'`,
+      [cellGroupId],
+    );
+    if (existing) return existing.conversation_id;
+    const cell = await maybeOne<{ name: string; congregation_id: string }>(
+      c,
+      `SELECT name, congregation_id FROM cell_groups WHERE cell_group_id = $1`,
+      [cellGroupId],
+    );
+    if (!cell) return null;
     const convo = await one<{ conversation_id: string }>(
       c,
       `INSERT INTO chat_conversations (conversation_id, kind, title, cell_group_id, congregation_id, is_public)
        VALUES (gen_random_uuid(), 'group', $1, $2, $3, FALSE)
-       ON CONFLICT (cell_group_id) WHERE kind = 'group' DO UPDATE SET updated_at = now()
+       ON CONFLICT (cell_group_id) WHERE kind = 'group' DO NOTHING
        RETURNING conversation_id`,
-      [`${cell.name} cell`, me.cell_group_id, me.congregation_id],
+      [`${cell.name} cell`, cellGroupId, cell.congregation_id],
     );
-    const conversationId = convo.conversation_id;
+    // Lost the insert race → read the row the winning transaction created.
+    if (convo) return convo.conversation_id;
+    const raced = await one<{ conversation_id: string }>(
+      c,
+      `SELECT conversation_id FROM chat_conversations WHERE cell_group_id = $1 AND kind = 'group'`,
+      [cellGroupId],
+    );
+    return raced.conversation_id;
+  }
+
+  /** Ensure the caller's cell has a group room and the caller is a member of it.
+   *  Skips all writes once both already hold — the common case on inbox reload. */
+  private async ensureCellGroup(c: Queryable, userId: string): Promise<void> {
+    const me = await this.me(c, userId);
+    if (!me.cell_group_id) return;
+    const already = await maybeOne(
+      c,
+      `SELECT 1 FROM chat_members m
+         JOIN chat_conversations cv ON cv.conversation_id = m.conversation_id
+        WHERE cv.cell_group_id = $1 AND cv.kind = 'group' AND m.user_id = $2`,
+      [me.cell_group_id, userId],
+    );
+    if (already) return; // provisioned + joined — no write needed
+    const conversationId = await this.ensureGroupForCell(c, me.cell_group_id);
+    if (!conversationId) return;
     await c.query(
       `INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [conversationId, userId],
     );
+  }
+
+  /**
+   * Open (provisioning if needed) a specific cell's group conversation and add
+   * the actor as a member so they can post — used by the portal's "Message cell"
+   * action. Caller scope (leader_assignments / Admin) is enforced at the route
+   * via assertCellInScope before this runs.
+   */
+  async ensureCellConversation(actorUserId: string, cellGroupId: string): Promise<{ conversation_id: string }> {
+    return tx(this.pool, async (c) => {
+      const conversationId = await this.ensureGroupForCell(c, cellGroupId);
+      if (!conversationId) throw new ApiError("NOT_FOUND", "Cell not found");
+      await c.query(
+        `INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [conversationId, actorUserId],
+      );
+      return { conversation_id: conversationId };
+    });
+  }
+
+  /**
+   * DM directory: members in the caller's congregation the caller may message.
+   * Minor-safe (D-M6) — a minor caller gets an empty list, and minors never
+   * appear for anyone. Excludes self and soft-deleted users. Optional name search.
+   */
+  async listPeople(userId: string, q?: string): Promise<{ people: unknown[] }> {
+    const me = await this.me(this.pool, userId);
+    if (me.is_minor || !me.congregation_id) return { people: [] };
+    const term = (q ?? "").trim();
+    const people = await many(
+      this.pool,
+      `SELECT u.user_id, u.full_name, u.role
+         FROM users u
+        WHERE u.congregation_id = $1
+          AND u.user_id <> $2
+          AND u.deleted_at IS NULL
+          AND u.is_minor = FALSE
+          ${term ? "AND u.full_name ILIKE $3" : ""}
+        ORDER BY u.full_name
+        LIMIT 100`,
+      term ? [me.congregation_id, userId, `%${term}%`] : [me.congregation_id, userId],
+    );
+    return { people };
   }
 
   /** Membership-checked conversation fetch; public spaces are readable by congregation members. */

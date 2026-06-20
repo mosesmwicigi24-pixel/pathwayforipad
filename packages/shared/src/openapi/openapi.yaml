@@ -2323,10 +2323,33 @@ paths:
         "200": { description: Toggled }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /chat/people:
+    get:
+      tags: [progress]
+      summary: DM directory — members I may message (same congregation, minor-safe; excludes self). Optional ?q name search.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema: { type: string, maxLength: 120 }
+      responses:
+        "200": { description: People }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /chat/dms:
     post:
       tags: [progress]
       summary: Open (or fetch) a 1:1 DM with another member; minor-safe (D-M6); same congregation.
+      responses:
+        "201": { description: Conversation }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /chat/cells/{id}/conversation:
+    post:
+      tags: [progress]
+      summary: Open (provisioning on first use) a cell's group room (Instructor+; scoped to leader_assignments — Admin passes). Backs the portal "Message cell" action.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
       responses:
         "201": { description: Conversation }
         "401": { $ref: "#/components/responses/Unauthorized" }

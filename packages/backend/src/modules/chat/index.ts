@@ -4,7 +4,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { AppContext } from "../../http/context.js";
-import { authenticate, requireRole } from "../../http/auth.js";
+import { authenticate, requireRole, assertCellInScope } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { ChatService } from "./service.js";
 import { MediaService } from "../media/service.js";
@@ -59,9 +59,27 @@ export function registerChat(ctx: AppContext): Router {
     res.json(await svc.toggleReaction(requirePrincipal(req).userId, { message_id: id, ...body }));
   }));
 
+  // DM directory: members the caller may start a direct message with (minor-safe,
+  // same congregation). Powers the mobile "New message" picker.
+  const PeopleQuery = z.object({ q: z.string().max(120).optional() });
+  r.get("/chat/people", auth, handler(async (req, res) => {
+    const { q } = parseBody(PeopleQuery, req.query);
+    res.json(await svc.listPeople(requirePrincipal(req).userId, q));
+  }));
+
   r.post("/chat/dms", auth, handler(async (req, res) => {
     const input = parseBody(ChatService.CreateDm, req.body);
     res.status(201).json(await svc.createOrGetDm(requirePrincipal(req).userId, input.user_id));
+  }));
+
+  // Open a cell's group conversation (provisioning it on first use). Scope-checked
+  // against the actor's leader_assignments (Admin/SuperAdmin pass). Backs the
+  // portal Cell Engagement "Message cell" action.
+  r.post("/chat/cells/:id/conversation", auth, requireRole("Instructor"), handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    const p = requirePrincipal(req);
+    await assertCellInScope(ctx.db.primary, p, id);
+    res.status(201).json(await svc.ensureCellConversation(p.userId, id));
   }));
 
   r.post("/chat/spaces/:id/join", auth, handler(async (req, res) => {

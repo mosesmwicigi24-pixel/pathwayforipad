@@ -4,14 +4,14 @@
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { agent, bearer } from "./helpers/app.js";
 import { resetDb, closeTestPool } from "./helpers/db.js";
-import { createCongregation, createCellGroup, createUser } from "./helpers/factories.js";
+import { createCongregation, createCellGroup, createUser, createLeaderAssignment } from "./helpers/factories.js";
 
 let cong: string, cellA: string, cellB: string;
 let aId: string, aTok: string; // cellA
 let a2Id: string, a2Tok: string; // cellA (same cell as a)
-let bTok: string; // cellB
-let leaderTok: string; // Instructor in cellA
-let minorId: string; // a minor in cellA
+let bId: string, bTok: string; // cellB
+let lId: string, leaderTok: string; // Instructor in cellA
+let minorId: string, minorTok: string; // a minor in cellA
 let adminTok: string; // Admin (not a member of any cell room)
 
 const auth = (t: string) => ({ Authorization: t });
@@ -29,11 +29,12 @@ beforeEach(async () => {
   const minor = await createUser({ congregationId: cong, cellGroupId: cellA, email: "m@dev.local", fullName: "Kid", dateOfBirth: "2015-01-01" });
   expect(minor.is_minor).toBe(true);
   const admin = await createUser({ congregationId: cong, cellGroupId: cellB, role: "Admin", email: "admin@dev.local", fullName: "Admin" });
-  aId = a.user_id; a2Id = a2.user_id; minorId = minor.user_id;
+  aId = a.user_id; a2Id = a2.user_id; bId = b.user_id; lId = l.user_id; minorId = minor.user_id;
   aTok = bearer({ sub: a.user_id, role: "Student", cong });
   a2Tok = bearer({ sub: a2.user_id, role: "Student", cong });
   bTok = bearer({ sub: b.user_id, role: "Student", cong });
   leaderTok = bearer({ sub: l.user_id, role: "Instructor", cong });
+  minorTok = bearer({ sub: minor.user_id, role: "Student", cong });
   adminTok = bearer({ sub: admin.user_id, role: "Admin", cong });
 });
 afterAll(async () => {
@@ -191,6 +192,62 @@ describe("moderation (Admin/SuperAdmin)", () => {
     const view = await agent().get(`/v1/chat/conversations/${g}`).set(auth(adminTok));
     expect(view.status).toBe(200);
     expect((view.body.messages as Array<{ body: string }>).map((m) => m.body)).toContain("for oversight");
+  });
+});
+
+describe("DM directory (people)", () => {
+  it("lists same-congregation members, excluding self and minors", async () => {
+    const res = await agent().get("/v1/chat/people").set(auth(aTok));
+    expect(res.status).toBe(200);
+    const ids = (res.body.people as Array<{ user_id: string }>).map((p) => p.user_id);
+    expect(ids).toContain(a2Id); // a peer
+    expect(ids).toContain(bId); // another cell, same congregation
+    expect(ids).not.toContain(aId); // not self
+    expect(ids).not.toContain(minorId); // minors never appear (D-M6)
+  });
+
+  it("filters by name search", async () => {
+    const res = await agent().get("/v1/chat/people").query({ q: "ben" }).set(auth(aTok));
+    const names = (res.body.people as Array<{ full_name: string }>).map((p) => p.full_name);
+    expect(names).toEqual(["Ben"]);
+  });
+
+  it("a minor caller gets an empty directory (D-M6)", async () => {
+    const res = await agent().get("/v1/chat/people").set(auth(minorTok));
+    expect(res.status).toBe(200);
+    expect(res.body.people).toEqual([]);
+  });
+});
+
+describe("cell conversation (portal Message cell)", () => {
+  it("a scoped leader opens their cell's group room (same id as the auto-provisioned room)", async () => {
+    await createLeaderAssignment(lId, cellA);
+    const opened = await agent().post(`/v1/chat/cells/${cellA}/conversation`).set(auth(leaderTok)).send({});
+    expect(opened.status).toBe(201);
+    // It is the very room cell members already share.
+    const memberRoom = await groupId(aTok);
+    expect(opened.body.conversation_id).toBe(memberRoom);
+
+    // The leader is now a member and can read it.
+    const view = await agent().get(`/v1/chat/conversations/${opened.body.conversation_id}`).set(auth(leaderTok));
+    expect(view.status).toBe(200);
+  });
+
+  it("an Admin opens any cell's room without a leader_assignment", async () => {
+    const opened = await agent().post(`/v1/chat/cells/${cellA}/conversation`).set(auth(adminTok)).send({});
+    expect(opened.status).toBe(201);
+  });
+
+  it("an out-of-scope leader is refused (403 FORBIDDEN_SCOPE)", async () => {
+    // Lee is assigned to cellA only → cellB is out of scope.
+    await createLeaderAssignment(lId, cellA);
+    const denied = await agent().post(`/v1/chat/cells/${cellB}/conversation`).set(auth(leaderTok)).send({});
+    expect(denied.status).toBe(403);
+  });
+
+  it("a plain Student cannot open a cell room (insufficient role)", async () => {
+    const denied = await agent().post(`/v1/chat/cells/${cellA}/conversation`).set(auth(aTok)).send({});
+    expect(denied.status).toBe(403);
   });
 });
 
