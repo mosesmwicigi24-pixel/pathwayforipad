@@ -41,6 +41,8 @@
 	<string>Record voice notes to send in chat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Attach a photo to your conversations.</string>
+	<key>RCTNewArchEnabled</key>
+	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>

@@ -24,6 +24,21 @@ describe("apiBaseUrl", () => {
     expect(apiBaseUrl("android")).toBe("http://10.0.2.2:8080/v1");
   });
 
+  it("uses the Metro dev host (physical-device LAN IP) when provided", () => {
+    expect(apiBaseUrl("ios", "192.168.100.111")).toBe("http://192.168.100.111:8080/v1");
+    expect(apiBaseUrl("android", "192.168.100.111")).toBe("http://192.168.100.111:8080/v1");
+  });
+
+  it("ignores a blank dev host and falls back to the platform default", () => {
+    expect(apiBaseUrl("ios", "")).toBe("http://localhost:8080/v1");
+    expect(apiBaseUrl("ios", "   ")).toBe("http://localhost:8080/v1");
+  });
+
+  it("env override still wins over the Metro dev host", () => {
+    process.env.API_URL = "https://staging.nuruplace.org/v1";
+    expect(apiBaseUrl("ios", "192.168.100.111")).toBe("https://staging.nuruplace.org/v1");
+  });
+
   it("uses the production URL for release builds (__DEV__ false)", () => {
     g.__DEV__ = false;
     expect(apiBaseUrl("ios")).toBe("https://pathway.nuruplace.org/v1");

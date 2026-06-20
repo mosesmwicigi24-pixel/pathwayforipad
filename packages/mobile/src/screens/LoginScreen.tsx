@@ -21,6 +21,19 @@ const DEV_PASSWORD = "pathway123";
 
 type Mode = "login" | "register" | "forgot" | "reset";
 const INPUT_PLACEHOLDER = "rgba(255,255,255,0.40)";
+const CONNECT_ERROR = "Can't reach the server. Check your connection and try again.";
+
+// An axios failure with no `response` never reached the API (DNS/connection/
+// timeout) — distinct from a 4xx the server actually returned. We log it so it's
+// visible in the debugger, since the on-screen copy is intentionally terse.
+function networkError(e: unknown): boolean {
+  const err = e as { response?: unknown; code?: string; message?: string };
+  const isNetwork = err?.response == null;
+  if (isNetwork) {
+    console.warn("[auth] request failed before a response", { code: err?.code, message: err?.message });
+  }
+  return isNetwork;
+}
 
 export function LoginScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -53,8 +66,10 @@ export function LoginScreen(): ReactElement {
     setBusy(true); setError(null);
     try {
       await enter(await NuruApi.login(email.trim(), password));
-    } catch {
-      setError("Invalid email or password.");
+    } catch (e) {
+      // A failed connection (no HTTP response) is not a credential problem —
+      // surfacing it as one is what made physical-device sign-in baffling.
+      setError(networkError(e) ? CONNECT_ERROR : "Invalid email or password.");
     } finally { setBusy(false); }
   }
 
@@ -68,7 +83,13 @@ export function LoginScreen(): ReactElement {
       await enter(await NuruApi.register(fullName.trim(), email.trim(), password));
     } catch (e) {
       const status = (e as { response?: { status?: number } }).response?.status;
-      setError(status === 409 ? "An account with this email already exists." : "Couldn't create your account. Try again.");
+      setError(
+        networkError(e)
+          ? CONNECT_ERROR
+          : status === 409
+            ? "An account with this email already exists."
+            : "Couldn't create your account. Try again.",
+      );
     } finally { setBusy(false); }
   }
 

@@ -3,7 +3,7 @@
 // On a real device, swap the keychain vault in here (setVault(new KeychainTokenVault()))
 // before installAuth — kept in-memory by default so this stays import-safe in tests.
 import { useEffect, type ReactElement } from "react";
-import { AppState, Platform, View } from "react-native";
+import { AppState, NativeModules, Platform, View } from "react-native";
 import { Provider } from "react-redux";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { OfflineBanner } from "./components/OfflineBanner";
@@ -23,9 +23,20 @@ import { getConnectivity, setConnectivity } from "./net/connectivity";
 import { NetInfoConnectivity, onReconnect } from "./net/netInfoConnectivity";
 import { startSyncLifecycle } from "./sync/syncLifecycle";
 
+// In dev, the JS bundle is served by Metro from the dev machine. Reuse that host
+// for the API so a physical device reaches the backend on the same LAN address
+// (a simulator/emulator yields localhost / 10.0.2.2, exactly the old defaults).
+function metroDevHost(): string | undefined {
+  const scriptURL = (NativeModules as { SourceCode?: { scriptURL?: string } }).SourceCode?.scriptURL;
+  if (!scriptURL) return undefined;
+  const match = /^[a-z]+:\/\/([^/:]+)/i.exec(scriptURL);
+  return match?.[1];
+}
+
 export function App(): ReactElement {
   useEffect(() => {
-    configureApiBase(apiBaseUrl(Platform.OS)); // env override → platform default (Android 10.0.2.2)
+    // env override → Metro host (real device LAN IP) → platform default.
+    configureApiBase(apiBaseUrl(Platform.OS, metroDevHost()));
     setConnectivity(new NetInfoConnectivity()); // real online/offline detection
     installAuth(getVault()); // attach Bearer + 401-refresh-retry against the vault
 

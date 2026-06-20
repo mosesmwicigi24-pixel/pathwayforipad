@@ -1,15 +1,3 @@
-# Mobile app — Figma make audit vs backend (pre-coding report)
-
-Make: **Nuru Pathway app design (Copy)** — `AgqYlBEN2Sy2tA6vjBaUxE` (member mobile app; distinct from the
-portal make `ZMEsnrOJCXXY7rHfTBautI`). Reviewed: `src/app/App.tsx` (full nav + every screen's wiring) +
-`HomeTab` in depth, with the other screens mined for token/data signals. Goal of this report: what to
-**change in Figma** — for a consistent UI feel *and* clean alignment with the deployed backend — **before** coding.
-
-Structure: **A) Design-system consistency** (biggest "one-product feel" lever) · **B) Backend/content alignment** ·
-**C) Missing states** · **D) Per-area feature checks** · **E) Prioritized Figma action list**.
-
----
-
 ## A. Design-system consistency — the #1 fix for a unified feel
 
 The app *looks* polished, but it has **no shared design-token layer** — each screen re-declares its own palette

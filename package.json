@@ -32,12 +32,40 @@
   },
   "pnpm": {
     "packageExtensions": {
-      "@react-navigation/core": { "peerDependencies": { "@types/react": "*" } },
-      "@react-navigation/routers": { "peerDependencies": { "@types/react": "*" } },
-      "@react-navigation/native": { "peerDependencies": { "@types/react": "*" } },
-      "@react-navigation/native-stack": { "peerDependencies": { "@types/react": "*" } },
-      "@react-navigation/bottom-tabs": { "peerDependencies": { "@types/react": "*" } },
-      "@react-navigation/elements": { "peerDependencies": { "@types/react": "*" } }
+      "@react-navigation/core": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "@react-navigation/routers": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "@react-navigation/native": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "@react-navigation/native-stack": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "@react-navigation/bottom-tabs": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "@react-navigation/elements": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      }
+    },
+    "patchedDependencies": {
+      "react-native-document-picker@9.3.1": "patches/react-native-document-picker@9.3.1.patch",
+      "react-native-audio-recorder-player@4.5.0": "patches/react-native-audio-recorder-player@4.5.0.patch"
     }
   }
 }

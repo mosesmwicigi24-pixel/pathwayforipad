@@ -1,10 +1,13 @@
 // API base-URL resolution (spec §1.3). Order of precedence:
 //   1. An explicit env override — EXPO_PUBLIC_API_URL / API_URL / NURU_API_URL.
 //   2. Release builds → the production API (public HTTPS, works on any network).
-//   3. Dev builds → the dev machine: Android emulator reaches the host at
-//      10.0.2.2; the iOS simulator uses localhost.
+//   3. Dev builds → the dev machine. We reuse the Metro packager host the JS
+//      bundle was served from (App.tsx passes it in), so a physical device
+//      reaches the backend on the same LAN address the bundler is on. Falls back
+//      to the platform default when that host is unknown: the Android emulator
+//      reaches the host at 10.0.2.2; the iOS simulator uses localhost.
 // This module is pure (no react-native import) so it stays import-safe in the
-// vitest runner; App.tsx passes the runtime Platform.OS in.
+// vitest runner; App.tsx passes the runtime Platform.OS (and dev host) in.
 const API_PORT = 8080;
 const API_PREFIX = "/v1";
 const PROD_API_URL = "https://pathway.nuruplace.org/v1";
@@ -15,8 +18,13 @@ function envUrl(): string {
   return (raw || "").trim();
 }
 
-/** Resolve the backend base URL. Pass Platform.OS for the right emulator host. */
-export function apiBaseUrl(platformOS?: string): string {
+/**
+ * Resolve the backend base URL. Pass Platform.OS for the right emulator host,
+ * and the Metro packager host (App.tsx derives it from the bundle URL) so a
+ * physical device hits the dev machine's LAN address instead of its own
+ * `localhost`.
+ */
+export function apiBaseUrl(platformOS?: string, devHost?: string): string {
   const override = envUrl();
   if (override) return override.replace(/\/+$/, "");
   // Release/standalone builds (and anything not running under the Metro dev
@@ -24,6 +32,7 @@ export function apiBaseUrl(platformOS?: string): string {
   // time; it's undefined under vitest, so default those to production too.
   const isDev = typeof __DEV__ !== "undefined" && __DEV__;
   if (!isDev) return PROD_API_URL;
-  const host = platformOS === "android" ? "10.0.2.2" : "localhost";
+  const fallback = platformOS === "android" ? "10.0.2.2" : "localhost";
+  const host = devHost && devHost.trim() ? devHost.trim() : fallback;
   return `http://${host}:${API_PORT}${API_PREFIX}`;
 }
