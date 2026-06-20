@@ -5,12 +5,12 @@
 // module-list caches so the next module unlocks immediately.
 import { useState, type ReactElement } from "react";
 import { Pressable, ScrollView, TextInput, View, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
-import { Check, ChevronLeft, Headphones, PenLine, Play } from "lucide-react-native";
+import { Check, ChevronLeft, ChevronRight, Headphones, Pause, PenLine, Play, Video } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
-import { PButton, T } from "../theme/components";
+import { Glow, PButton, T } from "../theme/components";
 import { Markdown } from "../components/Markdown";
 import { Loading, ErrorState } from "../components/states";
 import { useModule, useMyReflection, queryKeys } from "../api/hooks";
@@ -52,6 +52,7 @@ export function ModuleScreen(): ReactElement {
   // when a reflection is submitted (or the module needs none). Informational —
   // the server stays authoritative for actual gating (§1.1).
   const [proof, setProof] = useState({ read: false, listen: false, watch: false });
+  const [readPct, setReadPct] = useState(0); // scroll-through progress (Figma gold bar)
   const reflectDone = !needsReflection || (!!myReflection && !showComposer);
   const proofSteps = [
     { key: "read", label: "Read", Icon: Check, done: proof.read },
@@ -62,6 +63,8 @@ export function ModuleScreen(): ReactElement {
 
   function onScroll(e: NativeSyntheticEvent<NativeScrollEvent>): void {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const max = Math.max(1, contentSize.height - layoutMeasurement.height);
+    setReadPct(Math.min(1, Math.max(0, contentOffset.y / max)));
     if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 80 && !proof.read) {
       setProof((p) => ({ ...p, read: true }));
     }
@@ -134,6 +137,11 @@ export function ModuleScreen(): ReactElement {
         ) : null}
       </View>
 
+      {/* Reading-progress bar (Figma gold gradient) */}
+      <View style={st.readTrack}>
+        <View style={[st.readFill, { width: `${Math.round(readPct * 100)}%` }]} />
+      </View>
+
       {isLoading ? (
         <Loading label="Loading lesson…" />
       ) : error || !module ? (
@@ -150,44 +158,55 @@ export function ModuleScreen(): ReactElement {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
           >
+            {/* Lesson media hero (Figma "Lesson media") — gradient banner + audio/video */}
+            <View style={st.mediaHero}>
+              <View style={st.mediaBanner}>
+                <Glow size={150} color="rgba(201,162,39,0.30)" style={{ right: -36, bottom: -36 }} />
+                <Glow size={130} color="rgba(120,170,220,0.22)" style={{ left: -30, top: -30 }} />
+                <View style={st.mediaPill}>
+                  <T variant="micro" tone="onNavy" style={{ letterSpacing: 1.4, fontWeight: "600" }}>LESSON MEDIA</T>
+                </View>
+                <View style={{ marginTop: "auto" }}>
+                  <T serif tone="onNavy" style={{ fontSize: 24, lineHeight: 28, fontWeight: "600" }} numberOfLines={2}>
+                    {module.title}
+                  </T>
+                  <T variant="caption" tone="onNavyDim" style={{ marginTop: 6 }}>
+                    Read, listen, or watch — all available offline after sync.
+                  </T>
+                </View>
+              </View>
+              <View style={st.mediaBtnRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setProof((p) => ({ ...p, listen: true }))}
+                  style={({ pressed }) => [st.mediaBtn, pressed && { opacity: 0.85 }]}
+                >
+                  <View style={[st.mediaTile, { backgroundColor: palette.navy }]}>
+                    {proof.listen ? <Pause size={16} color={palette.gold} /> : <Play size={16} color={palette.gold} fill={palette.gold} />}
+                  </View>
+                  <T variant="caption" style={{ fontWeight: "600", marginTop: spacing.sm }}>Audio lesson</T>
+                  <T variant="micro" tone="tertiary">{proof.listen ? "Playing" : "6:42"}</T>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setProof((p) => ({ ...p, watch: true }))}
+                  style={({ pressed }) => [st.mediaBtn, pressed && { opacity: 0.85 }]}
+                >
+                  <View style={[st.mediaTile, { backgroundColor: palette.white, ...shadow.card }]}>
+                    <Video size={16} color={palette.navy} />
+                  </View>
+                  <T variant="caption" style={{ fontWeight: "600", marginTop: spacing.sm }}>Video teaching</T>
+                  <T variant="micro" tone="tertiary">{proof.watch ? "Watched" : "4:18"}</T>
+                </Pressable>
+              </View>
+            </View>
+
             {module.summary ? (
-              <View style={st.summary}>
+              <View style={[st.summary, { marginTop: spacing.base }]}>
                 <T variant="overline" tone="gold">IN THIS LESSON</T>
                 <T variant="bodyLg" style={{ marginTop: spacing.sm, color: palette.ink }}>{module.summary}</T>
               </View>
             ) : null}
-
-            {/* Media: watch video / listen audio (mark the proof steps) */}
-            <View style={st.mediaRow}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setProof((p) => ({ ...p, watch: true }))}
-                style={({ pressed }) => [st.mediaBtn, pressed && { opacity: 0.85 }]}
-              >
-                <View style={[st.mediaTile, { backgroundColor: "#FEE2E2" }]}>
-                  <Play size={16} color="#B91C1C" fill="#B91C1C" />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <T variant="caption" style={{ fontWeight: "600" }}>Watch video</T>
-                  <T variant="micro" tone="tertiary">{proof.watch ? "Watched" : "Tap to play"}</T>
-                </View>
-                {proof.watch ? <Check size={14} color={palette.successText} /> : null}
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setProof((p) => ({ ...p, listen: true }))}
-                style={({ pressed }) => [st.mediaBtn, pressed && { opacity: 0.85 }]}
-              >
-                <View style={[st.mediaTile, { backgroundColor: palette.goldTint }]}>
-                  <Headphones size={16} color={palette.goldLo} />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <T variant="caption" style={{ fontWeight: "600" }}>Listen audio</T>
-                  <T variant="micro" tone="tertiary">{proof.listen ? "Listened" : "Tap to play"}</T>
-                </View>
-                {proof.listen ? <Check size={14} color={palette.successText} /> : null}
-              </Pressable>
-            </View>
 
             {/* Lesson body (Markdown from the database) */}
             <View style={{ marginTop: spacing.base }}>
@@ -210,15 +229,23 @@ export function ModuleScreen(): ReactElement {
 
             {/* Reflection review state (M3 over B3): the leader's decision */}
             {needsReflection && myReflection && banner ? (
-              <View style={[st.reflection, { backgroundColor: banner.bg, borderColor: "transparent" }]}>
-                <T variant="heading" style={{ color: banner.fg, fontSize: 15 }}>{banner.title}</T>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="View your reflection"
+                onPress={() => nav.navigate("Reflection", { moduleId })}
+                style={({ pressed }) => [st.reflection, { backgroundColor: banner.bg, borderColor: "transparent" }, pressed && { opacity: 0.9 }]}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                  <T variant="heading" style={{ color: banner.fg, fontSize: 15, flex: 1 }}>{banner.title}</T>
+                  <ChevronRight size={16} color={banner.fg} />
+                </View>
                 <T variant="caption" style={{ color: banner.fg, marginTop: 4, opacity: 0.9 }}>{banner.body}</T>
                 {myReflection.feedback_notes ? (
                   <T variant="body" style={{ marginTop: spacing.sm, color: palette.ink, fontStyle: "italic" }}>
                     &ldquo;{myReflection.feedback_notes}&rdquo;
                   </T>
                 ) : null}
-              </View>
+              </Pressable>
             ) : null}
 
             {/* Reflection composer: first submission, or a returned resubmit */}
@@ -306,18 +333,17 @@ const st = {
   proofChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: radii.pill, paddingVertical: 7 },
   proofOn: { backgroundColor: palette.gold },
   proofOff: { backgroundColor: "rgba(255,255,255,0.08)" },
-  mediaRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.base },
+  readTrack: { height: 4, backgroundColor: "rgba(0,0,0,0.05)" },
+  readFill: { height: "100%", backgroundColor: palette.gold },
+  mediaHero: { overflow: "hidden", borderRadius: 28, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, ...shadow.card },
+  mediaBanner: { height: 168, padding: spacing.lg, backgroundColor: palette.navy, overflow: "hidden", justifyContent: "flex-start" },
+  mediaPill: { alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.16)", borderRadius: radii.pill, paddingHorizontal: spacing.md, paddingVertical: 5 },
+  mediaBtnRow: { flexDirection: "row", gap: spacing.md, padding: spacing.base },
   mediaBtn: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: palette.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: spacing.md,
-    ...shadow.card,
+    backgroundColor: "rgba(10,37,64,0.06)",
+    borderRadius: 18,
+    padding: spacing.base,
   },
-  mediaTile: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  mediaTile: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
 } as const;

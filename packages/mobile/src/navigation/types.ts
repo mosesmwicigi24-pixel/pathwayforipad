@@ -20,6 +20,7 @@ export type RootStackParamList = {
   Level: { levelId: number };
   Module: { moduleId: string };
   Quiz: { moduleId: string };
+  Reflection: { moduleId: string }; // dedicated reflection composer + status (Figma "Reflection")
   LevelComplete: undefined;
   Giving: undefined; // legacy push target (Profile rows); the Give tab is primary
   GivingStatement: undefined; // full grouped giving history (Give make)

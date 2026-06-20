@@ -21,6 +21,7 @@ export function LevelCompleteScreen(): ReactElement {
   const completed = [...levels].reverse().find((l) => l.total_modules > 0 && l.completed_modules >= l.total_modules);
   const nextLevel = completed ? levels.find((l) => l.level_number === completed.level_number + 1) : levels[0];
   const name = me?.profile?.full_name ?? "you";
+  const monthYear = new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   return (
     <View style={st.root}>
@@ -33,6 +34,10 @@ export function LevelCompleteScreen(): ReactElement {
             <T style={{ fontSize: 40 }}>✦</T>
             <T variant="micro" tone="gold" style={{ letterSpacing: 1.8, marginTop: 2 }}>COMPLETED</T>
           </View>
+          {/* Gold dots around the outer ring */}
+          {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => (
+            <View key={deg} style={[st.ringDot, { transform: [{ rotate: `${deg}deg` }, { translateY: -(RING / 2) + 2 }] }]} />
+          ))}
         </View>
 
         <T variant="overline" tone="gold" style={{ letterSpacing: 2.2, marginTop: spacing.xl }}>
@@ -48,7 +53,7 @@ export function LevelCompleteScreen(): ReactElement {
           <View style={st.ruleDot} />
           <View style={st.ruleLine} />
         </View>
-        <T variant="caption" tone="onNavyFaint">Nuru Place Pathway</T>
+        <T variant="caption" tone="onNavyFaint">{`${monthYear} · Nuru Place Pathway`}</T>
       </View>
 
       {/* Next level card */}
@@ -77,6 +82,7 @@ const st = {
   ring: { position: "absolute", borderRadius: RING / 2, borderWidth: 1 },
   ring0: { top: 0, left: 0, right: 0, bottom: 0 },
   ring1: { top: 14, left: 14, right: 14, bottom: 14 },
+  ringDot: { position: "absolute", width: 5, height: 5, borderRadius: 2.5, backgroundColor: palette.gold, opacity: 0.45 },
   ringCore: {
     position: "absolute",
     top: 28,
