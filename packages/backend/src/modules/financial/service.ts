@@ -12,6 +12,7 @@ import { ApiError } from "../../http/errors.js";
 import type { PaymentGateway } from "./gateway.js";
 import type { MobileMoneyKey, MobileMoneyProviders } from "./providers.js";
 import type { PayPalGateway } from "./paypal.js";
+import { renderStatementPdf } from "./statementPdf.js";
 
 const sha256 = (b: Buffer | string): string => createHash("sha256").update(b).digest("hex");
 
@@ -363,6 +364,78 @@ export class FinancialService {
       const { provider: _omit, ...rest } = r;
       void _omit;
       return { ...rest, amount_minor: Number(r.amount_minor), method: provider === "stripe" ? "card" : provider };
+    });
+  }
+
+  /** Full detail for ONE of the caller's gifts — every field plus the balanced
+   *  ledger trail (cash + fund accounts). Scoped to the owner (404 otherwise). */
+  async givingDetail(userId: string, transactionId: string): Promise<Record<string, unknown>> {
+    const t = await maybeOne<Record<string, unknown>>(
+      this.pool,
+      `SELECT t.transaction_id, t.amount_minor, t.currency, t.status, f.code AS fund,
+              t.provider, COALESCE(t.provider_ref, t.stripe_payment_intent) AS provider_ref,
+              t.schedule_id, t.created_at, t.settled_at
+         FROM transactions t LEFT JOIN funds f ON f.fund_id = t.fund_id
+        WHERE t.transaction_id = $1 AND t.user_id = $2`,
+      [transactionId, userId],
+    );
+    if (!t) throw new ApiError("NOT_FOUND", "Gift not found");
+    const ledger = await many<Record<string, unknown>>(
+      this.pool,
+      `SELECT side, account, amount_minor, currency FROM ledger_entries WHERE transaction_id = $1 ORDER BY side`,
+      [transactionId],
+    );
+    const provider = (t.provider as string | null) ?? "stripe";
+    const { provider: _p, ...rest } = t;
+    void _p;
+    return {
+      ...rest,
+      amount_minor: Number(t.amount_minor),
+      method: provider === "stripe" ? "card" : provider,
+      ledger: ledger.map((l) => ({ ...l, amount_minor: Number(l.amount_minor) })),
+    };
+  }
+
+  /** Render the caller's giving statement as a PDF (dep-free), grouped by month
+   *  with settled-only totals — what the mobile "Download" action saves. */
+  async statementPdf(userId: string): Promise<Buffer> {
+    const rows = (await this.listGiving(userId)) as Array<{ amount_minor: number; status: string; fund: string; method: string; provider_ref: string | null; created_at: string }>;
+    const me = await maybeOne<{ full_name: string; congregation: string | null }>(
+      this.pool,
+      `SELECT u.full_name, c.name AS congregation FROM users u LEFT JOIN congregations c ON c.congregation_id = u.congregation_id WHERE u.user_id = $1`,
+      [userId],
+    );
+    const settled = (s: string): boolean => s === "succeeded" || s === "settled" || s === "completed";
+    const ksh = (m: number): string => `KSh ${(m / 100).toLocaleString("en-US")}`;
+    const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v)); // pg returns timestamps as Date
+    const monthKey = (v: unknown): string => iso(v).slice(0, 7);
+    const monthLabel = (v: unknown): string => new Date(iso(v)).toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase();
+    const dayLabel = (v: unknown): string => new Date(iso(v)).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+    const methodLabel = (m: string): string => ({ mpesa: "M-Pesa", airtel: "Airtel Money", card: "Card", paypal: "PayPal" } as Record<string, string>)[m] ?? m;
+
+    const byMonth = new Map<string, typeof rows>();
+    for (const r of rows) {
+      const k = monthKey(r.created_at);
+      (byMonth.get(k) ?? byMonth.set(k, []).get(k)!).push(r);
+    }
+    const groups = [...byMonth.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([, recs]) => ({
+        label: monthLabel(recs[0]!.created_at),
+        totalLabel: ksh(recs.reduce((s, r) => s + (settled(r.status) ? r.amount_minor : 0), 0)),
+        rows: recs.map((r) => {
+          const ref = (r.provider_ref ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(-8).toUpperCase();
+          return `${r.fund[0]!.toUpperCase()}${r.fund.slice(1)}  ${ksh(r.amount_minor)}  ${dayLabel(r.created_at)}  ${methodLabel(r.method)}  ${r.status.toUpperCase()}${ref ? `  Ref ${ref}` : ""}`;
+        }),
+      }));
+    const total = rows.reduce((s, r) => s + (settled(r.status) ? r.amount_minor : 0), 0);
+    return renderStatementPdf({
+      congregation: me?.congregation ?? "Nuru Pathway",
+      member: me?.full_name ?? "",
+      totalLabel: ksh(total),
+      count: rows.length,
+      generatedAt: new Date().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" }),
+      groups,
     });
   }
 

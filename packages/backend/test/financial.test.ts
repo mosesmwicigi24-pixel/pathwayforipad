@@ -239,6 +239,36 @@ describe("financial / giving (§1.10 C, §3.5)", () => {
     expect(await svc.transactionDetail("00000000-0000-0000-0000-000000000000")).toBeNull();
   });
 
+  it("givingDetail returns the caller's gift with its ledger trail; 404 for someone else's", async () => {
+    const txId = await settle("mine-1", "tithe", 6000);
+    const d = (await svc.givingDetail(user, txId)) as {
+      fund: string; status: string; amount_minor: number; method: string;
+      provider_ref: string | null; ledger: { side: string; amount_minor: number }[];
+    };
+    expect(d.fund).toBe("tithe");
+    expect(d.status).toBe("succeeded");
+    expect(d.amount_minor).toBe(6000);
+    expect(d.method).toBe("card"); // stripe → card
+    expect(d.ledger).toHaveLength(2);
+    expect(d.ledger.find((e) => e.side === "debit")?.amount_minor).toBe(6000);
+
+    // Scoped to the owner: another member can't read it.
+    const other = (await createUser({ congregationId: await createCongregation() })).user_id;
+    await expect(svc.givingDetail(other, txId)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("statementPdf renders a valid, grouped PDF of the caller's gifts", async () => {
+    await settle("stmt-1", "tithe", 5000);
+    await settle("stmt-2", "offering", 1500);
+    const pdf = await svc.statementPdf(user);
+    expect(pdf).toBeInstanceOf(Buffer);
+    const head = pdf.subarray(0, 8).toString("latin1");
+    expect(head.startsWith("%PDF-1.4")).toBe(true);
+    const body = pdf.toString("latin1");
+    expect(body).toContain("GIVING STATEMENT");
+    expect(body).toContain("%%EOF");
+  });
+
   it("financeFunds lists the configured funds (no secrets)", async () => {
     const funds = await svc.financeFunds();
     expect(funds.length).toBeGreaterThan(0);

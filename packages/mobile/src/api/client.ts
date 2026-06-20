@@ -19,6 +19,7 @@ import type {
   EventDetail,
   GivingIntentResult,
   GivingRecord,
+  GivingDetail,
   GivingSchedule,
   Level,
   LevelModule,
@@ -225,6 +226,10 @@ export const NuruApi = {
   async givingHistory(): Promise<GivingRecord[]> {
     const { data } = await api.get<{ data: GivingRecord[] }>("/giving/history");
     return data.data;
+  },
+  async givingDetail(transactionId: string): Promise<GivingDetail> {
+    const { data } = await api.get<GivingDetail>(`/giving/transactions/${transactionId}`);
+    return data;
   },
   async achievements(): Promise<Achievements> {
     const { data } = await api.get<Achievements>("/me/achievements");

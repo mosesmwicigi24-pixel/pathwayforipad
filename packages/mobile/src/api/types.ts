@@ -122,6 +122,20 @@ export interface GivingRecord {
   settled_at: string | null;
 }
 
+// A single balanced ledger leg behind a gift (cash + fund accounts).
+export interface GivingLedgerEntry {
+  side: string; // 'debit' | 'credit'
+  account: string; // 'cash:stripe' | 'fund:tithe' …
+  amount_minor: number;
+  currency: string;
+}
+
+// Full detail for one gift — every field plus the double-entry ledger trail.
+export interface GivingDetail extends GivingRecord {
+  schedule_id: string | null;
+  ledger: GivingLedgerEntry[];
+}
+
 // Question types served by the backend (PR #117). New Figma-builder kinds plus
 // the legacy kinds that still exist in older question banks.
 export type QuestionType =

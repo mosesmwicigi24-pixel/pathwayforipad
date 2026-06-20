@@ -12,6 +12,7 @@ import type {
   CertificateRow,
   EventDetail,
   GivingRecord,
+  GivingDetail,
   GiftQuestion,
   GivingSchedule,
   MyAnnouncement,
@@ -56,6 +57,7 @@ export const queryKeys = {
   resources: "resources",
   mentor: "mentor",
   giving: "giving",
+  givingDetail: (id: string) => `giving:${id}`,
   schedules: "schedules",
   achievements: "achievements",
   threads: "threads",
@@ -117,6 +119,10 @@ export function useEvent(eventId: string | null): QueryResult<EventDetail> {
 
 export function useGivingHistory(): QueryResult<GivingRecord[]> {
   return useQuery(queryKeys.giving, () => NuruApi.givingHistory(), { staleMs: 30_000 });
+}
+
+export function useGivingDetail(transactionId: string | null): QueryResult<GivingDetail> {
+  return useQuery(transactionId ? queryKeys.givingDetail(transactionId) : null, () => NuruApi.givingDetail(transactionId as string), { staleMs: 60_000 });
 }
 
 export function useAchievements(): QueryResult<Achievements> {

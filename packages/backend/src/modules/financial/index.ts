@@ -9,6 +9,8 @@ import { FinancialService } from "./service.js";
 import { buildPaymentGateway, type PaymentGateway } from "./gateway.js";
 import { buildMobileMoneyProviders, type MobileMoneyProviders } from "./providers.js";
 import { buildPayPalGateway, type PayPalGateway } from "./paypal.js";
+import { verifyAccessToken } from "../identity/tokens.js";
+import { ApiError } from "../../http/errors.js";
 
 export const financialRouter: Router = Router();
 
@@ -49,6 +51,34 @@ export function registerFinancial(
     auth,
     handler(async (req, res) => {
       res.json({ data: await svc.listGiving(requirePrincipal(req).userId) });
+    }),
+  );
+
+  // Full detail for one of the caller's gifts (statement drill-down).
+  r.get(
+    "/giving/transactions/:id",
+    auth,
+    handler(async (req, res) => {
+      const { id } = parseBody(z.object({ id: z.string().uuid() }), req.params);
+      res.json(await svc.givingDetail(requirePrincipal(req).userId, id));
+    }),
+  );
+
+  // The member's statement as a downloadable PDF. Opened via the OS browser
+  // (Linking.openURL), so it also accepts a `?token=` access JWT in addition to
+  // the Authorization header — the browser can't attach a bearer header.
+  r.get(
+    "/giving/statement.pdf",
+    handler(async (req, res) => {
+      const header = req.header("authorization");
+      const bearer = header?.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : null;
+      const token = bearer ?? (typeof req.query.token === "string" ? req.query.token : null);
+      if (!token) throw new ApiError("AUTH_REQUIRED", "Access token required");
+      const claims = verifyAccessToken(ctx.env, token);
+      const pdf = await svc.statementPdf(claims.sub);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", 'attachment; filename="nuru-giving-statement.pdf"');
+      res.send(pdf);
     }),
   );
 

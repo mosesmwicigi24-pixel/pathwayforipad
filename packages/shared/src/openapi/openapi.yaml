@@ -1003,6 +1003,37 @@ paths:
                 properties:
                   data: { type: array, items: { $ref: "#/components/schemas/GivingRecord" } }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /giving/transactions/{id}:
+    get:
+      tags: [giving]
+      summary: Full detail for one of the caller's gifts, including the ledger trail.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Gift detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GivingDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /giving/statement.pdf:
+    get:
+      tags: [giving]
+      summary: The caller's giving statement as a downloadable PDF.
+      description: >
+        Rendered server-side and opened in the OS browser/viewer. Accepts the
+        access token either as a Bearer header or a `token` query parameter
+        (the browser can't attach an Authorization header).
+      parameters:
+        - { name: token, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: PDF document
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /products:
     get:
       tags: [giving]
@@ -2777,6 +2808,31 @@ components:
         fund: { type: [string, "null"] }
         created_at: { type: string, format: date-time }
         settled_at: { type: [string, "null"], format: date-time }
+
+    GivingDetail:
+      type: object
+      required: [transaction_id, amount_minor, currency, status, ledger]
+      properties:
+        transaction_id: { type: string, format: uuid }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string }
+        status: { type: string }
+        fund: { type: [string, "null"] }
+        method: { type: string }
+        provider_ref: { type: [string, "null"] }
+        schedule_id: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time }
+        settled_at: { type: [string, "null"], format: date-time }
+        ledger:
+          type: array
+          items:
+            type: object
+            required: [side, account, amount_minor, currency]
+            properties:
+              side: { type: string }
+              account: { type: string }
+              amount_minor: { type: integer, format: int64 }
+              currency: { type: string }
 
     QuizSubmission:
       type: object
