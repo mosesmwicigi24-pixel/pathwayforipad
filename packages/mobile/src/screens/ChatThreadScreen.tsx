@@ -40,6 +40,12 @@ const QUICK = ["🙏", "❤️", "🔥", "🎉"];
 const QUICK_REPLIES = ["Amen 🙏", "Praying for you 💛", "On my way 🏃", "Thank you 🙏"];
 const EMOJIS = ["🙏", "❤️", "🔥", "🎉", "🙌", "😊", "🥹", "💛", "✝️", "🕊️", "👏", "🤝"];
 
+/** Friendly composer error — soften the backend's "media not configured". */
+function composerError(e: unknown): string {
+  const msg = errorMessage(e);
+  return /not configured/i.test(msg) ? "Photos & files aren't enabled here yet." : msg;
+}
+
 /** A short subtitle under the thread title: kind (+ room type) and member count. */
 function threadSubtitle(convo: ChatThreadDetail): string {
   if (convo.kind === "dm") return "Direct message";
@@ -70,6 +76,7 @@ export function ChatThreadScreen(): ReactElement {
   const [showAttach, setShowAttach] = useState(false); // the "+" attachment grid
   const [showEmoji, setShowEmoji] = useState(false); // the emoji strip
   const [aiBusy, setAiBusy] = useState(false); // sparkle → AI drafting
+  const [aiPrev, setAiPrev] = useState<string | null>(null); // draft before an AI suggestion (for Dismiss)
   const [recording, setRecording] = useState(false);
   const [recordMs, setRecordMs] = useState(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -91,6 +98,14 @@ export function ChatThreadScreen(): ReactElement {
     const hide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
     return () => { show.remove(); hide.remove(); };
   }, []);
+
+  // Transient composer errors (e.g. "media not configured") shouldn't linger —
+  // clear them after a few seconds.
+  useEffect(() => {
+    if (!sendError) return;
+    const t = setTimeout(() => setSendError(null), 5000);
+    return () => clearTimeout(t);
+  }, [sendError]);
 
   // Tear down any in-flight recorder/player when the thread unmounts.
   useEffect(() => {
@@ -123,11 +138,12 @@ export function ChatThreadScreen(): ReactElement {
         queued: { domain: "chat_messages", op: "create", payload },
       });
       setText("");
+      setAiPrev(null);
       refreshQueries(queryKeys.chatConvo(conversationId));
       refreshQueries(queryKeys.chatInbox);
       void refetch();
     } catch (e) {
-      setSendError(errorMessage(e));
+      setSendError(composerError(e));
     } finally {
       setSending(false);
     }
@@ -167,7 +183,7 @@ export function ChatThreadScreen(): ReactElement {
       refreshQueries(queryKeys.chatInbox);
       void refetch();
     } catch (e) {
-      setSendError(errorMessage(e));
+      setSendError(composerError(e));
     } finally {
       setSending(false);
     }
@@ -206,7 +222,7 @@ export function ChatThreadScreen(): ReactElement {
       });
       setRecording(true);
     } catch (e) {
-      setSendError(errorMessage(e));
+      setSendError(composerError(e));
     }
   }
 
@@ -229,7 +245,7 @@ export function ChatThreadScreen(): ReactElement {
     try {
       uri = await recorder.stopRecorder();
     } catch (e) {
-      setSendError(errorMessage(e));
+      setSendError(composerError(e));
       return;
     }
     const path = recordingPath.current ?? uri;
@@ -256,7 +272,7 @@ export function ChatThreadScreen(): ReactElement {
       refreshQueries(queryKeys.chatInbox);
       void refetch();
     } catch (e) {
-      setSendError(errorMessage(e));
+      setSendError(composerError(e));
     } finally {
       setSending(false);
     }
@@ -297,7 +313,7 @@ export function ChatThreadScreen(): ReactElement {
       picked = first;
     } catch (e) {
       if (isCancel(e)) return; // user dismissed the picker
-      setSendError(errorMessage(e));
+      setSendError(composerError(e));
       return;
     }
     setSending(true);
@@ -320,7 +336,7 @@ export function ChatThreadScreen(): ReactElement {
       refreshQueries(queryKeys.chatInbox);
       void refetch();
     } catch (e) {
-      setSendError(errorMessage(e));
+      setSendError(composerError(e));
     } finally {
       setSending(false);
     }
@@ -342,27 +358,45 @@ export function ChatThreadScreen(): ReactElement {
     fn();
   }
 
-  // AI in the text box (sparkle): draft when empty, polish when there's a draft.
-  // Server-authoritative via the Nuru assistant; the result fills the input for
-  // the member to review and send (we never auto-send).
+  // AI in the text box (sparkle): Nuru reads the recent thread and proposes the
+  // next message — drafting when the box is empty, polishing when there's a
+  // draft. The result fills the input for the member to send, edit, or dismiss
+  // (it is NEVER auto-sent). Server-authoritative via the Nuru assistant.
   async function aiAssist(): Promise<void> {
-    if (aiBusy) return;
+    if (aiBusy || !convo) return;
     setShowEmoji(false);
+    setShowAttach(false);
     setAiBusy(true);
     setSendError(null);
     try {
       const draft = text.trim();
+      const where = convo.kind === "dm" ? "a direct message" : convo.kind === "space" ? `the "${convo.title ?? "space"}" space` : `the "${convo.title ?? "cell"}" group`;
+      // Last few visible messages as a transcript so Nuru can read the room.
+      const transcript = (convo.messages ?? [])
+        .slice(-12)
+        .map((m) => `${m.mine ? "Me" : (m.author_name || "Member")}: ${m.body || `[${m.msg_type}]`}`)
+        .join("\n");
+      const context = `You are Nuru, helping me write the next message in ${where} of a warm Christian community app. Recent conversation:\n\n${transcript || "(no messages yet)"}\n\n`;
       const prompt = draft
-        ? `Rewrite this chat message for a warm Christian community — keep it kind, natural and concise, first person, no quotes or preamble, reply with ONLY the message:\n\n${draft}`
-        : `Suggest one short, warm, encouraging message to send in a Christian community chat. First person. Reply with ONLY the message, no quotes.`;
+        ? `${context}Polish my draft reply below — keep my intent, kind and concise, first person, fitting the thread. Reply with ONLY the message, no quotes:\n\n${draft}`
+        : `${context}Suggest the single best next message for me to send — wise, warm, relevant to what was said, first person, 1–2 sentences. Reply with ONLY the message, no quotes.`;
       const { reply } = await NuruApi.assistantChat({ messages: [{ role: "user", text: prompt }] });
-      const clean = (reply ?? "").trim().replace(/^["“]|["”]$/g, "");
-      if (clean) setText(clean);
+      const clean = (reply ?? "").trim().replace(/^["“]+|["”]+$/g, "").trim();
+      if (clean) {
+        setAiPrev(text); // remember the prior draft so the user can Dismiss
+        setText(clean);
+      }
     } catch (e) {
-      setSendError(errorMessage(e));
+      setSendError(composerError(e));
     } finally {
       setAiBusy(false);
     }
+  }
+
+  // Restore the draft from before the AI suggestion.
+  function dismissAi(): void {
+    setText(aiPrev ?? "");
+    setAiPrev(null);
   }
 
   const myInitials = initials(me?.profile?.full_name) || "ME";
@@ -495,6 +529,17 @@ export function ChatThreadScreen(): ReactElement {
                   </ScrollView>
                 ) : null}
 
+                {/* Nuru suggestion banner — edit it, send it, or dismiss to restore your draft */}
+                {aiPrev !== null ? (
+                  <View style={st.aiHint}>
+                    <Sparkles size={14} color={palette.goldLo} />
+                    <T variant="caption" tone="secondary" style={{ flex: 1 }}>Nuru suggested this — edit, send, or</T>
+                    <Pressable accessibilityRole="button" accessibilityLabel="Dismiss suggestion" onPress={dismissAi} hitSlop={8}>
+                      <T variant="caption" style={{ color: palette.goldLo, fontWeight: "800" }}>Dismiss</T>
+                    </Pressable>
+                  </View>
+                ) : null}
+
                 {sendError ? <T variant="caption" style={{ color: palette.error, marginBottom: 6, marginLeft: 56 }}>{sendError}</T> : null}
 
                 <View style={st.composerRow}>
@@ -515,7 +560,7 @@ export function ChatThreadScreen(): ReactElement {
                     </Pressable>
                     <TextInput
                       value={text}
-                      onChangeText={setText}
+                      onChangeText={(t) => { setText(t); if (aiPrev !== null) setAiPrev(null); }}
                       onFocus={() => { setShowAttach(false); setShowEmoji(false); }}
                       placeholder="Message"
                       placeholderTextColor={palette.ink400}
@@ -724,6 +769,7 @@ const st = {
   attachTile: { width: "31%", alignItems: "center", gap: 8, paddingVertical: spacing.sm, borderRadius: 16, backgroundColor: palette.surface },
   attachTileIcon: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
   emojiStrip: { gap: spacing.sm, paddingHorizontal: 56, paddingVertical: spacing.sm, alignItems: "center" },
+  aiHint: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: palette.goldTint, borderRadius: 12, paddingHorizontal: spacing.md, paddingVertical: 8, marginBottom: spacing.sm },
   emojiKey: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   input: {
     backgroundColor: palette.coolPaper, borderRadius: radii.control, borderWidth: 1, borderColor: palette.border,
