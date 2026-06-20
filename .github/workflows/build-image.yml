@@ -1,0 +1,70 @@
+name: Build backend image
+
+# Builds the backend container image OFF the VPS and pushes it to GHCR, so the
+# (CPU-starved, oversubscribed) production box only has to `docker pull` — a build
+# on that box stalls under ~90% CPU steal. Runs on every push to main that touches
+# the backend, and on demand via the Actions tab.
+#
+# Deploy on the box after a successful run:
+#   cd /opt/pathway
+#   echo "BACKEND_IMAGE=ghcr.io/mosesmwicigi24-pixel/pathway-backend:latest" >> .env   # once
+#   docker pull ghcr.io/mosesmwicigi24-pixel/pathway-backend:latest
+#   docker compose -f docker-compose.prod.yml -f docker-compose.vps.yml run --rm migrate
+#   docker compose -f docker-compose.prod.yml -f docker-compose.vps.yml up -d --force-recreate --no-deps api worker
+# (Pulling a private GHCR image needs `docker login ghcr.io` with a read:packages
+#  PAT, OR make the package public in GitHub → Packages → pathway-backend → settings.
+#  The image contains only compiled JS — no secrets — so public is acceptable.)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "packages/backend/**"
+      - "packages/shared/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/build-image.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/pathway-backend
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and push (linux/amd64 — the VPS arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/backend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
