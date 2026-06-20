@@ -64,6 +64,25 @@ export function invalidateQueries(prefix: string): void {
   }
 }
 
+/** Mark matching queries stale WITHOUT dropping their cached data, so a mounted
+ *  subscriber refetches in the background while still showing the last data (no
+ *  blank/spinner flash). Prefer this over invalidateQueries() for refreshing a
+ *  list the user may navigate back to. */
+export function refreshQueries(prefix: string): void {
+  for (const key of [...cache.keys()]) {
+    if (key.startsWith(prefix)) {
+      const e = cache.get(key);
+      if (e && e.data !== undefined) {
+        cache.set(key, { ...e, fetchedAt: 0 }); // stale → useQuery effect refetches, keeps data
+        emit(key);
+      } else {
+        cache.delete(key);
+        emit(key);
+      }
+    }
+  }
+}
+
 /** Optimistically set a query's data (e.g. an offline write the screen should
  *  show immediately). Marks it fresh so the optimistic value isn't refetched away
  *  until the next explicit refresh/invalidate. */

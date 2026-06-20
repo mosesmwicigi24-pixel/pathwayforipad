@@ -17,7 +17,7 @@ import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 import { useChatConversation, queryKeys } from "../api/hooks";
-import { errorMessage, invalidateQueries } from "../api/query";
+import { errorMessage, refreshQueries } from "../api/query";
 import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
@@ -85,7 +85,7 @@ export function ChatThreadScreen(): ReactElement {
   // Mark read on open; refresh the inbox so the unread badge clears.
   useEffect(() => {
     void NuruApi.markChatRead(conversationId)
-      .then(() => invalidateQueries(queryKeys.chatInbox))
+      .then(() => refreshQueries(queryKeys.chatInbox))
       .catch(() => undefined);
   }, [conversationId]);
 
@@ -103,8 +103,8 @@ export function ChatThreadScreen(): ReactElement {
         queued: { domain: "chat_messages", op: "create", payload },
       });
       setText("");
-      invalidateQueries(queryKeys.chatConvo(conversationId));
-      invalidateQueries(queryKeys.chatInbox);
+      refreshQueries(queryKeys.chatConvo(conversationId));
+      refreshQueries(queryKeys.chatInbox);
       void refetch();
     } catch (e) {
       setSendError(errorMessage(e));
@@ -145,8 +145,8 @@ export function ChatThreadScreen(): ReactElement {
         attachment_meta: { public_id: up.public_id, bytes: up.bytes, name },
         client_mutation_id: uuidv4(),
       });
-      invalidateQueries(queryKeys.chatConvo(conversationId));
-      invalidateQueries(queryKeys.chatInbox);
+      refreshQueries(queryKeys.chatConvo(conversationId));
+      refreshQueries(queryKeys.chatInbox);
       void refetch();
     } catch (e) {
       setSendError(errorMessage(e));
@@ -234,8 +234,8 @@ export function ChatThreadScreen(): ReactElement {
         attachment_meta: voiceAttachmentMeta(up, name, durationMs),
         client_mutation_id: uuidv4(),
       });
-      invalidateQueries(queryKeys.chatConvo(conversationId));
-      invalidateQueries(queryKeys.chatInbox);
+      refreshQueries(queryKeys.chatConvo(conversationId));
+      refreshQueries(queryKeys.chatInbox);
       void refetch();
     } catch (e) {
       setSendError(errorMessage(e));
@@ -298,8 +298,8 @@ export function ChatThreadScreen(): ReactElement {
         attachment_meta: fileAttachmentMeta(up, name, picked.size),
         client_mutation_id: uuidv4(),
       });
-      invalidateQueries(queryKeys.chatConvo(conversationId));
-      invalidateQueries(queryKeys.chatInbox);
+      refreshQueries(queryKeys.chatConvo(conversationId));
+      refreshQueries(queryKeys.chatInbox);
       void refetch();
     } catch (e) {
       setSendError(errorMessage(e));
