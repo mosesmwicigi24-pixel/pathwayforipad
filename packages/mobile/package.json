@@ -2,6 +2,9 @@
   "name": "@nuru/mobile",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "react-native start",
     "ios": "react-native run-ios",
