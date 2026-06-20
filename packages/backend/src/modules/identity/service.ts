@@ -16,7 +16,7 @@ import {
 } from "./tokens.js";
 import type { OAuthProfile } from "./oauth.js";
 import { generateTotpSecret, otpauthUri, verifyTotp } from "./totp.js";
-import { hashPassword, verifyPassword } from "./passwords.js";
+import { hashPassword, verifyPassword, passwordNeedsRehash } from "./passwords.js";
 import { renderPasswordReset } from "./email-templates.js";
 import { sealSecret, openSecret } from "./secretbox.js";
 import { buildEmailProvider, type EmailProvider } from "./email.js";
@@ -179,6 +179,16 @@ export class IdentityService {
         `UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE user_id = $1`,
         [row.user_id],
       );
+    }
+    // Transparently migrate legacy/heavier hashes to the current Argon2 profile
+    // now that we have the plaintext. Best-effort: never block a valid login.
+    if (passwordNeedsRehash(row.password_hash)) {
+      try {
+        const rehashed = await hashPassword(input.password);
+        await this.pool.query(`UPDATE users SET password_hash = $2 WHERE user_id = $1`, [row.user_id, rehashed]);
+      } catch {
+        /* keep the existing hash; the user is still authenticated */
+      }
     }
     return this.issueSession({ user_id: row.user_id, role: row.role, congregation_id: row.congregation_id });
   }

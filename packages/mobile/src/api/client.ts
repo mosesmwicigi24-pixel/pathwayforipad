@@ -54,7 +54,10 @@ import type {
 
 export const api: AxiosInstance = axios.create({
   baseURL: apiBaseUrl(), // env override → localhost default; App.tsx re-applies with Platform.OS
-  timeout: 15_000,
+  // 30s, not 15s: password endpoints run Argon2id, which can take several seconds
+  // on a small/cold server. A tight timeout aborts a request that is actually
+  // succeeding and surfaces as a misleading "can't reach the server" error.
+  timeout: 30_000,
 });
 
 export function configureApiBase(url: string): void {
