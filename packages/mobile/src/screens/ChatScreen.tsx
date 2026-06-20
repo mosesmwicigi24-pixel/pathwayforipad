@@ -11,10 +11,10 @@ import { Bell, ChevronRight, Hash, Pencil, Plus, Search, Sparkles, Users } from 
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
-import type { ChatConversation, DiscoverSpace } from "../api/types";
+import type { ChatConversation, ChatPerson, DiscoverSpace } from "../api/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { GradientBg, Glow, T } from "../theme/components";
-import { useChatInbox, queryKeys } from "../api/hooks";
+import { useChatInbox, useChatPeople, queryKeys } from "../api/hooks";
 import { errorMessage, refreshQueries } from "../api/query";
 import { NuruApi } from "../api/client";
 import { Loading, ErrorState } from "../components/states";
@@ -79,6 +79,16 @@ export function ChatScreen(): ReactElement {
       setJoiningId(null);
     }
   }
+
+  // Open (creating if needed) a DM with a member from the directory rail, then
+  // jump into the thread. On return the inbox holds that DM, so the person shows
+  // as a normal DM (no "+") and drops out of the directory rail.
+  const startDm = useCallback(async (person: ChatPerson): Promise<void> => {
+    const { conversation_id } = await NuruApi.createDm(person.user_id);
+    refreshQueries(queryKeys.chatInbox);
+    await refetch();
+    nav.navigate("ChatThread", { conversationId: conversation_id, title: person.full_name });
+  }, [nav, refetch]);
 
   const spaces = grouped.spaces.filter((c) => matchesConversation(c, query));
   const dms = grouped.dms.filter((c) => matchesConversation(c, query));
@@ -180,7 +190,7 @@ export function ChatScreen(): ReactElement {
             {tab === "spaces" ? (
               <SpacesTab spaces={spaces} discover={discover} joiningId={joiningId} onOpen={openConvo} onJoin={join} nav={nav} />
             ) : tab === "dms" ? (
-              <DmsTab dms={dms} onOpen={openConvo} onCompose={() => nav.navigate("NewMessage")} />
+              <DmsTab dms={dms} onOpen={openConvo} onCompose={() => nav.navigate("NewMessage")} onStartDm={startDm} />
             ) : (
               <GroupsTab groups={groups} onOpen={openConvo} />
             )}
@@ -283,21 +293,43 @@ function DmsTab({
   dms,
   onOpen,
   onCompose,
+  onStartDm,
 }: {
   dms: ChatConversation[];
   onOpen: (c: ChatConversation) => void;
   onCompose: () => void;
+  onStartDm: (person: ChatPerson) => Promise<void>;
 }): ReactElement {
+  const { data: peopleData } = useChatPeople("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Members already in a DM appear as normal partners (no "+"); everyone else in
+  // the directory shows in the rail with a "+" to start a new DM. We match by
+  // name since the DM inbox row is titled with the other member's full name.
+  const partnerNames = new Set(dms.map((c) => (c.title ?? "").trim().toLowerCase()));
+  const newPeople = (peopleData?.people ?? []).filter((p) => !partnerNames.has(p.full_name.trim().toLowerCase()));
+
+  async function start(person: ChatPerson): Promise<void> {
+    setBusyId(person.user_id);
+    try {
+      await onStartDm(person);
+    } catch {
+      /* surfaced by the thread/inbox; keep the rail intact for retry */
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <>
-      {/* Story rail */}
+      {/* Story rail: compose · existing partners · directory members (with +) */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.base, paddingVertical: spacing.sm }}>
         <Pressable accessibilityRole="button" accessibilityLabel="New message" onPress={onCompose} style={st.story}>
           <View style={[st.storyAvatar, { backgroundColor: palette.navy }]}>
             <T variant="heading" style={{ color: "#fff", fontSize: 15 }}>ME</T>
             <View style={st.storyPlus}><Plus size={12} color={palette.navy} /></View>
           </View>
-          <T variant="micro" tone="tertiary" numberOfLines={1}>Your note</T>
+          <T variant="micro" tone="tertiary" numberOfLines={1}>New chat</T>
         </Pressable>
         {dms.map((c) => (
           <Pressable key={c.conversation_id} accessibilityRole="button" accessibilityLabel={c.title ?? "Chat"} onPress={() => onOpen(c)} style={st.story}>
@@ -306,6 +338,24 @@ function DmsTab({
             </View>
             <T variant="micro" tone="secondary" numberOfLines={1} style={{ maxWidth: 64, textAlign: "center" }}>
               {(c.title ?? "").split(" ")[0] || "Chat"}
+            </T>
+          </Pressable>
+        ))}
+        {newPeople.map((p) => (
+          <Pressable
+            key={p.user_id}
+            accessibilityRole="button"
+            accessibilityLabel={`Message ${p.full_name}`}
+            disabled={busyId !== null}
+            onPress={() => void start(p)}
+            style={[st.story, busyId === p.user_id && { opacity: 0.5 }]}
+          >
+            <View style={[st.storyAvatar, { backgroundColor: avatarColor(p.user_id) }]}>
+              <T variant="heading" style={{ color: "#fff", fontSize: 15 }}>{initials(p.full_name)}</T>
+              <View style={st.storyPlus}><Plus size={12} color={palette.navy} /></View>
+            </View>
+            <T variant="micro" tone="tertiary" numberOfLines={1} style={{ maxWidth: 64, textAlign: "center" }}>
+              {p.full_name.split(" ")[0]}
             </T>
           </Pressable>
         ))}
