@@ -2,10 +2,11 @@
 // password"). Navy splash with the serif "Nuru Place" wordmark + gold keyline.
 // Email + password is the working path: POST /v1/auth/login, /auth/register, and
 // /auth/password/{forgot,reset}. Rotated tokens are stored in the secure
-// TokenVault. Federated providers (Google/Apple) are stubbed for production.
-import { useState, type ReactElement } from "react";
+// TokenVault. "Remember me" keeps the email for the next launch (AsyncStorage).
+import { useEffect, useState, type ReactElement } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
-import { ArrowLeft, Eye, EyeOff, Lock, Mail, User } from "lucide-react-native";
+import { ArrowLeft, Check, Eye, EyeOff, Lock, Mail, User } from "lucide-react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NuruApi } from "../api/client";
 import { getVault } from "../auth/vault";
 import { useNavigation } from "@react-navigation/native";
@@ -21,6 +22,7 @@ const DEV_PASSWORD = "pathway123";
 
 type Mode = "login" | "register" | "forgot" | "reset";
 const INPUT_PLACEHOLDER = "rgba(255,255,255,0.40)";
+const REMEMBER_KEY = "auth:rememberEmail";
 const CONNECT_ERROR = "Can't reach the server. Check your connection and try again.";
 
 // An axios failure with no `response` never reached the API (DNS/connection/
@@ -49,6 +51,17 @@ export function LoginScreen(): ReactElement {
   const [token, setToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [remember, setRemember] = useState(true);
+
+  // Remember me: prefill the email from a previous "remembered" sign-in.
+  useEffect(() => {
+    void AsyncStorage.getItem(REMEMBER_KEY).then((saved) => {
+      if (saved) {
+        setEmail(saved);
+        setRemember(true);
+      }
+    });
+  }, []);
 
   function go(next: Mode): void {
     setError(null);
@@ -65,7 +78,11 @@ export function LoginScreen(): ReactElement {
     if (!email.trim() || !password) { setError("Enter your email and password."); return; }
     setBusy(true); setError(null);
     try {
-      await enter(await NuruApi.login(email.trim(), password));
+      const tokens = await NuruApi.login(email.trim(), password);
+      // Remember me: keep the email for next launch, or forget it.
+      if (remember) await AsyncStorage.setItem(REMEMBER_KEY, email.trim());
+      else await AsyncStorage.removeItem(REMEMBER_KEY);
+      await enter(tokens);
     } catch (e) {
       // A failed connection (no HTTP response) is not a credential problem —
       // surfacing it as one is what made physical-device sign-in baffling.
@@ -217,9 +234,15 @@ export function LoginScreen(): ReactElement {
           ) : null}
 
           {mode === "login" ? (
-            <Pressable accessibilityRole="button" onPress={() => go("forgot")} style={{ alignSelf: "flex-end" }} hitSlop={6}>
-              <T variant="caption" tone="gold" style={{ fontWeight: "600" }}>Forgot your password?</T>
-            </Pressable>
+            <View style={st.rememberRow}>
+              <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: remember }} onPress={() => setRemember((v) => !v)} style={st.rememberLeft} hitSlop={6}>
+                <View style={[st.checkbox, remember && st.checkboxOn]}>{remember ? <Check size={13} color={palette.navy} strokeWidth={3} /> : null}</View>
+                <T variant="caption" tone="onNavyDim">Remember me</T>
+              </Pressable>
+              <Pressable accessibilityRole="button" onPress={() => go("forgot")} hitSlop={6}>
+                <T variant="caption" tone="gold" style={{ fontWeight: "600" }}>Forgot your password?</T>
+              </Pressable>
+            </View>
           ) : null}
 
           {error ? <T variant="caption" style={{ color: palette.error, textAlign: "center" }}>{error}</T> : null}
@@ -236,21 +259,6 @@ export function LoginScreen(): ReactElement {
             <PButton variant="gold" onPress={() => void submitReset()} disabled={busy}>{busy ? "Saving…" : "Reset password"}</PButton>
           )}
         </View>
-
-        {/* Federated + footer */}
-        {mode === "login" || mode === "register" ? (
-          <>
-            <View style={st.divider}>
-              <View style={st.line} />
-              <T variant="caption" tone="onNavyDim">or continue with</T>
-              <View style={st.line} />
-            </View>
-            <View style={{ flexDirection: "row", gap: spacing.md }}>
-              <View style={{ flex: 1 }}><PButton variant="ghostDark" size="md" disabled>Google</PButton></View>
-              <View style={{ flex: 1 }}><PButton variant="ghostDark" size="md" disabled>Apple</PButton></View>
-            </View>
-          </>
-        ) : null}
 
         <View style={st.footer}>
           {mode === "login" ? (
@@ -308,6 +316,13 @@ const st = {
   input: { paddingVertical: 14, fontSize: 16, color: palette.white },
   divider: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginVertical: spacing.lg },
   line: { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
+  rememberRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  rememberLeft: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  checkbox: {
+    width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: "rgba(255,255,255,0.30)",
+    alignItems: "center", justifyContent: "center",
+  },
+  checkboxOn: { backgroundColor: palette.gold, borderColor: palette.gold },
   footer: { marginTop: spacing.xl, alignItems: "center" },
   footerRow: { flexDirection: "row", alignItems: "center" },
 } as const;

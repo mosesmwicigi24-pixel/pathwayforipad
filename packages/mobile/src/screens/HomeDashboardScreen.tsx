@@ -9,19 +9,26 @@ import { Image, Linking, Pressable, RefreshControl, ScrollView, View } from "rea
 import {
   BadgeCheck,
   Bell,
+  BookMarked,
   BookOpen,
   CalendarClock,
   Check,
   ChevronRight,
   Clock,
   Flame,
+  HandHeart,
   Heart,
+  Library,
   Megaphone,
+  MessageSquareText,
   Play,
+  Quote,
   Share2,
   Sparkles,
+  Sun,
   Target,
   Users,
+  type LucideIcon,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -34,6 +41,7 @@ import {
   useFeaturedCell,
   useFeaturedEvent,
   useFeaturedAnnouncement,
+  useCellSummary,
   useMe,
   useMyAnnouncements,
   useNotifications,
@@ -75,12 +83,21 @@ function welcomeVideoUrl(v: WelcomeVideo): string | null {
   return v.url;
 }
 
-// Human label for the source badge on the card.
-function welcomeVideoSourceLabel(source: WelcomeVideo["video_source"]): string {
-  if (source === "youtube") return "YouTube";
-  if (source === "vimeo") return "Vimeo";
-  return "Video";
-}
+// "Grow your faith" quick-access grid → the growth screens (D5/B9). Matches the
+// Figma HomeTab tools row (6 tiles + discipler).
+const GROW: Array<{ label: string; sub: string; route: "Devotional" | "ReadingPlans" | "PrayerJournal" | "MemoryVerses" | "Gifts" | "Resources"; Icon: LucideIcon; tint: string; fg: string }> = [
+  { label: "Devotional", sub: "Today's devotional", route: "Devotional", Icon: Sun, tint: "#FFF4DA", fg: palette.goldLo },
+  { label: "Reading plan", sub: "Continue your plan", route: "ReadingPlans", Icon: BookMarked, tint: "#EEF2FF", fg: "#6366F1" },
+  { label: "Prayer journal", sub: "Your prayers", route: "PrayerJournal", Icon: HandHeart, tint: "#FEE2E2", fg: "#DC2626" },
+  { label: "Memory verses", sub: "Practice & master", route: "MemoryVerses", Icon: Quote, tint: "#FFF4DA", fg: palette.goldLo },
+  { label: "Spiritual gifts", sub: "Take assessment", route: "Gifts", Icon: Sparkles, tint: "#F3E8FF", fg: "#A855F7" },
+  { label: "Resources", sub: "Books, audio, video", route: "Resources", Icon: Library, tint: "#E0F2FE", fg: "#0EA5E9" },
+];
+
+// Placeholder story image (Figma "This week at Nuru"); shown only when no real
+// featured cell is set.
+const STORY_PHOTO = "https://images.unsplash.com/photo-1735968664648-a0df97339343?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080";
+const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
 const RHYTHM: Array<{ key: "prayer" | "word" | "reflection"; label: string }> = [
   { key: "prayer", label: "Prayer" },
@@ -100,6 +117,7 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: featuredCell, refetch: refetchFeaturedCell } = useFeaturedCell();
   const { data: featuredEvent, refetch: refetchFeaturedEvent } = useFeaturedEvent();
   const { data: featuredAnnouncement, refetch: refetchFeaturedAnnouncement } = useFeaturedAnnouncement();
+  const { data: cellSummary } = useCellSummary();
   const [refreshing, setRefreshing] = useState(false);
 
   // Pull-to-refresh re-pulls every Home data source from the backend.
@@ -158,6 +176,9 @@ export function HomeDashboardScreen(): ReactElement {
   const streak = achievements?.streak?.current ?? 0;
   const unread = notifications?.unread ?? 0;
   const modulesLeft = active ? active.total_modules - active.completed_modules : 0;
+  // Real attendance from the member's cell summary (§ cell-summary).
+  const cell = cellSummary?.cell ?? null;
+  const attendancePct = cell && cell.attendance.expected > 0 ? Math.round((cell.attendance.attended / cell.attendance.expected) * 100) : 0;
   const habitsPct = Math.round((rhythmDone / 3) * 100);
   // Show the welcome-video card only when one is set AND it resolves to an
   // openable link (hosted videos with no key come back as url:null).
@@ -225,9 +246,7 @@ export function HomeDashboardScreen(): ReactElement {
               <T variant="caption" style={{ fontWeight: "600" }}>Nuru Pathway</T>
               <BadgeCheck size={14} color={palette.gold} />
               <View style={{ flex: 1 }} />
-              <T variant="micro" tone="tertiary" style={{ letterSpacing: 1.2 }}>
-                {welcomeVideoSourceLabel(welcomeVideo.video_source).toUpperCase()}
-              </T>
+              <T variant="micro" tone="tertiary" style={{ letterSpacing: 1.2 }}>FEATURED</T>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -246,6 +265,13 @@ export function HomeDashboardScreen(): ReactElement {
             ) : (
               <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>Start here — what the journey looks like</T>
             )}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md }}>
+              {["Intro", "Level overview", "Testimonies"].map((c) => (
+                <View key={c} style={st.featChip}>
+                  <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>{c}</T>
+                </View>
+              ))}
+            </View>
           </View>
         ) : null}
 
@@ -415,6 +441,26 @@ export function HomeDashboardScreen(): ReactElement {
           ) : null}
         </View>
 
+        {/* ── Reflection due today (when this lesson still needs one) ──── */}
+        {active && !rhythm.reflection ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => nav.navigate("Level", { levelId: active.level_number })}
+            style={({ pressed }) => [st.reflectBanner, pressed && { opacity: 0.92 }]}
+          >
+            <View style={st.reflectIcon}>
+              <MessageSquareText size={16} color={palette.goldLo} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T variant="heading" style={{ fontSize: 14 }}>Reflection due today</T>
+              <T variant="micro" tone="tertiary" style={{ marginTop: 1 }} numberOfLines={1}>{active.title}</T>
+            </View>
+            <View style={st.reflectBtn}>
+              <T variant="micro" style={{ color: palette.goldGlow, fontWeight: "700" }}>Start reflection</T>
+            </View>
+          </Pressable>
+        ) : null}
+
         {/* ── Your progress ──────────────────────────────────────────── */}
         <View style={st.card}>
           <View style={{ flexDirection: "row", alignItems: "baseline" }}>
@@ -428,7 +474,7 @@ export function HomeDashboardScreen(): ReactElement {
               [
                 { label: "Habits", value: `${habitsPct}%`, fill: palette.gold, pct: habitsPct },
                 { label: "Curriculum", value: `${overallPct}%`, fill: palette.navy, pct: overallPct },
-                { label: "Streak", value: `${streak}d`, fill: palette.success, pct: Math.min(100, streak * 10) },
+                { label: "Attendance", value: `${attendancePct}%`, fill: palette.success, pct: attendancePct },
               ] as const
             ).map((m) => (
               <View key={m.label} style={st.metricTile}>
@@ -453,49 +499,72 @@ export function HomeDashboardScreen(): ReactElement {
           ) : null}
         </View>
 
-        {/* ── Upcoming (real calendar) ───────────────────────────────── */}
-        {(occurrences ?? []).length > 0 ? (
-          <View style={st.card}>
-            <View style={{ flexDirection: "row", alignItems: "baseline" }}>
-              <T variant="heading" style={{ flex: 1, fontSize: 15 }}>Upcoming</T>
-              <Pressable onPress={() => nav.navigate("Calendar")}>
-                <T variant="micro" style={{ color: palette.goldLo, fontWeight: "600" }}>See all ›</T>
-              </Pressable>
-            </View>
-            {(occurrences ?? []).slice(0, 3).map((e) => (
+        {/* ── Grow your faith ────────────────────────────────────────── */}
+        <View style={st.card}>
+          <T variant="heading" style={{ fontSize: 15, marginBottom: spacing.md }}>Grow your faith</T>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+            {GROW.map((g) => (
               <Pressable
-                key={e.occurrence_id}
-                onPress={() =>
-                  nav.navigate("EventDetail", {
-                    eventId: e.occurrence_id,
-                    title: e.title,
-                    startAt: e.start_at,
-                    endAt: e.end_at,
-                    location: e.location,
-                  })
-                }
-                style={({ pressed }) => [st.eventRow, pressed && { opacity: 0.85 }]}
+                key={g.label}
+                accessibilityRole="button"
+                onPress={() => nav.navigate(g.route)}
+                style={({ pressed }) => [st.growTile, pressed && { opacity: 0.9 }]}
               >
-                <View style={st.eventDate}>
-                  <T variant="micro" style={{ color: palette.gold, fontWeight: "700" }}>
-                    {new Date(e.start_at).toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}
-                  </T>
-                  <T serif tone="onNavy" style={{ fontSize: 16 }}>{String(new Date(e.start_at).getDate())}</T>
+                <View style={[st.growIcon, { backgroundColor: g.tint }]}>
+                  <g.Icon size={16} color={g.fg} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <T variant="micro" style={{ color: palette.goldLo, fontWeight: "600" }}>
-                    {new Date(e.start_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                  </T>
-                  <T variant="heading" style={{ fontSize: 14, marginTop: 1 }} numberOfLines={1}>{e.title}</T>
-                  {e.location ? (
-                    <T variant="micro" tone="tertiary" numberOfLines={1}>{e.location}</T>
-                  ) : null}
+                  <T variant="caption" style={{ fontWeight: "700", color: palette.ink }} numberOfLines={1}>{g.label}</T>
+                  <T variant="micro" tone="tertiary" numberOfLines={1}>{g.sub}</T>
                 </View>
-                <ChevronRight size={16} color={palette.ink300} />
               </Pressable>
             ))}
           </View>
+          {/* Your discipler → Mentor */}
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => nav.navigate("Mentor")}
+            style={({ pressed }) => [st.disciplerRow, pressed && { opacity: 0.9 }]}
+          >
+            <View style={st.disciplerAvatar}>
+              <T variant="micro" style={{ color: palette.white, fontWeight: "700" }}>JO</T>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.2 }}>YOUR DISCIPLER</T>
+              <T variant="caption" style={{ fontWeight: "700", color: palette.ink, marginTop: 1 }} numberOfLines={1}>Pastor James Otieno</T>
+            </View>
+            <ChevronRight size={16} color={palette.ink300} />
+          </Pressable>
+        </View>
+
+        {/* ── This week at Nuru — story card (placeholder when no featured cell) ── */}
+        {!featuredCell ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => nav.navigate("Tabs", { screen: "Events" })}
+            style={({ pressed }) => [st.card, { padding: 0, overflow: "hidden" }, pressed && { opacity: 0.95 }]}
+          >
+            <Image source={{ uri: STORY_PHOTO }} style={{ width: "100%", height: 190 }} resizeMode="cover" />
+            <View style={{ padding: spacing.base }}>
+              <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>THIS WEEK AT NURU</T>
+              <T serif style={{ fontSize: 18, color: palette.ink, marginTop: spacing.sm }}>Cohort C-04's first baptisms</T>
+              <T variant="caption" tone="secondary" style={{ marginTop: 4, lineHeight: 20 }} numberOfLines={2}>
+                Fourteen learners marked a new beginning on Sunday. A glimpse of grace as the journey continues.
+              </T>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: spacing.sm }}>
+                <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700" }}>Read more</T>
+                <ChevronRight size={13} color={palette.goldLo} />
+              </View>
+            </View>
+          </Pressable>
         ) : null}
+
+        {/* ── Upcoming — month grid + per-day events + next live (real calendar) ── */}
+        <UpcomingCalendar
+          occurrences={occurrences ?? []}
+          onSeeAll={() => nav.navigate("Calendar")}
+          onOpenEvent={(e) => nav.navigate("EventDetail", { eventId: e.occurrence_id, title: e.title, startAt: e.start_at, endAt: e.end_at, location: e.location })}
+        />
 
         {/* ── Verse for today (WEB default, D-M4) ────────────────────── */}
         <View style={st.verseCard}>
@@ -537,6 +606,36 @@ export function HomeDashboardScreen(): ReactElement {
               ? "Beautifully done today."
               : "You're one reflection away from completing this week's rhythm."}
           </T>
+        </View>
+
+        {/* ── Your cohort (real cell-summary where available) ──────────── */}
+        <View style={st.card}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
+            <View style={{ minWidth: 0 }}>
+              <T variant="heading" style={{ fontSize: 15 }}>Your cohort</T>
+              <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{cell?.name ?? "Your discipleship cell"}</T>
+            </View>
+            <View style={{ flexDirection: "row" }}>
+              {["#FFE7B5", "#D9EBD4", "#E0E7FF", "#FFD9D2"].map((c, i) => (
+                <View key={i} style={[st.cohortAvatar, { backgroundColor: c, marginLeft: i === 0 ? 0 : -8 }]}>
+                  <Users size={12} color={palette.navy} />
+                </View>
+              ))}
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md }}>
+            <CohortStat icon={<Users size={13} color={palette.goldLo} />} label="Leader" value={cellSummary ? "Your leader" : "Pastor Daniel"} />
+            <CohortStat icon={<CalendarClock size={13} color={palette.goldLo} />} label="Next discussion" value={cell?.next?.location ?? "TBA"} />
+            <CohortStat icon={<Sparkles size={13} color={palette.goldLo} />} label="Active this week" value={cell ? `${cell.members} learner${cell.members === 1 ? "" : "s"}` : "14 learners"} />
+            <CohortStat icon={<Flame size={13} color={palette.goldLo} />} label="Streak together" value={`${streak} day${streak === 1 ? "" : "s"}`} />
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => nav.navigate("Tabs", { screen: "Chat" })}
+            style={({ pressed }) => [st.cohortBtn, pressed && { opacity: 0.9 }]}
+          >
+            <T variant="caption" style={{ fontWeight: "700", color: palette.ink }}>Open community ›</T>
+          </Pressable>
         </View>
 
         {/* ── Announcements (real, B5) ───────────────────────────────── */}
@@ -590,6 +689,100 @@ export function HomeDashboardScreen(): ReactElement {
         </View>
       </View>
     </ScrollView>
+  );
+}
+
+// Upcoming — Figma month-grid + per-day events, over the real calendar.
+type CalOcc = { occurrence_id: string; title: string; start_at: string; end_at: string; location: string | null };
+function UpcomingCalendar({ occurrences, onSeeAll, onOpenEvent }: { occurrences: CalOcc[]; onSeeAll: () => void; onOpenEvent: (e: CalOcc) => void }): ReactElement {
+  const today = useMemo(() => new Date(), []);
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const monthLabel = today.toLocaleDateString("en-US", { month: "long" }).toUpperCase();
+  const todayDate = today.getDate();
+  const [selected, setSelected] = useState(todayDate);
+
+  const byDay = useMemo(() => {
+    const m = new Map<number, CalOcc[]>();
+    for (const o of occurrences) {
+      const d = new Date(o.start_at);
+      if (d.getFullYear() === year && d.getMonth() === month) {
+        const day = d.getDate();
+        (m.get(day) ?? m.set(day, []).get(day)!).push(o);
+      }
+    }
+    return m;
+  }, [occurrences, year, month]);
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDow = (new Date(year, month, 1).getDay() + 6) % 7; // Mon-first
+  const cells: Array<number | null> = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  const dayEvents = byDay.get(selected) ?? [];
+
+  return (
+    <View style={st.card}>
+      <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+        <T variant="heading" style={{ flex: 1, fontSize: 15 }}>Upcoming</T>
+        <Pressable onPress={onSeeAll}><T variant="micro" style={{ color: palette.goldLo, fontWeight: "600" }}>See all ›</T></Pressable>
+      </View>
+      <View style={{ flexDirection: "row", gap: spacing.md, marginTop: spacing.md }}>
+        <View style={[st.calBox, { flex: 1.1 }]}>
+          <T variant="micro" style={{ textAlign: "center", color: palette.goldLo, fontWeight: "700", letterSpacing: 1.4, marginBottom: 4 }}>{monthLabel}</T>
+          <View style={st.calRow}>
+            {WEEKDAYS.map((d, i) => (<T key={`dow${i}`} variant="micro" tone="tertiary" style={st.calDow}>{d}</T>))}
+          </View>
+          <View style={st.calGrid}>
+            {cells.map((d, idx) => {
+              if (d === null) return <View key={`pad${idx}`} style={st.calCell} />;
+              const isToday = d === todayDate;
+              const isSel = d === selected;
+              const hasEvent = byDay.has(d);
+              return (
+                <Pressable key={d} onPress={() => setSelected(d)} style={[st.calCell, isSel && { backgroundColor: palette.navy }, !isSel && isToday && { backgroundColor: palette.goldChipBg }]}>
+                  <T variant="micro" style={{ fontWeight: "600", color: isSel ? palette.white : palette.ink }}>{d}</T>
+                  {hasEvent ? <View style={[st.calDot, { backgroundColor: isSel ? palette.gold : palette.goldLo }]} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <T variant="micro" tone="tertiary" style={{ fontWeight: "700", letterSpacing: 0.6 }}>
+            {selected === todayDate ? "TODAY" : `${monthLabel.slice(0, 3)} ${selected}`}{dayEvents.length ? ` · ${dayEvents.length}` : ""}
+          </T>
+          {dayEvents.length === 0 ? (
+            <View style={st.calEmpty}>
+              <CalendarClock size={18} color={palette.ink300} />
+              <T variant="micro" tone="tertiary" style={{ marginTop: 4 }}>No events</T>
+            </View>
+          ) : (
+            <View style={{ gap: spacing.sm, marginTop: 6 }}>
+              {dayEvents.slice(0, 3).map((ev) => (
+                <Pressable key={ev.occurrence_id} onPress={() => onOpenEvent(ev)} style={st.calEvent}>
+                  <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700" }}>{new Date(ev.start_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</T>
+                  <T variant="caption" style={{ fontWeight: "700", color: palette.ink, marginTop: 1 }} numberOfLines={1}>{ev.title}</T>
+                  {ev.location ? <T variant="micro" tone="tertiary" numberOfLines={1}>{ev.location}</T> : null}
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function CohortStat({ icon, label, value }: { icon: ReactElement; label: string; value: string }): ReactElement {
+  return (
+    <View style={st.cohortStat}>
+      <View style={st.cohortStatIcon}>{icon}</View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <T variant="micro" tone="tertiary" style={{ fontWeight: "600", letterSpacing: 0.3 }} numberOfLines={1}>{label}</T>
+        <T variant="caption" style={{ fontWeight: "700", color: palette.ink }} numberOfLines={1}>{value}</T>
+      </View>
+    </View>
   );
 }
 
@@ -700,6 +893,38 @@ const st = {
     marginTop: spacing.md,
   },
   targetTile: { width: 28, height: 28, borderRadius: 9, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
+  featChip: { backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, borderRadius: radii.pill, paddingHorizontal: spacing.md, paddingVertical: 7 },
+  reflectBanner: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md,
+    backgroundColor: palette.goldChipBg, borderWidth: 1, borderColor: palette.goldTint,
+    borderRadius: 18, padding: spacing.base,
+  },
+  reflectIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
+  reflectBtn: { backgroundColor: palette.navy, borderRadius: radii.pill, paddingHorizontal: spacing.base, paddingVertical: 9 },
+  growTile: {
+    width: "48%", flexGrow: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm,
+    backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md,
+  },
+  growIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  disciplerRow: {
+    flexDirection: "row", alignItems: "center", gap: spacing.sm,
+    backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border,
+    borderRadius: 14, padding: spacing.md, marginTop: spacing.sm,
+  },
+  disciplerAvatar: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#16A34A", alignItems: "center", justifyContent: "center" },
+  // Upcoming calendar grid
+  calBox: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: spacing.sm },
+  calRow: { flexDirection: "row" },
+  calDow: { width: `${100 / 7}%`, textAlign: "center", fontSize: 9 },
+  calGrid: { flexDirection: "row", flexWrap: "wrap" },
+  calCell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: "center", justifyContent: "center", borderRadius: 8 },
+  calDot: { position: "absolute", bottom: 3, width: 4, height: 4, borderRadius: 2 },
+  calEmpty: { backgroundColor: palette.surface, borderRadius: 14, alignItems: "center", justifyContent: "center", paddingVertical: spacing.lg, marginTop: 6 },
+  calEvent: { backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
+  // Your cohort
+  cohortAvatar: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: palette.white },
+  cohortStat: { width: "48%", flexGrow: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
+  cohortStatIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
   weekChip: {
     flexDirection: "row",
     alignItems: "center",
