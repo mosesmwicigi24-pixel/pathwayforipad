@@ -13,8 +13,9 @@ import {
   ChevronRight, CheckCircle2, Flag, Download, Printer, X, GraduationCap, MoreVertical, Pencil, Check,
 } from "lucide-react";
 import {
-  OpsApi, AdminApi, SystemApi,
+  OpsApi, AdminApi, SystemApi, CurriculumApi,
   type MemberRow, type MemberDetail, type MemberStatus, type EngagementCellRow, type Country, type Programme, type Gender,
+  type AdminLevel, type AdminModuleSummary,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -214,7 +215,7 @@ export function Members(): ReactElement {
       </div>
 
       {addOpen ? <AddMemberModal cells={cells} countries={countries} onClose={() => setAddOpen(false)} onCreated={async () => { setAddOpen(false); await load(); }} /> : null}
-      {editId ? <EditMemberModal userId={editId} cells={cells} countries={countries} onClose={() => setEditId(null)} onSaved={async () => { setEditId(null); await load(); }} /> : null}
+      {editId ? <EditMemberModal userId={editId} row={rows.find((r) => r.user_id === editId)} cells={cells} countries={countries} onClose={() => setEditId(null)} onSaved={async () => { setEditId(null); await load(); }} /> : null}
       {exportOpen ? <ExportModal members={filtered} countryByCode={countryByCode} onClose={() => setExportOpen(false)} /> : null}
     </div>
   );
@@ -309,10 +310,7 @@ function AddMemberModal({ cells, countries, onClose, onCreated }: { cells: Engag
             <Field label="Discipler">
               <input value={selectedCell?.discipler_name ?? "—"} readOnly style={{ ...inputS, background: "var(--secondary)", color: "var(--muted-foreground)" }} />
             </Field>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Current level"><input type="number" min={1} value={start_level} onChange={(e) => setStartLevel(e.target.value)} style={inputS} /></Field>
-              <Field label="Start module"><input type="number" min={1} value={start_module_sequence} onChange={(e) => setStartModule(e.target.value)} style={inputS} /></Field>
-            </div>
+            <PlacementFields level={start_level} module={start_module_sequence} onLevel={setStartLevel} onModule={setStartModule} />
             <Field label="Programme">
               <select value={programme} onChange={(e) => setProgramme(e.target.value as "" | Programme)} style={inputS}><option value="">—</option>{(Object.keys(PROGRAMME_LABELS) as Programme[]).map((p) => <option key={p} value={p}>{PROGRAMME_LABELS[p]}</option>)}</select>
             </Field>
@@ -341,8 +339,10 @@ function AddMemberModal({ cells, countries, onClose, onCreated }: { cells: Engag
   );
 }
 
-function EditMemberModal({ userId, cells, countries, onClose, onSaved }: { userId: string; cells: EngagementCellRow[]; countries: Country[]; onClose: () => void; onSaved: () => void }): ReactElement {
+function EditMemberModal({ userId, row, cells, countries, onClose, onSaved }: { userId: string; row: MemberRow | undefined; cells: EngagementCellRow[]; countries: Country[]; onClose: () => void; onSaved: () => void }): ReactElement {
   const [loaded, setLoaded] = useState(false);
+  const [start_level, setStartLevel] = useState(String(row?.start_level ?? row?.current_level ?? 1));
+  const [start_module_sequence, setStartModule] = useState(String(row?.start_module_sequence ?? 1));
   const [full_name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone_number, setPhone] = useState("");
@@ -403,6 +403,10 @@ function EditMemberModal({ userId, cells, countries, onClose, onSaved }: { userI
         is_baptized,
         cell_group_id,
       });
+      // Pathway placement (entry point) — drives what unlocks in the member's app.
+      const lvl = Number(start_level) || 1;
+      const mod = Number(start_module_sequence) || 1;
+      await OpsApi.setMemberStart(userId, { start_level: lvl, start_module_sequence: mod });
       onSaved();
     } catch (e) { setError(errorMessage(e, "Could not save changes.")); }
     finally { setSaving(false); }
@@ -415,7 +419,7 @@ function EditMemberModal({ userId, cells, countries, onClose, onSaved }: { userI
           <div>
             <div className="flex items-center gap-2" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: "var(--nuru-gold)" }}><Pencil size={12} /> EDIT MEMBER</div>
             <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)", marginTop: 2 }}>Edit member details</h2>
-            <p style={{ fontSize: 13, color: "var(--muted-foreground)", marginTop: 4 }}>Update their details or move them to another cell. Starting level/module and graduation are managed separately.</p>
+            <p style={{ fontSize: 13, color: "var(--muted-foreground)", marginTop: 4 }}>Update their details, move them to another cell, or set the level &amp; module they've reached. Graduation is managed separately.</p>
           </div>
           <button onClick={onClose} className="rounded-lg p-2" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none" }}><X size={16} /></button>
         </div>
@@ -447,6 +451,7 @@ function EditMemberModal({ userId, cells, countries, onClose, onSaved }: { userI
                   <select value={cell_group_id} onChange={(e) => setCell(e.target.value)} style={inputS}>{cells.map((c) => <option key={c.cell_group_id} value={c.cell_group_id}>{c.name}</option>)}</select>
                 </Field>
                 <Field label="Discipler"><input value={selectedCell?.discipler_name ?? "—"} readOnly style={{ ...inputS, background: "var(--secondary)", color: "var(--muted-foreground)" }} /></Field>
+                <PlacementFields level={start_level} module={start_module_sequence} onLevel={setStartLevel} onModule={setStartModule} />
                 <Field label="Programme">
                   <select value={programme} onChange={(e) => setProgramme(e.target.value as "" | Programme)} style={inputS}><option value="">—</option>{(Object.keys(PROGRAMME_LABELS) as Programme[]).map((p) => <option key={p} value={p}>{PROGRAMME_LABELS[p]}</option>)}</select>
                 </Field>
@@ -533,6 +538,45 @@ function ExportModal({ members, countryByCode, onClose }: { members: MemberRow[]
         </table>
         <div style={{ marginTop: 16, fontSize: 10, color: "#9CA3AF", textAlign: "center" }}>Confidential · Nuru Pathway discipleship records</div>
       </div>
+    </>
+  );
+}
+
+// Pathway placement — pick the level the member is on + the module they've reached.
+// Setting Level X · Module Y unlocks every earlier level in full, plus Level X up to
+// and including module Y (server gating honours start_level + start_module_sequence).
+function PlacementFields({ level, module, onLevel, onModule }: { level: string; module: string; onLevel: (v: string) => void; onModule: (v: string) => void }): ReactElement {
+  const [levels, setLevels] = useState<AdminLevel[]>([]);
+  const [modules, setModules] = useState<AdminModuleSummary[]>([]);
+  useEffect(() => { void CurriculumApi.levels().then(setLevels).catch(() => setLevels([])); }, []);
+  useEffect(() => {
+    const n = Number(level);
+    if (!n) { setModules([]); return; }
+    let live = true;
+    void CurriculumApi.modules(n).then((m) => { if (live) setModules(m); }).catch(() => { if (live) setModules([]); });
+    return () => { live = false; };
+  }, [level]);
+  // Keep the module selection valid for the chosen level.
+  useEffect(() => {
+    if (modules.length && !modules.some((m) => String(m.module_sequence_number) === module)) {
+      onModule(String(modules[0]?.module_sequence_number ?? 1));
+    }
+  }, [modules, module, onModule]);
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Current level">
+          <select value={level} onChange={(e) => onLevel(e.target.value)} style={inputS}>
+            {levels.length === 0 ? <option value={level}>Level {level}</option> : levels.map((l) => <option key={l.level_number} value={String(l.level_number)}>Level {l.level_number} — {l.title}</option>)}
+          </select>
+        </Field>
+        <Field label="Module reached">
+          <select value={module} onChange={(e) => onModule(e.target.value)} style={inputS}>
+            {modules.length === 0 ? <option value={module}>Module {module}</option> : modules.map((m) => <option key={m.module_sequence_number} value={String(m.module_sequence_number)}>Module {m.module_sequence_number} — {m.title}</option>)}
+          </select>
+        </Field>
+      </div>
+      <p style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginTop: -8 }}>Unlocks every earlier level in full, plus this level up to the selected module, in the member's app.</p>
     </>
   );
 }
