@@ -80,7 +80,7 @@ const ID_KEY: Record<TabKey, string> = {
 function primary(tab: TabKey, r: Row): { title: string; sub: string; active: boolean } {
   switch (tab) {
     case "devotionals": { const d = r as unknown as DevotionalRow; return { title: d.title, sub: `Day ${d.day_number}${d.series ? ` · ${d.series}` : ""}`, active: d.is_published }; }
-    case "verses": { const v = r as unknown as VerseRow; return { title: v.reference, sub: v.verse_text.slice(0, 60), active: v.is_active }; }
+    case "verses": { const v = r as unknown as VerseRow; return { title: v.reference || "(untitled verse)", sub: (v.verse_text ?? "").slice(0, 60), active: v.is_active }; }
     case "plans": { const p = r as unknown as PlanRow; return { title: p.title, sub: `${p.code} · ${p.day_count} days`, active: p.is_active }; }
     case "resources": { const x = r as unknown as ResourceAdminRow; return { title: x.title, sub: `${x.kind}${x.author ? ` · ${x.author}` : ""}`, active: x.is_active }; }
     case "encouragements": { const e = r as unknown as EncouragementRow; return { title: e.title || e.kind, sub: `${e.kind} · after module ${e.after_module_sequence}`, active: e.is_active }; }
