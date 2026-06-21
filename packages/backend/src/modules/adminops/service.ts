@@ -669,19 +669,20 @@ export class AdminOpsService {
     input: z.infer<typeof AdminOpsService.SetStart>,
   ): Promise<unknown> {
     return tx(this.pool, async (c) => {
-      const enrollment = await maybeOne<{ enrollment_id: string }>(
-        c,
-        `SELECT enrollment_id FROM enrollments WHERE user_id = $1`,
-        [userId],
-      );
-      if (!enrollment) throw new ApiError("NOT_FOUND", "Member has no enrollment");
       await this.validateStart(c, input.start_level, input.start_module_sequence);
 
-      await c.query(
-        `UPDATE enrollments
-            SET current_level = $1, start_level = $1, start_module_sequence = $2
-          WHERE user_id = $3`,
-        [input.start_level, input.start_module_sequence, userId],
+      // Upsert: members who self-registered (or were created before enrolment was
+      // auto-created) may have no enrollments row yet — create one rather than 404.
+      const enrollment = await one<{ enrollment_id: string }>(
+        c,
+        `INSERT INTO enrollments (user_id, current_level, start_level, start_module_sequence)
+              VALUES ($1, $2, $2, $3)
+         ON CONFLICT (user_id) DO UPDATE
+              SET current_level = EXCLUDED.current_level,
+                  start_level = EXCLUDED.start_level,
+                  start_module_sequence = EXCLUDED.start_module_sequence
+         RETURNING enrollment_id`,
+        [userId, input.start_level, input.start_module_sequence],
       );
       await audit(c, adminId, "enrollment.start_set", "enrollments", enrollment.enrollment_id, {
         user_id: userId,

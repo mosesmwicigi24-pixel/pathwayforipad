@@ -49,6 +49,16 @@ describe("admin-set starting point (level + entry module, §1.9)", () => {
     expect(((await curriculum().getPathwaySummary(userId)) as Summary).current_level).toBe(1);
   });
 
+  it("creates an enrollment when the member has none (self-registered) instead of 404", async () => {
+    // No createEnrollment() — this member has no enrollments row yet.
+    await adminops().setEnrollmentStart(adminId, userId, { start_level: 1, start_module_sequence: 3 });
+    const summary = (await curriculum().getPathwaySummary(userId)) as Summary;
+    expect(summary.current_level).toBe(1);
+    const l1 = (await curriculum().listModulesForLevel(userId, 1)) as Mod[];
+    expect(l1.find((m) => m.module_sequence_number === 3)!.locked).toBe(false);
+    expect(l1.find((m) => m.module_sequence_number === 1)!.locked).toBe(false);
+  });
+
   it("placing a member at a higher level opens that level's entry; above stays hard-locked", async () => {
     await createEnrollment(userId, 1);
     await adminops().setEnrollmentStart(adminId, userId, { start_level: 2, start_module_sequence: 1 });
