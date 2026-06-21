@@ -677,6 +677,7 @@ export interface MemberResultLevel {
   title: string;
   module_count: number;
   modules_completed: number;
+  module_average: number | null;
   level_score: number | null;
   completed: boolean;
   exam: { score: number | null; passed: boolean; attempts: number } | null;
@@ -690,6 +691,7 @@ export interface MemberResults {
     modules_completed: number;
     modules_passed: number;
     avg_module_score: number | null;
+    overall_score: number | null;
     levels_completed: number;
     badges: number;
     certificates: number;

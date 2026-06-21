@@ -966,6 +966,8 @@ export class AdminOpsService {
     let modulesPassed = 0;
     let scoreSum = 0;
     let scoreCount = 0;
+    let paperSum = 0; // every "paper" = a completed module test + each level exam
+    let paperCount = 0;
 
     const levelOut = levels.map((lv) => {
       const mods = modules
@@ -981,15 +983,25 @@ export class AdminOpsService {
           return { module_id: md.module_id, sequence: md.module_sequence_number, title: md.title, completed, best_score: best, passed, attempts: p ? Number(p.attempts) : 0 };
         });
       const ex = examByLevel.get(lv.level_number);
-      const scored = mods.filter((m) => m.best_score != null);
+      const examScore = ex ? num(ex.best) : null;
+      // Modules the member has actually sat (have a best score), averaged into 100.
+      const scored = mods.filter((m) => m.best_score != null).map((m) => m.best_score as number);
+      const moduleAverage = scored.length ? Math.round((scored.reduce((s, v) => s + v, 0) / scored.length) * 100) / 100 : null;
+      // "Papers" in this level = each completed module test + the level exam, all
+      // weighted equally → the overall level mark out of 100.
+      const papers = examScore != null ? [...scored, examScore] : scored;
+      const levelScore = papers.length ? Math.round((papers.reduce((s, v) => s + v, 0) / papers.length) * 100) / 100 : null;
+      paperSum += papers.reduce((s, v) => s + v, 0);
+      paperCount += papers.length;
       return {
         level_number: lv.level_number,
         title: lv.title,
         module_count: mods.length,
         modules_completed: mods.filter((m) => m.completed).length,
-        level_score: scored.length ? Math.round((scored.reduce((s, m) => s + (m.best_score ?? 0), 0) / scored.length) * 100) / 100 : null,
+        module_average: moduleAverage,
+        level_score: levelScore,
         completed: mods.length > 0 && mods.every((m) => m.completed),
-        exam: ex ? { score: num(ex.best), passed: !!ex.passed, attempts: Number(ex.attempts) } : null,
+        exam: ex ? { score: examScore, passed: !!ex.passed, attempts: Number(ex.attempts) } : null,
         modules: mods,
       };
     });
@@ -1002,6 +1014,7 @@ export class AdminOpsService {
         modules_completed: modulesCompleted,
         modules_passed: modulesPassed,
         avg_module_score: scoreCount ? Math.round((scoreSum / scoreCount) * 100) / 100 : null,
+        overall_score: paperCount ? Math.round((paperSum / paperCount) * 100) / 100 : null,
         levels_completed: levelOut.filter((l) => l.completed).length,
         badges: badges.length,
         certificates: certificates.length,

@@ -554,12 +554,20 @@ function LevelResultCard({ lv }: { lv: MemberResultLevel }): ReactElement {
   return (
     <div className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
       <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderBottom: "1px solid var(--border)" }}>
-        <div className="flex items-center gap-2 min-w-0">
-          <BookOpen size={15} style={{ color: "var(--nuru-gold)" }} />
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Level {lv.level_number} — {lv.title}</span>
-          {lv.completed ? <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 shrink-0" style={{ background: "#E8F6EC", color: "#16A34A", fontSize: 10, fontWeight: 700 }}>Complete</span> : null}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <BookOpen size={15} style={{ color: "var(--nuru-gold)" }} />
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Level {lv.level_number} — {lv.title}</span>
+            {lv.completed ? <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 shrink-0" style={{ background: "#E8F6EC", color: "#16A34A", fontSize: 10, fontWeight: 700 }}>Complete</span> : null}
+          </div>
+          <div style={{ fontSize: 10.5, color: "var(--muted-foreground)", marginTop: 3, marginLeft: 23 }}>
+            Modules avg {pctLabel(lv.module_average)}{lv.exam ? ` · Exam ${pctLabel(lv.exam.score)}` : " · Exam —"}
+          </div>
         </div>
-        <span className="shrink-0" style={{ fontSize: 15, fontWeight: 800, color: scoreColor(lv.level_score) }}>{pctLabel(lv.level_score)}</span>
+        <div className="shrink-0 text-right">
+          <div style={{ fontSize: 17, fontWeight: 800, color: scoreColor(lv.level_score) }}>{pctLabel(lv.level_score)}</div>
+          <div style={{ fontSize: 9, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.4 }}>Level overall</div>
+        </div>
       </div>
       <div className="px-4 py-1.5 flex flex-col">
         {lv.modules.length === 0 ? <p style={{ fontSize: 12, color: "var(--muted-foreground)", padding: "8px 0" }}>No published modules.</p> : lv.modules.map((m) => (
@@ -606,7 +614,7 @@ function MemberResultsDrawer({ userId, onClose }: { userId: string; onClose: () 
           {data ? (
             <div className="grid grid-cols-4 gap-2 mt-4">
               {[
-                { label: "Avg score", value: pctLabel(data.summary.avg_module_score) },
+                { label: "Overall", value: pctLabel(data.summary.overall_score) },
                 { label: "Modules", value: `${data.summary.modules_completed}/${data.summary.modules_total}` },
                 { label: "Levels", value: String(data.summary.levels_completed) },
                 { label: "Badges·Certs", value: `${data.summary.badges}·${data.summary.certificates}` },
