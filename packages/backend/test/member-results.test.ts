@@ -66,9 +66,9 @@ describe("memberResults aggregation", () => {
 
     expect(l1.module_average).toBe(75); // (70+80)/2
     expect(l1.exam?.score).toBe(90);
-    expect(l1.level_score).toBe(80); // (70+80+90)/3 — modules + exam as equal papers
+    expect(l1.level_score).toBe(81); // modules 75 ×0.6 + exam 90 ×0.4
 
     expect(r.summary.avg_module_score).toBe(75); // modules only
-    expect(r.summary.overall_score).toBe(80); // all papers incl. exam
+    expect(r.summary.overall_score).toBe(81); // mean of level marks (only L1 sat)
   });
 });
