@@ -1806,6 +1806,16 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /admin/members/{id}/results:
+    get:
+      tags: [portal]
+      summary: Admin. Member results dossier — per-level/per-module best quiz scores + completion, level-exam scores, badges attained, and certificates earned.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Member results }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/members/{id}/enrollment:
     patch:
       tags: [portal]

@@ -894,6 +894,124 @@ export class AdminOpsService {
    * consent (minors), certificates, badges and a recent activity feed — all from
    * authoritative tables. No reflection/prayer content is ever returned (§5.4).
    */
+  /**
+   * Full results dossier for a member: per-level → per-module best quiz scores +
+   * completion, level-exam scores, badges attained, and certificates earned.
+   * Read-only aggregate for the portal's Member Results view.
+   */
+  async memberResults(userId: string): Promise<Record<string, unknown>> {
+    const user = await maybeOne<{ user_id: string; full_name: string }>(
+      this.replica,
+      `SELECT user_id, full_name FROM users WHERE user_id = $1 AND deleted_at IS NULL`,
+      [userId],
+    );
+    if (!user) throw new ApiError("NOT_FOUND", "Member not found");
+
+    const enr = await maybeOne<{ enrollment_id: string; current_level: number }>(
+      this.replica,
+      `SELECT enrollment_id, current_level FROM enrollments WHERE user_id = $1`,
+      [userId],
+    );
+
+    const levels = await many<{ level_number: number; title: string }>(
+      this.replica,
+      `SELECT level_number, title FROM levels ORDER BY level_number`,
+    );
+    const modules = await many<{ module_id: string; level_number: number; module_sequence_number: number; title: string }>(
+      this.replica,
+      `SELECT module_id, level_number, module_sequence_number, title
+         FROM modules WHERE status = 'published' ORDER BY level_number, module_sequence_number`,
+    );
+
+    const prog = enr
+      ? await many<{ module_id: string; is_completed: boolean; best_score: string | null; passed: boolean | null; attempts: string }>(
+          this.replica,
+          `SELECT mp.module_id, mp.is_completed,
+                  (SELECT max(qa.score_achieved) FROM quiz_attempts qa WHERE qa.progress_id = mp.progress_id) AS best_score,
+                  (SELECT bool_or(qa.is_passed) FROM quiz_attempts qa WHERE qa.progress_id = mp.progress_id) AS passed,
+                  (SELECT count(*) FROM quiz_attempts qa WHERE qa.progress_id = mp.progress_id) AS attempts
+             FROM module_progress mp WHERE mp.enrollment_id = $1`,
+          [enr.enrollment_id],
+        )
+      : [];
+    const progByModule = new Map(prog.map((p) => [p.module_id, p]));
+
+    const exams = enr
+      ? await many<{ level_number: number; best: string | null; passed: boolean | null; attempts: string }>(
+          this.replica,
+          `SELECT level_number, max(score_achieved) AS best, bool_or(is_passed) AS passed, count(*) AS attempts
+             FROM level_exam_attempts WHERE enrollment_id = $1 GROUP BY level_number`,
+          [enr.enrollment_id],
+        )
+      : [];
+    const examByLevel = new Map(exams.map((e) => [e.level_number, e]));
+
+    const badges = await many<Record<string, unknown>>(
+      this.replica,
+      `SELECT b.code, b.name, b.category, b.description, ub.awarded_at
+         FROM user_badges ub JOIN badges b ON b.badge_id = ub.badge_id
+        WHERE ub.user_id = $1 AND ub.revoked_at IS NULL ORDER BY ub.awarded_at DESC`,
+      [userId],
+    );
+    const certificates = await many<Record<string, unknown>>(
+      this.replica,
+      `SELECT c.level_number, l.title AS level_title, c.verification_code, c.issued_at
+         FROM certificates c LEFT JOIN levels l ON l.level_number = c.level_number
+        WHERE c.user_id = $1 AND c.revoked_at IS NULL ORDER BY c.level_number`,
+      [userId],
+    );
+
+    const num = (v: string | null): number | null => (v == null ? null : Math.round(Number(v) * 100) / 100);
+    let modulesCompleted = 0;
+    let modulesPassed = 0;
+    let scoreSum = 0;
+    let scoreCount = 0;
+
+    const levelOut = levels.map((lv) => {
+      const mods = modules
+        .filter((md) => md.level_number === lv.level_number)
+        .map((md) => {
+          const p = progByModule.get(md.module_id);
+          const best = p ? num(p.best_score) : null;
+          const completed = !!p?.is_completed;
+          const passed = !!p?.passed || completed;
+          if (completed) modulesCompleted++;
+          if (passed) modulesPassed++;
+          if (best != null) { scoreSum += best; scoreCount++; }
+          return { module_id: md.module_id, sequence: md.module_sequence_number, title: md.title, completed, best_score: best, passed, attempts: p ? Number(p.attempts) : 0 };
+        });
+      const ex = examByLevel.get(lv.level_number);
+      const scored = mods.filter((m) => m.best_score != null);
+      return {
+        level_number: lv.level_number,
+        title: lv.title,
+        module_count: mods.length,
+        modules_completed: mods.filter((m) => m.completed).length,
+        level_score: scored.length ? Math.round((scored.reduce((s, m) => s + (m.best_score ?? 0), 0) / scored.length) * 100) / 100 : null,
+        completed: mods.length > 0 && mods.every((m) => m.completed),
+        exam: ex ? { score: num(ex.best), passed: !!ex.passed, attempts: Number(ex.attempts) } : null,
+        modules: mods,
+      };
+    });
+
+    return {
+      user,
+      summary: {
+        current_level: enr?.current_level ?? 1,
+        modules_total: modules.length,
+        modules_completed: modulesCompleted,
+        modules_passed: modulesPassed,
+        avg_module_score: scoreCount ? Math.round((scoreSum / scoreCount) * 100) / 100 : null,
+        levels_completed: levelOut.filter((l) => l.completed).length,
+        badges: badges.length,
+        certificates: certificates.length,
+      },
+      levels: levelOut,
+      badges,
+      certificates,
+    };
+  }
+
   async memberDetail(userId: string): Promise<Record<string, unknown>> {
     const m = await maybeOne<Record<string, unknown>>(
       this.replica,

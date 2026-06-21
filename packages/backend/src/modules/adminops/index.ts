@@ -97,6 +97,11 @@ export function registerAdminOps(ctx: AppContext): Router {
     res.json(await svc.memberDetail(req.params.id ?? ""));
   }));
 
+  // Member results dossier: levels/modules scores, level exams, badges, certificates.
+  r.get("/admin/members/:id/results", auth, perm("members", "view"), handler(async (req, res) => {
+    res.json(await svc.memberResults(req.params.id ?? ""));
+  }));
+
   // Edit member details (name, contact, gender, city, programme, country, language,
   // baptized, cell reassignment).
   r.patch("/admin/members/:id", auth, perm("members", "edit"), handler(async (req, res) => {

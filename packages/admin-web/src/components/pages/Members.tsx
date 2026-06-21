@@ -11,11 +11,12 @@ import { useNavigate } from "react-router-dom";
 import {
   Search, Plus, ChevronDown, ArrowRight, Mail, UserCheck, UserPlus, Users as UsersIcon,
   ChevronRight, CheckCircle2, Flag, Download, Printer, X, GraduationCap, MoreVertical, Pencil, Check,
+  BarChart3, Award, Star, BookOpen,
 } from "lucide-react";
 import {
   OpsApi, AdminApi, SystemApi, CurriculumApi,
   type MemberRow, type MemberDetail, type MemberStatus, type EngagementCellRow, type Country, type Programme, type Gender,
-  type AdminLevel, type AdminModuleSummary,
+  type AdminLevel, type AdminModuleSummary, type MemberResults, type MemberResultLevel,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -51,6 +52,7 @@ export function Members(): ReactElement {
   const [countryFilter, setCountryFilter] = useState<string>("All"); // ISO-2 code or "All"
   const [addOpen, setAddOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
+  const [resultsId, setResultsId] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -192,6 +194,7 @@ export function Members(): ReactElement {
                 </div>
                 <div className="hidden xl:flex flex-col items-end" style={{ width: 84 }}><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>Last active</span><span style={{ fontSize: 12.5, color: "var(--nuru-navy)", fontWeight: 600 }}>{relTime(m.last_activity)}</span></div>
                 <span className="rounded-full shrink-0 text-center" style={{ width: 84, padding: "5px 0", background: sm.bg, color: sm.fg, fontSize: 11, fontWeight: 700, border: `1px solid ${sm.ring}` }}>{sm.label}</span>
+                <button onClick={(e) => { e.stopPropagation(); setResultsId(m.user_id); }} title="View results" className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 36, height: 36, background: "var(--input-background)", color: "var(--nuru-gold)", border: "1px solid var(--border)" }}><BarChart3 size={15} /></button>
                 <button onClick={(e) => { e.stopPropagation(); navigate(`/member-profile?id=${m.user_id}`); }} className="flex items-center justify-center gap-1.5 rounded-xl shrink-0 transition-all group-hover:bg-[var(--nuru-navy)] group-hover:text-white" style={{ height: 36, padding: "0 14px", background: "var(--input-background)", color: "var(--nuru-navy)", fontSize: 12.5, fontWeight: 600, border: "1px solid var(--border)" }}>See <ArrowRight size={13} /></button>
                 <div className="relative shrink-0">
                   <button onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === m.user_id ? null : m.user_id); }} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, background: "var(--input-background)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}><MoreVertical size={15} /></button>
@@ -216,6 +219,7 @@ export function Members(): ReactElement {
 
       {addOpen ? <AddMemberModal cells={cells} countries={countries} onClose={() => setAddOpen(false)} onCreated={async () => { setAddOpen(false); await load(); }} /> : null}
       {editId ? <EditMemberModal userId={editId} row={rows.find((r) => r.user_id === editId)} cells={cells} countries={countries} onClose={() => setEditId(null)} onSaved={async () => { setEditId(null); await load(); }} /> : null}
+      {resultsId ? <MemberResultsDrawer userId={resultsId} onClose={() => setResultsId(null)} /> : null}
       {exportOpen ? <ExportModal members={filtered} countryByCode={countryByCode} onClose={() => setExportOpen(false)} /> : null}
     </div>
   );
@@ -539,6 +543,111 @@ function ExportModal({ members, countryByCode, onClose }: { members: MemberRow[]
         <div style={{ marginTop: 16, fontSize: 10, color: "#9CA3AF", textAlign: "center" }}>Confidential · Nuru Pathway discipleship records</div>
       </div>
     </>
+  );
+}
+
+// ---- Member results dossier (levels/modules scores, exams, badges, certificates) ----
+function pctLabel(n: number | null): string { return n == null ? "—" : `${Math.round(n)}%`; }
+function scoreColor(n: number | null): string { return n == null ? "var(--muted-foreground)" : n >= 70 ? "#16A34A" : n > 0 ? "#A87616" : "#DC2626"; }
+
+function LevelResultCard({ lv }: { lv: MemberResultLevel }): ReactElement {
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+      <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderBottom: "1px solid var(--border)" }}>
+        <div className="flex items-center gap-2 min-w-0">
+          <BookOpen size={15} style={{ color: "var(--nuru-gold)" }} />
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Level {lv.level_number} — {lv.title}</span>
+          {lv.completed ? <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 shrink-0" style={{ background: "#E8F6EC", color: "#16A34A", fontSize: 10, fontWeight: 700 }}>Complete</span> : null}
+        </div>
+        <span className="shrink-0" style={{ fontSize: 15, fontWeight: 800, color: scoreColor(lv.level_score) }}>{pctLabel(lv.level_score)}</span>
+      </div>
+      <div className="px-4 py-1.5 flex flex-col">
+        {lv.modules.length === 0 ? <p style={{ fontSize: 12, color: "var(--muted-foreground)", padding: "8px 0" }}>No published modules.</p> : lv.modules.map((m) => (
+          <div key={m.module_id} className="flex items-center gap-3 py-2" style={{ borderTop: "1px solid var(--border)" }}>
+            <span className="shrink-0" title={m.completed ? "Completed" : m.attempts > 0 ? "Attempted" : "Not started"} style={{ width: 8, height: 8, borderRadius: 99, background: m.completed ? "#16A34A" : m.attempts > 0 ? "#A87616" : "#D1D5DB" }} />
+            <span className="shrink-0" style={{ fontSize: 11, color: "var(--muted-foreground)", width: 26 }}>M{m.sequence}</span>
+            <span className="flex-1 min-w-0" style={{ fontSize: 12.5, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.title}</span>
+            <span className="shrink-0" style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>{m.attempts > 0 ? `${m.attempts} try${m.attempts > 1 ? "s" : ""}` : ""}</span>
+            <span className="shrink-0" style={{ fontSize: 13, fontWeight: 700, color: scoreColor(m.best_score), width: 46, textAlign: "right" }}>{pctLabel(m.best_score)}</span>
+          </div>
+        ))}
+        {lv.exam ? (
+          <div className="flex items-center gap-3 py-2" style={{ borderTop: "2px solid var(--border)" }}>
+            <Award size={14} style={{ color: "#7C3AED" }} />
+            <span className="flex-1" style={{ fontSize: 12.5, fontWeight: 700, color: "var(--nuru-navy)" }}>Level exam{lv.exam.passed ? " · passed" : ""}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: scoreColor(lv.exam.score) }}>{pctLabel(lv.exam.score)}</span>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function MemberResultsDrawer({ userId, onClose }: { userId: string; onClose: () => void }): ReactElement {
+  const [data, setData] = useState<MemberResults | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void OpsApi.memberResults(userId).then((d) => { if (live) setData(d); }).catch((e) => { if (live) setError(errorMessage(e, "Could not load results.")); });
+    return () => { live = false; };
+  }, [userId]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex" style={{ background: "rgba(11,31,51,0.45)" }} onClick={onClose}>
+      <div className="ml-auto flex flex-col" style={{ width: "min(640px,100vw)", background: "var(--background)", height: "100%", boxShadow: "-20px 0 60px rgba(0,0,0,0.25)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 py-5" style={{ background: "var(--nuru-navy)", color: "#fff" }}>
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-1.5" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: "#F5C77E" }}><BarChart3 size={12} /> RESULTS</div>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24, marginTop: 2 }}>{data?.user.full_name ?? "Member results"}</h2>
+            </div>
+            <button onClick={onClose} className="rounded-lg p-1.5" style={{ background: "rgba(255,255,255,0.1)", border: "none" }}><X size={16} color="#fff" /></button>
+          </div>
+          {data ? (
+            <div className="grid grid-cols-4 gap-2 mt-4">
+              {[
+                { label: "Avg score", value: pctLabel(data.summary.avg_module_score) },
+                { label: "Modules", value: `${data.summary.modules_completed}/${data.summary.modules_total}` },
+                { label: "Levels", value: String(data.summary.levels_completed) },
+                { label: "Badges·Certs", value: `${data.summary.badges}·${data.summary.certificates}` },
+              ].map((s) => (
+                <div key={s.label} className="rounded-xl px-3 py-2" style={{ background: "rgba(255,255,255,0.08)" }}>
+                  <div style={{ fontSize: 18, fontWeight: 800 }}>{s.value}</div>
+                  <div style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: 0.4, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
+          {error ? <p style={{ color: "#DC2626", fontSize: 13 }}>{error}</p> : null}
+          {!data && !error ? <p style={{ color: "var(--muted-foreground)", fontSize: 13 }}>Loading results…</p> : null}
+          {data ? (
+            <>
+              {data.levels.map((lv) => <LevelResultCard key={lv.level_number} lv={lv} />)}
+              <Section title="Badges attained">
+                {data.badges.length === 0 ? <p style={{ fontSize: 12.5, color: "var(--muted-foreground)" }}>No badges yet.</p> : (
+                  <div className="flex flex-wrap gap-2">{data.badges.map((b) => <span key={b.code} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: "#FFF6E0", color: "#A87616", fontSize: 12, fontWeight: 700, border: "1px solid #F5E0A8" }}><Star size={12} /> {b.name}</span>)}</div>
+                )}
+              </Section>
+              <Section title="Certificates earned">
+                {data.certificates.length === 0 ? <p style={{ fontSize: 12.5, color: "var(--muted-foreground)" }}>No certificates yet.</p> : (
+                  <div className="flex flex-col gap-2">{data.certificates.map((c) => (
+                    <div key={c.verification_code} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                      <Award size={18} style={{ color: "#7C3AED" }} />
+                      <div className="flex-1 min-w-0">
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--nuru-navy)" }}>Level {c.level_number}{c.level_title ? ` — ${c.level_title}` : ""}</div>
+                        <div style={{ fontSize: 11, color: "var(--muted-foreground)" }}>Issued {new Date(c.issued_at).toLocaleDateString()} · {c.verification_code}</div>
+                      </div>
+                    </div>
+                  ))}</div>
+                )}
+              </Section>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 }
 

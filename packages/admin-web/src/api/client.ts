@@ -663,6 +663,42 @@ export interface MemberRow {
   status: MemberStatus | null;
 }
 
+export interface MemberResultModule {
+  module_id: string;
+  sequence: number;
+  title: string;
+  completed: boolean;
+  best_score: number | null;
+  passed: boolean;
+  attempts: number;
+}
+export interface MemberResultLevel {
+  level_number: number;
+  title: string;
+  module_count: number;
+  modules_completed: number;
+  level_score: number | null;
+  completed: boolean;
+  exam: { score: number | null; passed: boolean; attempts: number } | null;
+  modules: MemberResultModule[];
+}
+export interface MemberResults {
+  user: { user_id: string; full_name: string };
+  summary: {
+    current_level: number;
+    modules_total: number;
+    modules_completed: number;
+    modules_passed: number;
+    avg_module_score: number | null;
+    levels_completed: number;
+    badges: number;
+    certificates: number;
+  };
+  levels: MemberResultLevel[];
+  badges: Array<{ code: string; name: string; category: string; description: string | null; awarded_at: string }>;
+  certificates: Array<{ level_number: number; level_title: string | null; verification_code: string; issued_at: string }>;
+}
+
 export interface MemberDetail {
   user_id: string;
   full_name: string;
@@ -816,6 +852,7 @@ export const OpsApi = {
     } = {},
   ) => api.get<{ data: MemberRow[]; next_cursor: string | null }>("/admin/members", { params: q }).then((r) => r.data),
   memberDetail: (userId: string) => api.get<MemberDetail>(`/admin/members/${userId}`).then((r) => r.data),
+  memberResults: (userId: string) => api.get<MemberResults>(`/admin/members/${userId}/results`).then((r) => r.data),
   addMember: (body: {
     full_name: string;
     phone_number: string;
