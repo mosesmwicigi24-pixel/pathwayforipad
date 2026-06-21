@@ -184,7 +184,7 @@ export class AssessmentService {
 
       const active = await many<GradableQuestion>(
         c,
-        `SELECT question_id, q_type, correct_answer, points FROM question_bank WHERE module_id = $1 AND is_active`,
+        `SELECT question_id, q_type, correct_answer, points, answer_options FROM question_bank WHERE module_id = $1 AND is_active`,
         [moduleId],
       );
       if (active.length === 0) throw new ApiError("UNPROCESSABLE", "Module has no quiz questions");

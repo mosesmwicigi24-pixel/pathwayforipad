@@ -64,7 +64,7 @@ export class ExamService {
 
   private examQuestions(c: Queryable, levelNumber: number, withAnswers: boolean): Promise<Array<Record<string, unknown>>> {
     const cols = withAnswers
-      ? "q.question_id, q.q_type, q.correct_answer, q.points"
+      ? "q.question_id, q.q_type, q.correct_answer, q.points, q.answer_options"
       : "q.question_id, q.q_type, q.question_text, q.answer_options";
     return many(
       c,

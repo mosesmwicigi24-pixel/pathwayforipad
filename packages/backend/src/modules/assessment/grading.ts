@@ -49,6 +49,18 @@ export interface GradableQuestion {
   q_type: string;
   correct_answer: string; // scalar, JSON array (checkbox), or '' (manual/scale)
   points: number;
+  answer_options?: unknown; // structured {choices:[{id,text,is_correct}]} — authoritative when present
+}
+
+/** Extract structured choices (with the server-only is_correct flag) if present. */
+function structuredChoices(ao: unknown): Array<{ id: string; text: string; is_correct: boolean }> | null {
+  if (ao && typeof ao === "object" && !Array.isArray(ao)) {
+    const o = ao as { choices?: Array<{ id?: unknown; text?: unknown; is_correct?: unknown }> };
+    if (Array.isArray(o.choices)) {
+      return o.choices.map((c) => ({ id: String(c.id ?? ""), text: String(c.text ?? ""), is_correct: c.is_correct === true }));
+    }
+  }
+  return null;
 }
 
 export interface GradedAnswer {
@@ -132,15 +144,32 @@ export function gradeSubmission(
     gradable += pts;
     let isCorrect = false;
 
+    const choices = structuredChoices(q.answer_options);
+
     if (q.q_type === "checkbox") {
-      const correctSet = parseCorrectSet(q.correct_answer);
       const givenSet = parseGivenSet(given);
-      isCorrect = givenSet.length > 0 && setsEqualCI(givenSet, correctSet);
+      if (choices && choices.some((c) => c.is_correct)) {
+        // Authoritative: the submitted set must equal the correct choices, matched
+        // by id OR text (the client may submit either).
+        const correctIds = choices.filter((c) => c.is_correct).map((c) => c.id);
+        const correctTexts = choices.filter((c) => c.is_correct).map((c) => c.text);
+        isCorrect = givenSet.length > 0 && (setsEqualCI(givenSet, correctIds) || setsEqualCI(givenSet, correctTexts));
+      } else {
+        const correctSet = parseCorrectSet(q.correct_answer);
+        isCorrect = givenSet.length > 0 && setsEqualCI(givenSet, correctSet);
+      }
     } else if (q.q_type === "linear_scale") {
       // Collected, not keyed: award points iff the learner answered.
       isCorrect = given.trim() !== "";
+    } else if (choices && choices.some((c) => c.is_correct)) {
+      // single-select with structured choices: accept the correct choice's id OR
+      // its text (the client submits the id; legacy data stored the text).
+      const acceptable = new Set<string>();
+      for (const c of choices) if (c.is_correct) { acceptable.add(normalize(c.id)); acceptable.add(normalize(c.text)); }
+      if (q.correct_answer.trim()) acceptable.add(normalize(q.correct_answer));
+      isCorrect = normalize(given) !== "" && acceptable.has(normalize(given));
     } else {
-      // single-select / short_answer (keyed) / legacy: exact CI match.
+      // short_answer (keyed) / legacy string options: exact CI match.
       isCorrect = normalize(given) !== "" && normalize(given) === normalize(q.correct_answer);
     }
 
