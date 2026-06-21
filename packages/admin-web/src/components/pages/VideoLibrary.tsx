@@ -6,7 +6,7 @@
 // single mobile-app homepage welcome video (POST/DELETE …/homepage), attach to a
 // module (CurriculumApi.updateModule media_asset_id) and archive (soft delete).
 // Access stays module-gated (§1.9); external links are best-effort gated only.
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronRight, Copy, ExternalLink,
@@ -121,6 +121,8 @@ export function VideoLibrary(): ReactElement {
   const [deleteText, setDeleteText] = useState("");
 
   const linkInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadName, setUploadName] = useState<string | null>(null);
 
   // Server-side filters: status maps to the server's lifecycle status; the UI
   // "Unattached"/"Ready" are derived locally and applied on top of the fetch.
@@ -146,15 +148,42 @@ export function VideoLibrary(): ReactElement {
   }, [statusFilter, sourceFilter, levelFilter, attachedFilter, query]);
   useEffect(() => { const t = setTimeout(() => void load(), query ? 250 : 0); return () => clearTimeout(t); }, [load, query]);
 
-  async function doUpload(): Promise<void> {
-    setUploading(true); setError(null); setNotice(null);
+  // Open the OS file picker. The actual upload runs in onFilePicked → uploadFile.
+  function openFilePicker(): void {
+    if (uploading) return;
+    setError(null); setNotice(null);
+    fileInputRef.current?.click();
+  }
+  async function onFilePicked(e: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (file) await uploadFile(file);
+  }
+  // Real upload: file → Cloudinary (signed, direct) → register as a 'direct' video.
+  async function uploadFile(file: File): Promise<void> {
+    if (!file.type.startsWith("video/")) { setError("Please choose a video file."); return; }
+    if (file.size > 200 * 1024 * 1024) { setError("Video is larger than 200 MB. Please use a smaller file or paste an external link."); return; }
+    setUploading(true); setUploadName(file.name); setError(null); setNotice(null);
     try {
-      const session = await MediaApi.createUpload("lesson_video");
-      await MediaApi.completeUpload(session.upload_id);
-      setNotice("Upload registered — processing will produce the gated HLS renditions.");
+      const sign = await MediaApi.signUpload("videos");
+      const form = new FormData();
+      form.append("file", file);
+      form.append("api_key", sign.api_key);
+      form.append("timestamp", String(sign.timestamp));
+      form.append("folder", sign.folder);
+      form.append("signature", sign.signature);
+      const resp = await fetch(sign.upload_url, { method: "POST", body: form });
+      const out = (await resp.json()) as { secure_url?: string; error?: { message?: string } };
+      if (!resp.ok || !out.secure_url) throw new Error(out.error?.message ?? "Cloudinary upload failed");
+      const title = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Uploaded video";
+      await MediaApi.registerExternal({ video_source: "direct", url: out.secure_url, title });
+      setNotice(`Uploaded "${title}" — ready to attach to a module.`);
       await load();
-    } catch (e) { setError(errorMessage(e, "Upload failed.")); }
-    finally { setUploading(false); }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed.");
+    } finally {
+      setUploading(false); setUploadName(null);
+    }
   }
   async function doArchive(a: MediaAssetRow): Promise<void> {
     try { await MediaApi.archive(a.media_asset_id); setDeleteFor(null); setDeleteText(""); setNotice("Video archived."); await load(); }
@@ -205,7 +234,7 @@ export function VideoLibrary(): ReactElement {
             <span className="inline-flex items-center gap-1.5 rounded-lg px-2.5" style={{ height: 32, background: "rgba(245,199,126,0.14)", color: "#F5C77E", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", border: "1px solid rgba(245,199,126,0.25)" }}><Sparkles size={11} /> 720p max delivery</span>
             <button onClick={() => navigate("/cms")} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: 12, fontWeight: 600, border: "1px solid rgba(255,255,255,0.15)" }}><Settings size={13} /> Curriculum</button>
             <button onClick={() => { linkInputRef.current?.focus(); linkInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: 12, fontWeight: 600, border: "1px solid rgba(255,255,255,0.15)" }}><Link2 size={13} /> Register external</button>
-            <button onClick={() => void doUpload()} disabled={uploading} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none", opacity: uploading ? 0.6 : 1 }}>{uploading ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} Upload video</button>
+            <button onClick={openFilePicker} disabled={uploading} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none", opacity: uploading ? 0.6 : 1 }}>{uploading ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} Upload video</button>
           </div>
         </div>
 
@@ -262,11 +291,12 @@ export function VideoLibrary(): ReactElement {
             {/* Hosted upload */}
             <div className="rounded-2xl p-6" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Upload a video</div>
-              <div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 2 }}>Videos upload directly to secure storage and are transcoded to gated HLS renditions (720p max).</div>
-              <button onClick={() => void doUpload()} disabled={uploading} className="rounded-2xl mt-4 w-full flex flex-col items-center justify-center gap-2" style={{ background: "linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%)", border: "2px dashed #93C5FD", padding: "26px 16px", cursor: uploading ? "default" : "pointer" }}>
+              <div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 2 }}>Choose a video file from your device — it uploads to secure storage and is ready to attach to a module (max 200 MB).</div>
+              <input ref={fileInputRef} type="file" accept="video/*" hidden onChange={(e) => void onFilePicked(e)} />
+              <button onClick={openFilePicker} disabled={uploading} className="rounded-2xl mt-4 w-full flex flex-col items-center justify-center gap-2" style={{ background: "linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%)", border: "2px dashed #93C5FD", padding: "26px 16px", cursor: uploading ? "default" : "pointer" }}>
                 <div className="rounded-full flex items-center justify-center" style={{ width: 44, height: 44, background: "#DBEAFE", color: "#0369A1" }}>{uploading ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}</div>
-                <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{uploading ? "Registering upload…" : "Register a new video"}</span>
-                <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>Creates a secure upload target + asset record</span>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{uploading ? (uploadName ? `Uploading ${uploadName}…` : "Uploading…") : "Choose a video to upload"}</span>
+                <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>{uploading ? "Please keep this tab open" : "Click to browse — MP4, MOV, WebM"}</span>
               </button>
               <div className="flex items-center gap-2 mt-4"><ShieldCheck size={13} style={{ color: "#16A34A" }} /><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>Originals are never delivered to members — only gated HLS renditions.</span></div>
             </div>

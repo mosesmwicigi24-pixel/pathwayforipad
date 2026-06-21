@@ -1208,6 +1208,15 @@ export interface PatchAssetInput {
   url?: string;
 }
 
+export interface CloudinaryUploadSignature {
+  cloud_name: string;
+  api_key: string;
+  timestamp: number;
+  folder: string;
+  signature: string;
+  upload_url: string;
+}
+
 export const MediaApi = {
   list: (filter: MediaListFilter = {}) => {
     const params: Record<string, string> = {};
@@ -1222,6 +1231,8 @@ export const MediaApi = {
   // projection; the page refetches via list() for the full shape, so type these loosely.
   get: (assetId: string) =>
     api.get<Partial<MediaAssetRow> & { media_asset_id: string }>(`/admin/media/${assetId}`).then((r) => r.data),
+  signUpload: (folder: "events" | "announcements" | "videos" = "videos") =>
+    api.post<CloudinaryUploadSignature>("/admin/media/images/sign", { folder }).then((r) => r.data),
   createUpload: (kind = "lesson_video") =>
     api.post<UploadSession>("/admin/media/uploads", { kind }).then((r) => r.data),
   completeUpload: (uploadId: string) =>
