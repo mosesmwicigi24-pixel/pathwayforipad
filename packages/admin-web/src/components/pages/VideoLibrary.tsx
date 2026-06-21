@@ -63,6 +63,7 @@ const ytPoster = (id: string | null | undefined): string | undefined => (id ? `h
 
 const hueOf = (id: string): number => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360; return h; };
 const dur = (s: number | null): string => { if (!s) return "—"; const m = Math.floor(s / 60), ss = s % 60; return `${m}:${String(ss).padStart(2, "0")}`; };
+const fmtBytes = (n: number): string => { if (!n) return "0 MB"; const mb = n / 1048576; return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`; };
 function assetTitle(a: MediaAssetRow): string {
   if (a.attached_module_title) return a.attached_module_title;
   if (a.caption) return a.caption;
@@ -123,6 +124,10 @@ export function VideoLibrary(): ReactElement {
   const linkInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadName, setUploadName] = useState<string | null>(null);
+  const [uploadPct, setUploadPct] = useState(0);
+  const [uploadLoaded, setUploadLoaded] = useState(0);
+  const [uploadTotal, setUploadTotal] = useState(0);
+  const [uploadStage, setUploadStage] = useState<"" | "uploading" | "finalizing" | "done">("");
 
   // Server-side filters: status maps to the server's lifecycle status; the UI
   // "Unattached"/"Ready" are derived locally and applied on top of the fetch.
@@ -160,10 +165,12 @@ export function VideoLibrary(): ReactElement {
     if (file) await uploadFile(file);
   }
   // Real upload: file → Cloudinary (signed, direct) → register as a 'direct' video.
+  // Uses XHR so we can report live upload progress (fetch can't).
   async function uploadFile(file: File): Promise<void> {
     if (!file.type.startsWith("video/")) { setError("Please choose a video file."); return; }
     if (file.size > 200 * 1024 * 1024) { setError("Video is larger than 200 MB. Please use a smaller file or paste an external link."); return; }
     setUploading(true); setUploadName(file.name); setError(null); setNotice(null);
+    setUploadStage("uploading"); setUploadPct(0); setUploadLoaded(0); setUploadTotal(file.size);
     try {
       const sign = await MediaApi.signUpload("videos");
       const form = new FormData();
@@ -172,17 +179,36 @@ export function VideoLibrary(): ReactElement {
       form.append("timestamp", String(sign.timestamp));
       form.append("folder", sign.folder);
       form.append("signature", sign.signature);
-      const resp = await fetch(sign.upload_url, { method: "POST", body: form });
-      const out = (await resp.json()) as { secure_url?: string; error?: { message?: string } };
-      if (!resp.ok || !out.secure_url) throw new Error(out.error?.message ?? "Cloudinary upload failed");
+      const out = await new Promise<{ secure_url?: string; error?: { message?: string } }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", sign.upload_url);
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) {
+            setUploadLoaded(ev.loaded); setUploadTotal(ev.total);
+            setUploadPct(Math.round((ev.loaded / ev.total) * 100));
+          }
+        };
+        xhr.onload = () => {
+          try { resolve(JSON.parse(xhr.responseText)); }
+          catch { reject(new Error("Unexpected response from the upload service")); }
+        };
+        xhr.onerror = () => reject(new Error("Network error during upload"));
+        xhr.onabort = () => reject(new Error("Upload cancelled"));
+        xhr.send(form);
+      });
+      if (!out.secure_url) throw new Error(out.error?.message ?? "Cloudinary upload failed");
+      setUploadPct(100); setUploadStage("finalizing");
       const title = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Uploaded video";
       await MediaApi.registerExternal({ video_source: "direct", url: out.secure_url, title });
-      setNotice(`Uploaded "${title}" — ready to attach to a module.`);
+      setUploadStage("done");
+      setNotice(`✓ Uploaded "${title}" (${fmtBytes(file.size)}) — now listed below, ready to attach.`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed.");
+      setUploadStage("");
     } finally {
       setUploading(false); setUploadName(null);
+      setTimeout(() => setUploadStage(""), 4000);
     }
   }
   async function doArchive(a: MediaAssetRow): Promise<void> {
@@ -293,12 +319,32 @@ export function VideoLibrary(): ReactElement {
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Upload a video</div>
               <div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 2 }}>Choose a video file from your device — it uploads to secure storage and is ready to attach to a module (max 200 MB).</div>
               <input ref={fileInputRef} type="file" accept="video/*" hidden onChange={(e) => void onFilePicked(e)} />
-              <button onClick={openFilePicker} disabled={uploading} className="rounded-2xl mt-4 w-full flex flex-col items-center justify-center gap-2" style={{ background: "linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%)", border: "2px dashed #93C5FD", padding: "26px 16px", cursor: uploading ? "default" : "pointer" }}>
-                <div className="rounded-full flex items-center justify-center" style={{ width: 44, height: 44, background: "#DBEAFE", color: "#0369A1" }}>{uploading ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}</div>
-                <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{uploading ? (uploadName ? `Uploading ${uploadName}…` : "Uploading…") : "Choose a video to upload"}</span>
-                <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>{uploading ? "Please keep this tab open" : "Click to browse — MP4, MOV, WebM"}</span>
-              </button>
-              <div className="flex items-center gap-2 mt-4"><ShieldCheck size={13} style={{ color: "#16A34A" }} /><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>Originals are never delivered to members — only gated HLS renditions.</span></div>
+              {uploadStage ? (
+                <div className="rounded-2xl mt-4 w-full" style={{ background: "linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%)", border: "2px dashed #93C5FD", padding: "18px 18px" }}>
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: uploadStage === "done" ? "#DCFCE7" : "#DBEAFE", color: uploadStage === "done" ? "#16A34A" : "#0369A1" }}>
+                      {uploadStage === "done" ? <CheckCircle2 size={20} /> : <Loader2 size={20} className="animate-spin" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{uploadName ?? "Video"}</div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}>
+                        {uploadStage === "uploading" ? `Uploading… ${fmtBytes(uploadLoaded)} / ${fmtBytes(uploadTotal)}` : uploadStage === "finalizing" ? "Finalizing — registering in the library…" : "Upload complete — listed below"}
+                      </div>
+                    </div>
+                    <span className="shrink-0" style={{ fontSize: 15, fontWeight: 800, color: uploadStage === "done" ? "#16A34A" : "var(--nuru-navy)" }}>{uploadStage === "done" ? "100%" : `${uploadPct}%`}</span>
+                  </div>
+                  <div className="mt-3" style={{ height: 8, background: "#E2E8F0", borderRadius: 99, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${uploadStage === "done" ? 100 : uploadPct}%`, background: uploadStage === "done" ? "#16A34A" : "var(--nuru-gold)", borderRadius: 99, transition: "width .2s ease" }} />
+                  </div>
+                </div>
+              ) : (
+                <button onClick={openFilePicker} className="rounded-2xl mt-4 w-full flex flex-col items-center justify-center gap-2" style={{ background: "linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%)", border: "2px dashed #93C5FD", padding: "26px 16px", cursor: "pointer" }}>
+                  <div className="rounded-full flex items-center justify-center" style={{ width: 44, height: 44, background: "#DBEAFE", color: "#0369A1" }}><Upload size={20} /></div>
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)" }}>Choose a video to upload</span>
+                  <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>Click to browse — MP4, MOV, WebM · up to 200 MB</span>
+                </button>
+              )}
+              <div className="flex items-center gap-2 mt-4"><ShieldCheck size={13} style={{ color: "#16A34A" }} /><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>Stored securely in your media library and attachable to any module.</span></div>
             </div>
 
             {/* Register external video */}
