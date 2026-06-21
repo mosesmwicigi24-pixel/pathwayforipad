@@ -39,6 +39,7 @@ import {
   useAchievements,
   useCalendar,
   useFeaturedCell,
+  useMentor,
   useFeaturedEvent,
   useFeaturedAnnouncement,
   useCellSummary,
@@ -115,6 +116,11 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: verse } = useScripture("Psalm 119:105");
   const { data: welcomeVideo, refetch: refetchWelcomeVideo } = useWelcomeVideo();
   const { data: featuredCell, refetch: refetchFeaturedCell } = useFeaturedCell();
+  const { data: mentorInfo } = useMentor();
+  const discipler = mentorInfo?.mentor ?? null;
+  const disciplerInitials = discipler
+    ? discipler.full_name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "·"
+    : "·";
   const { data: featuredEvent, refetch: refetchFeaturedEvent } = useFeaturedEvent();
   const { data: featuredAnnouncement, refetch: refetchFeaturedAnnouncement } = useFeaturedAnnouncement();
   const { data: cellSummary } = useCellSummary();
@@ -527,11 +533,11 @@ export function HomeDashboardScreen(): ReactElement {
             style={({ pressed }) => [st.disciplerRow, pressed && { opacity: 0.9 }]}
           >
             <View style={st.disciplerAvatar}>
-              <T variant="micro" style={{ color: palette.white, fontWeight: "700" }}>JO</T>
+              <T variant="micro" style={{ color: palette.white, fontWeight: "700" }}>{disciplerInitials}</T>
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.2 }}>YOUR DISCIPLER</T>
-              <T variant="caption" style={{ fontWeight: "700", color: palette.ink, marginTop: 1 }} numberOfLines={1}>Pastor James Otieno</T>
+              <T variant="caption" style={{ fontWeight: "700", color: palette.ink, marginTop: 1 }} numberOfLines={1}>{discipler?.full_name ?? "Meet your discipler"}</T>
             </View>
             <ChevronRight size={16} color={palette.ink300} />
           </Pressable>

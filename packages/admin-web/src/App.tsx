@@ -13,6 +13,7 @@ import { CmsCurriculum } from "./components/pages/CmsCurriculum";
 import { LevelDetail } from "./components/pages/LevelDetail";
 import { QuizBuilder } from "./components/pages/QuizBuilder";
 import { VideoLibrary } from "./components/pages/VideoLibrary";
+import { GrowthContent } from "./components/pages/GrowthContent";
 import { ModulePreview } from "./components/pages/ModulePreview";
 import { CellEngagement } from "./components/pages/CellEngagement";
 import { CellDetail } from "./components/pages/CellDetail";
@@ -48,6 +49,7 @@ const router = createBrowserRouter([
       { path: "level-detail", element: <LevelDetail /> },
       { path: "quiz-builder", element: <QuizBuilder /> },
       { path: "video-library", element: <VideoLibrary /> },
+      { path: "content-studio", element: <GrowthContent /> },
       { path: "cell-engagement", element: <CellEngagement /> },
       { path: "cell-engagement/:cellId", element: <CellDetail /> },
       { path: "members", element: <Members /> },

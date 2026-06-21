@@ -20,6 +20,7 @@ import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
 import { REVIEW_BANNER, showReflectionComposer } from "./reflectionStates";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 
 export function ModuleScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -53,6 +54,7 @@ export function ModuleScreen(): ReactElement {
   // the server stays authoritative for actual gating (§1.1).
   const [proof, setProof] = useState({ read: false, listen: false, watch: false });
   const [readPct, setReadPct] = useState(0); // scroll-through progress (Figma gold bar)
+  const kbInset = useKeyboardInset();
   const reflectDone = !needsReflection || (!!myReflection && !showComposer);
   const proofSteps = [
     { key: "read", label: "Read", Icon: Check, done: proof.read },
@@ -151,7 +153,7 @@ export function ModuleScreen(): ReactElement {
       ) : (
         <>
           <ScrollView
-            contentContainerStyle={{ padding: spacing.screen, paddingBottom: 130 }}
+            contentContainerStyle={{ padding: spacing.screen, paddingBottom: 130 + kbInset }}
             showsVerticalScrollIndicator={false}
             onScroll={onScroll}
             scrollEventThrottle={64}
@@ -280,7 +282,7 @@ export function ModuleScreen(): ReactElement {
           </ScrollView>
 
           {/* Sticky CTA */}
-          <View style={st.footer}>
+          <View style={[st.footer, { marginBottom: kbInset }]}>
             <PButton
               variant="primary"
               disabled={!canComplete || complete.isLoading}

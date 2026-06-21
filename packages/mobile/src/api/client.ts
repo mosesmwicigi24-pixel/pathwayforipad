@@ -23,6 +23,7 @@ import type {
   GivingSchedule,
   Level,
   LevelModule,
+  LevelEncouragement,
   ModuleDetail,
   GiftAssessment,
   GiftQuestion,
@@ -182,6 +183,10 @@ export const NuruApi = {
   async module(moduleId: string): Promise<ModuleDetail> {
     const { data } = await api.get<ModuleDetail>(`/modules/${moduleId}`);
     return data;
+  },
+  async levelEncouragements(levelNumber: number): Promise<LevelEncouragement[]> {
+    const { data } = await api.get<{ data: LevelEncouragement[] }>(`/levels/${levelNumber}/encouragements`);
+    return data.data;
   },
   async completeModule(moduleId: string, body?: { reflection_text?: string }): Promise<CompleteResult> {
     const { data } = await api.post<CompleteResult>(`/modules/${moduleId}/complete`, body ?? {});

@@ -9,6 +9,7 @@ import { useNavigation } from "@react-navigation/native";
 import { NuruApi } from "../api/client";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 import { useMemoryVerses } from "../api/hooks";
 import { errorMessage, invalidateQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -87,6 +88,7 @@ export function MemoryVerseScreen(): ReactElement {
 function PracticeSheet({ verse, onClose, onSaved }: { verse: MemoryVerseRow; onClose: () => void; onSaved: () => void }): ReactElement {
   const [attempt, setAttempt] = useState("");
   const [busy, setBusy] = useState(false);
+  const kbInset = useKeyboardInset();
   const pct = matchPct(verse.verse_text, attempt);
 
   async function save(): Promise<void> {
@@ -102,7 +104,7 @@ function PracticeSheet({ verse, onClose, onSaved }: { verse: MemoryVerseRow; onC
   return (
     <View style={st.sheetWrap}>
       <Pressable style={st.sheetScrim} onPress={onClose} accessibilityLabel="Close" />
-      <View style={st.sheet}>
+      <View style={[st.sheet, { marginBottom: kbInset }]}>
         <View style={st.grab} />
         <T variant="micro" tone="secondary" style={{ letterSpacing: 1.2 }}>TYPE FROM MEMORY</T>
         <T variant="heading" style={{ color: palette.goldLo, marginTop: 4 }}>{verse.reference}</T>

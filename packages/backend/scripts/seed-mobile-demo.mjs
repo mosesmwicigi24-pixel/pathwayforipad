@@ -105,8 +105,21 @@ try {
     [uid],
   );
 
+  // 8) Pathway trail encouragements (level-scoped, CMS-managed) — a couple per
+  //    of the first levels so the module trail shows real motivational content.
+  await c.query(`DELETE FROM level_encouragements WHERE body LIKE '[demo]%'`);
+  await c.query(
+    `INSERT INTO level_encouragements (level_number, after_module_sequence, kind, title, body, emoji, scripture_ref, sort_order)
+       VALUES
+         (1, 0, 'splash',  'You''ve begun',          '[demo] Heaven is cheering you on — one faithful step at a time.', '✨', NULL, 0),
+         (1, 2, 'cheer',   'Keep climbing',          '[demo] Two modules in. Stay close to Jesus and keep going.',      '🔥', NULL, 0),
+         (1, 4, 'note',    'A word for the road',    '[demo] Let endurance finish its work so you are mature and complete.', '📖', 'James 1:4', 0),
+         (2, 0, 'splash',  'On holy ground',         '[demo] Inner transformation begins as you let Him reshape your heart.', '🕊️', NULL, 0),
+         (2, 3, 'sticker', 'Celebrate the climb',    '[demo] You''re on a roll — He who began a good work will complete it.', '🎉', 'Philippians 1:6', 0)`,
+  );
+
   await c.query("COMMIT");
-  console.log(`Mobile demo seeded for ${STUDENT}: streak+badges, mentor, gift assessment, 2 prayers, 2 verses, 1 announcement, 2 notifications.`);
+  console.log(`Mobile demo seeded for ${STUDENT}: streak+badges, mentor, gift assessment, 2 prayers, 2 verses, 1 announcement, 2 notifications, 5 level encouragements.`);
 } catch (e) {
   await c.query("ROLLBACK");
   console.error("FAILED:", e.message);

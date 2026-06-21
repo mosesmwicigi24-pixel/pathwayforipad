@@ -17,6 +17,7 @@ import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
 import { Loading, ErrorState } from "../components/states";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 
 function when(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -30,6 +31,7 @@ export function ThreadScreen(): ReactElement {
   const [comment, setComment] = useState("");
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+  const kbInset = useKeyboardInset();
 
   async function post(): Promise<void> {
     setPosting(true);
@@ -105,7 +107,7 @@ export function ThreadScreen(): ReactElement {
           </ScrollView>
 
           {/* Composer */}
-          <View style={st.composer}>
+          <View style={[st.composer, { marginBottom: kbInset }]}>
             {thread.is_locked ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm }}>
                 <Lock size={14} color={palette.ink400} />

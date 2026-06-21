@@ -41,6 +41,7 @@ import { registerGrowthContent } from "../modules/growth-content/index.js";
 import { registerChat } from "../modules/chat/index.js";
 import { registerAssistant } from "../modules/assistant/index.js";
 import { registerSystem } from "../modules/system/index.js";
+import { registerEncouragements } from "../modules/encouragements/index.js";
 
 export function createApp(ctx: AppContext): Express {
   const app = express();
@@ -152,6 +153,7 @@ export function createApp(ctx: AppContext): Express {
   v1.use(registerAssistant(ctx));
   v1.use(registerGrowthContent(ctx));
   v1.use(registerSystem(ctx));
+  v1.use(registerEncouragements(ctx));
   app.use("/v1", v1);
 
   // Terminal error handler — always emits the §3.2 envelope.

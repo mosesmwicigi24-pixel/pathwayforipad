@@ -33,6 +33,7 @@ import type {
   FeaturedEvent,
   FeaturedAnnouncement,
   LevelModule,
+  LevelEncouragement,
   ModuleDetail,
   PathwaySummary,
   PrayerEntry,
@@ -48,6 +49,7 @@ export const queryKeys = {
   me: "me",
   pathway: "pathway",
   levelModules: (n: number) => `levelModules:${n}`,
+  levelEncouragements: (n: number) => `levelEncouragements:${n}`,
   module: (id: string) => `module:${id}`,
   quiz: (id: string) => `quiz:${id}`,
   calendar: (from: string, to: string) => `calendar:${from}:${to}`,
@@ -99,6 +101,16 @@ export function useLevelModules(levelNumber: number | null): QueryResult<LevelMo
     levelNumber ? queryKeys.levelModules(levelNumber) : null,
     () => NuruApi.levelModules(levelNumber as number),
     { staleMs: 15_000 },
+  );
+}
+
+// A level's CMS-managed trail encouragements. Non-critical content — failures
+// resolve to an empty list so the trail still renders without them.
+export function useLevelEncouragements(levelNumber: number | null): QueryResult<LevelEncouragement[]> {
+  return useQuery(
+    levelNumber ? queryKeys.levelEncouragements(levelNumber) : null,
+    () => NuruApi.levelEncouragements(levelNumber as number),
+    { staleMs: 60_000 },
   );
 }
 

@@ -585,6 +585,20 @@ export interface ResourceAdminRow {
   is_active: boolean;
 }
 
+export interface EncouragementRow {
+  encouragement_id: string;
+  level_number: number;
+  after_module_sequence: number;
+  kind: "splash" | "cheer" | "sticker" | "note";
+  title: string | null;
+  body: string | null;
+  image_url: string | null;
+  scripture_ref: string | null;
+  emoji: string | null;
+  is_active: boolean;
+  sort_order: number;
+}
+
 const G = "/admin/growth";
 export const GrowthAdminApi = {
   devotionals: () => unwrap(api.get<{ data: DevotionalRow[] }>(`${G}/devotionals`)),
@@ -607,6 +621,15 @@ export const GrowthAdminApi = {
   createResource: (b: Record<string, unknown>) => api.post(`${G}/resources`, b).then((r) => r.data),
   updateResource: (id: string, b: Record<string, unknown>) => api.put(`${G}/resources/${id}`, b).then((r) => r.data),
   deleteResource: (id: string) => api.delete(`${G}/resources/${id}`).then((r) => r.data),
+};
+
+// Pathway trail encouragements (level-scoped). Admin CRUD over the new
+// /admin/levels/:n/encouragements + /admin/encouragements/:id endpoints.
+export const EncouragementsAdminApi = {
+  list: (level: number) => unwrap(api.get<{ data: EncouragementRow[] }>(`/admin/levels/${level}/encouragements`)),
+  create: (level: number, b: Record<string, unknown>) => api.post(`/admin/levels/${level}/encouragements`, b).then((r) => r.data),
+  update: (id: string, b: Record<string, unknown>) => api.put(`/admin/encouragements/${id}`, b).then((r) => r.data),
+  remove: (id: string) => api.delete(`/admin/encouragements/${id}`).then((r) => r.data),
 };
 
 // ---- Operations (ERP, W3 over B1/B2/B3/B5) ----

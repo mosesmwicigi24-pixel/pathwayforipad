@@ -2336,6 +2336,41 @@ paths:
       parameters: [{ $ref: "#/components/parameters/IdPath" }]
       responses: { "200": { description: Deleted }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
 
+  # --- Pathway trail encouragements (level-scoped motivational content) ---
+  /levels/{n}/encouragements:
+    get:
+      tags: [curriculum]
+      summary: A level's active trail encouragements, in trail order.
+      parameters:
+        - { name: n, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Encouragements }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/levels/{n}/encouragements:
+    get:
+      tags: [portal]
+      summary: Admin. List all encouragements for a level (incl. inactive).
+      parameters:
+        - { name: n, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses: { "200": { description: Encouragements }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+    post:
+      tags: [portal]
+      summary: Admin. Create a level encouragement. Audited.
+      parameters:
+        - { name: n, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses: { "201": { description: Created }, "400": { description: Validation failed }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+  /admin/encouragements/{id}:
+    put:
+      tags: [portal]
+      summary: Admin. Update a level encouragement. Audited.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses: { "200": { description: Updated }, "403": { $ref: "#/components/responses/ForbiddenScope" }, "404": { $ref: "#/components/responses/NotFound" } }
+    delete:
+      tags: [portal]
+      summary: Admin. Delete a level encouragement. Audited.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses: { "200": { description: Deleted }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+
   # --- Community: cohort discussions (Contract Matrix B8) ---
   /community/threads:
     get:

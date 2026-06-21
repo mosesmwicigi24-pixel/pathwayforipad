@@ -14,6 +14,7 @@ import type { RootStackParamList } from "../navigation/types";
 import { palette, spacing, shadow } from "../theme/tokens";
 import { T } from "../theme/components";
 import { Loading, ErrorState } from "../components/states";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 import { useModule, useMyReflection, useScripture, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries, useMutation } from "../api/query";
@@ -142,6 +143,7 @@ function Composer({
 }): ReactElement {
   const [body, setBody] = useState(initial);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const kbInset = useKeyboardInset();
   const words = useMemo(() => (body.trim() ? body.trim().split(/\s+/).length : 0), [body]);
   const canSubmit = words >= MIN_WORDS && !submitting;
 
@@ -155,7 +157,7 @@ function Composer({
   return (
     <View style={{ flex: 1, backgroundColor: "#F6F4EE" }}>
       <Header onBack={onBack} overline="REFLECTION" title={moduleLabel} right={savedAt ? `Draft saved · ${savedAt}` : "—"} />
-      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: 130 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: 130 + kbInset }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <Card>
           <T variant="micro" tone="tertiary" style={st.kicker}>PROMPT</T>
           <T variant="bodyLg" style={{ marginTop: spacing.sm, color: palette.ink, lineHeight: 24 }}>{prompt}</T>
@@ -183,7 +185,7 @@ function Composer({
         {errorText ? <T variant="caption" style={{ color: palette.error, marginTop: spacing.base }}>{errorText}</T> : null}
       </ScrollView>
 
-      <View style={st.footer}>
+      <View style={[st.footer, { marginBottom: kbInset }]}>
         <SubmitButton label={submitting ? "Submitting…" : "Submit reflection"} disabled={!canSubmit} onPress={() => onSubmit(body)} />
       </View>
     </View>

@@ -31,6 +31,9 @@ export function apiBaseUrl(platformOS?: string, devHost?: string): string {
   // server) talk to production over HTTPS. __DEV__ is injected by RN at build
   // time; it's undefined under vitest, so default those to production too.
   const isDev = typeof __DEV__ !== "undefined" && __DEV__;
+  // TEMP (local only, do NOT commit): point the simulator dev build at prod so we
+  // can log in with the real account + giving data. Revert before committing.
+  return PROD_API_URL;
   if (!isDev) return PROD_API_URL;
   const fallback = platformOS === "android" ? "10.0.2.2" : "localhost";
   const host = devHost && devHost.trim() ? devHost.trim() : fallback;

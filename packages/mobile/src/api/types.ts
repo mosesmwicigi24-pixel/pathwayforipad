@@ -565,6 +565,20 @@ export interface ResourceRow {
   url: string | null;
 }
 
+// Pathway trail encouragements (GET /levels/:n/encouragements). CMS-managed
+// motivational content interleaved between modules, ordered by trail position.
+export interface LevelEncouragement {
+  encouragement_id: string;
+  level_number: number;
+  after_module_sequence: number;
+  kind: "splash" | "cheer" | "sticker" | "note";
+  title: string | null;
+  body: string | null;
+  image_url: string | null;
+  scripture_ref: string | null;
+  emoji: string | null;
+}
+
 export interface MentorInfo {
   mentor: { mentor_user_id: string; full_name: string; cell_name: string | null; established_at: string } | null;
   next_meeting_at: string | null;

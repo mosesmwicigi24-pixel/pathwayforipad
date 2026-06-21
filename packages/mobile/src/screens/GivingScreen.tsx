@@ -21,6 +21,7 @@ import { uuidv4 } from "../util/uuid";
 import { assertOnlineForGiving, getConnectivity } from "../net/connectivity";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { Glow, PButton, T } from "../theme/components";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 import { useGivingHistory, useMe, useSchedules } from "../api/hooks";
 import { invalidateQueries } from "../api/query";
 import { freqLabel, historyStatusChip, methodLabel } from "./givingHelpers";
@@ -539,6 +540,7 @@ function PaymentDetailsSheet({ method, phoneHint, onClose, onGive }: { method: U
   const [paypal, setPaypal] = useState("");
   const [account, setAccount] = useState("");
   const [wallet, setWallet] = useState("Apple Pay");
+  const kbInset = useKeyboardInset();
   const soon = !PROVIDER[method];
   const title =
     method === "mpesa" ? "M-Pesa number" : method === "airtel" ? "Airtel Money number" :
@@ -548,7 +550,7 @@ function PaymentDetailsSheet({ method, phoneHint, onClose, onGive }: { method: U
   return (
     <View style={st.sheetWrap}>
       <Pressable style={st.scrim} onPress={onClose} accessibilityLabel="Close" />
-      <View style={st.sheet}>
+      <View style={[st.sheet, { marginBottom: kbInset }]}>
         <View style={st.grab} />
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <T variant="micro" tone="secondary" style={{ letterSpacing: 1.2 }}>{title.toUpperCase()}</T>

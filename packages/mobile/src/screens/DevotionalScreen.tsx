@@ -8,6 +8,7 @@ import { ArrowLeft, Headphones, Play, Quote } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { Glow, T } from "../theme/components";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 import { Markdown } from "../components/Markdown";
 import { useDevotional } from "../api/hooks";
 import { errorMessage } from "../api/query";
@@ -17,6 +18,7 @@ export function DevotionalScreen(): ReactElement {
   const nav = useNavigation();
   const { data: dev, isLoading, error, refetch } = useDevotional();
   const [reflection, setReflection] = useState("");
+  const kbInset = useKeyboardInset();
 
   return (
     <View style={st.screen}>
@@ -36,7 +38,7 @@ export function DevotionalScreen(): ReactElement {
         <View style={st.center}><ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /></View>
       ) : (
         <ScrollView
-          contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }}
+          contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl + kbInset }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"

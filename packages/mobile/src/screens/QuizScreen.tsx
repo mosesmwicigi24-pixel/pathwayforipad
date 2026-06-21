@@ -11,6 +11,7 @@ import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 import { Loading, ErrorState } from "../components/states";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 import { useQuiz, useModule } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import type { AnswerOptions, QuestionChoice, QuestionScale, QuizQuestion, QuizResult } from "../api/types";
@@ -83,6 +84,7 @@ export function QuizScreen(): ReactElement {
   );
 
   const [q, setQ] = useState(0);
+  const kbInset = useKeyboardInset();
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<QuizResult | null>(null);
   const mutationId = useMemo(() => uuidv4(), [quiz]); // one idempotency key per assembled quiz
@@ -231,7 +233,7 @@ export function QuizScreen(): ReactElement {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 + kbInset }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <T variant="overline" tone="tertiary">QUESTION {q + 1} OF {questions.length}</T>
         <T variant="title" style={{ marginTop: spacing.md, marginBottom: spacing.lg }}>{question.question_text}</T>
         <QuestionInput question={question} value={given} onChange={setAnswer} />
@@ -240,7 +242,7 @@ export function QuizScreen(): ReactElement {
         ) : null}
       </ScrollView>
 
-      <View style={res.footer}>
+      <View style={[res.footer, { marginBottom: kbInset }]}>
         <PButton onPress={() => void next()} disabled={!answered || submit.isLoading}>
           {submit.isLoading ? "Submitting…" : isLast ? "Submit answers" : "Next question"}
         </PButton>

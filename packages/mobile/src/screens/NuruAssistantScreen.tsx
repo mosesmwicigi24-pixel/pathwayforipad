@@ -13,6 +13,7 @@ import { NuruApi } from "../api/client";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { T } from "../theme/components";
 import { errorMessage } from "../api/query";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 
 const SUGGESTIONS = ["Summarize my cohort", "Draft an encouragement", "Find prayer requests", "Plan my quiet time"];
 
@@ -35,6 +36,7 @@ export function NuruAssistantScreen(): ReactElement {
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const kbInset = useKeyboardInset();
 
   async function ask(text: string): Promise<void> {
     const trimmed = text.trim();
@@ -96,7 +98,7 @@ export function NuruAssistantScreen(): ReactElement {
         ) : null}
       </ScrollView>
 
-      <View style={st.composer}>
+      <View style={[st.composer, { marginBottom: kbInset }]}>
         <TextInput
           value={draft}
           onChangeText={setDraft}

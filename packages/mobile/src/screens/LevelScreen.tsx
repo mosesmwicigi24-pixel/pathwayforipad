@@ -1,89 +1,44 @@
-// Level detail — the Figma "PathwayTab" module trail. A full-bleed level hero,
-// a progress snapshot, a Word-of-God verse, the discipler card, then the vertical
-// module trail (completed / next / locked) with interspersed encouragements
-// (badges, a mentor note, a verse, a splash banner, announcement & video cards,
-// a sticker row) and a "what comes next" level card. Module + level data are real
-// (useLevelModules / usePathway); the imagery, verses, discipler and trail
-// encouragements are faithful placeholders (no data source yet). Server stays
-// authoritative for unlocking (§1.9) — a locked tap shows a gentle toast.
+// Level detail — the Figma "PathwayTab" module trail, now fully DB-backed. A
+// full-bleed level hero, a progress snapshot, the discipler card (real mentor via
+// useMentor), the vertical module trail (real modules via useLevelModules) with
+// interspersed CMS-managed encouragements (useLevelEncouragements), and a
+// "what comes next" level card. Server stays authoritative for unlocking (§1.9) —
+// a locked tap shows a gentle toast. Hero imagery is decorative.
 import { useState, type ReactElement } from "react";
 import { Image, Pressable, ScrollView, View } from "react-native";
 import {
-  ArrowLeft, BookOpen, Check, ChevronRight, Clock, Headphones, Lock,
-  MessageCircle, PenLine, PlayCircle, Quote, Star, Video, type LucideIcon,
+  ArrowLeft, BookOpen, Check, ChevronRight, Clock, Lock,
+  MessageCircle, PenLine, PlayCircle, Quote, Video, type LucideIcon,
 } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { T } from "../theme/components";
-import { useLevelModules, usePathway } from "../api/hooks";
+import { useLevelModules, usePathway, useMentor, useLevelEncouragements } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState, Empty } from "../components/states";
-import type { LevelModule } from "../api/types";
+import type { LevelModule, LevelEncouragement } from "../api/types";
 
 const NAVY = palette.navy;
 const GOLD = palette.gold;
 
-// Placeholder imagery (no per-level art in the data yet).
+// Decorative hero imagery only (no per-level art in the data yet).
 const IMG_BIBLE = "https://images.unsplash.com/photo-1497621122273-f5cfb6065c56?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080";
 const IMG_WORSHIP = "https://images.unsplash.com/photo-1510384742052-1abcb6282645?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080";
 const IMG_GATHERING = "https://images.unsplash.com/photo-1444664361762-afba083a4d77?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080";
 const LEVEL_HERO: Record<number, string> = { 1: IMG_BIBLE, 2: IMG_WORSHIP, 3: IMG_GATHERING, 4: IMG_WORSHIP, 5: IMG_BIBLE, 6: IMG_GATHERING };
 
-// Placeholder "word to carry you" per level.
-const LEVEL_VERSE: Record<number, { ref: string; text: string }> = {
-  1: { ref: "Matthew 7:24", text: "Everyone who hears these words of mine and acts on them is like a wise man who built his house on the rock." },
-  2: { ref: "Jeremiah 9:24", text: "Let the one who boasts boast about this: that they have the understanding to know me." },
-  3: { ref: "Ephesians 2:8", text: "For it is by grace you have been saved, through faith — and this is the gift of God." },
-  4: { ref: "2 Corinthians 5:17", text: "If anyone is in Christ, the new creation has come: the old is gone, the new is here!" },
-  5: { ref: "Psalm 119:105", text: "Your word is a lamp for my feet, a light on my path." },
-  6: { ref: "Acts 1:8", text: "You will receive power when the Holy Spirit comes on you; and you will be my witnesses." },
-};
-const MENTOR = { name: "Pastor James Otieno", role: "Cell leader · C-04", initials: "JO", nextMeet: "Thu 6:30 PM" };
-
 type Status = "completed" | "next" | "locked";
-type Encourage =
-  | { kind: "badge"; name: string; desc: string; earned: boolean; stars?: number; emoji: string }
-  | { kind: "mentor"; name: string; initials: string; quote: string }
-  | { kind: "verse"; ref: string; text: string }
-  | { kind: "splash"; title: string; subtitle: string; emoji: string; image: string }
-  | { kind: "announcement"; tag: string; title: string; meta: string; image: string }
-  | { kind: "video"; title: string; meta: string; duration: string; image: string }
-  | { kind: "sticker"; stickers: string[]; caption: string };
 
-const SPLASH: Extract<Encourage, { kind: "splash" }> = {
-  kind: "splash", title: "You're on holy ground",
-  subtitle: "Two steps in — keep climbing, heaven is cheering you on.", emoji: "✨", image: IMG_WORSHIP,
-};
-
-function shortName(title: string): string {
-  const w = title.split(" ")[0] ?? "";
-  return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+function initials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "·";
 }
-
-// Faithful placeholder encouragements keyed by module id, mirroring the Figma.
-function encouragementsFor(levelTitle: string, levelId: number, isComplete: boolean, completedCount: number, n: number): Record<number, Encourage> {
-  const enc: Record<number, Encourage> = {};
-  const verse = LEVEL_VERSE[levelId] ?? LEVEL_VERSE[1]!;
-  if (isComplete) {
-    enc[1] = { kind: "verse", ref: verse.ref, text: verse.text };
-    enc[2] = SPLASH;
-    enc[4] = { kind: "announcement", tag: "Testimony", title: "Cohort C-04's first baptisms", meta: "This week at Nuru · tap to read", image: IMG_GATHERING };
-    enc[6] = { kind: "video", title: "Revisit: Foundations recap", meta: "Teaching · Pathway", duration: "8:40", image: IMG_BIBLE };
-    enc[8] = { kind: "sticker", stickers: ["🏆", "🎉", "⭐", "👏"], caption: "Level complete — celebrate it!" };
-    enc[n] = { kind: "badge", name: `${shortName(levelTitle)} Champion`, desc: "Level complete", earned: true, stars: 3, emoji: "🏆" };
-  } else {
-    const c = completedCount;
-    enc[2] = SPLASH;
-    if (c >= 1) enc[c] = { kind: "badge", name: "Faithful Start", desc: `First ${c} modules complete`, earned: true, stars: 3, emoji: "🌱" };
-    enc[c + 1] = { kind: "mentor", name: "Pastor James", initials: "JO", quote: "Reflection takes courage — I'm proud of how you keep showing up." };
-    enc[c + 2] = { kind: "announcement", tag: "Cohort", title: "Mid-cohort retreat · this Saturday", meta: "Sat 6:00 PM · Lakeview Camp", image: IMG_GATHERING };
-    enc[c + 3] = { kind: "video", title: "Watch: What is the Church?", meta: "Teaching · 6 min", duration: "6:12", image: IMG_WORSHIP };
-    enc[Math.min(n - 1, c + 4)] = { kind: "sticker", stickers: ["🔥", "🙌", "📖", "✝️"], caption: "You're on a roll — keep going!" };
-    enc[n] = { kind: "badge", name: "Level Finisher", desc: "Complete all to earn your certificate", earned: false, emoji: "🏅" };
-  }
-  return enc;
+function formatNext(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { weekday: "short" }) + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 export function LevelScreen(): ReactElement {
@@ -91,6 +46,8 @@ export function LevelScreen(): ReactElement {
   const { levelId } = useRoute<RouteProp<RootStackParamList, "Level">>().params;
   const { data: modules, isLoading, error, refetch } = useLevelModules(levelId);
   const { data: pathway } = usePathway();
+  const { data: mentorInfo } = useMentor();
+  const { data: encouragements } = useLevelEncouragements(levelId);
   const [toast, setToast] = useState<string | null>(null);
 
   const meta = pathway?.levels.find((l) => l.level_number === levelId);
@@ -101,8 +58,18 @@ export function LevelScreen(): ReactElement {
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
   const isComplete = total > 0 && completed >= total;
   const hero = LEVEL_HERO[levelId] ?? IMG_WORSHIP;
-  const verse = LEVEL_VERSE[levelId] ?? LEVEL_VERSE[1]!;
   const nextMeta = pathway?.levels.find((l) => l.level_number === levelId + 1) ?? null;
+
+  // Real, CMS-managed trail content. The first "note" with a reference becomes the
+  // Word-of-God card; the rest interleave between modules by trail position.
+  const encs = encouragements ?? [];
+  const verseEnc = encs.find((e) => e.kind === "note" && (e.scripture_ref || e.body)) ?? null;
+  const trailEncs = encs.filter((e) => e !== verseEnc);
+  const preTrail = trailEncs.filter((e) => e.after_module_sequence <= 0);
+  const encsAfter = (seq: number): LevelEncouragement[] => trailEncs.filter((e) => e.after_module_sequence === seq);
+
+  const mentor = mentorInfo?.mentor ?? null;
+  const mentorNext = formatNext(mentorInfo?.next_meeting_at ?? null);
 
   function showToast(msg: string): void {
     setToast(msg);
@@ -116,8 +83,6 @@ export function LevelScreen(): ReactElement {
     }
     nav.navigate("Module", { moduleId: mod.module_id });
   };
-
-  const enc = encouragementsFor(meta?.title ?? `Level ${levelId}`, levelId, isComplete, completed, total || 1);
 
   return (
     <View style={st.screen}>
@@ -157,23 +122,27 @@ export function LevelScreen(): ReactElement {
             </View>
           </View>
 
-          {/* Word of God */}
-          <View style={[st.verseCard, { marginTop: spacing.base }]}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-              <Quote size={11} color="#A8861C" />
-              <T variant="micro" style={{ color: "#A8861C", fontWeight: "700", letterSpacing: 1.4 }}>A WORD TO CARRY YOU</T>
+          {/* Word of God (from CMS encouragement note) */}
+          {verseEnc ? (
+            <View style={[st.verseCard, { marginTop: spacing.base }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                <Quote size={11} color="#A8861C" />
+                <T variant="micro" style={{ color: "#A8861C", fontWeight: "700", letterSpacing: 1.4 }}>{(verseEnc.title ?? "A WORD TO CARRY YOU").toUpperCase()}</T>
+              </View>
+              {verseEnc.body ? <T serif style={{ fontSize: 15, lineHeight: 22, color: NAVY, marginTop: spacing.sm }}>{`“${verseEnc.body}”`}</T> : null}
+              {verseEnc.scripture_ref ? <T variant="micro" style={{ color: "#A8861C", fontWeight: "700", marginTop: 6 }}>{verseEnc.scripture_ref}</T> : null}
             </View>
-            <T serif style={{ fontSize: 15, lineHeight: 22, color: NAVY, marginTop: spacing.sm }}>{`“${verse.text}”`}</T>
-            <T variant="micro" style={{ color: "#A8861C", fontWeight: "700", marginTop: 6 }}>{verse.ref}</T>
-          </View>
+          ) : null}
 
-          {/* Discipler */}
+          {/* Discipler — real mentor (useMentor) */}
           <Pressable onPress={() => nav.navigate("Mentor")} style={({ pressed }) => [st.disciplerCard, { marginTop: spacing.base }, pressed && st.press]} accessibilityRole="button">
-            <View style={st.disciplerAvatar}><T variant="caption" style={{ color: palette.white, fontWeight: "700" }}>{MENTOR.initials}</T></View>
+            <View style={st.disciplerAvatar}><T variant="caption" style={{ color: palette.white, fontWeight: "700" }}>{mentor ? initials(mentor.full_name) : "·"}</T></View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <T variant="micro" style={{ color: "#A8861C", fontWeight: "700", letterSpacing: 1.2 }}>WALK IT WITH YOUR DISCIPLER</T>
-              <T variant="caption" style={{ color: NAVY, fontWeight: "700", marginTop: 1 }} numberOfLines={1}>{MENTOR.name}</T>
-              <T variant="micro" tone="tertiary" numberOfLines={1}>{`${MENTOR.role} · next ${MENTOR.nextMeet}`}</T>
+              <T variant="caption" style={{ color: NAVY, fontWeight: "700", marginTop: 1 }} numberOfLines={1}>{mentor?.full_name ?? "A discipler will walk with you"}</T>
+              <T variant="micro" tone="tertiary" numberOfLines={1}>
+                {mentor ? [mentor.cell_name, mentorNext ? `next ${mentorNext}` : null].filter(Boolean).join(" · ") || "Tap to open" : "Tap to learn more"}
+              </T>
             </View>
             <View style={st.chatBtn}><MessageCircle size={13} color={palette.onNavy} /><T variant="micro" style={{ color: palette.onNavy, fontWeight: "600" }}>Chat</T></View>
           </Pressable>
@@ -187,6 +156,11 @@ export function LevelScreen(): ReactElement {
             <View style={st.countPill}><T variant="caption" tone="secondary">{`${total} lessons`}</T></View>
           </View>
 
+          {/* Pre-trail encouragements (position 0) */}
+          {preTrail.map((e) => (
+            <View key={e.encouragement_id} style={{ marginBottom: spacing.md }}><TrailEncouragement enc={e} /></View>
+          ))}
+
           {isLoading ? (
             <Loading label="Loading modules…" />
           ) : error ? (
@@ -198,7 +172,7 @@ export function LevelScreen(): ReactElement {
               {modules.map((m, i) => {
                 const status: Status = m.completed ? "completed" : m.locked ? "locked" : "next";
                 const last = i === modules.length - 1;
-                const e = enc[m.module_sequence_number] ?? enc[i + 1];
+                const interludes = encsAfter(m.module_sequence_number);
                 return (
                   <View key={m.module_id} style={{ flexDirection: "row", gap: spacing.md }}>
                     <View style={{ alignItems: "center" }}>
@@ -207,7 +181,9 @@ export function LevelScreen(): ReactElement {
                     </View>
                     <View style={{ flex: 1, minWidth: 0, paddingBottom: last ? 0 : spacing.md }}>
                       <ModuleStation module={m} status={status} onTap={() => tapModule(m, i)} />
-                      {e ? <View style={{ marginTop: spacing.sm }}><TrailEncouragement data={e} onOpen={() => nav.navigate("Tabs", { screen: "Events" })} /></View> : null}
+                      {interludes.map((e) => (
+                        <View key={e.encouragement_id} style={{ marginTop: spacing.sm }}><TrailEncouragement enc={e} /></View>
+                      ))}
                     </View>
                   </View>
                 );
@@ -289,9 +265,8 @@ function ModuleStation({ module, status, onTap }: { module: LevelModule; status:
       ) : null}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 5, marginTop: spacing.sm }}>
         <MetaChip Icon={Clock} label={`${module.estimated_minutes ?? 0} min`} />
-        {module.module_sequence_number % 2 === 0 ? <MetaChip Icon={Headphones} label="Audio" /> : null}
-        {module.module_sequence_number % 3 === 0 ? <MetaChip Icon={Video} label="Video" /> : null}
-        {active ? <MetaChip Icon={PenLine} label="Reflection required" gold /> : null}
+        {module.evaluation_kind === "quiz" ? <MetaChip Icon={Video} label="Quiz" /> : null}
+        {module.evaluation_kind === "reflection" ? <MetaChip Icon={PenLine} label="Reflection" gold /> : null}
       </View>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm }}>
         <T serif style={{ fontSize: 11, fontStyle: "italic", color: done ? "#7a5a14" : active ? "#A8861C" : palette.ink400, flex: 1 }} numberOfLines={1}>
@@ -323,102 +298,57 @@ function MetaChip({ Icon, label, gold }: { Icon: LucideIcon; label: string; gold
   );
 }
 
-function TrailEncouragement({ data, onOpen }: { data: Encourage; onOpen: () => void }): ReactElement {
-  if (data.kind === "badge") {
+// Real, CMS-managed encouragement rendered by kind.
+function TrailEncouragement({ enc }: { enc: LevelEncouragement }): ReactElement {
+  if (enc.kind === "splash") {
     return (
-      <View style={[st.encRow, data.earned ? { backgroundColor: "rgba(201,162,39,0.12)", borderColor: "rgba(201,162,39,0.4)" } : { backgroundColor: palette.surface, borderColor: "rgba(10,37,64,0.14)", borderStyle: "dashed" }]}>
-        <View style={[st.encEmoji, !data.earned && { opacity: 0.6 }]}><T style={{ fontSize: 20 }}>{data.emoji}</T></View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <T variant="micro" style={{ color: data.earned ? "#A8861C" : palette.ink400, fontWeight: "700", letterSpacing: 1 }}>{data.earned ? "BADGE EARNED" : "BADGE TO EARN"}</T>
-          <T serif style={{ fontSize: 13, color: data.earned ? NAVY : "#68758A", fontWeight: "600", marginTop: 1 }} numberOfLines={1}>{data.name}</T>
-          {data.earned && data.stars ? (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 2, marginTop: 2 }}>
-              {Array.from({ length: data.stars }, (_, i) => <Star key={i} size={10} color={GOLD} fill={GOLD} />)}
-              <T variant="micro" style={{ color: "#9a7a2a", marginLeft: 4 }}>{data.desc}</T>
-            </View>
-          ) : <T variant="micro" tone="tertiary" numberOfLines={1}>{data.desc}</T>}
+      <View style={st.splash}>
+        {enc.image_url ? <Image source={{ uri: enc.image_url }} style={st.splashImg} resizeMode="cover" /> : null}
+        <View style={st.splashShade} />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+          {enc.emoji ? <T style={{ fontSize: 30 }}>{enc.emoji}</T> : null}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            {enc.title ? <T serif tone="onNavy" style={{ fontSize: 18, lineHeight: 22, fontWeight: "600" }}>{enc.title}</T> : null}
+            {enc.body ? <T variant="micro" style={{ color: "rgba(255,255,255,0.8)", marginTop: 2, lineHeight: 15 }}>{enc.body}</T> : null}
+          </View>
         </View>
       </View>
     );
   }
-  if (data.kind === "mentor") {
+  if (enc.kind === "sticker") {
+    const stickers = (enc.emoji ?? "🎉").split(/\s+/).filter(Boolean);
     return (
-      <View style={[st.encRow, { backgroundColor: "#F0FDF4", borderColor: "#BBF7D0" }]}>
-        <View style={st.mentorAvatar}><T variant="micro" style={{ color: palette.white, fontWeight: "700" }}>{data.initials}</T></View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <T variant="micro" style={{ color: "#15803D", fontWeight: "700", letterSpacing: 1 }}>{`A WORD FROM ${data.name.toUpperCase()}`}</T>
-          <T serif style={{ fontSize: 11, fontStyle: "italic", color: "#14532D", marginTop: 2, lineHeight: 16 }}>{`“${data.quote}”`}</T>
+      <View style={[st.encRow, { backgroundColor: "rgba(201,162,39,0.10)", borderColor: "rgba(201,162,39,0.33)" }]}>
+        <View style={{ flexDirection: "row" }}>
+          {stickers.map((s, i) => (
+            <View key={i} style={[st.sticker, { marginLeft: i === 0 ? 0 : -6, transform: [{ rotate: `${(i % 2 === 0 ? -1 : 1) * (6 + i * 2)}deg` }] }]}><T style={{ fontSize: 16 }}>{s}</T></View>
+          ))}
         </View>
+        <T serif style={{ flex: 1, fontSize: 11, fontStyle: "italic", color: "#7a5a14", marginLeft: spacing.sm }}>{enc.body ?? enc.title ?? ""}</T>
       </View>
     );
   }
-  if (data.kind === "verse") {
+  if (enc.kind === "note") {
     return (
       <View style={[st.verseCard, { padding: spacing.md }]}>
         <View style={{ flexDirection: "row", gap: spacing.sm }}>
           <View style={st.verseIcon}><Quote size={13} color={GOLD} /></View>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <T serif style={{ fontSize: 11, color: NAVY, lineHeight: 16 }}>{`“${data.text}”`}</T>
-            <T variant="micro" style={{ color: "#A8861C", fontWeight: "700", marginTop: 2 }}>{data.ref}</T>
+            {enc.body ? <T serif style={{ fontSize: 12, color: NAVY, lineHeight: 17 }}>{`“${enc.body}”`}</T> : null}
+            {enc.scripture_ref ? <T variant="micro" style={{ color: "#A8861C", fontWeight: "700", marginTop: 2 }}>{enc.scripture_ref}</T> : null}
           </View>
         </View>
       </View>
     );
   }
-  if (data.kind === "splash") {
-    return (
-      <View style={st.splash}>
-        <Image source={{ uri: data.image }} style={st.splashImg} resizeMode="cover" />
-        <View style={st.splashShade} />
-        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-          <T style={{ fontSize: 30 }}>{data.emoji}</T>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <T serif tone="onNavy" style={{ fontSize: 18, lineHeight: 22, fontWeight: "600" }}>{data.title}</T>
-            <T variant="micro" style={{ color: "rgba(255,255,255,0.8)", marginTop: 2, lineHeight: 15 }}>{data.subtitle}</T>
-          </View>
-        </View>
-      </View>
-    );
-  }
-  if (data.kind === "announcement") {
-    return (
-      <Pressable onPress={onOpen} style={({ pressed }) => [st.mediaCard, pressed && st.press]} accessibilityRole="button">
-        <View>
-          <Image source={{ uri: data.image }} style={{ width: "100%", height: 96 }} resizeMode="cover" />
-          <View style={[st.mediaTag]}><T variant="micro" style={{ color: NAVY, fontWeight: "700", letterSpacing: 0.6 }}>{data.tag.toUpperCase()}</T></View>
-        </View>
-        <View style={{ padding: spacing.md }}>
-          <T serif style={{ fontSize: 13, color: NAVY, fontWeight: "600" }} numberOfLines={1}>{data.title}</T>
-          <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{data.meta}</T>
-        </View>
-      </Pressable>
-    );
-  }
-  if (data.kind === "video") {
-    return (
-      <Pressable onPress={onOpen} style={({ pressed }) => [st.mediaCard, pressed && st.press]} accessibilityRole="button">
-        <View>
-          <Image source={{ uri: data.image }} style={{ width: "100%", height: 112 }} resizeMode="cover" />
-          <View style={st.videoPlay}><PlayCircle size={24} color={NAVY} fill={NAVY} /></View>
-          <View style={st.videoDur}><T variant="micro" style={{ color: palette.white, fontWeight: "600" }}>{data.duration}</T></View>
-        </View>
-        <View style={{ padding: spacing.md }}>
-          <T variant="micro" style={{ color: "#A8861C", fontWeight: "700", letterSpacing: 1 }}>WATCH</T>
-          <T serif style={{ fontSize: 13, color: NAVY, fontWeight: "600", marginTop: 1 }} numberOfLines={1}>{data.title}</T>
-          <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{data.meta}</T>
-        </View>
-      </Pressable>
-    );
-  }
-  // sticker
+  // cheer
   return (
-    <View style={[st.encRow, { backgroundColor: "rgba(201,162,39,0.10)", borderColor: "rgba(201,162,39,0.33)" }]}>
-      <View style={{ flexDirection: "row" }}>
-        {data.stickers.map((s, i) => (
-          <View key={i} style={[st.sticker, { marginLeft: i === 0 ? 0 : -6, transform: [{ rotate: `${(i % 2 === 0 ? -1 : 1) * (6 + i * 2)}deg` }] }]}><T style={{ fontSize: 16 }}>{s}</T></View>
-        ))}
+    <View style={[st.encRow, { backgroundColor: "rgba(201,162,39,0.12)", borderColor: "rgba(201,162,39,0.4)" }]}>
+      {enc.emoji ? <View style={st.encEmoji}><T style={{ fontSize: 20 }}>{enc.emoji}</T></View> : null}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        {enc.title ? <T serif style={{ fontSize: 13, color: NAVY, fontWeight: "600" }} numberOfLines={1}>{enc.title}</T> : null}
+        {enc.body ? <T variant="micro" tone="secondary" style={{ marginTop: 1 }}>{enc.body}</T> : null}
       </View>
-      <T serif style={{ flex: 1, fontSize: 11, fontStyle: "italic", color: "#7a5a14", marginLeft: spacing.sm }}>{data.caption}</T>
     </View>
   );
 }
@@ -453,14 +383,9 @@ const st = {
   resumePill: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: NAVY, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 5 },
   encRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderRadius: 16, borderWidth: 1, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   encEmoji: { width: 44, height: 44, borderRadius: 16, backgroundColor: palette.white, borderWidth: 1, borderColor: "rgba(201,162,39,0.4)", alignItems: "center", justifyContent: "center" },
-  mentorAvatar: { width: 36, height: 36, borderRadius: 14, backgroundColor: "#16A34A", alignItems: "center", justifyContent: "center" },
   splash: { overflow: "hidden", borderRadius: 22, padding: spacing.base, backgroundColor: NAVY },
   splashImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%", opacity: 0.25 },
   splashShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(10,37,64,0.45)" },
-  mediaCard: { overflow: "hidden", borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white },
-  mediaTag: { position: "absolute", left: 10, top: 10, backgroundColor: GOLD, borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 2 },
-  videoPlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
-  videoDur: { position: "absolute", bottom: 8, right: 8, backgroundColor: "rgba(11,31,51,0.7)", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   sticker: { width: 32, height: 32, borderRadius: 16, backgroundColor: palette.white, borderWidth: 1, borderColor: "rgba(201,162,39,0.33)", alignItems: "center", justifyContent: "center" },
   nextCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderRadius: 22, padding: spacing.base, marginTop: spacing.base },
   nextBadge: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center" },
