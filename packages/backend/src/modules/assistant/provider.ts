@@ -49,6 +49,8 @@ class GeminiProvider implements AiProvider {
         signal: controller.signal,
       });
       if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        console.error(`[nuru-ai] gemini ${res.status}: ${detail.slice(0, 300)}`);
         throw new ApiError("UPSTREAM_UNAVAILABLE", "The assistant is unavailable right now");
       }
       const json = (await res.json()) as {
@@ -93,7 +95,11 @@ class GroqProvider implements AiProvider {
         }),
         signal: controller.signal,
       });
-      if (!res.ok) throw new ApiError("UPSTREAM_UNAVAILABLE", "The assistant is unavailable right now");
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        console.error(`[nuru-ai] groq ${res.status}: ${detail.slice(0, 300)}`);
+        throw new ApiError("UPSTREAM_UNAVAILABLE", "The assistant is unavailable right now");
+      }
       const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
       const text = json.choices?.[0]?.message?.content?.trim();
       if (!text) throw new ApiError("UPSTREAM_UNAVAILABLE", "The assistant had nothing to say");
@@ -107,29 +113,10 @@ class GroqProvider implements AiProvider {
   }
 }
 
-/** Wraps a live provider so a provider error / rate-limit (429) degrades to the
- *  offline responder instead of failing the request — important on free tiers. */
-class ResilientProvider implements AiProvider {
-  readonly name: string;
-  constructor(
-    private readonly primary: AiProvider,
-    private readonly fallback: AiProvider,
-  ) {
-    this.name = primary.name;
-  }
-  async complete(input: AiCompletion): Promise<string> {
-    try {
-      return await this.primary.complete(input);
-    } catch {
-      return this.fallback.complete(input);
-    }
-  }
-}
-
 /**
- * Deterministic offline fallback — used in tests and whenever no key is set, so
- * the feature degrades to something warm and useful instead of an error. Mirrors
- * the intents the mobile make's suggestion chips surface.
+ * Deterministic offline responder — used ONLY when no API key is configured
+ * (local dev + the test suite). With a key set we never fall back to this, so the
+ * assistant returns real model output (or a surfaced error), never canned text.
  */
 export class FakeAiProvider implements AiProvider {
   readonly name = "fake";
@@ -161,11 +148,11 @@ export class FakeAiProvider implements AiProvider {
 }
 
 export function buildAiProvider(env: Env): AiProvider {
-  const fake = new FakeAiProvider();
-  // Prefer Groq (free, no billing), then Gemini; either is wrapped so rate-limits
-  // / outages fall back to the offline responder rather than erroring.
-  let primary: AiProvider | null = null;
-  if (env.GROQ_API_KEY) primary = new GroqProvider(env.GROQ_API_KEY, env.GROQ_MODEL);
-  else if (env.GEMINI_API_KEY) primary = new GeminiProvider(env.GEMINI_API_KEY, env.GEMINI_MODEL);
-  return primary ? new ResilientProvider(primary, fake) : fake;
+  // Prefer Groq (free, no billing), then Gemini. When a key is configured we use
+  // the LIVE provider directly — a failure surfaces as an error (and is logged),
+  // rather than silently degrading to canned text. The offline responder is used
+  // only when no key is set (local dev / tests).
+  if (env.GROQ_API_KEY) return new GroqProvider(env.GROQ_API_KEY, env.GROQ_MODEL);
+  if (env.GEMINI_API_KEY) return new GeminiProvider(env.GEMINI_API_KEY, env.GEMINI_MODEL);
+  return new FakeAiProvider();
 }

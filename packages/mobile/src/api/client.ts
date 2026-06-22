@@ -397,7 +397,7 @@ export const NuruApi = {
   },
 
   // ---- Nuru AI assistant (server-side proxy; key never on device) ----
-  async assistantChat(body: { messages: NuruTurn[]; conversation_id?: string }): Promise<{ reply: string }> {
+  async assistantChat(body: { messages: NuruTurn[]; conversation_id?: string; context_limit?: number }): Promise<{ reply: string }> {
     const { data } = await api.post<{ reply: string }>("/assistant/chat", body);
     return data;
   },

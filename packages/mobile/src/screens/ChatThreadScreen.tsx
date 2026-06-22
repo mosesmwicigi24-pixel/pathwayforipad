@@ -371,17 +371,16 @@ export function ChatThreadScreen(): ReactElement {
     setSendError(null);
     try {
       const draft = text.trim();
-      const where = convo.kind === "dm" ? "a direct message" : convo.kind === "space" ? `the "${convo.title ?? "space"}" space` : `the "${convo.title ?? "cell"}" group`;
-      // Last few visible messages as a transcript so Nuru can read the room.
-      const transcript = (convo.messages ?? [])
-        .slice(-12)
-        .map((m) => `${m.mine ? "Me" : (m.author_name || "Member")}: ${m.body || `[${m.msg_type}]`}`)
-        .join("\n");
-      const context = `You are Nuru, helping me write the next message in ${where} of a warm Christian community app. Recent conversation:\n\n${transcript || "(no messages yet)"}\n\n`;
-      const prompt = draft
-        ? `${context}Polish my draft reply below — keep my intent, kind and concise, first person, fitting the thread. Reply with ONLY the message, no quotes:\n\n${draft}`
-        : `${context}Suggest the single best next message for me to send — wise, warm, relevant to what was said, first person, 1–2 sentences. Reply with ONLY the message, no quotes.`;
-      const { reply } = await NuruApi.assistantChat({ messages: [{ role: "user", text: prompt }] });
+      // Nuru reads the last 5 messages server-side (conversation_id) — no transcript
+      // is smuggled through the prompt, so it's always grounded in the real thread.
+      const instruction = draft
+        ? `Polish my draft reply, keeping my intent — kind, concise, first person, fitting the thread. Reply with ONLY the message:\n\n${draft}`
+        : "Suggest the single best next message for me to send — warm, wise, relevant to the last messages, first person, 1–2 sentences.";
+      const { reply } = await NuruApi.assistantChat({
+        messages: [{ role: "user", text: instruction }],
+        conversation_id: conversationId,
+        context_limit: 5,
+      });
       const clean = (reply ?? "").trim().replace(/^["“]+|["”]+$/g, "").trim();
       if (clean) {
         setAiPrev(text); // remember the prior draft so the user can Dismiss

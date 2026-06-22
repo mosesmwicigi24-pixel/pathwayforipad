@@ -27,7 +27,11 @@ export class AssistantService {
       .min(1)
       .max(40),
     conversation_id: z.string().uuid().optional(), // ground the answer on a chat the member can access
+    context_limit: z.coerce.number().int().min(1).max(20).optional(), // recent messages to read (default 5)
   });
+
+  /** How many recent messages Nuru reads for context (the "immediate" window). */
+  static readonly DEFAULT_CONTEXT = 5;
 
   async chat(userId: string, input: z.infer<typeof AssistantService.Chat>): Promise<{ reply: string }> {
     let system = NURU_SYSTEM;
@@ -37,11 +41,14 @@ export class AssistantService {
         title?: string;
         messages: Array<{ author_name: string; body: string }>;
       };
-      const transcript = convo.messages
-        .slice(-30)
-        .map((m) => `${m.author_name}: ${m.body}`)
-        .join("\n");
-      system += `\n\nThe member is asking about "${convo.title ?? "a conversation"}". Here is its recent transcript (oldest→newest). Use only this; do not invent beyond it:\n${transcript}`;
+      const limit = input.context_limit ?? AssistantService.DEFAULT_CONTEXT;
+      const recent = convo.messages.slice(-limit);
+      const transcript = recent.map((m) => `${m.author_name}: ${m.body}`).join("\n");
+      system +=
+        `\n\nYou are assisting inside the conversation "${convo.title ?? "a chat"}". ` +
+        `Read these last ${recent.length} message(s) (oldest→newest) and let them guide your reply. ` +
+        `Ground everything ONLY in this transcript — do not invent anything beyond it:\n${transcript}\n\n` +
+        `If asked to suggest or draft a reply, respond with a single natural message the member could send next — no preamble, no quotes, no options list.`;
     }
     const reply = await this.provider.complete({ system, messages: input.messages });
     return { reply };
