@@ -819,30 +819,42 @@ function PreviewDrawer({ asset, onClose, onAttachMenu, onReplace, onDelete, onTo
   const captionDirty = caption.trim() !== (asset.caption ?? "");
   const levelDirty = (level ? Number(level) : null) !== (asset.level_number ?? null);
 
-  // Thumbnail: upload an image or capture a frame from the video.
+  // Thumbnail: pick an image OR capture a frame → preview → Save (persists).
   const [thumbBusy, setThumbBusy] = useState(false);
   const [thumbErr, setThumbErr] = useState<string | null>(null);
+  const [pendingThumb, setPendingThumb] = useState<{ blob: Blob; name: string; url: string } | null>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
   const capturable = !!asset.external_url && (asset.video_source === "direct" || asset.video_source === "private");
-  async function onPickThumb(e: ChangeEvent<HTMLInputElement>): Promise<void> {
+  // Release the preview object URL when it changes or the drawer closes.
+  useEffect(() => () => { if (pendingThumb) URL.revokeObjectURL(pendingThumb.url); }, [pendingThumb]);
+
+  function stageThumbFile(e: ChangeEvent<HTMLInputElement>): void {
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
     if (!f.type.startsWith("image/")) { setThumbErr("Please choose an image file."); return; }
     if (f.size > 10 * 1024 * 1024) { setThumbErr("Image is larger than 10 MB."); return; }
-    setThumbBusy(true); setThumbErr(null);
-    try { const row = await MediaApi.uploadThumbnail(asset.media_asset_id, f, f.name); onThumbnailDone(row.thumbnail_url ?? null); }
-    catch (err) { setThumbErr(errorMessage(err, "Could not set the thumbnail.")); }
-    finally { setThumbBusy(false); }
+    setThumbErr(null);
+    setPendingThumb({ blob: f, name: f.name, url: URL.createObjectURL(f) });
   }
-  async function onCaptureThumb(): Promise<void> {
+  async function stageThumbCapture(): Promise<void> {
     if (!asset.external_url) return;
     setThumbBusy(true); setThumbErr(null);
     try {
       const blob = await captureVideoFrame(asset.external_url);
-      const row = await MediaApi.uploadThumbnail(asset.media_asset_id, blob, "frame.jpg");
-      onThumbnailDone(row.thumbnail_url ?? null);
+      setPendingThumb({ blob, name: "frame.jpg", url: URL.createObjectURL(blob) });
     } catch (err) { setThumbErr(err instanceof Error ? err.message : "Could not capture a frame."); }
+    finally { setThumbBusy(false); }
+  }
+  function cancelPendingThumb(): void { setPendingThumb(null); setThumbErr(null); }
+  async function saveThumb(): Promise<void> {
+    if (!pendingThumb) return;
+    setThumbBusy(true); setThumbErr(null);
+    try {
+      const row = await MediaApi.uploadThumbnail(asset.media_asset_id, pendingThumb.blob, pendingThumb.name);
+      setPendingThumb(null);
+      onThumbnailDone(row.thumbnail_url ?? null);
+    } catch (err) { setThumbErr(errorMessage(err, "Could not save the thumbnail.")); }
     finally { setThumbBusy(false); }
   }
   async function onRemoveThumb(): Promise<void> {
@@ -911,19 +923,31 @@ function PreviewDrawer({ asset, onClose, onAttachMenu, onReplace, onDelete, onTo
 
         {/* Thumbnail (poster) */}
         <div className="rounded-xl p-4 mt-4" style={{ background: "var(--secondary)", border: "1px solid var(--border)" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--foreground)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Thumbnail</div>
+          <div className="flex items-center justify-between mb-2">
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--foreground)", textTransform: "uppercase", letterSpacing: 0.5 }}>Thumbnail</span>
+            {pendingThumb ? <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5" style={{ background: "#FEF3C7", color: "#92400E", fontSize: 10.5, fontWeight: 700 }}>Unsaved — click Save</span> : null}
+          </div>
           <div className="flex items-start gap-3">
-            <div className="rounded-lg overflow-hidden shrink-0 flex items-center justify-center" style={{ width: 112, height: 64, background: "var(--card)", border: "1px solid var(--border)" }}>
-              {asset.thumbnail_url ? <img src={asset.thumbnail_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>No thumbnail</span>}
+            <div className="rounded-lg overflow-hidden shrink-0 flex items-center justify-center" style={{ width: 112, height: 64, background: "var(--card)", border: pendingThumb ? "2px solid var(--nuru-gold)" : "1px solid var(--border)" }}>
+              {pendingThumb ? <img src={pendingThumb.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                : asset.thumbnail_url ? <img src={asset.thumbnail_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                : <span style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>No thumbnail</span>}
             </div>
             <div className="flex-1 min-w-0">
-              <div style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginBottom: 8 }}>Shown for this video across the library and the app. Upload an image or grab a frame from the video.</div>
-              <input ref={thumbInputRef} type="file" accept="image/*" hidden onChange={(e) => void onPickThumb(e)} />
-              <div className="flex items-center gap-2 flex-wrap">
-                <button onClick={() => thumbInputRef.current?.click()} disabled={thumbBusy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "var(--nuru-navy)", color: "#fff", fontSize: 12, fontWeight: 700, border: "none", opacity: thumbBusy ? 0.6 : 1, cursor: thumbBusy ? "not-allowed" : "pointer" }}>{thumbBusy ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Upload image</button>
-                {capturable ? <button onClick={() => void onCaptureThumb()} disabled={thumbBusy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)", fontSize: 12, fontWeight: 600, opacity: thumbBusy ? 0.6 : 1, cursor: thumbBusy ? "not-allowed" : "pointer" }}><Film size={12} /> Capture from video</button> : null}
-                {asset.thumbnail_url ? <button onClick={() => void onRemoveThumb()} disabled={thumbBusy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "transparent", border: "1px solid var(--border)", color: "#DC2626", fontSize: 12, fontWeight: 600 }}><Trash2 size={12} /> Remove</button> : null}
-              </div>
+              <div style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginBottom: 8 }}>Shown for this video across the library and the app. Choose an image or grab a frame, then Save.</div>
+              <input ref={thumbInputRef} type="file" accept="image/*" hidden onChange={stageThumbFile} />
+              {pendingThumb ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button onClick={() => void saveThumb()} disabled={thumbBusy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 700, border: "none", opacity: thumbBusy ? 0.6 : 1, cursor: thumbBusy ? "not-allowed" : "pointer" }}>{thumbBusy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Save thumbnail</button>
+                  <button onClick={cancelPendingThumb} disabled={thumbBusy} className="rounded-lg px-3 py-2" style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--foreground)", fontSize: 12, fontWeight: 600 }}>Cancel</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button onClick={() => thumbInputRef.current?.click()} disabled={thumbBusy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "var(--nuru-navy)", color: "#fff", fontSize: 12, fontWeight: 700, border: "none", opacity: thumbBusy ? 0.6 : 1, cursor: thumbBusy ? "not-allowed" : "pointer" }}><Upload size={12} /> {asset.thumbnail_url ? "Replace image" : "Upload image"}</button>
+                  {capturable ? <button onClick={() => void stageThumbCapture()} disabled={thumbBusy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)", fontSize: 12, fontWeight: 600, opacity: thumbBusy ? 0.6 : 1, cursor: thumbBusy ? "not-allowed" : "pointer" }}>{thumbBusy ? <Loader2 size={12} className="animate-spin" /> : <Film size={12} />} Capture from video</button> : null}
+                  {asset.thumbnail_url ? <button onClick={() => void onRemoveThumb()} disabled={thumbBusy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "transparent", border: "1px solid var(--border)", color: "#DC2626", fontSize: 12, fontWeight: 600 }}><Trash2 size={12} /> Remove</button> : null}
+                </div>
+              )}
               {thumbErr ? <div style={{ fontSize: 11, color: "#DC2626", marginTop: 6 }}>{thumbErr}</div> : null}
             </div>
           </div>
