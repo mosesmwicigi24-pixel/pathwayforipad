@@ -1,11 +1,12 @@
 // Tab structure: the new design's primary destinations, in order. The Chat make
-// adds a sixth tab (Chat); the Events make renames Community → Events.
+// adds a sixth tab (Chat); the Events make renames Community → Events; the Plans
+// make (YouVersion-style reading plans) inserts a Plans tab after Pathway.
 import { describe, it, expect } from "vitest";
 import { TAB_ORDER, TAB_LABELS } from "../src/navigation/tabs";
 
-describe("tab structure (Contract Matrix M1 + Chat/Events makes)", () => {
-  it("is Home · Pathway · Events · Chat · Give · Profile, in that order", () => {
-    expect([...TAB_ORDER]).toEqual(["Home", "Pathway", "Events", "Chat", "Give", "Profile"]);
+describe("tab structure (Contract Matrix M1 + Chat/Events/Plans makes)", () => {
+  it("is Home · Pathway · Plans · Events · Chat · Give · Profile, in that order", () => {
+    expect([...TAB_ORDER]).toEqual(["Home", "Pathway", "Plans", "Events", "Chat", "Give", "Profile"]);
   });
 
   it("retires the old destinations (Levels/Calendar/Portal)", () => {

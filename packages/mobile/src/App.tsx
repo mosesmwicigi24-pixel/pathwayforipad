@@ -23,6 +23,8 @@ import { hydrateQueryCache } from "./api/query";
 import { getConnectivity, setConnectivity } from "./net/connectivity";
 import { NetInfoConnectivity, onReconnect } from "./net/netInfoConnectivity";
 import { startSyncLifecycle } from "./sync/syncLifecycle";
+import { startAnnouncementAlerts } from "./notifications/announcementAlerts";
+import { AnnouncementToast } from "./components/AnnouncementToast";
 
 // In dev, the JS bundle is served by Metro from the dev machine. Reuse that host
 // for the API so a physical device reaches the backend on the same LAN address
@@ -45,6 +47,9 @@ export function App(): ReactElement {
     let cancelled = false;
     let stopSync = (): void => {};
     let stopReconnect = (): void => {};
+    // Announcement alerts: poll the feed while the app is alive and chime + buzz +
+    // banner on anything new (no APNs needed under the current signing).
+    const stopAlerts = startAnnouncementAlerts(AppState);
 
     // Encryption-at-rest (§5.7): seal the offline store under an AES-256 key in the
     // keychain. The cipher loads async, so the store + sync are wired only once it's
@@ -74,6 +79,7 @@ export function App(): ReactElement {
       cancelled = true;
       stopSync();
       stopReconnect();
+      stopAlerts();
     };
   }, []);
 
@@ -88,6 +94,8 @@ export function App(): ReactElement {
         <View style={{ flex: 1 }}>
           <RootNavigator />
         </View>
+        {/* Heads-up banner for a freshly-arrived announcement (over everything). */}
+        <AnnouncementToast />
       </SafeAreaProvider>
     </Provider>
   );

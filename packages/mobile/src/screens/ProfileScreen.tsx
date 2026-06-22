@@ -23,6 +23,7 @@ import { NuruApi } from "../api/client";
 import { apiBaseUrl } from "../config";
 import type { Achievements, CertificateRow } from "../api/types";
 import { clearQueryCache, invalidateQueries } from "../api/query";
+import { resetAnnouncementAlerts } from "../notifications/announcementAlerts";
 import { getVault } from "../auth/vault";
 
 const CREAM = "#F6F4EE";
@@ -235,6 +236,7 @@ export function ProfileScreen(): ReactElement {
     }
     await getVault().clear();
     clearQueryCache();
+    resetAnnouncementAlerts(); // next member re-seeds; don't inherit this user's seen-set
     nav.reset({ index: 0, routes: [{ name: "Login" }] });
   }
 
