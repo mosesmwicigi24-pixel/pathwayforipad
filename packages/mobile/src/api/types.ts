@@ -617,6 +617,14 @@ export interface MentorInfo {
   notes: Array<{ note_id: string; topic: string; note: string | null; met_at: string; next_meeting_at: string | null }>;
 }
 
+// Member growth score (0–100) with its sub-components (GET /me/scores/*).
+export interface GrowthScore {
+  score: number;
+  band: string;
+  components: Record<string, number>;
+  detail: Record<string, number>;
+}
+
 // A discipler/mentor in the member's congregation, for the Home "Meet your
 // discipler" carousel (GET /home/disciplers).
 export interface Discipler {

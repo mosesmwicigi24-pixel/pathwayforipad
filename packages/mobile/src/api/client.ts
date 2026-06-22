@@ -40,6 +40,7 @@ import type {
   ResourceRow,
   MentorInfo,
   Discipler,
+  GrowthScore,
   MyReflection,
   PathwaySummary,
   PrayerEntry,
@@ -548,6 +549,11 @@ export const NuruApi = {
     return data as MentorInfo;
   },
 
+  // ---- Growth scores (server-authoritative; GET /me/scores/*) ----
+  async wordScore(): Promise<GrowthScore> {
+    const { data } = await api.get<GrowthScore>("/me/scores/word");
+    return data;
+  },
   // ---- Disciplers carousel (Home "Meet your discipler", GET /home/disciplers) ----
   async disciplers(): Promise<Discipler[]> {
     const { data } = await api.get<{ data: Discipler[] }>("/home/disciplers");

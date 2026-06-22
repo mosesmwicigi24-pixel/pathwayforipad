@@ -36,6 +36,30 @@ describe("devotional + resources (seeded content)", () => {
   });
 });
 
+describe("Word score", () => {
+  it("is 0 with no activity, rises with practice, and ticks the word rhythm", async () => {
+    const list = await agent().get("/v1/growth/memory-verses").set(auth(meTok));
+    const vid = (list.body.data as Array<{ memory_verse_id: string }>)[0]!.memory_verse_id;
+
+    const before = await agent().get("/v1/me/scores/word").set(auth(meTok));
+    expect(before.status).toBe(200);
+    expect(before.body.score).toBe(0);
+    expect(before.body.band).toBe("Just beginning");
+
+    await agent().post("/v1/growth/memory-verses/practice").set(auth(meTok)).send({ memory_verse_id: vid, match_pct: 96 });
+
+    const after = await agent().get("/v1/me/scores/word").set(auth(meTok));
+    expect(after.body.score).toBeGreaterThan(0);
+    expect(after.body.components).toHaveProperty("memorization");
+    expect(after.body.detail.verses_mastered).toBe(1);
+    expect(after.body.detail.active_days_14).toBeGreaterThanOrEqual(1); // practice emitted a 'word' event
+
+    // practising Scripture now ticks the daily "word" rhythm
+    const rhythm = await agent().get("/v1/me/rhythm/today").set(auth(meTok));
+    expect(rhythm.body.word).toBe(true);
+  });
+});
+
 describe("Home disciplers carousel", () => {
   async function tagDiscipler(userId: string, message?: string, avatar?: string): Promise<void> {
     await testPool().query(

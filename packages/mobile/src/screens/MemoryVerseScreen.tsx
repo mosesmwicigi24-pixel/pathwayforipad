@@ -10,8 +10,8 @@ import { NuruApi } from "../api/client";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
 import { useKeyboardInset } from "../components/useKeyboardInset";
-import { useMemoryVerses } from "../api/hooks";
-import { errorMessage, invalidateQueries } from "../api/query";
+import { useMemoryVerses, useWordScore } from "../api/hooks";
+import { errorMessage, invalidateQueries, refreshQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
 import type { MemoryVerseRow } from "../api/types";
 
@@ -29,6 +29,7 @@ function matchPct(target: string, attempt: string): number {
 export function MemoryVerseScreen(): ReactElement {
   const nav = useNavigation();
   const { data: verses, isLoading, error, refetch } = useMemoryVerses();
+  const { data: word } = useWordScore();
   const [practice, setPractice] = useState<MemoryVerseRow | null>(null);
 
   return (
@@ -42,6 +43,24 @@ export function MemoryVerseScreen(): ReactElement {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false}>
+        {word ? (
+          <View style={[st.card, st.scoreCard]}>
+            <View style={st.scoreRing}>
+              <T serif style={{ fontSize: 26, color: palette.navyDeep }}>{word.score}</T>
+              <T variant="micro" style={{ color: palette.ink600, marginTop: -2 }}>/100</T>
+            </View>
+            <View style={{ flex: 1 }}>
+              <T variant="micro" tone="gold" style={{ fontWeight: "700", letterSpacing: 1.2 }}>WORD SCORE</T>
+              <T variant="heading" style={{ color: palette.ink, marginTop: 1 }}>{word.band}</T>
+              <View style={st.scoreBars}>
+                <ScoreBar label="Consistency" value={word.components.consistency ?? 0} />
+                <ScoreBar label="Memorization" value={word.components.memorization ?? 0} />
+                <ScoreBar label="Breadth" value={word.components.breadth ?? 0} />
+              </View>
+            </View>
+          </View>
+        ) : null}
+
         {isLoading ? <Loading label="Loading your verses…" /> : null}
         {error ? <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /> : null}
         {(verses ?? []).map((v) => (
@@ -77,10 +96,23 @@ export function MemoryVerseScreen(): ReactElement {
           onSaved={() => {
             setPractice(null);
             invalidateQueries("memoryVerses");
+            refreshQueries("wordScore"); // practice moves the Word score
             void refetch();
           }}
         />
       ) : null}
+    </View>
+  );
+}
+
+/** One labelled progress bar inside the Word-score card. */
+function ScoreBar({ label, value }: { label: string; value: number }): ReactElement {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+      <T variant="micro" style={{ color: palette.ink600, width: 84 }}>{label}</T>
+      <View style={st.barTrack}>
+        <View style={[st.barFill, { width: `${Math.max(0, Math.min(100, value))}%` }]} />
+      </View>
     </View>
   );
 }
@@ -146,4 +178,9 @@ const st = {
   grab: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: "rgba(10,37,64,0.15)", marginBottom: spacing.base },
   input: { marginTop: spacing.md, minHeight: 90, borderRadius: radii.control, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.coolPaper, padding: spacing.base, fontSize: 16, lineHeight: 24, textAlignVertical: "top", color: palette.ink },
   matchTrack: { marginTop: spacing.md, height: 6, borderRadius: 3, backgroundColor: palette.track, overflow: "hidden" },
+  scoreCard: { flexDirection: "row", alignItems: "center", gap: spacing.base, marginBottom: spacing.base },
+  scoreRing: { width: 72, height: 72, borderRadius: 36, borderWidth: 3, borderColor: palette.gold, alignItems: "center", justifyContent: "center", backgroundColor: palette.verseBg },
+  scoreBars: { marginTop: spacing.sm, gap: 6 },
+  barTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: palette.track, overflow: "hidden" },
+  barFill: { height: 6, borderRadius: 3, backgroundColor: palette.gold },
 } as const;

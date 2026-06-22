@@ -2436,6 +2436,14 @@ paths:
         "200": { description: Disciplers }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /me/scores/word:
+    get:
+      tags: [progress]
+      summary: My Word score (consistency + memorization + breadth), 0–100 with breakdown.
+      responses:
+        "200": { description: Word score }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   # --- Growth-content authoring (Admin+) — every mobile growth element editable ---
   /admin/growth/devotionals:
     get:

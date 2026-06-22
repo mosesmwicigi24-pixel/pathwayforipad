@@ -26,6 +26,7 @@ import type {
   ResourceRow,
   MentorInfo,
   Discipler,
+  GrowthScore,
   NotificationRow,
   ScripturePassage,
   WelcomeVideo,
@@ -88,6 +89,7 @@ export const queryKeys = {
   featuredEvent: "featuredEvent",
   featuredAnnouncement: "featuredAnnouncement",
   disciplers: "disciplers",
+  wordScore: "wordScore",
   announcement: (id: string) => `announcement:${id}`,
   certificates: "certificates",
 };
@@ -287,4 +289,8 @@ export function useMentor(): QueryResult<MentorInfo> {
 /** Disciplers/mentors in my congregation (Home "Meet your discipler" carousel). */
 export function useDisciplers(): QueryResult<Discipler[]> {
   return useQuery(queryKeys.disciplers, () => NuruApi.disciplers(), { staleMs: 5 * 60_000 });
+}
+/** My Word score (consistency + memorization + breadth). */
+export function useWordScore(): QueryResult<GrowthScore> {
+  return useQuery(queryKeys.wordScore, () => NuruApi.wordScore(), { staleMs: 30_000 });
 }

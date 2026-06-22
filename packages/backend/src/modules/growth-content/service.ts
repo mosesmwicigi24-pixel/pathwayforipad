@@ -90,21 +90,42 @@ export class GrowthContentService {
     match_pct: z.number().int().min(0).max(100),
   });
 
-  /** Record a practice attempt; mastered once the best match reaches 90%. */
+  /** Record a practice attempt; mastered once the best match reaches 90%. Also
+   *  ticks the "word" rhythm for the day (idempotent, EAT) so actually practising
+   *  Scripture — not just opening the devotional — counts toward the rhythm, the
+   *  activity streak, and the Word score (§1.8). */
   async practiceVerse(userId: string, input: z.infer<typeof GrowthContentService.Practice>): Promise<unknown> {
     const status = input.match_pct >= 90 ? "mastered" : "learning";
-    return one(
-      this.pool,
-      `INSERT INTO memory_verse_progress (user_id, memory_verse_id, status, best_match_pct)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (user_id, memory_verse_id) DO UPDATE SET
-         best_match_pct = GREATEST(memory_verse_progress.best_match_pct, EXCLUDED.best_match_pct),
-         status = CASE WHEN GREATEST(memory_verse_progress.best_match_pct, EXCLUDED.best_match_pct) >= 90
-                       THEN 'mastered' ELSE memory_verse_progress.status END,
-         updated_at = now()
-       RETURNING memory_verse_id, status, best_match_pct`,
-      [userId, input.memory_verse_id, status, input.match_pct],
-    );
+    return tx(this.pool, async (c) => {
+      const row = await one(
+        c,
+        `INSERT INTO memory_verse_progress (user_id, memory_verse_id, status, best_match_pct)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id, memory_verse_id) DO UPDATE SET
+           best_match_pct = GREATEST(memory_verse_progress.best_match_pct, EXCLUDED.best_match_pct),
+           status = CASE WHEN GREATEST(memory_verse_progress.best_match_pct, EXCLUDED.best_match_pct) >= 90
+                         THEN 'mastered' ELSE memory_verse_progress.status END,
+           updated_at = now()
+         RETURNING memory_verse_id, status, best_match_pct`,
+        [userId, input.memory_verse_id, status, input.match_pct],
+      );
+      const already = await maybeOne(
+        c,
+        `SELECT 1 FROM interaction_events
+          WHERE user_id = $1 AND kind = 'word'
+            AND (occurred_at AT TIME ZONE 'Africa/Nairobi')::date = (now() AT TIME ZONE 'Africa/Nairobi')::date
+          LIMIT 1`,
+        [userId],
+      );
+      if (!already) {
+        await c.query(
+          `INSERT INTO interaction_events (user_id, kind, occurred_at, client_event_id)
+           VALUES ($1, 'word', now(), $2) ON CONFLICT (client_event_id, occurred_at) DO NOTHING`,
+          [userId, randomUUID()],
+        );
+      }
+      return row;
+    });
   }
 
   // ---- Reading plans ----
