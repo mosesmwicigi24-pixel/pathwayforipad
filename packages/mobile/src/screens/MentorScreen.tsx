@@ -6,7 +6,7 @@ import { Pressable, ScrollView, View } from "react-native";
 import { ArrowLeft, CalendarDays, UserRoundCheck } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import { palette, spacing, shadow } from "../theme/tokens";
-import { Glow, T } from "../theme/components";
+import { T } from "../theme/components";
 import { useMentor } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -30,7 +30,6 @@ export function MentorScreen(): ReactElement {
   return (
     <View style={st.screen}>
       <View style={st.header}>
-        <Glow size={200} color="rgba(201,162,39,0.10)" style={{ right: -50, top: -40 }} />
         <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={({ pressed }) => [st.backBtn, pressed && { transform: [{ scale: 0.95 }] }]}>
           <ArrowLeft size={20} color={palette.onNavy} />
         </Pressable>

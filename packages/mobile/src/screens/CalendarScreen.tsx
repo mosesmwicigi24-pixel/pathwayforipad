@@ -9,7 +9,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
-import { Glow, T } from "../theme/components";
+import { T } from "../theme/components";
 import { useCalendar } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -63,7 +63,6 @@ export function CalendarScreen(): ReactElement {
     <View style={st.screen}>
       {/* Navy header */}
       <View style={st.header}>
-        <Glow size={240} color="rgba(201,162,39,0.10)" style={{ right: -64, top: -64 }} />
         <View style={st.headRow}>
           <View>
             <T variant="micro" tone="gold" style={st.kicker}>CALENDAR</T>

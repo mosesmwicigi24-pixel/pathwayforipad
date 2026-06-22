@@ -20,7 +20,7 @@ import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { assertOnlineForGiving, getConnectivity } from "../net/connectivity";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
-import { Glow, PButton, T } from "../theme/components";
+import { PButton, T } from "../theme/components";
 import { useKeyboardInset } from "../components/useKeyboardInset";
 import { useGivingHistory, useMe, useSchedules } from "../api/hooks";
 import { invalidateQueries } from "../api/query";
@@ -243,7 +243,6 @@ export function GivingScreen(): ReactElement {
   return (
     <View style={st.screen}>
       <View style={st.header}>
-        <Glow size={200} color="rgba(201,162,39,0.12)" style={{ right: -50, top: -40 }} />
         {nav.canGoBack() ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={({ pressed }) => [st.backBtn, pressed && { transform: [{ scale: 0.95 }] }]}>
             <ArrowLeft size={20} color={palette.onNavy} />
@@ -702,7 +701,6 @@ function CeremonyOverlay({ c, onDismiss, onRetry, onConfirmPayPal }: { c: Ceremo
     const capturing = c.note === "paypal-capturing";
     return (
       <View style={st.ceremonyNavy}>
-        <Glow size={260} color="rgba(201,162,39,0.14)" style={{ alignSelf: "center", top: 80 }} />
         <View style={st.stkDisc}>{capturing ? <Loader size={30} color={palette.gold} /> : <T serif style={{ fontSize: 22, color: palette.gold, fontWeight: "800" }}>PP</T>}</View>
         <T serif tone="onNavy" style={{ fontSize: 24, marginTop: spacing.xl, textAlign: "center" }}>Approve in PayPal</T>
         <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.sm, textAlign: "center", maxWidth: 290 }}>
@@ -719,7 +717,6 @@ function CeremonyOverlay({ c, onDismiss, onRetry, onConfirmPayPal }: { c: Ceremo
   if (c.phase === "stk") {
     return (
       <View style={st.ceremonyNavy}>
-        <Glow size={260} color="rgba(201,162,39,0.14)" style={{ alignSelf: "center", top: 80 }} />
         <View style={st.stkDisc}><Loader size={30} color={palette.gold} /></View>
         <T serif tone="onNavy" style={{ fontSize: 24, marginTop: spacing.xl, textAlign: "center" }}>{mm ? "Check your phone" : "Completing your gift"}</T>
         <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.sm, textAlign: "center", maxWidth: 280 }}>

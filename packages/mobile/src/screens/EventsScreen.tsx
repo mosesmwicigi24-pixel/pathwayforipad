@@ -15,7 +15,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import type { CalendarOccurrence, EventSeries, MyAnnouncement } from "../api/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
-import { GradientBg, Glow, T } from "../theme/components";
+import { GradientBg, T } from "../theme/components";
 import { useCalendar, useCellSummary, useEventSeries, useMyAnnouncements, useMyRsvps, useNotifications, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries, refreshQueries } from "../api/query";
@@ -118,7 +118,6 @@ export function EventsScreen(): ReactElement {
       >
         {/* Header */}
         <View style={st.header}>
-          <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -70, top: -60 }} />
           <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>

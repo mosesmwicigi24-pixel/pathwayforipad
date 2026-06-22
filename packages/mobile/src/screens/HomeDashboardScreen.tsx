@@ -35,7 +35,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
-import { Glow, T } from "../theme/components";
+import { T } from "../theme/components";
 import {
   useAchievements,
   useCalendar,
@@ -249,7 +249,6 @@ export function HomeDashboardScreen(): ReactElement {
     >
       {/* ── Navy header ─────────────────────────────────────────────── */}
       <View style={st.header}>
-        <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -70, top: -70 }} />
         <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <T variant="micro" tone="gold" style={st.kicker}>{todayKicker()}</T>

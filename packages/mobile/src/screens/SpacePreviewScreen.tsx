@@ -10,7 +10,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { NuruApi } from "../api/client";
 import { palette, spacing, shadow } from "../theme/tokens";
-import { Glow, PButton, T } from "../theme/components";
+import { PButton, T } from "../theme/components";
 import { useChatConversation } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -39,7 +39,6 @@ export function SpacePreviewScreen(): ReactElement {
   return (
     <View style={st.screen}>
       <View style={st.header}>
-        <Glow size={200} color="rgba(201,162,39,0.12)" style={{ right: -40, top: -30 }} />
         <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={({ pressed }) => [st.iconBtn, pressed && { transform: [{ scale: 0.95 }] }]}>
           <ArrowLeft size={20} color={palette.onNavy} />
         </Pressable>

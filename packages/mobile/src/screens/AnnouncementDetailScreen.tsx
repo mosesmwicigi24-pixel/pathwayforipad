@@ -8,7 +8,7 @@ import { useNavigation, useRoute, type RouteProp } from "@react-navigation/nativ
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
-import { GradientBg, Glow, T } from "../theme/components";
+import { GradientBg, T } from "../theme/components";
 import { Markdown } from "../components/Markdown";
 import { ImageCarousel } from "../components/ImageCarousel";
 import { useAnnouncement } from "../api/hooks";
@@ -30,7 +30,6 @@ export function AnnouncementDetailScreen(): ReactElement {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
         <View style={st.hero}>
           <GradientBg colors={[palette.navy700, palette.navy, palette.navyDeep]} />
-          <Glow size={200} color="rgba(201,162,39,0.12)" style={{ right: -50, top: -40 }} />
           <View style={st.heroTop}>
             <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={({ pressed }) => [st.glassBtn, pressed && { transform: [{ scale: 0.95 }] }]}>
               <ChevronLeft size={20} color={palette.onNavy} />

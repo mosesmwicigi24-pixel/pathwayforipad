@@ -4,11 +4,11 @@
 // offline they queue (chat_messages:create) and replay on reconnect (§1.7).
 // Opening the thread marks it read.
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { ActivityIndicator, Image, Keyboard, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Keyboard, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
 import AudioRecorderPlayer from "react-native-audio-recorder-player";
 import { pick as pickDocument, isCancel } from "react-native-document-picker";
-import { ArrowLeft, Camera, FileText, Hash, ImagePlus, Mic, Paperclip, Play, Plus, Send, Smile, Sparkles, Square, Users, Video, X } from "lucide-react-native";
+import { ArrowLeft, Camera, Check, FileText, Hash, ImagePlus, Mic, MoreVertical, Paperclip, PenLine, Play, Plus, Send, Smile, Sparkles, Square, Users, Video, X } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -74,6 +74,7 @@ export function ChatThreadScreen(): ReactElement {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [reactingId, setReactingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null); // message being edited (composer in edit mode)
   const [showAttach, setShowAttach] = useState(false); // the "+" attachment grid
   const [showEmoji, setShowEmoji] = useState(false); // the emoji strip
   const [aiBusy, setAiBusy] = useState(false); // sparkle → AI drafting
@@ -343,6 +344,54 @@ export function ChatThreadScreen(): ReactElement {
     }
   }
 
+  // ── Edit / delete a sent message (three-dot "more actions"; own messages only) ──
+  function openMessageActions(m: ChatMessage): void {
+    Alert.alert("Message", undefined, [
+      { text: "Edit", onPress: () => { setEditingId(m.message_id); setText(m.body); setAiPrev(null); } },
+      { text: "Delete", style: "destructive", onPress: () => confirmDelete(m.message_id) },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }
+  function cancelEdit(): void {
+    setEditingId(null);
+    setText("");
+  }
+  function confirmDelete(id: string): void {
+    Alert.alert("Delete message?", "This removes it for everyone in the chat.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: () => void doDelete(id) },
+    ]);
+  }
+  async function doDelete(id: string): Promise<void> {
+    try {
+      await NuruApi.deleteChatMessage(id);
+      if (editingId === id) cancelEdit();
+      refreshQueries(queryKeys.chatConvo(conversationId));
+      refreshQueries(queryKeys.chatInbox);
+      void refetch();
+    } catch (e) {
+      setSendError(composerError(e));
+    }
+  }
+  async function saveEdit(): Promise<void> {
+    const body = text.trim();
+    if (!body || !editingId) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      await NuruApi.editChatMessage(editingId, body);
+      setEditingId(null);
+      setText("");
+      refreshQueries(queryKeys.chatConvo(conversationId));
+      refreshQueries(queryKeys.chatInbox);
+      void refetch();
+    } catch (e) {
+      setSendError(composerError(e));
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function react(messageId: string, emoji: string): Promise<void> {
     setReactingId(null);
     try {
@@ -449,6 +498,7 @@ export function ChatThreadScreen(): ReactElement {
                 onReact={(e) => void react(m.message_id, e)}
                 playing={playingId === m.message_id}
                 onPlayVoice={(url) => void toggleVoicePlayback(m.message_id, url)}
+                onMore={m.mine ? () => openMessageActions(m) : undefined}
               />
             ))}
             {convo.messages.length === 0 ? (
@@ -529,6 +579,17 @@ export function ChatThreadScreen(): ReactElement {
                   </ScrollView>
                 ) : null}
 
+                {/* Editing an existing message — Save (✓) updates it; Cancel discards */}
+                {editingId ? (
+                  <View style={st.aiHint}>
+                    <PenLine size={14} color={palette.goldLo} />
+                    <T variant="caption" tone="secondary" style={{ flex: 1 }}>Editing message</T>
+                    <Pressable accessibilityRole="button" accessibilityLabel="Cancel edit" onPress={cancelEdit} hitSlop={8}>
+                      <T variant="caption" style={{ color: palette.goldLo, fontWeight: "800" }}>Cancel</T>
+                    </Pressable>
+                  </View>
+                ) : null}
+
                 {/* Nuru suggestion banner — edit it, send it, or dismiss to restore your draft */}
                 {aiPrev !== null ? (
                   <View style={st.aiHint}>
@@ -587,15 +648,15 @@ export function ChatThreadScreen(): ReactElement {
                     </Pressable>
                   </View>
 
-                  {/* Send when there's text, else record a voice note */}
+                  {/* Save (edit) · Send (text) · Record (voice) */}
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={text.trim().length > 0 ? "Send" : "Record voice note"}
-                    onPress={() => (text.trim().length > 0 ? void send() : void startRecording())}
+                    accessibilityLabel={editingId ? "Save edit" : text.trim().length > 0 ? "Send" : "Record voice note"}
+                    onPress={() => (editingId ? void saveEdit() : text.trim().length > 0 ? void send() : void startRecording())}
                     disabled={sending}
                     style={({ pressed }) => [st.sendBtn, pressed && { transform: [{ scale: 0.94 }] }]}
                   >
-                    {text.trim().length > 0 ? <Send size={20} color="#fff" /> : <Mic size={20} color="#fff" />}
+                    {editingId ? <Check size={20} color="#fff" /> : text.trim().length > 0 ? <Send size={20} color="#fff" /> : <Mic size={20} color="#fff" />}
                   </Pressable>
                 </View>
               </>
@@ -624,6 +685,7 @@ function Bubble({
   onReact,
   playing,
   onPlayVoice,
+  onMore,
 }: {
   m: ChatMessage;
   onLongPress: () => void;
@@ -631,6 +693,7 @@ function Bubble({
   onReact: (emoji: string) => void;
   playing: boolean;
   onPlayVoice: (url: string) => void;
+  onMore?: (() => void) | undefined;
 }): ReactElement {
   const meta = (m.attachment_meta ?? {}) as { duration?: number; name?: string; size?: number };
   const [videoOpen, setVideoOpen] = useState(false);
@@ -694,7 +757,17 @@ function Bubble({
           )
         ) : null}
         {m.body ? <T variant="body" style={{ color: m.mine ? "#fff" : palette.ink, marginTop: m.msg_type !== "text" ? 6 : 0 }}>{m.body}</T> : null}
-        <T variant="micro" style={{ color: m.mine ? "rgba(255,255,255,0.6)" : palette.ink400, marginTop: 4, alignSelf: "flex-end" }}>{when(m.created_at)}</T>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-end", marginTop: 4 }}>
+          {m.is_edited ? (
+            <T variant="micro" style={{ color: m.mine ? "rgba(255,255,255,0.55)" : palette.ink400, fontStyle: "italic" }}>edited</T>
+          ) : null}
+          <T variant="micro" style={{ color: m.mine ? "rgba(255,255,255,0.6)" : palette.ink400 }}>{when(m.created_at)}</T>
+          {m.mine && onMore ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="More actions" onPress={onMore} hitSlop={10} style={{ marginLeft: 2 }}>
+              <MoreVertical size={14} color="rgba(255,255,255,0.7)" />
+            </Pressable>
+          ) : null}
+        </View>
       </Pressable>
 
       {m.reactions.length > 0 ? (

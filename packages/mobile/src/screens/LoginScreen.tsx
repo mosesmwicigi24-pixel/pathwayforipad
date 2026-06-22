@@ -13,7 +13,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing } from "../theme/tokens";
-import { Glow, PButton, T } from "../theme/components";
+import { PButton, T } from "../theme/components";
 
 // Dev convenience: the seed (`pnpm db:seed:dev`) gives every @dev.local account
 // this password, so the simulator can sign in immediately.
@@ -150,9 +150,9 @@ export function LoginScreen(): ReactElement {
 
   return (
     <KeyboardAvoidingView style={st.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <Glow size={340} color="rgba(201,162,39,0.12)" style={{ alignSelf: "center", top: -40 }} />
       <ScrollView contentContainerStyle={st.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        {/* Brand */}
+        {/* Upper third — the cross + brand info */}
+        <View style={st.upper}>
         <View style={st.brand}>
           <View style={st.logo}>
             <View style={st.crossV} />
@@ -168,7 +168,10 @@ export function LoginScreen(): ReactElement {
             A MISSIONARY SENDING CHURCH
           </T>
         </View>
+        </View>
 
+        {/* Lower third — the login details */}
+        <View style={st.lower}>
         {/* Secondary-mode header (Back + serif title + subtitle) */}
         {mode !== "login" ? (
           <View style={{ marginTop: spacing.xl }}>
@@ -273,6 +276,7 @@ export function LoginScreen(): ReactElement {
             </Pressable>
           )}
         </View>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -293,7 +297,11 @@ function Field({ label, icon, trailing, children }: { label: string; icon: React
 
 const st = {
   root: { flex: 1, backgroundColor: "#081C36", overflow: "hidden" },
-  scroll: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: 72, paddingBottom: 44 },
+  scroll: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 44 },
+  // Thirds: the cross + info float in the upper region; the login details sit in
+  // the lower region with a clear gap between them.
+  upper: { flex: 1, alignItems: "center", justifyContent: "center" },
+  lower: { flex: 1, justifyContent: "flex-end" },
   brand: { alignItems: "center" },
   logo: {
     width: 72, height: 72, borderRadius: 22,

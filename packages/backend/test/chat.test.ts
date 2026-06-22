@@ -47,6 +47,38 @@ async function groupId(tok: string): Promise<string> {
   return group!.conversation_id;
 }
 
+describe("message edit / delete (author-only)", () => {
+  it("author edits and soft-deletes their own message; others cannot", async () => {
+    const g = await groupId(aTok);
+    await agent().post(`/v1/chat/conversations/${g}/messages`).set(auth(aTok))
+      .send({ message_id: uuid(1), body: "frist draft", client_mutation_id: uuid(50) });
+
+    // a non-author cannot edit or delete
+    const otherEdit = await agent().patch(`/v1/chat/messages/${uuid(1)}`).set(auth(a2Tok)).send({ body: "hijack" });
+    expect(otherEdit.status).toBe(404);
+    const otherDel = await agent().delete(`/v1/chat/messages/${uuid(1)}`).set(auth(a2Tok));
+    expect(otherDel.status).toBe(404);
+
+    // author edits → body changes + is_edited flips
+    const edit = await agent().patch(`/v1/chat/messages/${uuid(1)}`).set(auth(aTok)).send({ body: "first draft, fixed" });
+    expect(edit.status).toBe(200);
+    let seen = await agent().get(`/v1/chat/conversations/${g}`).set(auth(a2Tok));
+    const edited = (seen.body.messages as Array<{ message_id: string; body: string; is_edited: boolean }>).find((m) => m.message_id === uuid(1));
+    expect(edited?.body).toBe("first draft, fixed");
+    expect(edited?.is_edited).toBe(true);
+
+    // author deletes → message disappears from everyone's read
+    const del = await agent().delete(`/v1/chat/messages/${uuid(1)}`).set(auth(aTok));
+    expect(del.status).toBe(200);
+    seen = await agent().get(`/v1/chat/conversations/${g}`).set(auth(a2Tok));
+    expect((seen.body.messages as Array<{ message_id: string }>).some((m) => m.message_id === uuid(1))).toBe(false);
+
+    // editing a deleted message 404s
+    const reEdit = await agent().patch(`/v1/chat/messages/${uuid(1)}`).set(auth(aTok)).send({ body: "back?" });
+    expect(reEdit.status).toBe(404);
+  });
+});
+
 describe("cell groups", () => {
   it("auto-provisions one group room per cell and members of the cell share it", async () => {
     const gA = await groupId(aTok);

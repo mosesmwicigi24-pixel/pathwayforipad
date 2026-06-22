@@ -119,8 +119,10 @@ export function useLevelEncouragements(levelNumber: number | null): QueryResult<
 }
 
 export function useModule(moduleId: string | null): QueryResult<ModuleDetail> {
+  // Short stale window so an admin edit to the lesson shows up almost immediately
+  // (ModuleScreen also refetches on focus + polls while open).
   return useQuery(moduleId ? queryKeys.module(moduleId) : null, () => NuruApi.module(moduleId as string), {
-    staleMs: 300_000,
+    staleMs: 10_000,
   });
 }
 

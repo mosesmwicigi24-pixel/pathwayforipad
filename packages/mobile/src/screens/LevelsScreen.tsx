@@ -26,7 +26,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
-import { Glow, T } from "../theme/components";
+import { T } from "../theme/components";
 import { useAchievements, usePathway, useScripture } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -92,7 +92,6 @@ export function LevelsScreen(): ReactElement {
     >
       {/* ── Navy header with progress ring + verse ──────────────────── */}
       <View style={st.header}>
-        <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -70, top: -70 }} />
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <T variant="micro" tone="gold" style={st.kicker}>PATHWAY</T>
@@ -164,7 +163,6 @@ export function LevelsScreen(): ReactElement {
             onPress={() => nav.navigate("Level", { levelId: active.level_number })}
             style={({ pressed }) => [st.continueCard, pressed && { transform: [{ scale: 0.99 }] }]}
           >
-            <Glow size={140} color="rgba(201,162,39,0.14)" style={{ right: -30, top: -30 }} />
             <View style={st.continueTile}>
               <PlayCircle size={22} color={palette.gold} />
             </View>

@@ -351,6 +351,15 @@ export const NuruApi = {
     const { data } = await api.post<{ on: boolean }>(`/chat/messages/${messageId}/reactions`, { emoji });
     return data;
   },
+  // Author-only edit / delete of a sent message (online; mirrors reactions).
+  async editChatMessage(messageId: string, body: string): Promise<{ message_id: string; body: string; is_edited: boolean }> {
+    const { data } = await api.patch<{ message_id: string; body: string; is_edited: boolean }>(`/chat/messages/${messageId}`, { body });
+    return data;
+  },
+  async deleteChatMessage(messageId: string): Promise<{ deleted: boolean }> {
+    const { data } = await api.delete<{ deleted: boolean }>(`/chat/messages/${messageId}`);
+    return data;
+  },
   async createDm(userId: string): Promise<{ conversation_id: string }> {
     const { data } = await api.post<{ conversation_id: string }>("/chat/dms", { user_id: userId });
     return data;

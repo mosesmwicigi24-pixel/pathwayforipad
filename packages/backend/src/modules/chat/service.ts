@@ -328,7 +328,7 @@ export class ChatService {
          JOIN users u ON u.user_id = m.author_user_id
          LEFT JOIN chat_messages rt ON rt.message_id = m.reply_to_id
          LEFT JOIN users ru ON ru.user_id = rt.author_user_id
-        WHERE m.conversation_id = $2 ${moderator ? "" : "AND NOT m.is_hidden"}
+        WHERE m.conversation_id = $2 AND m.deleted_at IS NULL ${moderator ? "" : "AND NOT m.is_hidden"}
         ORDER BY m.created_at
         LIMIT 500`,
       [userId, conversationId],
@@ -365,6 +365,35 @@ export class ChatService {
       await recordChange(c, "chat_messages", input.message_id, null, "upsert");
       return { message_id: input.message_id, duplicate: false };
     });
+  }
+
+  static readonly EditMessage = z.object({ body: z.string().min(1).max(4000) });
+
+  /** Author-only edit. Only the message's author may change its body; sets the
+   *  is_edited flag so the client can show "(edited)". 404 if not theirs/deleted. */
+  async editMessage(userId: string, messageId: string, body: string): Promise<{ message_id: string; body: string; is_edited: boolean }> {
+    const row = await maybeOne<{ message_id: string; body: string }>(
+      this.pool,
+      `UPDATE chat_messages SET body = $3, is_edited = TRUE, updated_at = now()
+         WHERE message_id = $1 AND author_user_id = $2 AND deleted_at IS NULL
+       RETURNING message_id, body`,
+      [messageId, userId, body],
+    );
+    if (!row) throw new ApiError("NOT_FOUND", "Message not found or not yours to edit");
+    return { ...row, is_edited: true };
+  }
+
+  /** Author-only soft delete. The message is excluded from every read thereafter. */
+  async deleteMessage(userId: string, messageId: string): Promise<{ message_id: string; deleted: boolean }> {
+    const row = await maybeOne<{ message_id: string }>(
+      this.pool,
+      `UPDATE chat_messages SET deleted_at = now(), updated_at = now()
+         WHERE message_id = $1 AND author_user_id = $2 AND deleted_at IS NULL
+       RETURNING message_id`,
+      [messageId, userId],
+    );
+    if (!row) throw new ApiError("NOT_FOUND", "Message not found or not yours to delete");
+    return { message_id: row.message_id, deleted: true };
   }
 
   async toggleReaction(userId: string, input: z.infer<typeof ChatService.ToggleReaction>): Promise<{ message_id: string; emoji: string; on: boolean }> {

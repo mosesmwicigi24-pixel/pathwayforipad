@@ -7,7 +7,7 @@ import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from "react
 import { ArrowLeft, Check, Headphones, Play, Quote } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
-import { Glow, T } from "../theme/components";
+import { T } from "../theme/components";
 import { useKeyboardInset } from "../components/useKeyboardInset";
 import { Markdown } from "../components/Markdown";
 import { useDevotional, queryKeys } from "../api/hooks";
@@ -52,7 +52,6 @@ export function DevotionalScreen(): ReactElement {
   return (
     <View style={st.screen}>
       <View style={st.header}>
-        <Glow size={200} color="rgba(201,162,39,0.10)" style={{ right: -50, top: -40 }} />
         <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={({ pressed }) => [st.backBtn, pressed && { transform: [{ scale: 0.95 }] }]}>
           <ArrowLeft size={20} color={palette.onNavy} />
         </Pressable>

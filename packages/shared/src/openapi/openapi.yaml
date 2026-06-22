@@ -2684,6 +2684,25 @@ paths:
         "200": { description: Toggled }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /chat/messages/{id}:
+    patch:
+      tags: [progress]
+      summary: Edit my own message body (author-only); sets the edited flag.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Edited }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [progress]
+      summary: Soft-delete my own message (author-only); removed from all reads.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /chat/people:
     get:
       tags: [progress]

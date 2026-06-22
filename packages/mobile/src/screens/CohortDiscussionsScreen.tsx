@@ -11,7 +11,7 @@ import type { RootStackParamList } from "../navigation/types";
 import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
-import { Glow, PButton, T } from "../theme/components";
+import { PButton, T } from "../theme/components";
 import { useThreads } from "../api/hooks";
 import { errorMessage, invalidateQueries } from "../api/query";
 import { writeThrough } from "../sync/offlineWrite";
@@ -74,7 +74,6 @@ export function CohortDiscussionsScreen(): ReactElement {
   return (
     <View style={st.screen}>
       <View style={st.header}>
-        <Glow size={200} color="rgba(201,162,39,0.10)" style={{ right: -50, top: -40 }} />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Back"

@@ -3,14 +3,14 @@
 // (for reflection-gated modules), and a sticky "Mark complete". Completion posts to
 // the server (the authority for gating, §1.1) and then invalidates the pathway and
 // module-list caches so the next module unlocks immediately.
-import { useState, type ReactElement } from "react";
+import { useCallback, useState, type ReactElement } from "react";
 import { Pressable, ScrollView, TextInput, View, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 import { Check, ChevronLeft, ChevronRight, Headphones, Pause, PenLine, Play, Video } from "lucide-react-native";
-import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
-import { Glow, PButton, T } from "../theme/components";
+import { PButton, T } from "../theme/components";
 import { Markdown } from "../components/Markdown";
 import { Loading, ErrorState } from "../components/states";
 import { useModule, useMyReflection, queryKeys } from "../api/hooks";
@@ -26,6 +26,16 @@ export function ModuleScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { moduleId } = useRoute<RouteProp<RootStackParamList, "Module">>().params;
   const { data: module, isLoading, error, refetch } = useModule(moduleId);
+  // Live content: refetch when the screen regains focus, and poll every 20s while
+  // it's open, so an admin's edit to the lesson appears almost immediately without
+  // an app restart (server stays the source of truth; §1.1).
+  useFocusEffect(
+    useCallback(() => {
+      void refetch();
+      const id = setInterval(() => void refetch(), 20_000);
+      return () => clearInterval(id);
+    }, [refetch]),
+  );
   const [reflection, setReflection] = useState("");
   // Completion is online-first; offline it queues a module_progress:complete
   // mutation that replays on reconnect (server stays authoritative for gating).
@@ -163,8 +173,6 @@ export function ModuleScreen(): ReactElement {
             {/* Lesson media hero (Figma "Lesson media") — gradient banner + audio/video */}
             <View style={st.mediaHero}>
               <View style={st.mediaBanner}>
-                <Glow size={150} color="rgba(201,162,39,0.30)" style={{ right: -36, bottom: -36 }} />
-                <Glow size={130} color="rgba(120,170,220,0.22)" style={{ left: -30, top: -30 }} />
                 <View style={st.mediaPill}>
                   <T variant="micro" tone="onNavy" style={{ letterSpacing: 1.4, fontWeight: "600" }}>LESSON MEDIA</T>
                 </View>

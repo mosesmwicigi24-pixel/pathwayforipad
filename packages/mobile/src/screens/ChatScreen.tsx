@@ -13,7 +13,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import type { ChatConversation, ChatPerson, DiscoverSpace } from "../api/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
-import { GradientBg, Glow, T } from "../theme/components";
+import { GradientBg, T } from "../theme/components";
 import { useChatInbox, useChatPeople, queryKeys } from "../api/hooks";
 import { errorMessage, refreshQueries } from "../api/query";
 import { NuruApi } from "../api/client";
@@ -98,7 +98,6 @@ export function ChatScreen(): ReactElement {
   return (
     <View style={st.screen}>
       <View style={st.header}>
-        <Glow size={220} color="rgba(201,162,39,0.10)" style={{ right: -60, top: -50 }} />
         <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
           <View style={{ flex: 1 }}>
             <T variant="micro" tone="gold" style={st.kicker}>WORKSPACE</T>
