@@ -11,7 +11,13 @@ services:
   api:
     ports:
       - "127.0.0.1:8090:8080"
+    # Self-hosted video storage: uploaded bytes land on the host disk (served by
+    # nginx at https://pathway.nuruplace.org/media/...), NOT Cloudinary.
+    volumes:
+      - /var/www/pathway-media:/data/media
     environment:
+      MEDIA_STORAGE_DIR: ${MEDIA_STORAGE_DIR:-/data/media}
+      MEDIA_PUBLIC_BASE_URL: ${MEDIA_PUBLIC_BASE_URL:-https://pathway.nuruplace.org/media}
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}
       SMTP_SECURE: ${SMTP_SECURE}

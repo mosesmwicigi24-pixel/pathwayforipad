@@ -1,11 +1,16 @@
 // Module: media (spec §1.5, §4.5; Features v2 §V)
 // Owns: signed, expiring delivery URLs; the video transcode pipeline (upload
 // sessions, gated HLS manifests, cross-device resume). Raw bytes never proxied.
-import { Router } from "express";
+import { mkdirSync, unlink } from "node:fs";
+import { extname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { Router, type NextFunction, type Request, type Response } from "express";
+import multer from "multer";
 import { z } from "zod";
 import type { AppContext } from "../../http/context.js";
 import { authenticate, requirePermission, requireRole } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
+import { ApiError } from "../../http/errors.js";
 import { MediaService } from "./service.js";
 import { VideoService } from "./video.js";
 import { buildVideoPipeline } from "./pipeline.js";
@@ -18,6 +23,41 @@ export function registerMedia(ctx: AppContext): Router {
   const auth = authenticate(ctx.env);
   const perm = requirePermission(ctx.db.replica); // RBAC: videos module (Video Library, §5.4)
   const r = mediaRouter;
+
+  // --- Self-hosted video uploads: bytes stream straight to OUR disk (not
+  // Cloudinary). multer writes the file to MEDIA_STORAGE_DIR; we then record a
+  // 'direct' asset whose external_url is the public nginx-served URL. ---
+  const storageDir = ctx.env.MEDIA_STORAGE_DIR ?? "/tmp/nuru-media";
+  try { mkdirSync(storageDir, { recursive: true }); } catch { /* best-effort; route fails loudly if unwritable */ }
+  const publicBase = (ctx.env.MEDIA_PUBLIC_BASE_URL ?? "http://localhost:8080/media").replace(/\/+$/, "");
+  const upload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, storageDir),
+      filename: (_req, file, cb) => {
+        const ext = (extname(file.originalname) || ".mp4").toLowerCase().replace(/[^.a-z0-9]/g, "") || ".mp4";
+        cb(null, `${randomUUID()}${ext}`);
+      },
+    }),
+    limits: { fileSize: ctx.env.MEDIA_MAX_UPLOAD_BYTES, files: 1 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype?.startsWith("video/")) cb(null, true);
+      else cb(new ApiError("VALIDATION_FAILED", "Only video files can be uploaded"));
+    },
+  });
+  // Run multer, mapping its errors (e.g. size cap) to our ApiError envelope.
+  const uploadVideo = (req: Request, res: Response, next: NextFunction): void =>
+    upload.single("file")(req, res, (err: unknown) => {
+      if (!err) return next();
+      if (err instanceof multer.MulterError) {
+        return next(
+          new ApiError(
+            "VALIDATION_FAILED",
+            err.code === "LIMIT_FILE_SIZE" ? "Video exceeds the maximum upload size" : err.message,
+          ),
+        );
+      }
+      return next(err);
+    });
 
   // Broker a signed URL for an object key the caller already holds a reference to.
   r.get(
@@ -81,6 +121,35 @@ export function registerMedia(ctx: AppContext): Router {
     }),
   );
 
+  // Upload a video straight to OUR storage (VPS disk). The file streams to disk
+  // via multer; we register it as a ready 'direct' asset with a public URL.
+  r.post(
+    "/admin/media/videos/upload",
+    auth, perm("videos", "create"),
+    uploadVideo,
+    handler(async (req, res) => {
+      const file = req.file;
+      if (!file) throw new ApiError("VALIDATION_FAILED", "No video file was uploaded (field 'file')");
+      const body = parseBody(
+        z
+          .object({
+            title: z.string().trim().min(1).optional(),
+            caption: z.string().trim().optional(),
+            level_number: z.coerce.number().int().positive().optional(),
+          })
+          .partial(),
+        req.body ?? {},
+      );
+      res.status(201).json(
+        await video.registerUploaded(requirePrincipal(req).userId, {
+          storageFilename: file.filename,
+          publicUrl: `${publicBase}/${file.filename}`,
+          ...body,
+        }),
+      );
+    }),
+  );
+
   // Register an external (YouTube/Vimeo/direct/private) video — no transcode.
   r.post(
     "/admin/media/external",
@@ -113,7 +182,10 @@ export function registerMedia(ctx: AppContext): Router {
     "/admin/media/:id",
     auth, perm("videos", "delete"),
     handler(async (req, res) => {
-      res.json(await video.archiveAsset(requirePrincipal(req).userId, req.params.id ?? ""));
+      const result = await video.archiveAsset(requirePrincipal(req).userId, req.params.id ?? "");
+      // Self-hosted file: remove the bytes from our disk (best-effort).
+      if (result.local_file) unlink(join(storageDir, result.local_file), () => undefined);
+      res.json({ archived: result.archived });
     }),
   );
 

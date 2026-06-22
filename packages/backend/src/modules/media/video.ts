@@ -173,7 +173,9 @@ export class VideoService {
   async listAssets(
     filter: z.infer<typeof VideoService.ListFilter> = {},
   ): Promise<{ data: unknown[]; total: number; stuck: number }> {
-    const where: string[] = [];
+    // Deleted (archived) assets are never listed — they vanish from the library
+    // AND the processing queue, which is derived from this same payload.
+    const where: string[] = ["ma.deleted_at IS NULL"];
     const params: unknown[] = [];
     if (filter.status) {
       params.push(filter.status);
@@ -272,6 +274,52 @@ export class VideoService {
       await audit(c, adminId, "media.external_register", "media_assets", row.media_asset_id, {
         video_source: input.video_source,
         external_video_id: videoId,
+      });
+      return this.getAssetRow(c, row.media_asset_id);
+    });
+  }
+
+  /** Register a video that was uploaded to OUR OWN storage (VPS disk, not
+   *  Cloudinary). The bytes already landed at `storageFilename` under
+   *  MEDIA_STORAGE_DIR; we record a ready 'direct' asset whose external_url is the
+   *  public (nginx-served) URL on our domain. Shareable + attachable like any
+   *  other direct video; source_object_key holds the on-disk filename so archive
+   *  can delete the file. */
+  async registerUploaded(
+    adminId: string,
+    input: {
+      storageFilename: string;
+      publicUrl: string;
+      title?: string | undefined;
+      caption?: string | undefined;
+      level_number?: number | undefined;
+      duration_sec?: number | undefined;
+    },
+  ): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const row = await one<{ media_asset_id: string }>(
+        c,
+        `INSERT INTO media_assets
+            (cloudinary_id, kind, status, provider, video_source,
+             external_url, source_object_key, caption, level_number, duration_sec, created_by)
+         VALUES ('local', 'lesson_video', 'ready', 'local', 'direct',
+                 $1, $2, $3, $4, $5, $6)
+         RETURNING media_asset_id`,
+        [
+          input.publicUrl,
+          input.storageFilename,
+          input.caption ?? null,
+          input.level_number ?? null,
+          input.duration_sec ?? null,
+          adminId,
+        ],
+      );
+      if (input.title) {
+        await c.query(`UPDATE modules SET title = $1 WHERE media_asset_id = $2`, [input.title, row.media_asset_id]);
+      }
+      await audit(c, adminId, "media.upload_stored", "media_assets", row.media_asset_id, {
+        storage: "local",
+        filename: input.storageFilename,
       });
       return this.getAssetRow(c, row.media_asset_id);
     });
@@ -431,8 +479,10 @@ export class VideoService {
     });
   }
 
-  /** Archive an asset; refuse if a PUBLISHED module still references it. */
-  async archiveAsset(adminId: string, id: string): Promise<{ archived: boolean }> {
+  /** Archive an asset (soft-delete via deleted_at); refuse if a PUBLISHED module
+   *  still references it. Returns the on-disk filename for self-hosted assets so
+   *  the route can delete the file from our storage. */
+  async archiveAsset(adminId: string, id: string): Promise<{ archived: boolean; local_file: string | null }> {
     return tx(this.pool, async (c) => {
       const refs = await one<{ n: number }>(
         c,
@@ -442,10 +492,17 @@ export class VideoService {
       if (refs.n > 0) {
         throw new ApiError("CONFLICT", "Asset is referenced by a published module; unpublish first");
       }
-      const r = await c.query(`UPDATE media_assets SET status = 'failed', error_detail = 'archived' WHERE media_asset_id = $1`, [id]);
-      if (r.rowCount === 0) throw new ApiError("NOT_FOUND", "Media asset not found");
+      const row = await maybeOne<{ provider: string | null; source_object_key: string | null }>(
+        c,
+        `UPDATE media_assets
+            SET deleted_at = now(), is_homepage = false
+          WHERE media_asset_id = $1 AND deleted_at IS NULL
+          RETURNING provider, source_object_key`,
+        [id],
+      );
+      if (!row) throw new ApiError("NOT_FOUND", "Media asset not found");
       await audit(c, adminId, "media.archived", "media_assets", id, {});
-      return { archived: true };
+      return { archived: true, local_file: row.provider === "local" ? row.source_object_key : null };
     });
   }
 

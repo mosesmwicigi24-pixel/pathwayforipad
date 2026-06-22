@@ -255,3 +255,38 @@ describe("library list filters", () => {
     expect(q.body.data[0].caption).toBe("beta");
   });
 });
+
+describe("self-hosted upload + soft-delete (own storage, not Cloudinary)", () => {
+  it("uploads a video to our storage as a ready 'direct' asset with a public URL on our domain", async () => {
+    const tok = bearer({ sub: adminId, role: "Admin", cong });
+    const res = await agent()
+      .post("/v1/admin/media/videos/upload")
+      .set("Authorization", tok)
+      .field("title", "Sermon clip")
+      .attach("file", Buffer.from("fake-mp4-bytes"), { filename: "clip.mp4", contentType: "video/mp4" });
+    expect(res.status).toBe(201);
+    expect(res.body.video_source).toBe("direct");
+    expect(res.body.status).toBe("ready");
+    expect(res.body.provider).toBe("local");
+    expect(res.body.external_url).toContain("/media/");
+    expect(res.body.external_url).toMatch(/\.mp4$/);
+
+    // It shows in the library list…
+    const list = await agent().get("/v1/admin/media").set("Authorization", tok);
+    expect(list.body.data.some((a: { media_asset_id: string }) => a.media_asset_id === res.body.media_asset_id)).toBe(true);
+
+    // …then archiving soft-deletes it: gone from the list (and thus the queue).
+    await agent().delete(`/v1/admin/media/${res.body.media_asset_id}`).set("Authorization", tok).expect(200);
+    const after = await agent().get("/v1/admin/media").set("Authorization", tok);
+    expect(after.body.data.some((a: { media_asset_id: string }) => a.media_asset_id === res.body.media_asset_id)).toBe(false);
+  });
+
+  it("rejects a non-video upload with 400", async () => {
+    const tok = bearer({ sub: adminId, role: "Admin", cong });
+    const res = await agent()
+      .post("/v1/admin/media/videos/upload")
+      .set("Authorization", tok)
+      .attach("file", Buffer.from("hello"), { filename: "notes.txt", contentType: "text/plain" });
+    expect(res.status).toBe(400);
+  });
+});

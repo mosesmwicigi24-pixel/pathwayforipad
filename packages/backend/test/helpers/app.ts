@@ -20,6 +20,9 @@ export function testEnv(): Env {
     REFRESH_TTL: 2_592_000,
     YOUVERSION_LANGUAGE_RANGES: "en",
     LOG_LEVEL: "silent" as Env["LOG_LEVEL"],
+    MEDIA_STORAGE_DIR: "/tmp/nuru-media-test",
+    MEDIA_PUBLIC_BASE_URL: "http://localhost/media",
+    MEDIA_MAX_UPLOAD_BYTES: 2_147_483_648,
   } as Env;
 }
 

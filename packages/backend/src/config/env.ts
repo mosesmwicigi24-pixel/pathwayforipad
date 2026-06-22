@@ -86,6 +86,13 @@ const EnvSchema = z.object({
   VIDEO_MAX_HEIGHT: z.coerce.number().int().positive().default(720),
   STORAGE_BUCKET_MEDIA: z.string().optional(),
   CDN_BASE_URL: z.string().optional(),
+  // --- Self-hosted video storage (videos live on our own disk, NOT Cloudinary).
+  // Uploaded bytes stream to MEDIA_STORAGE_DIR; members fetch them from
+  // MEDIA_PUBLIC_BASE_URL (served by nginx). In prod the dir is a host volume
+  // (/var/www/pathway-media → /data/media) and the base is the public /media path. ---
+  MEDIA_STORAGE_DIR: z.string().default("/tmp/nuru-media"),
+  MEDIA_PUBLIC_BASE_URL: z.string().default("http://localhost:8080/media"),
+  MEDIA_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(2_147_483_648), // 2 GiB
   CAL_MATERIALIZE_HORIZON_DAYS: z.coerce.number().int().positive().default(35),
   CAL_MAX_INSTANCES: z.coerce.number().int().positive().default(500),
 });

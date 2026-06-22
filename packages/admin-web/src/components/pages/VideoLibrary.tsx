@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import {
   MediaApi, CurriculumApi, OpsApi, AnnouncementsApi,
-  type MediaAssetRow, type VideoSource, type AdminLevel, type AdminModuleSummary, type MediaListFilter, type CloudinaryUploadSignature,
+  type MediaAssetRow, type VideoSource, type AdminLevel, type AdminModuleSummary, type MediaListFilter,
   type AnnouncementRow,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
@@ -66,56 +66,6 @@ const hueOf = (id: string): number => { let h = 0; for (let i = 0; i < id.length
 const dur = (s: number | null): string => { if (!s) return "—"; const m = Math.floor(s / 60), ss = s % 60; return `${m}:${String(ss).padStart(2, "0")}`; };
 const fmtBytes = (n: number): string => { if (!n) return "0 MB"; const gb = n / 1073741824; if (gb >= 1) return `${gb.toFixed(2)} GB`; const mb = n / 1048576; return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`; };
 
-// Cloudinary upload (signed). Large files go up in 6 MB chunks (single-request
-// uploads cap out); each chunk reports byte progress. Returns the final JSON.
-type CldResp = { secure_url?: string; error?: { message?: string } };
-function postCloudinaryChunk(url: string, form: FormData, headers: Record<string, string>, onLoaded: (loaded: number) => void): Promise<{ status: number; json: CldResp }> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", url);
-    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
-    xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) onLoaded(ev.loaded); };
-    xhr.onload = () => { let json: CldResp = {}; try { json = JSON.parse(xhr.responseText) as CldResp; } catch { /* intermediate chunks return no body */ } resolve({ status: xhr.status, json }); };
-    xhr.onerror = () => reject(new Error("Network error during upload"));
-    xhr.onabort = () => reject(new Error("Upload cancelled"));
-    xhr.send(form);
-  });
-}
-async function cloudinaryUpload(file: File, sign: CloudinaryUploadSignature, onProgress: (loaded: number) => void): Promise<CldResp> {
-  const CHUNK = 6 * 1024 * 1024;
-  const mkForm = (blob: Blob): FormData => {
-    const f = new FormData();
-    f.append("file", blob);
-    f.append("api_key", sign.api_key);
-    f.append("timestamp", String(sign.timestamp));
-    f.append("folder", sign.folder);
-    f.append("signature", sign.signature);
-    return f;
-  };
-  if (file.size <= CHUNK) {
-    const { json } = await postCloudinaryChunk(sign.upload_url, mkForm(file), {}, onProgress);
-    return json;
-  }
-  const uploadId = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`).replace(/-/g, "");
-  let start = 0;
-  let last: { status: number; json: CldResp } = { status: 0, json: {} };
-  while (start < file.size) {
-    const end = Math.min(start + CHUNK, file.size);
-    const base = start;
-    last = await postCloudinaryChunk(
-      sign.upload_url,
-      mkForm(file.slice(start, end)),
-      { "Content-Range": `bytes ${start}-${end - 1}/${file.size}`, "X-Unique-Upload-Id": uploadId },
-      (loaded) => onProgress(base + loaded),
-    );
-    start = end;
-  }
-  return last.json;
-}
-// Compress on delivery: members stream an auto-quality, ≤1280px-wide rendition
-// (Cloudinary derives + caches it) while the original stays in the library.
-const compressedVideoUrl = (secureUrl: string): string =>
-  secureUrl.includes("/video/upload/") ? secureUrl.replace("/video/upload/", "/video/upload/q_auto,w_1280/") : secureUrl;
 function assetTitle(a: MediaAssetRow): string {
   if (a.attached_module_title) return a.attached_module_title;
   if (a.caption) return a.caption;
@@ -232,27 +182,22 @@ export function VideoLibrary(): ReactElement {
     e.target.value = ""; // allow re-picking the same file
     if (file) await uploadFile(file);
   }
-  // Real upload: file → Cloudinary (signed, direct) → register as a 'direct' video.
-  // Uses XHR so we can report live upload progress (fetch can't).
+  // Real upload: file → OUR backend storage (VPS disk, not Cloudinary). The
+  // backend streams it to disk and registers a ready 'direct' asset whose URL we
+  // host. XHR gives live upload progress (fetch can't).
   async function uploadFile(file: File): Promise<void> {
     if (!file.type.startsWith("video/")) { setError("Please choose a video file."); return; }
     if (file.size > 2 * 1024 * 1024 * 1024) { setError("Video is larger than 2 GB. Please use a smaller file or paste an external link."); return; }
     setUploading(true); setUploadName(file.name); setError(null); setNotice(null);
     setUploadStage("uploading"); setUploadPct(0); setUploadLoaded(0); setUploadTotal(file.size);
     try {
-      const sign = await MediaApi.signUpload("videos");
-      // Chunked (6 MB) upload for large files; live byte progress.
-      const out = await cloudinaryUpload(file, sign, (loaded) => {
-        setUploadLoaded(loaded); setUploadPct(Math.round((loaded / file.size) * 100));
-      });
-      if (!out.secure_url) throw new Error(out.error?.message ?? "Cloudinary upload failed");
-      setUploadPct(100); setUploadStage("finalizing");
       const title = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Uploaded video";
-      // Store the compressed (auto-quality, ≤1280px) delivery URL — members stream
-      // a light version; the original stays in your Cloudinary library.
-      await MediaApi.registerExternal({ video_source: "direct", url: compressedVideoUrl(out.secure_url), title });
-      setUploadStage("done");
-      setNotice(`✓ Uploaded "${title}" (${fmtBytes(file.size)}) — now listed below, ready to attach.`);
+      await MediaApi.uploadVideo(file, { title }, (loaded, total) => {
+        const t = total || file.size;
+        setUploadLoaded(loaded); setUploadTotal(t); setUploadPct(Math.round((loaded / t) * 100));
+      });
+      setUploadPct(100); setUploadStage("done");
+      setNotice(`✓ Uploaded "${title}" (${fmtBytes(file.size)}) to your storage — now listed below, ready to attach.`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed.");
@@ -312,7 +257,7 @@ export function VideoLibrary(): ReactElement {
             <span>Nuru Pathway</span><ChevronRight size={10} /><span>Curriculum</span><ChevronRight size={10} /><span style={{ color: "#fff", fontWeight: 600 }}>Video Library</span>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="inline-flex items-center gap-1.5 rounded-lg px-2.5" style={{ height: 32, background: "rgba(245,199,126,0.14)", color: "#F5C77E", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", border: "1px solid rgba(245,199,126,0.25)" }}><Sparkles size={11} /> 720p max delivery</span>
+            <span className="inline-flex items-center gap-1.5 rounded-lg px-2.5" style={{ height: 32, background: "rgba(245,199,126,0.14)", color: "#F5C77E", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", border: "1px solid rgba(245,199,126,0.25)" }}><Sparkles size={11} /> Self-hosted · your storage</span>
             <button onClick={() => navigate("/cms")} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: 12, fontWeight: 600, border: "1px solid rgba(255,255,255,0.15)" }}><Settings size={13} /> Curriculum</button>
             <button onClick={() => { linkInputRef.current?.focus(); linkInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: 12, fontWeight: 600, border: "1px solid rgba(255,255,255,0.15)" }}><Link2 size={13} /> Register external</button>
             <button onClick={openFilePicker} disabled={uploading} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none", opacity: uploading ? 0.6 : 1 }}>{uploading ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} Upload video</button>
@@ -372,7 +317,7 @@ export function VideoLibrary(): ReactElement {
             {/* Hosted upload */}
             <div className="rounded-2xl p-6" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Upload a video</div>
-              <div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 2 }}>Choose a video — large files upload in chunks and are auto-compressed for members (the original stays in your library).</div>
+              <div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 2 }}>Choose a video — it uploads straight to your own storage (not Cloudinary) and is ready to attach.</div>
               <input ref={fileInputRef} type="file" accept="video/*" hidden onChange={(e) => void onFilePicked(e)} />
               {uploadStage ? (
                 <div className="rounded-2xl mt-4 w-full" style={{ background: "linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%)", border: "2px dashed #93C5FD", padding: "18px 18px" }}>
@@ -396,7 +341,7 @@ export function VideoLibrary(): ReactElement {
                 <button onClick={openFilePicker} className="rounded-2xl mt-4 w-full flex flex-col items-center justify-center gap-2" style={{ background: "linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%)", border: "2px dashed #93C5FD", padding: "26px 16px", cursor: "pointer" }}>
                   <div className="rounded-full flex items-center justify-center" style={{ width: 44, height: 44, background: "#DBEAFE", color: "#0369A1" }}><Upload size={20} /></div>
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)" }}>Choose a video to upload</span>
-                  <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>Click to browse — MP4, MOV, WebM · large files OK (auto-compressed)</span>
+                  <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>Click to browse — MP4, MOV, WebM · up to 2 GB · stored on your own server</span>
                 </button>
               )}
               <div className="flex items-center gap-2 mt-4"><ShieldCheck size={13} style={{ color: "#16A34A" }} /><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>Stored securely in your media library and attachable to any module.</span></div>
@@ -519,9 +464,9 @@ export function VideoLibrary(): ReactElement {
         <AttachMenu
           asset={m.asset} x={m.x} y={m.y}
           onClose={() => setAttachMenu(null)}
-          onModule={() => { setAttachMenu(null); setAttachFor(m.asset); }}
-          onEvent={() => { setAttachMenu(null); setAttachEventFor(m.asset); }}
-          onAnnouncement={() => { setAttachMenu(null); setAttachAnnFor(m.asset); }}
+          onModule={() => { setAttachMenu(null); setPreviewFor(null); setAttachFor(m.asset); }}
+          onEvent={() => { setAttachMenu(null); setPreviewFor(null); setAttachEventFor(m.asset); }}
+          onAnnouncement={() => { setAttachMenu(null); setPreviewFor(null); setAttachAnnFor(m.asset); }}
           onHomepage={() => { setAttachMenu(null); void toggleHomepage(m.asset); }}
         />
       ); })() : null}
@@ -534,7 +479,7 @@ export function VideoLibrary(): ReactElement {
         <PreviewDrawer
           asset={previewFor}
           onClose={() => setPreviewFor(null)}
-          onAttach={() => { setAttachFor(previewFor); setPreviewFor(null); }}
+          onAttachMenu={(e) => openAttachMenu(previewFor, e)}
           onReplace={() => { setAttachFor(previewFor); setPreviewFor(null); }}
           onDelete={() => { setDeleteFor(previewFor); setPreviewFor(null); }}
           onToggleHomepage={() => void toggleHomepage(previewFor)}
@@ -832,8 +777,8 @@ function AttachAnnouncementModal({ asset, onClose, onDone, onError }: { asset: M
 }
 
 /* ───────────────────────────── Preview drawer ───────────────────────────── */
-function PreviewDrawer({ asset, onClose, onAttach, onReplace, onDelete, onToggleHomepage, onSaveMeta }: {
-  asset: MediaAssetRow; onClose: () => void; onAttach: () => void; onReplace: () => void; onDelete: () => void;
+function PreviewDrawer({ asset, onClose, onAttachMenu, onReplace, onDelete, onToggleHomepage, onSaveMeta }: {
+  asset: MediaAssetRow; onClose: () => void; onAttachMenu: (e: ReactMouseEvent) => void; onReplace: () => void; onDelete: () => void;
   onToggleHomepage: () => void; onSaveMeta: (input: { caption?: string; level_number?: number | null }) => void;
 }): ReactElement {
   const us = uiStatus(asset);
@@ -935,7 +880,7 @@ function PreviewDrawer({ asset, onClose, onAttach, onReplace, onDelete, onToggle
       </div>
 
       <div className="px-6 py-4 flex items-center gap-2 flex-wrap" style={{ background: "var(--secondary)", borderTop: "1px solid var(--border)" }}>
-        <button onClick={onAttach} className="flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none" }}><Link2 size={12} /> {asset.attached_module_id ? "Change module" : "Attach to module"}</button>
+        <button onClick={onAttachMenu} className="flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none" }}><Link2 size={12} /> Attach <ChevronDown size={12} /></button>
         {asset.external_url ? <a href={asset.external_url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)", fontSize: 12, fontWeight: 600 }}><ExternalLink size={12} /> Open original</a> : null}
         <button onClick={onReplace} className="flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)", fontSize: 12, fontWeight: 600 }}><RotateCcw size={12} /> Replace link</button>
         <button onClick={onDelete} className="flex items-center gap-1.5 rounded-xl px-3 py-2 ml-auto" style={{ background: "#FEF2F2", color: "#DC2626", border: "1px solid #FCA5A5", fontSize: 12, fontWeight: 600 }}><Trash2 size={12} /> Delete</button>

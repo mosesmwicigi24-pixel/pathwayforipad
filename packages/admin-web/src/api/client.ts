@@ -1238,6 +1238,37 @@ export const MediaApi = {
     api.get<Partial<MediaAssetRow> & { media_asset_id: string }>(`/admin/media/${assetId}`).then((r) => r.data),
   signUpload: (folder: "events" | "announcements" | "videos" = "videos") =>
     api.post<CloudinaryUploadSignature>("/admin/media/images/sign", { folder }).then((r) => r.data),
+  // Upload a video file straight to OUR storage (VPS disk), not Cloudinary. Uses
+  // XHR so we can report live upload progress; the backend streams it to disk and
+  // registers a ready 'direct' asset whose external_url is a public URL we host.
+  uploadVideo: (
+    file: File,
+    meta: { title?: string; caption?: string; level_number?: number } = {},
+    onProgress?: (loaded: number, total: number) => void,
+  ) =>
+    new Promise<Partial<MediaAssetRow> & { media_asset_id: string }>((resolve, reject) => {
+      const form = new FormData();
+      form.append("file", file);
+      if (meta.title) form.append("title", meta.title);
+      if (meta.caption) form.append("caption", meta.caption);
+      if (typeof meta.level_number === "number") form.append("level_number", String(meta.level_number));
+      const xhr = new XMLHttpRequest();
+      const base = (api.defaults.baseURL ?? "/v1").replace(/\/+$/, "");
+      xhr.open("POST", `${base}/admin/media/videos/upload`);
+      if (accessToken) xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+      xhr.upload.onprogress = (ev) => { if (ev.lengthComputable && onProgress) onProgress(ev.loaded, ev.total); };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); } catch { reject(new Error("Unexpected server response")); }
+        } else {
+          let msg = `Upload failed (${xhr.status})`;
+          try { const j = JSON.parse(xhr.responseText); msg = j?.error?.message ?? j?.message ?? msg; } catch { /* keep default */ }
+          reject(new Error(msg));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Network error during upload"));
+      xhr.send(form);
+    }),
   createUpload: (kind = "lesson_video") =>
     api.post<UploadSession>("/admin/media/uploads", { kind }).then((r) => r.data),
   completeUpload: (uploadId: string) =>

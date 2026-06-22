@@ -1169,6 +1169,26 @@ paths:
         "201": { description: Registered asset }
         "400": { description: Validation failed }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/media/videos/upload:
+    post:
+      tags: [system]
+      summary: Admin. Upload a video file to our own storage (VPS disk, not Cloudinary); registers a ready 'direct' asset with a public URL.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                title: { type: string }
+                caption: { type: string }
+                level_number: { type: integer }
+      responses:
+        "201": { description: Stored asset }
+        "400": { description: Validation failed (not a video / too large) }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
   /home/welcome-video:
     get:
       tags: [system]
