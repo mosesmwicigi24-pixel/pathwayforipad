@@ -1189,6 +1189,43 @@ paths:
         "201": { description: Stored asset }
         "400": { description: Validation failed (not a video / too large) }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/media/videos/chunk:
+    put:
+      tags: [system]
+      summary: Admin. Upload one chunk of a chunked parallel video upload (raw octet-stream body).
+      parameters:
+        - { in: query, name: upload_id, required: true, schema: { type: string, format: uuid } }
+        - { in: query, name: index, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200": { description: Chunk stored }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/media/videos/finalize:
+    post:
+      tags: [system]
+      summary: Admin. Finalize a chunked upload — concatenates the chunks and registers a ready 'direct' asset.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [upload_id, total_chunks]
+              properties:
+                upload_id: { type: string, format: uuid }
+                total_chunks: { type: integer }
+                filename: { type: string }
+                title: { type: string }
+                caption: { type: string }
+                level_number: { type: integer }
+      responses:
+        "201": { description: Stored asset }
+        "400": { description: Validation failed (missing chunk / too large) }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
   /home/welcome-video:
     get:
       tags: [system]

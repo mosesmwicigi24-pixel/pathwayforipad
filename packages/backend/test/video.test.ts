@@ -290,3 +290,42 @@ describe("self-hosted upload + soft-delete (own storage, not Cloudinary)", () =>
     expect(res.status).toBe(400);
   });
 });
+
+describe("chunked parallel upload (speed: many small chunks → one file)", () => {
+  it("accepts chunks then finalizes into a single ready 'direct' asset on our storage", async () => {
+    const tok = bearer({ sub: adminId, role: "Admin", cong });
+    const uploadId = "11111111-1111-4111-8111-111111111111";
+    await agent()
+      .put(`/v1/admin/media/videos/chunk?upload_id=${uploadId}&index=0`)
+      .set("Authorization", tok).set("Content-Type", "application/octet-stream")
+      .send(Buffer.from("first-half-")).expect(200);
+    await agent()
+      .put(`/v1/admin/media/videos/chunk?upload_id=${uploadId}&index=1`)
+      .set("Authorization", tok).set("Content-Type", "application/octet-stream")
+      .send(Buffer.from("second-half")).expect(200);
+
+    const res = await agent()
+      .post("/v1/admin/media/videos/finalize")
+      .set("Authorization", tok)
+      .send({ upload_id: uploadId, total_chunks: 2, filename: "lesson.mp4", title: "Chunked lesson" });
+    expect(res.status).toBe(201);
+    expect(res.body.video_source).toBe("direct");
+    expect(res.body.status).toBe("ready");
+    expect(res.body.provider).toBe("local");
+    expect(res.body.external_url).toMatch(/\/media\/.*\.mp4$/);
+  });
+
+  it("rejects finalize when a chunk is missing", async () => {
+    const tok = bearer({ sub: adminId, role: "Admin", cong });
+    const uploadId = "22222222-2222-4222-8222-222222222222";
+    await agent()
+      .put(`/v1/admin/media/videos/chunk?upload_id=${uploadId}&index=0`)
+      .set("Authorization", tok).set("Content-Type", "application/octet-stream")
+      .send(Buffer.from("only-chunk-0")).expect(200);
+    const res = await agent()
+      .post("/v1/admin/media/videos/finalize")
+      .set("Authorization", tok)
+      .send({ upload_id: uploadId, total_chunks: 3, filename: "x.mp4" });
+    expect(res.status).toBe(400);
+  });
+});

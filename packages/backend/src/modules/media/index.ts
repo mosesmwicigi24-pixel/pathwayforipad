@@ -1,7 +1,7 @@
 // Module: media (spec §1.5, §4.5; Features v2 §V)
 // Owns: signed, expiring delivery URLs; the video transcode pipeline (upload
 // sessions, gated HLS manifests, cross-device resume). Raw bytes never proxied.
-import { mkdirSync, unlink } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, rmSync, statSync, unlink } from "node:fs";
 import { extname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
@@ -145,6 +145,92 @@ export function registerMedia(ctx: AppContext): Router {
           storageFilename: file.filename,
           publicUrl: `${publicBase}/${file.filename}`,
           ...body,
+        }),
+      );
+    }),
+  );
+
+  // --- Chunked PARALLEL upload (much faster over high-latency links). The client
+  // splits the file and PUTs many chunks concurrently; a single TCP stream can't
+  // fill the pipe to a distant VPS, so N streams ≈ N× throughput. Each chunk is
+  // raw octet-stream bytes streamed to disk; finalize concatenates them in order. ---
+  const chunksRoot = join(storageDir, ".chunks");
+  const VIDEO_EXTS = new Set([".mp4", ".mov", ".webm", ".m4v", ".avi", ".mkv", ".ogg", ".ogv", ".m4p", ".3gp"]);
+  const ChunkQuery = z.object({ upload_id: z.string().uuid(), index: z.coerce.number().int().min(0).max(200_000) });
+
+  r.put(
+    "/admin/media/videos/chunk",
+    auth, perm("videos", "create"),
+    (req: Request, res: Response, next: NextFunction): void => {
+      const parsed = ChunkQuery.safeParse(req.query);
+      if (!parsed.success) { next(new ApiError("VALIDATION_FAILED", "Bad chunk params")); return; }
+      const dir = join(chunksRoot, parsed.data.upload_id);
+      try { mkdirSync(dir, { recursive: true }); } catch { /* surfaced via the write stream error */ }
+      const ws = createWriteStream(join(dir, String(parsed.data.index)));
+      ws.on("finish", () => res.json({ ok: true, index: parsed.data.index }));
+      ws.on("error", next);
+      req.on("error", next);
+      req.pipe(ws);
+    },
+  );
+
+  r.post(
+    "/admin/media/videos/finalize",
+    auth, perm("videos", "create"),
+    handler(async (req, res) => {
+      const body = parseBody(
+        z.object({
+          upload_id: z.string().uuid(),
+          total_chunks: z.coerce.number().int().min(1).max(200_000),
+          filename: z.string().min(1).max(300).optional(),
+          title: z.string().trim().min(1).optional(),
+          caption: z.string().trim().optional(),
+          level_number: z.coerce.number().int().positive().optional(),
+        }),
+        req.body ?? {},
+      );
+      const dir = join(chunksRoot, body.upload_id);
+      // Every chunk must be present; total size within the cap.
+      let total = 0;
+      for (let i = 0; i < body.total_chunks; i++) {
+        const cp = join(dir, String(i));
+        if (!existsSync(cp)) throw new ApiError("VALIDATION_FAILED", `Missing chunk ${i} — please retry the upload`);
+        total += statSync(cp).size;
+      }
+      const cap = ctx.env.MEDIA_MAX_UPLOAD_BYTES ?? 524_288_000;
+      if (total > cap) {
+        rmSync(dir, { recursive: true, force: true });
+        throw new ApiError("VALIDATION_FAILED", "Video exceeds the maximum upload size");
+      }
+      const rawExt = extname(body.filename ?? "").toLowerCase().replace(/[^.a-z0-9]/g, "");
+      const ext = VIDEO_EXTS.has(rawExt) ? rawExt : ".mp4";
+      const finalName = `${randomUUID()}${ext}`;
+      const finalPath = join(storageDir, finalName);
+      const out = createWriteStream(finalPath);
+      try {
+        for (let i = 0; i < body.total_chunks; i++) {
+          const cp = join(dir, String(i));
+          await new Promise<void>((resolve, reject) => {
+            const rs = createReadStream(cp);
+            rs.on("error", reject);
+            rs.on("end", () => resolve());
+            rs.pipe(out, { end: false });
+          });
+        }
+        await new Promise<void>((resolve, reject) => { out.end(() => resolve()); out.on("error", reject); });
+      } catch (e) {
+        out.destroy();
+        unlink(finalPath, () => undefined);
+        throw e;
+      }
+      rmSync(dir, { recursive: true, force: true });
+      res.status(201).json(
+        await video.registerUploaded(requirePrincipal(req).userId, {
+          storageFilename: finalName,
+          publicUrl: `${publicBase}/${finalName}`,
+          title: body.title,
+          caption: body.caption,
+          level_number: body.level_number,
         }),
       );
     }),
