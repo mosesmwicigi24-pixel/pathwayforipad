@@ -1811,6 +1811,29 @@ paths:
       responses:
         "200": { description: Featured cell or null }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/rhythm/today:
+    get:
+      tags: [system]
+      summary: Member. Which of prayer/word/reflection the member has completed today (EAT).
+      responses:
+        "200": { description: "{ prayer, word, reflection }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/rhythm/complete:
+    post:
+      tags: [system]
+      summary: Member. Mark a rhythm (prayer|word|reflection) done for today; idempotent per day. Feeds the streak.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string, enum: [prayer, word, reflection] }
+      responses:
+        "200": { description: "{ prayer, word, reflection }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /admin/media/images/sign:
     post:
       tags: [media]
@@ -2287,9 +2310,27 @@ paths:
   /growth/devotional:
     get:
       tags: [progress]
-      summary: Today's devotional (audio/video/scripture/body/reflection).
+      summary: Today's devotional (audio/video/scripture/body/reflection + the viewer's saved reflection).
       responses:
         "200": { description: Devotional }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /growth/devotional/reflection:
+    post:
+      tags: [progress]
+      summary: Member. Save the devotional reflection (upsert); also marks the Reflection rhythm done for today.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [devotional_id, body]
+              properties:
+                devotional_id: { type: string, format: uuid }
+                body: { type: string }
+      responses:
+        "200": { description: "{ saved: true }" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
   /growth/memory-verses:

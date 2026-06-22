@@ -3,6 +3,7 @@
 // audit viewer. All Admin+ (audit: SuperAdmin); reads hit the replica where one
 // is configured (§1.6). Every aggregate is computed from the authoritative
 // tables — nothing here is client-supplied.
+import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { z } from "zod";
 import { many, one, maybeOne, tx, audit, type Queryable } from "../../db/db.js";
@@ -51,7 +52,7 @@ export class AdminOpsService {
       this.replica,
       `SELECT cg.cell_group_id, cg.name,
               cg.discipler_name, cg.discipler_role, cg.focus, cg.level_label,
-              cg.meets, cg.room, cg.next_session, cg.tone, cg.is_featured,
+              cg.meets, cg.room, cg.next_session, cg.tone, cg.image_url, cg.is_featured,
               count(es.user_id)::int                       AS members,
               COALESCE(round(avg(es.e_score), 3), 0)::float AS avg_engagement,
               count(*) FILTER (WHERE es.band = 'at_risk')::int AS at_risk
@@ -59,7 +60,7 @@ export class AdminOpsService {
          LEFT JOIN engagement_scores es ON es.cell_group_id = cg.cell_group_id
         GROUP BY cg.cell_group_id, cg.name, cg.discipler_name, cg.discipler_role,
                  cg.focus, cg.level_label, cg.meets, cg.room, cg.next_session, cg.tone,
-                 cg.is_featured
+                 cg.image_url, cg.is_featured
         ORDER BY avg_engagement ASC NULLS LAST
         LIMIT 50`,
     );
@@ -80,6 +81,7 @@ export class AdminOpsService {
       room: z.string().trim().max(120).optional(),
       next_session: z.string().trim().max(160).optional(),
       tone: z.enum(["amber", "blue", "green", "violet", "rose", "red"]).optional(),
+      image_url: z.string().url().max(2048).optional(),
       meeting_cadence: z.coerce.number().int().min(1).max(31).default(8),
     })
     .strict();
@@ -106,8 +108,8 @@ export class AdminOpsService {
         c,
         `INSERT INTO cell_groups
            (congregation_id, name, meeting_cadence, discipler_name, discipler_role,
-            focus, level_label, meets, room, next_session, tone)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            focus, level_label, meets, room, next_session, tone, image_url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          RETURNING cell_group_id`,
         [
           cong.congregation_id,
@@ -121,13 +123,14 @@ export class AdminOpsService {
           input.room ?? null,
           input.next_session ?? null,
           input.tone ?? null,
+          input.image_url ?? null,
         ],
       );
       await audit(c, adminId, "cell.created", "cell_groups", row.cell_group_id, { name: input.name });
       return one(
         c,
         `SELECT cell_group_id, name, discipler_name, discipler_role, focus, level_label,
-                meets, room, next_session, tone, meeting_cadence, is_featured,
+                meets, room, next_session, tone, image_url, meeting_cadence, is_featured,
                 0 AS members, 0::float AS avg_engagement, 0 AS at_risk
            FROM cell_groups WHERE cell_group_id = $1`,
         [row.cell_group_id],
@@ -146,6 +149,7 @@ export class AdminOpsService {
       room: z.string().trim().max(120).nullable().optional(),
       next_session: z.string().trim().max(160).nullable().optional(),
       tone: z.enum(["amber", "blue", "green", "violet", "rose", "red"]).nullable().optional(),
+      image_url: z.string().url().max(2048).nullable().optional(),
       meeting_cadence: z.coerce.number().int().min(1).max(31).optional(),
     })
     .strict();
@@ -173,7 +177,7 @@ export class AdminOpsService {
       }
       const cols: Array<keyof typeof input> = [
         "name", "discipler_name", "discipler_role", "focus", "level_label",
-        "meets", "room", "next_session", "tone", "meeting_cadence",
+        "meets", "room", "next_session", "tone", "image_url", "meeting_cadence",
       ];
       const set: string[] = [];
       const vals: unknown[] = [];
@@ -187,7 +191,7 @@ export class AdminOpsService {
       return one(
         c,
         `SELECT cg.cell_group_id, cg.name, cg.discipler_name, cg.discipler_role, cg.focus, cg.level_label,
-                cg.meets, cg.room, cg.next_session, cg.tone, cg.meeting_cadence, cg.is_featured,
+                cg.meets, cg.room, cg.next_session, cg.tone, cg.image_url, cg.meeting_cadence, cg.is_featured,
                 (SELECT count(*)::int FROM users u WHERE u.cell_group_id = cg.cell_group_id AND u.deleted_at IS NULL) AS members,
                 0::float AS avg_engagement, 0 AS at_risk
            FROM cell_groups cg WHERE cg.cell_group_id = $1`,
@@ -241,23 +245,68 @@ export class AdminOpsService {
       room: string | null;
       next_session: string | null;
       tone: string | null;
+      image_url: string | null;
       members: number;
       avg_engagement: number;
     }>(
       this.replica,
       `SELECT cg.cell_group_id, cg.name,
               cg.discipler_name, cg.discipler_role, cg.focus, cg.level_label,
-              cg.meets, cg.room, cg.next_session, cg.tone,
+              cg.meets, cg.room, cg.next_session, cg.tone, cg.image_url,
               count(es.user_id)::int                        AS members,
               COALESCE(round(avg(es.e_score), 3), 0)::float AS avg_engagement
          FROM cell_groups cg
          LEFT JOIN engagement_scores es ON es.cell_group_id = cg.cell_group_id
         WHERE cg.is_featured = true
         GROUP BY cg.cell_group_id, cg.name, cg.discipler_name, cg.discipler_role,
-                 cg.focus, cg.level_label, cg.meets, cg.room, cg.next_session, cg.tone
+                 cg.focus, cg.level_label, cg.meets, cg.room, cg.next_session, cg.tone, cg.image_url
         LIMIT 1`,
     );
     return row ?? null;
+  }
+
+  // ---------------- Today's Rhythm (prayer / word / reflection) ----------------
+  // Backed by interaction_events (kind = prayer|word|reflection), one per day in
+  // the member's timezone. These rows also feed the streak (§1.8), so completing a
+  // rhythm marks "active today". The day boundary uses EAT (Africa/Nairobi), the
+  // app's displayed timezone.
+
+  static readonly RHYTHM_KINDS = ["prayer", "word", "reflection"] as const;
+  private static readonly RHYTHM_TZ = "Africa/Nairobi";
+
+  /** Which of prayer/word/reflection the member has completed today. */
+  async rhythmToday(userId: string): Promise<{ prayer: boolean; word: boolean; reflection: boolean }> {
+    const rows = await many<{ kind: string }>(
+      this.replica,
+      `SELECT DISTINCT kind FROM interaction_events
+        WHERE user_id = $1 AND kind = ANY($2::text[])
+          AND (occurred_at AT TIME ZONE $3)::date = (now() AT TIME ZONE $3)::date`,
+      [userId, [...AdminOpsService.RHYTHM_KINDS], AdminOpsService.RHYTHM_TZ],
+    );
+    const done = new Set(rows.map((r) => r.kind));
+    return { prayer: done.has("prayer"), word: done.has("word"), reflection: done.has("reflection") };
+  }
+
+  /** Mark one rhythm done for today (idempotent per day). Returns today's state. */
+  async completeRhythm(userId: string, kind: "prayer" | "word" | "reflection"): Promise<{ prayer: boolean; word: boolean; reflection: boolean }> {
+    await tx(this.pool, async (c) => {
+      const already = await maybeOne(
+        c,
+        `SELECT 1 FROM interaction_events
+          WHERE user_id = $1 AND kind = $2
+            AND (occurred_at AT TIME ZONE $3)::date = (now() AT TIME ZONE $3)::date
+          LIMIT 1`,
+        [userId, kind, AdminOpsService.RHYTHM_TZ],
+      );
+      if (already) return;
+      await c.query(
+        `INSERT INTO interaction_events (user_id, kind, occurred_at, client_event_id)
+         VALUES ($1, $2, now(), $3)
+         ON CONFLICT (client_event_id, occurred_at) DO NOTHING`,
+        [userId, kind, randomUUID()],
+      );
+    });
+    return this.rhythmToday(userId);
   }
 
   /** Weekly attendance trend (last `weeks`) + this-week summary. */

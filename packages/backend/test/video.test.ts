@@ -364,6 +364,23 @@ describe("home video reactions (emoji + love/like counter)", () => {
     expect(r2.body.reactions.find((x: { emoji: string }) => x.emoji === "🔥").count).toBe(1);
   });
 
+  it("is one-per-person: picking a new emoji moves the vote off the old one", async () => {
+    const v = newVideo();
+    const asset = (await v.registerUploaded(adminId, { storageFilename: "z.mp4", publicUrl: "http://localhost/media/z.mp4" })) as { media_asset_id: string };
+    const tok = bearer({ sub: studentId, role: "Student", cong });
+    const url = `/v1/media/${asset.media_asset_id}/reactions`;
+
+    await agent().post(url).set("Authorization", tok).send({ emoji: "❤️" }).expect(200);
+    // Switching to 🔥 must drop ❤️ to 0 and put 1 on 🔥 (single reaction per user).
+    const moved = await agent().post(url).set("Authorization", tok).send({ emoji: "🔥" });
+    expect(moved.body.love_count).toBe(0);
+    expect(moved.body.liked).toBe(false);
+    const fire = moved.body.reactions.find((x: { emoji: string }) => x.emoji === "🔥");
+    expect(fire.count).toBe(1);
+    expect(fire.mine).toBe(true);
+    expect(moved.body.reactions.find((x: { emoji: string }) => x.emoji === "❤️")).toBeUndefined();
+  });
+
   it("rejects an unsupported reaction emoji", async () => {
     const v = newVideo();
     const asset = (await v.registerUploaded(adminId, { storageFilename: "y.mp4", publicUrl: "http://localhost/media/y.mp4" })) as { media_asset_id: string };

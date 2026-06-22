@@ -505,27 +505,34 @@ export class VideoService {
         [mediaAssetId],
       );
       if (!asset) throw new ApiError("NOT_FOUND", "Media asset not found");
-      const existing = await maybeOne(
+      // One reaction per person: re-tapping the same emoji clears it; tapping a
+      // different one moves the vote (counts stay cumulative across everyone).
+      const existing = await maybeOne<{ emoji: string }>(
         c,
-        `SELECT 1 FROM content_reactions
-          WHERE subject_type = 'media_asset' AND subject_id = $1 AND user_id = $2 AND emoji = $3`,
-        [mediaAssetId, userId, emoji],
+        `SELECT emoji FROM content_reactions
+          WHERE subject_type = 'media_asset' AND subject_id = $1 AND user_id = $2`,
+        [mediaAssetId, userId],
       );
-      if (existing) {
+      let on: boolean;
+      if (existing && existing.emoji === emoji) {
         await c.query(
           `DELETE FROM content_reactions
-            WHERE subject_type = 'media_asset' AND subject_id = $1 AND user_id = $2 AND emoji = $3`,
-          [mediaAssetId, userId, emoji],
+            WHERE subject_type = 'media_asset' AND subject_id = $1 AND user_id = $2`,
+          [mediaAssetId, userId],
         );
+        on = false;
       } else {
         await c.query(
           `INSERT INTO content_reactions (subject_type, subject_id, user_id, emoji)
-           VALUES ('media_asset', $1, $2, $3) ON CONFLICT DO NOTHING`,
+           VALUES ('media_asset', $1, $2, $3)
+           ON CONFLICT (subject_type, subject_id, user_id)
+             DO UPDATE SET emoji = EXCLUDED.emoji, created_at = now()`,
           [mediaAssetId, userId, emoji],
         );
+        on = true;
       }
       const summary = await this.reactionSummary(c, userId, mediaAssetId);
-      return { on: !existing, ...summary };
+      return { on, ...summary };
     });
   }
 

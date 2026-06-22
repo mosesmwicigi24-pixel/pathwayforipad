@@ -29,7 +29,7 @@ describe("growth-content admin authoring (Admin+)", () => {
     const created = (await admin().createDevotional(adminId, { day_number: 901, title: "Hidden", body: "In Christ." })) as { devotional_id: string };
     expect(created.devotional_id).toBeTruthy();
     // todayDevotional returns the highest published day.
-    const today = (await member().todayDevotional()) as { title: string; day_number: number };
+    const today = (await member().todayDevotional(memberId)) as { title: string; day_number: number };
     expect(today.day_number).toBe(901);
     expect(today.title).toBe("Hidden");
   });

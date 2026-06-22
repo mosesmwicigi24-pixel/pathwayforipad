@@ -4,9 +4,10 @@
 // (§1.1 — measurement, not ministry) plus the conversation log. Content reads
 // are shared; progress is private to the member (§5.4) and idempotent on
 // (user, item) for offline-tolerant replay (§3.6).
+import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { z } from "zod";
-import { many, maybeOne, one } from "../../db/db.js";
+import { many, maybeOne, one, tx } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 
 export class GrowthContentService {
@@ -14,16 +15,56 @@ export class GrowthContentService {
 
   // ---- Devotionals ----
 
-  /** Today's devotional = the highest published day_number (church paces it). */
-  async todayDevotional(): Promise<unknown> {
+  /** Today's devotional = the highest published day_number (church paces it).
+   *  Includes the viewer's saved reflection (my_reflection), if any. */
+  async todayDevotional(userId: string): Promise<unknown> {
     const row = await maybeOne(
       this.pool,
-      `SELECT devotional_id, day_number, series, title, scripture_ref, scripture_text,
-              body, reflection_prompt, audio_url, video_url
-         FROM devotionals WHERE is_published ORDER BY day_number DESC LIMIT 1`,
+      `SELECT d.devotional_id, d.day_number, d.series, d.title, d.scripture_ref, d.scripture_text,
+              d.body, d.reflection_prompt, d.audio_url, d.video_url,
+              (SELECT r.body FROM devotional_reflections r
+                WHERE r.user_id = $1 AND r.devotional_id = d.devotional_id) AS my_reflection
+         FROM devotionals d WHERE d.is_published ORDER BY d.day_number DESC LIMIT 1`,
+      [userId],
     );
     if (!row) throw new ApiError("NOT_FOUND", "No devotional published yet");
     return row;
+  }
+
+  static readonly SaveReflection = z.object({
+    devotional_id: z.string().uuid(),
+    body: z.string().trim().min(1).max(5000),
+  });
+
+  /** Persist the member's devotional reflection (upsert) and mark the "Reflection"
+   *  rhythm done for the day (interaction_events, idempotent per day, EAT boundary). */
+  async saveReflection(userId: string, input: z.infer<typeof GrowthContentService.SaveReflection>): Promise<{ saved: true }> {
+    return tx(this.pool, async (c) => {
+      const dev = await maybeOne(c, `SELECT 1 FROM devotionals WHERE devotional_id = $1`, [input.devotional_id]);
+      if (!dev) throw new ApiError("NOT_FOUND", "Devotional not found");
+      await c.query(
+        `INSERT INTO devotional_reflections (user_id, devotional_id, body, updated_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (user_id, devotional_id) DO UPDATE SET body = EXCLUDED.body, updated_at = now()`,
+        [userId, input.devotional_id, input.body],
+      );
+      const already = await maybeOne(
+        c,
+        `SELECT 1 FROM interaction_events
+          WHERE user_id = $1 AND kind = 'reflection'
+            AND (occurred_at AT TIME ZONE 'Africa/Nairobi')::date = (now() AT TIME ZONE 'Africa/Nairobi')::date
+          LIMIT 1`,
+        [userId],
+      );
+      if (!already) {
+        await c.query(
+          `INSERT INTO interaction_events (user_id, kind, occurred_at, client_event_id)
+           VALUES ($1, 'reflection', now(), $2) ON CONFLICT (client_event_id, occurred_at) DO NOTHING`,
+          [userId, randomUUID()],
+        );
+      }
+      return { saved: true };
+    });
   }
 
   // ---- Memory verses (library + my mastery) ----

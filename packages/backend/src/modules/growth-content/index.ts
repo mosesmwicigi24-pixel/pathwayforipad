@@ -22,8 +22,12 @@ export function registerGrowthContent(ctx: AppContext): Router {
   const adminOnly = [auth, requireRole("Admin")] as const;
   const r = growthContentRouter;
 
-  r.get("/growth/devotional", auth, handler(async (_req, res) => {
-    res.json(await svc.todayDevotional());
+  r.get("/growth/devotional", auth, handler(async (req, res) => {
+    res.json(await svc.todayDevotional(requirePrincipal(req).userId));
+  }));
+  r.post("/growth/devotional/reflection", auth, handler(async (req, res) => {
+    const input = parseBody(GrowthContentService.SaveReflection, req.body);
+    res.json(await svc.saveReflection(requirePrincipal(req).userId, input));
   }));
 
   r.get("/growth/memory-verses", auth, handler(async (req, res) => {

@@ -81,6 +81,15 @@ export function registerAdminOps(ctx: AppContext): Router {
     res.json(await svc.featuredCell());
   }));
 
+  // Member: Today's Rhythm (prayer / word / reflection) — read + mark done.
+  r.get("/me/rhythm/today", auth, handler(async (req, res) => {
+    res.json(await svc.rhythmToday(requirePrincipal(req).userId));
+  }));
+  r.post("/me/rhythm/complete", auth, handler(async (req, res) => {
+    const { kind } = parseBody(z.object({ kind: z.enum(AdminOpsService.RHYTHM_KINDS) }), req.body ?? {});
+    res.json(await svc.completeRhythm(requirePrincipal(req).userId, kind));
+  }));
+
   // ---- Members administration ----
   r.get("/admin/members", auth, perm("members", "view"), handler(async (req, res) => {
     const q = parseBody(AdminOpsService.ListMembers, req.query);
