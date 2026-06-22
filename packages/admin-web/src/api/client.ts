@@ -562,12 +562,24 @@ export interface PlanRow {
   plan_id: string;
   code: string;
   title: string;
+  subtitle?: string | null;
   description: string | null;
   category: string | null;
+  image_url?: string | null;
   day_count: number;
   day_total?: number;
   sort: number;
   is_active: boolean;
+}
+export interface PlanSegmentRow {
+  segment_id?: string;
+  sort?: number;
+  kind: "devotional" | "scripture" | "video" | "talk" | "reading";
+  title: string;
+  reference?: string | null;
+  content?: string | null;
+  video_url?: string | null;
+  image_url?: string | null;
 }
 export interface PlanDayRow {
   plan_day_id?: string;
@@ -575,6 +587,7 @@ export interface PlanDayRow {
   reference: string;
   title: string | null;
   content: string | null;
+  segments?: PlanSegmentRow[];
 }
 export interface ResourceAdminRow {
   resource_id: string;

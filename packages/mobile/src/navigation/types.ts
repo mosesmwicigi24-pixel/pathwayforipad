@@ -8,6 +8,7 @@ import type { NavigatorScreenParams } from "@react-navigation/native";
 export type TabParamList = {
   Home: undefined;
   Pathway: undefined;
+  Plans: undefined;
   Events: undefined;
   Chat: undefined;
   Give: undefined;

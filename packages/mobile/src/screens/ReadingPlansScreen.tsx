@@ -23,11 +23,13 @@ export function ReadingPlansScreen(): ReactElement {
   return (
     <View style={st.screen}>
       <View style={st.header}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={({ pressed }) => [st.backBtn, pressed && { transform: [{ scale: 0.95 }] }]}>
-          <ArrowLeft size={20} color={palette.onNavy} />
-        </Pressable>
+        {nav.canGoBack() ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={({ pressed }) => [st.backBtn, pressed && { transform: [{ scale: 0.95 }] }]}>
+            <ArrowLeft size={20} color={palette.onNavy} />
+          </Pressable>
+        ) : null}
         <T variant="micro" tone="gold" style={st.kicker}>READ · REFLECT · APPLY</T>
-        <T serif tone="onNavy" style={{ fontSize: 24, marginTop: 4 }}>Reading plans</T>
+        <T serif tone="onNavy" style={{ fontSize: 24, marginTop: 4 }}>Plans</T>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false}>

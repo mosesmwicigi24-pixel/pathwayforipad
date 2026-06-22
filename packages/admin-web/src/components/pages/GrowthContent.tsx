@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState, type ReactElement, type ReactNode } f
 import { BookOpen, ChevronRight, Plus, Quote, Sparkles, Pencil, Trash2, Library, Flame, X } from "lucide-react";
 import {
   GrowthAdminApi, EncouragementsAdminApi,
-  type DevotionalRow, type VerseRow, type PlanRow, type PlanDayRow, type ResourceAdminRow, type EncouragementRow,
+  type DevotionalRow, type VerseRow, type PlanRow, type PlanDayRow, type PlanSegmentRow, type ResourceAdminRow, type EncouragementRow,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -49,7 +49,11 @@ const FIELDS: Record<TabKey, FieldDef[]> = {
     { key: "code", label: "Code", type: "text", required: true },
     { key: "category", label: "Category", type: "text" },
     { key: "title", label: "Title", type: "text", required: true, full: true },
+    { key: "subtitle", label: "Subtitle / tagline", type: "text", full: true },
     { key: "description", label: "Description", type: "textarea", full: true },
+    { key: "image_url", label: "Cover image URL", type: "text", full: true, placeholder: "https://pathway.nuruplace.org/media/…" },
+    { key: "sort", label: "Sort", type: "number" },
+    { key: "is_active", label: "Active", type: "checkbox" },
   ],
   resources: [
     { key: "title", label: "Title", type: "text", required: true, full: true },
@@ -199,11 +203,22 @@ function RecordEditor({ tab, level, row, onClose, onDone, onError }: {
     for (const f of fields) init[f.key] = row ? row[f.key] : f.type === "checkbox" ? true : f.type === "number" ? 0 : "";
     return init;
   });
-  const [days, setDays] = useState<PlanDayRow[]>(() => (row ? [] : [{ day_number: 1, reference: "", title: "", content: "" }]));
+  const [days, setDays] = useState<PlanDayRow[]>(() => (row ? [] : [{ day_number: 1, reference: "", title: "", content: "", segments: [] }]));
   const [busy, setBusy] = useState(false);
   const isPlan = tab === "plans";
   const editing = !!row;
   const id = row ? String(row[ID_KEY[tab]]) : "";
+
+  // Load the full plan (days + segments) when editing a plan.
+  useEffect(() => {
+    if (!isPlan || !editing) return;
+    let live = true;
+    void GrowthAdminApi.plan(id).then((p) => {
+      if (!live) return;
+      setDays((p.days ?? []).map((d) => ({ ...d, segments: d.segments ?? [] })));
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, [isPlan, editing, id]);
 
   const set = (k: string, v: unknown): void => setForm((f) => ({ ...f, [k]: v }));
 
@@ -228,8 +243,26 @@ function RecordEditor({ tab, level, row, onClose, onDone, onError }: {
       else if (tab === "resources") { if (editing) await GrowthAdminApi.updateResource(id, body); else await GrowthAdminApi.createResource(body); }
       else if (tab === "encouragements") { if (editing) await EncouragementsAdminApi.update(id, body); else await EncouragementsAdminApi.create(level, body); }
       else { // plans
-        if (editing) await GrowthAdminApi.updatePlan(id, body);
-        else await GrowthAdminApi.createPlan({ ...body, days: days.filter((d) => d.reference.trim()) });
+        const planDays = days
+          .filter((d) => d.reference.trim())
+          .map((d, di) => ({
+            day_number: d.day_number || di + 1,
+            reference: d.reference.trim(),
+            ...(d.title ? { title: d.title } : {}),
+            ...(d.content ? { content: d.content } : {}),
+            segments: (d.segments ?? [])
+              .filter((s) => s.title?.trim())
+              .map((s, si) => ({
+                sort: si,
+                kind: s.kind,
+                title: s.title.trim(),
+                ...(s.reference ? { reference: s.reference } : {}),
+                ...(s.content ? { content: s.content } : {}),
+                ...(s.video_url ? { video_url: s.video_url } : {}),
+              })),
+          }));
+        if (editing) await GrowthAdminApi.updatePlan(id, planDays.length ? { ...body, days: planDays } : body);
+        else await GrowthAdminApi.createPlan({ ...body, days: planDays });
       }
       onDone(editing ? "Saved changes." : "Created.");
     } catch (e) { onError(errorMessage(e, "Could not save.")); }
@@ -263,19 +296,48 @@ function RecordEditor({ tab, level, row, onClose, onDone, onError }: {
             </Field>
           ))}
 
-          {isPlan && !editing ? (
+          {isPlan ? (
             <div className="col-span-2">
-              <div className="flex items-center justify-between mb-2"><span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6 }}>Plan days</span>
-                <button onClick={() => setDays((d) => [...d, { day_number: d.length + 1, reference: "", title: "", content: "" }])} className="flex items-center gap-1 rounded-lg px-2 py-1" style={{ background: "var(--secondary)", fontSize: 11, fontWeight: 600, color: "var(--foreground)", border: "none" }}><Plus size={11} /> Day</button>
+              <div className="flex items-center justify-between mb-2">
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6 }}>Plan days &amp; segments</span>
+                <button onClick={() => setDays((d) => [...d, { day_number: d.length + 1, reference: "", title: "", content: "", segments: [] }])} className="flex items-center gap-1 rounded-lg px-2 py-1" style={{ background: "var(--secondary)", fontSize: 11, fontWeight: 600, color: "var(--foreground)", border: "none" }}><Plus size={11} /> Day</button>
               </div>
-              <div className="flex flex-col gap-2">
-                {days.map((d, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input value={d.day_number} onChange={(e) => setDays((arr) => arr.map((x, j) => j === i ? { ...x, day_number: Number(e.target.value) || 1 } : x))} type="number" style={{ ...inp, width: 64 }} />
-                    <input value={d.reference} onChange={(e) => setDays((arr) => arr.map((x, j) => j === i ? { ...x, reference: e.target.value } : x))} placeholder="Reference (e.g. John 1)" style={inp} />
-                    <button onClick={() => setDays((arr) => arr.filter((_, j) => j !== i))} className="rounded-lg p-2" style={{ color: "#DC2626", background: "none", border: "none" }}><Trash2 size={14} /></button>
-                  </div>
-                ))}
+              <div className="flex flex-col gap-3">
+                {days.map((d, i) => {
+                  const upd = (patch: Partial<PlanDayRow>): void => setDays((arr) => arr.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+                  const updSeg = (si: number, patch: Partial<PlanSegmentRow>): void =>
+                    setDays((arr) => arr.map((x, j) => (j === i ? { ...x, segments: (x.segments ?? []).map((s, k) => (k === si ? { ...s, ...patch } : s)) } : x)));
+                  const segs = d.segments ?? [];
+                  return (
+                    <div key={i} className="rounded-xl" style={{ border: "1px solid var(--border)", background: "var(--secondary)", padding: 12 }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <input value={d.day_number} onChange={(e) => upd({ day_number: Number(e.target.value) || 1 })} type="number" style={{ ...inp, width: 60 }} title="Day #" />
+                        <input value={d.reference} onChange={(e) => upd({ reference: e.target.value })} placeholder="Reference (e.g. John 3:1-16)" style={inp} />
+                        <input value={d.title ?? ""} onChange={(e) => upd({ title: e.target.value })} placeholder="Day title" style={inp} />
+                        <button onClick={() => setDays((arr) => arr.filter((_, j) => j !== i))} className="rounded-lg p-2 shrink-0" style={{ color: "#DC2626", background: "none", border: "none" }} title="Remove day"><Trash2 size={14} /></button>
+                      </div>
+                      <div className="flex flex-col gap-2" style={{ paddingLeft: 8, borderLeft: "2px solid var(--border)" }}>
+                        {segs.map((s, si) => (
+                          <div key={si} className="rounded-lg" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: 8 }}>
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <select value={s.kind} onChange={(e) => updSeg(si, { kind: e.target.value as PlanSegmentRow["kind"] })} style={{ ...inp, width: 130, padding: "7px 8px" }}>
+                                {["devotional", "scripture", "video", "talk", "reading"].map((k) => <option key={k} value={k}>{k}</option>)}
+                              </select>
+                              <input value={s.title} onChange={(e) => updSeg(si, { title: e.target.value })} placeholder="Segment title" style={{ ...inp, padding: "7px 8px" }} />
+                              <button onClick={() => upd({ segments: segs.filter((_, k) => k !== si) })} className="rounded-lg p-1.5 shrink-0" style={{ color: "#DC2626", background: "none", border: "none" }} title="Remove segment"><Trash2 size={13} /></button>
+                            </div>
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <input value={s.reference ?? ""} onChange={(e) => updSeg(si, { reference: e.target.value })} placeholder="Reference (optional)" style={{ ...inp, padding: "7px 8px" }} />
+                              <input value={s.video_url ?? ""} onChange={(e) => updSeg(si, { video_url: e.target.value })} placeholder="Video URL (optional)" style={{ ...inp, padding: "7px 8px" }} />
+                            </div>
+                            <textarea value={s.content ?? ""} onChange={(e) => updSeg(si, { content: e.target.value })} rows={2} placeholder="Content (markdown)" style={{ ...inp, padding: "7px 8px", resize: "vertical", lineHeight: 1.5 }} />
+                          </div>
+                        ))}
+                        <button onClick={() => upd({ segments: [...segs, { kind: "devotional", title: "", reference: "", content: "", video_url: "" }] })} className="flex items-center gap-1 rounded-lg px-2 py-1 self-start" style={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 11, fontWeight: 600, color: "var(--foreground)" }}><Plus size={11} /> Segment</button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ) : null}

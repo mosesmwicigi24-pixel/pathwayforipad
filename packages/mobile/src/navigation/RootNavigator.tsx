@@ -55,6 +55,7 @@ function Tabs(): ReactElement {
     >
       <Tab.Screen name="Home" component={HomeDashboardScreen} />
       <Tab.Screen name="Pathway" component={LevelsScreen} />
+      <Tab.Screen name="Plans" component={ReadingPlansScreen} />
       <Tab.Screen name="Events" component={EventsScreen} />
       <Tab.Screen name="Chat" component={ChatScreen} />
       <Tab.Screen name="Give" component={GivingScreen} />
