@@ -27,6 +27,7 @@ import type {
   MentorInfo,
   Discipler,
   GrowthScore,
+  ScoresSummary,
   NotificationRow,
   ScripturePassage,
   WelcomeVideo,
@@ -90,6 +91,7 @@ export const queryKeys = {
   featuredAnnouncement: "featuredAnnouncement",
   disciplers: "disciplers",
   wordScore: "wordScore",
+  scores: "scores",
   announcement: (id: string) => `announcement:${id}`,
   certificates: "certificates",
 };
@@ -293,4 +295,8 @@ export function useDisciplers(): QueryResult<Discipler[]> {
 /** My Word score (consistency + memorization + breadth). */
 export function useWordScore(): QueryResult<GrowthScore> {
   return useQuery(queryKeys.wordScore, () => NuruApi.wordScore(), { staleMs: 30_000 });
+}
+/** All five growth scores + a weighted overall (Home "Your progress"). */
+export function useScores(): QueryResult<ScoresSummary> {
+  return useQuery(queryKeys.scores, () => NuruApi.scores(), { staleMs: 30_000 });
 }

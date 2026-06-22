@@ -46,6 +46,7 @@ import {
   useFeaturedEvent,
   useFeaturedAnnouncement,
   useCellSummary,
+  useScores,
   useMe,
   useMyAnnouncements,
   useNotifications,
@@ -136,6 +137,7 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: featuredEvent, refetch: refetchFeaturedEvent } = useFeaturedEvent();
   const { data: featuredAnnouncement, refetch: refetchFeaturedAnnouncement } = useFeaturedAnnouncement();
   const { data: cellSummary } = useCellSummary();
+  const { data: scores } = useScores();
   const [refreshing, setRefreshing] = useState(false);
 
   // Home video social state (❤️ Like / emoji reactions / share), seeded from the
@@ -589,23 +591,61 @@ export function HomeDashboardScreen(): ReactElement {
               <T variant="micro" style={{ color: palette.goldLo, fontWeight: "600" }}>View pathway ›</T>
             </Pressable>
           </View>
-          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
-            {(
-              [
-                { label: "Habits", value: `${habitsPct}%`, fill: palette.gold, pct: habitsPct },
-                { label: "Curriculum", value: `${overallPct}%`, fill: palette.navy, pct: overallPct },
-                { label: "Attendance", value: `${attendancePct}%`, fill: palette.success, pct: attendancePct },
-              ] as const
-            ).map((m) => (
-              <View key={m.label} style={st.metricTile}>
-                <T serif style={{ fontSize: 22, color: palette.ink }}>{m.value}</T>
-                <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>{m.label}</T>
-                <View style={[st.miniTrack, { marginTop: spacing.sm }]}>
-                  <View style={{ width: `${m.pct}%`, height: "100%", borderRadius: 2, backgroundColor: m.fill }} />
+          {scores ? (
+            <>
+              {/* Overall ring + band, then the five growth scores as bars. The
+                  numbers are server-authoritative and personal to this member. */}
+              <View style={st.overallRow}>
+                <View style={st.overallRing}>
+                  <T serif style={{ fontSize: 24, color: palette.navyDeep }}>{scores.overall.score}</T>
+                  <T variant="micro" style={{ color: palette.ink600, marginTop: -3 }}>/100</T>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <T variant="micro" tone="gold" style={{ fontWeight: "700", letterSpacing: 1.2 }}>OVERALL GROWTH</T>
+                  <T variant="heading" style={{ color: palette.ink, marginTop: 1 }}>{scores.overall.band}</T>
+                  <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>Your rhythm across the disciplines</T>
                 </View>
               </View>
-            ))}
-          </View>
+              <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+                {(
+                  [
+                    { label: "Habits", s: scores.habits.score, fill: palette.gold },
+                    { label: "Word", s: scores.word.score, fill: palette.steady },
+                    { label: "Prayer", s: scores.prayer.score, fill: palette.goldLo },
+                    { label: "Curriculum", s: scores.curriculum.score, fill: palette.navy },
+                    { label: "Attendance", s: scores.attendance.score, fill: palette.success },
+                  ] as const
+                ).map((m) => (
+                  <View key={m.label} style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                    <T variant="caption" style={{ width: 86, color: palette.ink600 }}>{m.label}</T>
+                    <View style={[st.miniTrack, { flex: 1, height: 8, borderRadius: 4 }]}>
+                      <View style={{ width: `${m.s}%`, height: "100%", borderRadius: 4, backgroundColor: m.fill }} />
+                    </View>
+                    <T variant="caption" style={{ width: 30, textAlign: "right", fontWeight: "700", color: palette.ink }}>{m.s}</T>
+                  </View>
+                ))}
+              </View>
+            </>
+          ) : (
+            /* Fallback before scores load — the lightweight computed snapshot. */
+            <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
+              {(
+                [
+                  { label: "Habits", value: `${habitsPct}%`, fill: palette.gold, pct: habitsPct },
+                  { label: "Curriculum", value: `${overallPct}%`, fill: palette.navy, pct: overallPct },
+                  { label: "Attendance", value: `${attendancePct}%`, fill: palette.success, pct: attendancePct },
+                ] as const
+              ).map((m) => (
+                <View key={m.label} style={st.metricTile}>
+                  <T serif style={{ fontSize: 22, color: palette.ink }}>{m.value}</T>
+                  <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>{m.label}</T>
+                  <View style={[st.miniTrack, { marginTop: spacing.sm }]}>
+                    <View style={{ width: `${m.pct}%`, height: "100%", borderRadius: 2, backgroundColor: m.fill }} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
           {active && modulesLeft > 0 ? (
             <View style={st.targetStrip}>
               <View style={st.targetTile}>
@@ -973,6 +1013,8 @@ const st = {
   habitDot: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   metricTile: { flex: 1, backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
   miniTrack: { height: 4, borderRadius: 2, backgroundColor: palette.track, overflow: "hidden" },
+  overallRow: { flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: spacing.md },
+  overallRing: { width: 68, height: 68, borderRadius: 34, borderWidth: 3, borderColor: palette.gold, alignItems: "center", justifyContent: "center", backgroundColor: palette.verseBg },
   targetStrip: {
     flexDirection: "row",
     alignItems: "center",

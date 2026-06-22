@@ -10,8 +10,8 @@ import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
-import { usePrayers } from "../api/hooks";
-import { errorMessage, invalidateQueries, setQueryData } from "../api/query";
+import { usePrayers, useScores } from "../api/hooks";
+import { errorMessage, invalidateQueries, refreshQueries, setQueryData } from "../api/query";
 import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
@@ -28,6 +28,7 @@ function when(iso: string): string {
 export function PrayerJournalScreen(): ReactElement {
   const nav = useNavigation();
   const { data: prayers, isLoading, error, refetch } = usePrayers();
+  const { data: scores } = useScores();
   const [composing, setComposing] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -36,6 +37,7 @@ export function PrayerJournalScreen(): ReactElement {
 
   function refresh(): void {
     invalidateQueries("prayers");
+    refreshQueries("scores"); // praying moves the Prayer score
     void refetch();
   }
 
@@ -128,6 +130,19 @@ export function PrayerJournalScreen(): ReactElement {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+        {scores && !composing ? (
+          <View style={[st.card, st.scoreCard, { marginBottom: spacing.base }]}>
+            <View style={st.scoreRing}>
+              <T serif style={{ fontSize: 24, color: palette.navyDeep }}>{scores.prayer.score}</T>
+              <T variant="micro" style={{ color: palette.ink600, marginTop: -3 }}>/100</T>
+            </View>
+            <View style={{ flex: 1 }}>
+              <T variant="micro" tone="gold" style={{ fontWeight: "700", letterSpacing: 1.2 }}>PRAYER SCORE</T>
+              <T variant="heading" style={{ color: palette.ink, marginTop: 1 }}>{scores.prayer.band}</T>
+              <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>Grows as you pray and journal — private to you</T>
+            </View>
+          </View>
+        ) : null}
         {composing ? (
           <View style={[st.card, { gap: spacing.sm, marginBottom: spacing.base }]}>
             <TextInput
@@ -234,6 +249,8 @@ const st = {
     padding: spacing.base,
     ...shadow.card,
   },
+  scoreCard: { flexDirection: "row", alignItems: "center", gap: spacing.base },
+  scoreRing: { width: 68, height: 68, borderRadius: 34, borderWidth: 3, borderColor: palette.gold, alignItems: "center", justifyContent: "center", backgroundColor: palette.verseBg },
   answered: { borderColor: "rgba(21,128,61,0.30)" },
   answeredBadge: { width: 20, height: 20, borderRadius: 10, backgroundColor: "#15803D", alignItems: "center", justifyContent: "center" },
   input: {

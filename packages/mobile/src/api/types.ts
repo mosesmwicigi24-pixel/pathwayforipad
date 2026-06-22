@@ -625,6 +625,16 @@ export interface GrowthScore {
   detail: Record<string, number>;
 }
 
+// Composite of all five member scores + a weighted overall (GET /me/scores).
+export interface ScoresSummary {
+  overall: { score: number; band: string };
+  habits: GrowthScore;
+  curriculum: GrowthScore;
+  attendance: GrowthScore;
+  word: GrowthScore;
+  prayer: GrowthScore;
+}
+
 // A discipler/mentor in the member's congregation, for the Home "Meet your
 // discipler" carousel (GET /home/disciplers).
 export interface Discipler {
