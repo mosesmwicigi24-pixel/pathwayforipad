@@ -39,6 +39,7 @@ import type {
   SegmentCompleteResult,
   ResourceRow,
   MentorInfo,
+  Discipler,
   MyReflection,
   PathwaySummary,
   PrayerEntry,
@@ -536,6 +537,12 @@ export const NuruApi = {
   async mentor(): Promise<MentorInfo> {
     const { data } = await api.get("/growth/mentor");
     return data as MentorInfo;
+  },
+
+  // ---- Disciplers carousel (Home "Meet your discipler", GET /home/disciplers) ----
+  async disciplers(): Promise<Discipler[]> {
+    const { data } = await api.get<{ data: Discipler[] }>("/home/disciplers");
+    return data.data;
   },
 
   // ---- Homepage welcome video (PR #120); null when none is set ----

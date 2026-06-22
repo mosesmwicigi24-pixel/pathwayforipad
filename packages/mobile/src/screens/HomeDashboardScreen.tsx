@@ -40,6 +40,7 @@ import {
   useAchievements,
   useCalendar,
   useFeaturedCell,
+  useDisciplers,
   useRhythmToday,
   useMentor,
   useFeaturedEvent,
@@ -58,6 +59,7 @@ import { errorMessage, invalidateQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { ShareToChatSheet } from "../components/ShareToChatSheet";
+import { DisciplerCarousel } from "../components/DisciplerCarousel";
 
 // Emoji reactions on the home video (❤️ is the dedicated Like; these are extras).
 const VIDEO_EMOJIS = ["🙏", "🔥", "🎉", "👏"];
@@ -126,6 +128,7 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: featuredCell, refetch: refetchFeaturedCell } = useFeaturedCell();
   const { data: rhythmServer } = useRhythmToday();
   const { data: mentorInfo } = useMentor();
+  const { data: disciplers } = useDisciplers();
   const discipler = mentorInfo?.mentor ?? null;
   const disciplerInitials = discipler
     ? discipler.full_name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "·"
@@ -440,6 +443,9 @@ export function HomeDashboardScreen(): ReactElement {
             </View>
           </View>
         ) : null}
+
+        {/* ── Meet your discipler (auto-advancing carousel) ──────────── */}
+        {disciplers && disciplers.length > 0 ? <DisciplerCarousel disciplers={disciplers} /> : null}
 
         {/* ── Featured event (homepage toggle) ───────────────────────── */}
         {featuredEvent ? (

@@ -68,6 +68,11 @@ export function registerGrowthContent(ctx: AppContext): Router {
     res.json(await svc.mentor(requirePrincipal(req).userId));
   }));
 
+  // Home "Meet your discipler" carousel — disciplers/mentors in the member's congregation.
+  r.get("/home/disciplers", auth, handler(async (req, res) => {
+    res.json(await svc.disciplers(requirePrincipal(req).userId));
+  }));
+
   // ───────────────── Admin authoring (Admin+) — every mobile growth element
   // is editable from the portal. Audited; member reads above are unaffected.
 

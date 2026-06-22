@@ -36,6 +36,54 @@ describe("devotional + resources (seeded content)", () => {
   });
 });
 
+describe("Home disciplers carousel", () => {
+  async function tagDiscipler(userId: string, message?: string, avatar?: string): Promise<void> {
+    await testPool().query(
+      `INSERT INTO rbac_roles (role_key, name, role_type) VALUES ('discipler','Discipler (Cell Leader)','field')
+       ON CONFLICT (role_key) DO NOTHING`,
+    );
+    await testPool().query(
+      `INSERT INTO rbac_user_roles (user_id, role_key, assigned_by) VALUES ($1,'discipler',$1) ON CONFLICT DO NOTHING`,
+      [userId],
+    );
+    if (message !== undefined || avatar !== undefined) {
+      await testPool().query(`UPDATE users SET discipler_message = $2, avatar_url = $3 WHERE user_id = $1`, [
+        userId,
+        message ?? null,
+        avatar ?? null,
+      ]);
+    }
+  }
+
+  it("lists disciplers in my congregation with name, message and photo", async () => {
+    await tagDiscipler(mentor, "Walking with you on the journey.", "https://example.com/p.jpg");
+    const res = await agent().get("/v1/home/disciplers").set(auth(meTok));
+    expect(res.status).toBe(200);
+    const list = res.body.data as Array<{
+      user_id: string;
+      full_name: string;
+      message: string | null;
+      avatar_url: string | null;
+      role_label: string;
+    }>;
+    const d = list.find((x) => x.user_id === mentor);
+    expect(d).toBeTruthy();
+    expect(d!.full_name).toBe("Pastor James");
+    expect(d!.message).toBe("Walking with you on the journey.");
+    expect(d!.avatar_url).toBe("https://example.com/p.jpg");
+    expect(d!.role_label).toBe("Discipler");
+  });
+
+  it("does not leak disciplers from other congregations", async () => {
+    const other = await createCongregation("Other Branch");
+    const o = await createUser({ congregationId: other, email: "other@dev.local", fullName: "Other Leader" });
+    await tagDiscipler(o.user_id);
+    const res = await agent().get("/v1/home/disciplers").set(auth(meTok));
+    expect(res.status).toBe(200);
+    expect((res.body.data as Array<{ user_id: string }>).some((x) => x.user_id === o.user_id)).toBe(false);
+  });
+});
+
 describe("memory verses + mastery", () => {
   it("lists verses learning by default and masters at ≥90% match", async () => {
     const list = await agent().get("/v1/growth/memory-verses").set(auth(meTok));

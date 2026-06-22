@@ -2428,6 +2428,14 @@ paths:
         "200": { description: Mentor }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /home/disciplers:
+    get:
+      tags: [progress]
+      summary: Disciplers/mentors in my congregation (Home "Meet your discipler" carousel).
+      responses:
+        "200": { description: Disciplers }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   # --- Growth-content authoring (Admin+) — every mobile growth element editable ---
   /admin/growth/devotionals:
     get:

@@ -617,6 +617,17 @@ export interface MentorInfo {
   notes: Array<{ note_id: string; topic: string; note: string | null; met_at: string; next_meeting_at: string | null }>;
 }
 
+// A discipler/mentor in the member's congregation, for the Home "Meet your
+// discipler" carousel (GET /home/disciplers).
+export interface Discipler {
+  user_id: string;
+  full_name: string;
+  message: string | null;
+  avatar_url: string | null;
+  cell_name: string | null;
+  role_label: string;
+}
+
 // Homepage welcome video (GET /home/welcome-video, PR #120). Shared base fields,
 // then a source-dependent payload: external (youtube/vimeo/direct/private) carries
 // a shareable link; hosted (cloudinary) carries a signed, expiring delivery URL.

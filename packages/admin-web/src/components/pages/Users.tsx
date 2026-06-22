@@ -8,7 +8,7 @@ import {
   ChevronRight, Search, Plus, ChevronDown, X, Mail, UserCog, ShieldCheck,
   Globe, Languages as LanguagesIcon, Pencil, Ban, Eye, EyeOff, Lock, KeyRound, Check, Trash2,
 } from "lucide-react";
-import { SystemApi, type SystemUser, type SystemRole, type Country, type Language } from "../../api/client";
+import { SystemApi, OpsApi, uploadToCloudinary, type SystemUser, type SystemRole, type Country, type Language } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
 const AVATAR_GRADIENTS = [
@@ -181,9 +181,34 @@ function UserFormModal({ mode, initial, roles, countries, languages, onClose, on
   const [status, setStatus] = useState<SystemUser["account_status"]>(initial?.account_status ?? "active");
   const [roleKeys, setRoleKeys] = useState<string[]>(initial?.role_keys ?? []);
   const [require2fa, setRequire2fa] = useState(initial?.require_2fa ?? false);
+  const [disciplerMessage, setDisciplerMessage] = useState(initial?.discipler_message ?? "");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(initial?.avatar_url ?? null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const isDiscipler = roleKeys.includes("discipler") || roleKeys.includes("mentor");
   const toggleRole = (key: string) => setRoleKeys((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]);
+
+  function pickPhoto(): void {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      if (f.size > 10 * 1024 * 1024) { onError("Image is larger than 10 MB. Please choose a smaller one."); return; }
+      setUploadingPhoto(true);
+      void (async () => {
+        try {
+          const sign = await OpsApi.signAdminImage("disciplers");
+          const { secure_url } = await uploadToCloudinary(sign, f);
+          setAvatarUrl(secure_url);
+        } catch (e) { onError(errorMessage(e, "Photo upload failed.")); }
+        finally { setUploadingPhoto(false); }
+      })();
+    };
+    input.click();
+  }
 
   async function submit(): Promise<void> {
     if (!fullName.trim()) { onError("Please enter the full name."); return; }
@@ -198,6 +223,7 @@ function UserFormModal({ mode, initial, roles, countries, languages, onClose, on
       full_name: fullName.trim(), phone_number: phone.trim(),
       country_code: countryCode || null, locale, account_status: status,
       require_2fa: require2fa, role_keys: roleKeys,
+      discipler_message: disciplerMessage.trim() || null, avatar_url: avatarUrl,
       ...(password ? { password } : {}),
     };
     try {
@@ -242,6 +268,30 @@ function UserFormModal({ mode, initial, roles, countries, languages, onClose, on
               ); })}
             </div>
           </div>
+          {isDiscipler && (
+            <div className="rounded-xl px-4 py-4 flex flex-col gap-3" style={{ background: "rgba(200,155,60,0.06)", border: "1.5px solid rgba(200,155,60,0.25)" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, color: "var(--nuru-gold)", textTransform: "uppercase" }}>Discipler profile — shown in the mobile "Meet your discipler" carousel</div>
+              <div className="flex items-start gap-4">
+                <div style={{ flexShrink: 0 }}>
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="" style={{ width: 64, height: 64, borderRadius: 999, objectFit: "cover", border: "1.5px solid var(--border)" }} />
+                  ) : (
+                    <div style={{ width: 64, height: 64, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--nuru-navy)", color: "#fff", fontSize: 20, fontWeight: 700 }}>
+                      {(fullName.trim()[0] ?? "?").toUpperCase()}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2" style={{ marginTop: 6 }}>
+                    <button type="button" onClick={pickPhoto} disabled={uploadingPhoto} className="rounded-lg px-2.5 py-1.5" style={{ background: "var(--card)", border: "1.5px solid var(--border)", fontSize: 11, fontWeight: 600, color: "var(--foreground)", opacity: uploadingPhoto ? 0.6 : 1 }}>{uploadingPhoto ? "Uploading…" : "Upload photo"}</button>
+                    {avatarUrl && <button type="button" onClick={() => setAvatarUrl(null)} className="rounded-lg px-2 py-1.5" style={{ background: "transparent", border: "none", fontSize: 11, fontWeight: 600, color: "#DC2626" }}>Remove</button>}
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={lbl}>Message</label>
+                  <textarea value={disciplerMessage} onChange={(e) => setDisciplerMessage(e.target.value)} maxLength={2000} placeholder="A short, warm message to disciples — shown on their Home carousel." style={{ ...inp, height: 88, padding: "10px 14px", resize: "vertical" } as CSSProperties} />
+                </div>
+              </div>
+            </div>
+          )}
           <label className="flex items-center gap-3 rounded-xl px-4 py-3 cursor-pointer" style={{ background: "var(--secondary)" }}>
             <span onClick={() => setRequire2fa((v) => !v)} style={{ width: 36, height: 20, borderRadius: 999, background: require2fa ? "#0B7285" : "var(--border)", position: "relative", flexShrink: 0 }}><span style={{ position: "absolute", top: 2, left: require2fa ? 18 : 2, width: 16, height: 16, borderRadius: 999, background: "#fff", transition: "left 0.15s" }} /></span>
             <span><span className="flex items-center gap-1.5" style={{ fontSize: 13, color: "var(--foreground)", fontWeight: 600 }}><KeyRound size={13} style={{ color: "var(--nuru-gold)" }} /> Require 2FA setup on next login</span><span style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}>User will be prompted to configure two-factor authentication.</span></span>

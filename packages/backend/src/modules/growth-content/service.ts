@@ -320,4 +320,27 @@ export class GrowthContentService {
     );
     return { mentor, next_meeting_at: nextMeeting?.next_meeting_at ?? null, notes };
   }
+
+  // ---- Disciplers (Home "Meet your discipler" carousel) ----
+  // Everyone in the member's congregation carrying a field role of discipler or
+  // mentor (rbac_user_roles), with their personal message + thumbnail. Ones with
+  // a message/photo float to the front so the carousel leads with rich cards.
+  async disciplers(userId: string): Promise<{ data: unknown[] }> {
+    const data = await many(
+      this.pool,
+      `SELECT u.user_id, u.full_name, u.discipler_message AS message, u.avatar_url,
+              cg.name AS cell_name,
+              CASE WHEN bool_or(ur.role_key = 'discipler') THEN 'Discipler' ELSE 'Mentor' END AS role_label
+         FROM users u
+         JOIN rbac_user_roles ur ON ur.user_id = u.user_id AND ur.role_key IN ('discipler', 'mentor')
+         LEFT JOIN cell_groups cg ON cg.cell_group_id = u.cell_group_id
+        WHERE u.deleted_at IS NULL
+          AND u.account_status <> 'suspended'
+          AND u.congregation_id = (SELECT congregation_id FROM users WHERE user_id = $1)
+        GROUP BY u.user_id, cg.name
+        ORDER BY (u.discipler_message IS NOT NULL) DESC, (u.avatar_url IS NOT NULL) DESC, u.full_name`,
+      [userId],
+    );
+    return { data };
+  }
 }

@@ -25,6 +25,7 @@ import type {
   ReadingPlanDetail,
   ResourceRow,
   MentorInfo,
+  Discipler,
   NotificationRow,
   ScripturePassage,
   WelcomeVideo,
@@ -86,6 +87,7 @@ export const queryKeys = {
   rhythmToday: "rhythmToday",
   featuredEvent: "featuredEvent",
   featuredAnnouncement: "featuredAnnouncement",
+  disciplers: "disciplers",
   announcement: (id: string) => `announcement:${id}`,
   certificates: "certificates",
 };
@@ -279,4 +281,8 @@ export function useResources(): QueryResult<ResourceRow[]> {
 }
 export function useMentor(): QueryResult<MentorInfo> {
   return useQuery(queryKeys.mentor, () => NuruApi.mentor(), { staleMs: 60_000 });
+}
+/** Disciplers/mentors in my congregation (Home "Meet your discipler" carousel). */
+export function useDisciplers(): QueryResult<Discipler[]> {
+  return useQuery(queryKeys.disciplers, () => NuruApi.disciplers(), { staleMs: 5 * 60_000 });
 }

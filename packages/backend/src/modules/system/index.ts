@@ -50,6 +50,10 @@ const UserInput = z.object({
   account_status: z.enum(["active", "invited", "suspended"]).optional(),
   require_2fa: z.boolean().optional(),
   role_keys: z.array(z.string().max(60)).optional(),
+  // Discipler profile (surfaced in the mobile "Meet your discipler" carousel).
+  // null clears the column; omit to leave unchanged.
+  discipler_message: z.string().max(2000).nullable().optional(),
+  avatar_url: z.string().url().max(500).nullable().optional(),
 });
 
 // Map assigned RBAC roles to the coarse legacy enum so the auth bridge and any
@@ -346,7 +350,7 @@ export function registerSystem(ctx: AppContext): Router {
   // ── System users (portal accounts) ──
   const USER_SELECT = `
     SELECT u.user_id, u.full_name, u.email, u.phone_number, u.country_code, u.locale,
-           u.account_status, u.require_2fa,
+           u.account_status, u.require_2fa, u.discipler_message, u.avatar_url,
            (SELECT max(ie.occurred_at) FROM interaction_events ie WHERE ie.user_id = u.user_id) AS last_active,
            COALESCE(array_agg(ur.role_key) FILTER (WHERE ur.role_key IS NOT NULL), '{}') AS role_keys
       FROM users u
@@ -410,6 +414,7 @@ export function registerSystem(ctx: AppContext): Router {
         full_name: input.full_name, phone_number: input.phone_number,
         country_code: input.country_code, locale: input.locale,
         account_status: input.account_status, require_2fa: input.require_2fa,
+        discipler_message: input.discipler_message, avatar_url: input.avatar_url,
       };
       if (input.password) cols.password_hash = await hashPassword(input.password);
       if (input.role_keys) cols.role = legacyRoleFor(input.role_keys);

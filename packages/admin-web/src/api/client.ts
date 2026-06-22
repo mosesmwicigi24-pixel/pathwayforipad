@@ -348,6 +348,8 @@ export interface SystemUser {
   require_2fa: boolean;
   last_active: string | null;
   role_keys: string[];
+  discipler_message: string | null;
+  avatar_url: string | null;
 }
 
 export const SystemApi = {
@@ -935,7 +937,7 @@ export const OpsApi = {
     api.post(`/admin/events/${eventId}/guests`, body).then((r) => r.data),
   // Signed image upload for events/announcements. Bytes go direct to Cloudinary
   // (see uploadToCloudinary), never our server.
-  signAdminImage: (folder: "events" | "announcements") =>
+  signAdminImage: (folder: "events" | "announcements" | "disciplers") =>
     api.post<CloudinarySignResult>("/admin/media/images/sign", { folder }).then((r) => r.data),
   createSeries: (body: Record<string, unknown>) => api.post("/admin/events/series", body).then((r) => r.data),
   updateSeries: (seriesId: string, body: Record<string, unknown>) =>
