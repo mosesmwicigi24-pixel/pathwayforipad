@@ -19,6 +19,7 @@ import {
   HandHeart,
   Heart,
   Library,
+  MapPin,
   Megaphone,
   MessageSquareText,
   Play,
@@ -39,6 +40,7 @@ import {
   useAchievements,
   useCalendar,
   useFeaturedCell,
+  useRhythmToday,
   useMentor,
   useFeaturedEvent,
   useFeaturedAnnouncement,
@@ -122,6 +124,7 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: verse } = useScripture("Psalm 119:105");
   const { data: welcomeVideo, refetch: refetchWelcomeVideo } = useWelcomeVideo();
   const { data: featuredCell, refetch: refetchFeaturedCell } = useFeaturedCell();
+  const { data: rhythmServer } = useRhythmToday();
   const { data: mentorInfo } = useMentor();
   const discipler = mentorInfo?.mentor ?? null;
   const disciplerInitials = discipler
@@ -173,10 +176,22 @@ export function HomeDashboardScreen(): ReactElement {
   }, []);
   const { data: occurrences } = useCalendar(fromIso, toIso);
 
-  // Today's rhythm — local, device-day state (D-M5: habit check-ins are
-  // last-write-wins convenience state, not server-gated progress).
+  // Today's rhythm — seeded from the server (interaction_events, EAT day) and
+  // completed by a real action: tapping a tile records it (prayer), and Word /
+  // Reflection also tick organically (opening the devotional / saving a reflection).
   const [rhythm, setRhythm] = useState<Record<string, boolean>>({ prayer: false, word: false, reflection: false });
+  useEffect(() => {
+    if (rhythmServer) setRhythm({ prayer: rhythmServer.prayer, word: rhythmServer.word, reflection: rhythmServer.reflection });
+  }, [rhythmServer]);
   const rhythmDone = RHYTHM.filter((r) => rhythm[r.key]).length;
+  async function markRhythm(kind: "prayer" | "word" | "reflection"): Promise<void> {
+    if (rhythm[kind]) return; // already done today (completions are one-way)
+    setRhythm((p) => ({ ...p, [kind]: true })); // optimistic
+    try {
+      const next = await NuruApi.completeRhythm(kind);
+      setRhythm({ prayer: next.prayer, word: next.word, reflection: next.reflection });
+    } catch { setRhythm((p) => ({ ...p, [kind]: false })); }
+  }
 
   if (isLoading) {
     return (
@@ -323,9 +338,46 @@ export function HomeDashboardScreen(): ReactElement {
           <ShareToChatSheet videoUrl={welcomeUrl} caption={welcomeVideo.caption} onClose={() => setShareOpen(false)} />
         ) : null}
 
+        {/* ── Verse for today (moved up: right after the intro video, D-M4) ── */}
+        <View style={st.verseCard}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <BookOpen size={13} color={palette.goldChipText} />
+            <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>
+              VERSE FOR TODAY
+            </T>
+            <View style={{ flex: 1 }} />
+            <View style={st.versionPill}>
+              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>{verse?.version ?? "WEB"} ▾</T>
+            </View>
+          </View>
+          <T serif style={{ fontSize: 18, lineHeight: 27, color: palette.ink, marginTop: spacing.md }}>
+            {verse?.text ?? "“Your word is a lamp to my feet, and a light for my path.”"}
+          </T>
+          <T variant="caption" tone="secondary" style={{ marginTop: spacing.sm, fontWeight: "500" }}>
+            {`${verse?.reference ?? "Psalm 119:105"} · ${verse?.version ?? "WEB"}`}
+          </T>
+          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
+            <Pressable onPress={() => nav.navigate("VerseLibrary")} style={st.versePillBtn}>
+              <Heart size={13} color={palette.ink600} />
+              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>Save</T>
+            </Pressable>
+            <View style={st.versePillBtn}>
+              <Share2 size={13} color={palette.ink600} />
+              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>Share</T>
+            </View>
+          </View>
+        </View>
+
         {/* ── This week at Nuru (real featured cell, PR #125; hidden when none) ── */}
         {featuredCell ? (
           <View style={st.card}>
+            {featuredCell.image_url ? (
+              <Image
+                source={{ uri: featuredCell.image_url }}
+                style={{ width: "100%", height: 150, borderRadius: radii.control, marginBottom: spacing.md }}
+                resizeMode="cover"
+              />
+            ) : null}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Users size={13} color={palette.goldChipText} />
               <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>
@@ -371,6 +423,21 @@ export function HomeDashboardScreen(): ReactElement {
                 </View>
               </View>
             ) : null}
+            {/* Room + members detail row */}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md }}>
+              {featuredCell.room ? (
+                <View style={st.weekChip}>
+                  <MapPin size={12} color={palette.goldLo} />
+                  <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>{featuredCell.room}</T>
+                </View>
+              ) : null}
+              <View style={st.weekChip}>
+                <Users size={12} color={palette.goldLo} />
+                <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>
+                  {`${featuredCell.members} ${featuredCell.members === 1 ? "member" : "members"}`}
+                </T>
+              </View>
+            </View>
           </View>
         ) : null}
 
@@ -466,7 +533,7 @@ export function HomeDashboardScreen(): ReactElement {
                   key={key}
                   accessibilityRole="button"
                   accessibilityState={{ selected: done }}
-                  onPress={() => setRhythm((prev) => ({ ...prev, [key]: !prev[key] }))}
+                  onPress={() => void markRhythm(key)}
                   style={[st.habitTile, { backgroundColor: done ? palette.successBg : palette.goldChipBg }]}
                 >
                   <View style={[st.habitDot, { backgroundColor: done ? palette.successText : palette.white }]}>
@@ -613,36 +680,6 @@ export function HomeDashboardScreen(): ReactElement {
           onSeeAll={() => nav.navigate("Calendar")}
           onOpenEvent={(e) => nav.navigate("EventDetail", { eventId: e.occurrence_id, title: e.title, startAt: e.start_at, endAt: e.end_at, location: e.location })}
         />
-
-        {/* ── Verse for today (WEB default, D-M4) ────────────────────── */}
-        <View style={st.verseCard}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <BookOpen size={13} color={palette.goldChipText} />
-            <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>
-              VERSE FOR TODAY
-            </T>
-            <View style={{ flex: 1 }} />
-            <View style={st.versionPill}>
-              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>{verse?.version ?? "WEB"} ▾</T>
-            </View>
-          </View>
-          <T serif style={{ fontSize: 18, lineHeight: 27, color: palette.ink, marginTop: spacing.md }}>
-            {verse?.text ?? "“Your word is a lamp to my feet, and a light for my path.”"}
-          </T>
-          <T variant="caption" tone="secondary" style={{ marginTop: spacing.sm, fontWeight: "500" }}>
-            {`${verse?.reference ?? "Psalm 119:105"} · ${verse?.version ?? "WEB"}`}
-          </T>
-          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
-            <Pressable onPress={() => nav.navigate("VerseLibrary")} style={st.versePillBtn}>
-              <Heart size={13} color={palette.ink600} />
-              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>Save</T>
-            </Pressable>
-            <View style={st.versePillBtn}>
-              <Share2 size={13} color={palette.ink600} />
-              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>Share</T>
-            </View>
-          </View>
-        </View>
 
         {/* ── Encouragement ──────────────────────────────────────────── */}
         <View style={st.encourageStrip}>

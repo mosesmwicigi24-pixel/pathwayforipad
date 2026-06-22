@@ -2,23 +2,52 @@
 // (useDevotional → /growth/devotional): scripture inset, Markdown body, audio/
 // video markers, and a reflection prompt with a local draft (kept client-side
 // until submitted elsewhere). Read-only content; the church paces the day.
-import { useState, type ReactElement } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
-import { ArrowLeft, Headphones, Play, Quote } from "lucide-react-native";
+import { useEffect, useState, type ReactElement } from "react";
+import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from "react-native";
+import { ArrowLeft, Check, Headphones, Play, Quote } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { Glow, T } from "../theme/components";
 import { useKeyboardInset } from "../components/useKeyboardInset";
 import { Markdown } from "../components/Markdown";
-import { useDevotional } from "../api/hooks";
-import { errorMessage } from "../api/query";
+import { useDevotional, queryKeys } from "../api/hooks";
+import { NuruApi } from "../api/client";
+import { errorMessage, refreshQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
 
 export function DevotionalScreen(): ReactElement {
   const nav = useNavigation();
   const { data: dev, isLoading, error, refetch } = useDevotional();
   const [reflection, setReflection] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
   const kbInset = useKeyboardInset();
+
+  // Seed the draft from the saved reflection once the devotional loads.
+  useEffect(() => {
+    if (dev?.my_reflection) setReflection(dev.my_reflection);
+  }, [dev?.devotional_id, dev?.my_reflection]);
+
+  // Reading the Word: mark the "Word" rhythm done for today (best-effort, once).
+  useEffect(() => {
+    if (dev?.devotional_id) {
+      void NuruApi.completeRhythm("word").then(() => refreshQueries(queryKeys.rhythmToday)).catch(() => undefined);
+    }
+  }, [dev?.devotional_id]);
+
+  const dirty = reflection.trim().length > 0 && reflection.trim() !== (dev?.my_reflection ?? "");
+  async function saveReflection(): Promise<void> {
+    if (!dev || !reflection.trim()) return;
+    setSaving(true); setSaveErr(null);
+    try {
+      await NuruApi.saveDevotionalReflection(dev.devotional_id, reflection.trim());
+      setSaved(true);
+      refreshQueries(queryKeys.rhythmToday);
+      void refetch();
+    } catch (e) { setSaveErr(errorMessage(e)); }
+    finally { setSaving(false); }
+  }
 
   return (
     <View style={st.screen}>
@@ -82,16 +111,28 @@ export function DevotionalScreen(): ReactElement {
               <T variant="bodyLg" style={{ marginTop: spacing.sm, color: palette.ink }}>{dev.reflection_prompt}</T>
               <TextInput
                 value={reflection}
-                onChangeText={setReflection}
+                onChangeText={(t) => { setReflection(t); setSaved(false); }}
                 placeholder="A few honest words…"
                 placeholderTextColor={palette.ink400}
                 multiline
                 style={st.input}
                 accessibilityLabel="Reflection"
               />
-              <T variant="micro" tone="tertiary" style={{ marginTop: 6 }}>
-                {reflection.trim() ? "Saved to your journal" : "Your reflection stays private to you."}
-              </T>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm }}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Save reflection"
+                  disabled={!dirty || saving}
+                  onPress={() => void saveReflection()}
+                  style={[st.saveBtn, (!dirty || saving) && { opacity: 0.5 }]}
+                >
+                  {saving ? <ActivityIndicator size="small" color={palette.onNavy} /> : <Check size={14} color={palette.onNavy} />}
+                  <T variant="caption" style={{ color: palette.onNavy, fontWeight: "700" }}>{saved && !dirty ? "Saved" : "Save reflection"}</T>
+                </Pressable>
+                <T variant="micro" tone="tertiary" style={{ flex: 1 }}>
+                  {saveErr ? saveErr : saved && !dirty ? "Saved — private to you · Reflection done ✓" : "Stays private to you."}
+                </T>
+              </View>
             </View>
           ) : null}
         </ScrollView>
@@ -111,4 +152,5 @@ const st = {
   scripture: { backgroundColor: palette.surface, borderLeftWidth: 3, borderLeftColor: palette.gold, borderRadius: 12, padding: spacing.base },
   reflection: { marginTop: spacing.lg, backgroundColor: palette.white, borderRadius: radii.card, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   input: { marginTop: spacing.base, minHeight: 90, borderRadius: radii.control, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.coolPaper, padding: spacing.base, fontSize: 15, lineHeight: 22, textAlignVertical: "top", color: palette.ink },
+  saveBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: palette.navy, borderRadius: radii.control, paddingHorizontal: spacing.base, paddingVertical: spacing.sm },
 } as const;

@@ -174,6 +174,7 @@ export interface EngagementCellRow {
   room?: string | null;
   next_session?: string | null;
   tone?: string | null;
+  image_url?: string | null;
   // Homepage-featured cell ("This week at Nuru"); single-row invariant (PR #125).
   is_featured?: boolean;
 }
@@ -191,6 +192,7 @@ export interface CreateCellBody {
   room?: string;
   next_session?: string;
   tone?: string;
+  image_url?: string | null;
   meeting_cadence?: number;
 }
 

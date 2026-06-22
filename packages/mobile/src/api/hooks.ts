@@ -29,6 +29,7 @@ import type {
   ScripturePassage,
   WelcomeVideo,
   FeaturedCell,
+  RhythmToday,
   AnnouncementDetail,
   FeaturedEvent,
   FeaturedAnnouncement,
@@ -82,6 +83,7 @@ export const queryKeys = {
   scripture: (ref: string, version: string) => `scripture:${ref}:${version}`,
   welcomeVideo: "welcomeVideo",
   featuredCell: "featuredCell",
+  rhythmToday: "rhythmToday",
   featuredEvent: "featuredEvent",
   featuredAnnouncement: "featuredAnnouncement",
   announcement: (id: string) => `announcement:${id}`,
@@ -231,6 +233,11 @@ export function useWelcomeVideo(): QueryResult<WelcomeVideo | null> {
 /** Homepage-featured cell "This week at Nuru" (PR #125); null when none is set. */
 export function useFeaturedCell(): QueryResult<FeaturedCell | null> {
   return useQuery(queryKeys.featuredCell, () => NuruApi.featuredCell(), { staleMs: 5 * 60_000 });
+}
+
+/** Today's Rhythm completions (prayer / word / reflection). */
+export function useRhythmToday(): QueryResult<RhythmToday> {
+  return useQuery(queryKeys.rhythmToday, () => NuruApi.rhythmToday(), { staleMs: 60_000 });
 }
 
 /** Full announcement detail (carousel images + body). */

@@ -5,8 +5,8 @@
 // our model, so real per-cell metrics (members, avg engagement, at-risk) are shown.
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronRight, CircleAlert, Sparkles, TrendingUp, Users, ArrowUpRight, Plus, X, Home, UserCheck, Target, CalendarClock, MapPin, CalendarPlus, GraduationCap, Star, Pencil } from "lucide-react";
-import { AdminApi, type EngagementCellRow, type CreateCellBody } from "../../api/client";
+import { ChevronRight, CircleAlert, Sparkles, TrendingUp, Users, ArrowUpRight, Plus, X, Home, UserCheck, Target, CalendarClock, MapPin, CalendarPlus, GraduationCap, Star, Pencil, ImagePlus, Loader2 } from "lucide-react";
+import { AdminApi, OpsApi, uploadToCloudinary, type EngagementCellRow, type CreateCellBody } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
 const TONE_HEX: Record<string, string> = { amber: "#C89B3C", blue: "#1F3A6B", green: "#16A34A", violet: "#7C3AED", rose: "#DB2777", red: "#DC2626" };
@@ -248,9 +248,29 @@ function CellModal({ cell, onClose, onCreate, onUpdate }: { cell?: EngagementCel
   const [room, setRoom] = useState(cell?.room ?? "");
   const [nextSession, setNextSession] = useState(cell?.next_session ?? "");
   const [tone, setTone] = useState(cell?.tone ?? "amber");
+  const [imageUrl, setImageUrl] = useState(cell?.image_url ?? "");
+  const [uploadingImg, setUploadingImg] = useState(false);
   const [featureOnHomepage, setFeatureOnHomepage] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const pickImage = (): void => {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = "image/*";
+    input.onchange = async () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      if (f.size > 10 * 1024 * 1024) { setErr("Image is larger than 10 MB."); return; }
+      setUploadingImg(true); setErr(null);
+      try {
+        const sign = await OpsApi.signAdminImage("events");
+        const { secure_url } = await uploadToCloudinary(sign, f);
+        setImageUrl(secure_url);
+      } catch (e) { setErr(errorMessage(e, "Image upload failed.")); }
+      finally { setUploadingImg(false); }
+    };
+    input.click();
+  };
 
   const submit = async (): Promise<void> => {
     if (!name.trim()) { setErr("Cell name is required."); return; }
@@ -263,6 +283,7 @@ function CellModal({ cell, onClose, onCreate, onUpdate }: { cell?: EngagementCel
       ...(meets.trim() ? { meets: meets.trim() } : {}),
       ...(room.trim() ? { room: room.trim() } : {}),
       ...(nextSession.trim() ? { next_session: nextSession.trim() } : {}),
+      ...(imageUrl ? { image_url: imageUrl } : editing ? { image_url: null } : {}),
     };
     try {
       if (editing && cell) onUpdate?.(await AdminApi.updateCell(cell.cell_group_id, body));
@@ -297,6 +318,16 @@ function CellModal({ cell, onClose, onCreate, onUpdate }: { cell?: EngagementCel
           <Field label="Meets" icon={<CalendarClock size={14} />}><input value={meets} onChange={(e) => setMeets(e.target.value)} placeholder="e.g. Tue · 6:30 PM" style={withIcon} /></Field>
           <Field label="Room / venue" icon={<MapPin size={14} />}><input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="e.g. Hall B" style={withIcon} /></Field>
           <Field label="Next session" icon={<CalendarPlus size={14} />}><input value={nextSession} onChange={(e) => setNextSession(e.target.value)} placeholder="e.g. Tue, Jun 24 · 6:30 PM" style={withIcon} /></Field>
+          <div className="sm:col-span-2">
+            <label style={fieldLabel}>Cover image <span style={{ fontWeight: 400, color: "var(--muted-foreground)" }}>(shown on “This week at Nuru”)</span></label>
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg overflow-hidden flex items-center justify-center shrink-0" style={{ width: 96, height: 56, background: "var(--input-background)", border: "1px solid var(--border)" }}>
+                {imageUrl ? <img src={imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <ImagePlus size={18} style={{ color: "var(--muted-foreground)" }} />}
+              </div>
+              <button type="button" onClick={pickImage} disabled={uploadingImg} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 38, background: "var(--input-background)", border: "1.5px solid var(--border)", fontSize: 12.5, fontWeight: 600, color: "var(--foreground)", opacity: uploadingImg ? 0.6 : 1 }}>{uploadingImg ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />} {imageUrl ? "Replace image" : "Upload image"}</button>
+              {imageUrl ? <button type="button" onClick={() => setImageUrl("")} className="rounded-lg px-3" style={{ height: 38, background: "transparent", border: "1.5px solid var(--border)", fontSize: 12.5, fontWeight: 600, color: "#DC2626" }}>Remove</button> : null}
+            </div>
+          </div>
           <div className="sm:col-span-2">
             <label style={fieldLabel}>Card colour</label>
             <div className="flex items-center gap-2">

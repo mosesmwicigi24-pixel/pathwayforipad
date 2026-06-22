@@ -51,6 +51,7 @@ import type {
   NuruTurn,
   WelcomeVideo,
   ReactionToggleResult,
+  RhythmToday,
   FeaturedCell,
   AnnouncementDetail,
   FeaturedEvent,
@@ -545,6 +546,24 @@ export const NuruApi = {
   // ---- Homepage-featured cell ("This week at Nuru", PR #125); null when none ----
   async featuredCell(): Promise<FeaturedCell | null> {
     const { data } = await api.get<FeaturedCell | null>("/home/featured-cell");
+    return data;
+  },
+
+  // ---- Today's Rhythm (prayer / word / reflection) ----
+  async rhythmToday(): Promise<RhythmToday> {
+    const { data } = await api.get<RhythmToday>("/me/rhythm/today");
+    return data;
+  },
+  async completeRhythm(kind: "prayer" | "word" | "reflection"): Promise<RhythmToday> {
+    const { data } = await api.post<RhythmToday>("/me/rhythm/complete", { kind });
+    return data;
+  },
+  // ---- Devotional reflection (saved; also marks the Reflection rhythm) ----
+  async saveDevotionalReflection(devotionalId: string, body: string): Promise<{ saved: true }> {
+    const { data } = await api.post<{ saved: true }>("/growth/devotional/reflection", {
+      devotional_id: devotionalId,
+      body,
+    });
     return data;
   },
 

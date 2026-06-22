@@ -522,6 +522,13 @@ export interface Devotional {
   reflection_prompt: string | null;
   audio_url: string | null;
   video_url: string | null;
+  my_reflection?: string | null;
+}
+
+export interface RhythmToday {
+  prayer: boolean;
+  word: boolean;
+  reflection: boolean;
 }
 
 export interface MemoryVerseRow {
@@ -637,6 +644,7 @@ export interface FeaturedCell {
   room: string | null;
   next_session: string | null;
   tone: string | null;
+  image_url: string | null;
   members: number;
   avg_engagement: number;
 }
