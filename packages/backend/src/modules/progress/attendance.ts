@@ -7,7 +7,7 @@
 import type { Pool } from "pg";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { many, maybeOne, one, tx, enqueueOutbox, audit } from "../../db/db.js";
+import { many, maybeOne, one, tx, enqueueOutbox, audit, recordActivityEvent } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 import { assertCellInScope } from "../../http/auth.js";
 import type { Principal } from "../../http/http.js";
@@ -71,6 +71,7 @@ export class AttendanceService {
 
       await enqueueOutbox(c, "engagement.recompute", { user_id: userId });
       await enqueueOutbox(c, "gamification.evaluate", { user_id: userId });
+      await recordActivityEvent(c, userId, "check_in"); // attendance now counts toward habit/attendance scores + streak
       await audit(c, userId, "attendance.checked_in", "events", eventId, {});
       return { attendance_id: row.attendance_id, duplicate: false };
     });
@@ -135,6 +136,7 @@ export class AttendanceService {
       }
 
       await enqueueOutbox(c, "engagement.recompute", { user_id: input.user_id });
+      await recordActivityEvent(c, input.user_id, "check_in");
       await audit(c, principal.userId, "attendance.manual_checkin", "events", eventId, {
         user_id: input.user_id,
         note: input.note ?? null,

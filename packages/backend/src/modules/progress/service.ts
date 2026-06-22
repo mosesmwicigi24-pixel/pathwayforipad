@@ -2,7 +2,7 @@
 // idempotency and forward-only (monotonic) merge — a stale client claiming
 // "incomplete" never overwrites a server "complete" (§1.7).
 import type { Pool, PoolClient } from "pg";
-import { maybeOne, one, tx, recordChange, enqueueOutbox } from "../../db/db.js";
+import { maybeOne, one, tx, recordChange, enqueueOutbox, recordActivityEvent } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 import { loadEnrollment, loadModule, isModuleUnlocked, type EnrollmentRef } from "./gating.js";
 
@@ -89,6 +89,10 @@ export class ProgressService {
       await recordChange(c, "module_progress", row.progress_id, userId, "upsert");
       // Verified signal → re-evaluate faithfulness badges (§G.3). Idempotent worker.
       await enqueueOutbox(c, "gamification.evaluate", { user_id: userId });
+      // Feed the activity ledger so completion counts toward habit/curriculum
+      // scores + streak, and refresh the leader engagement snapshot promptly (§1.8).
+      await recordActivityEvent(c, userId, "module_completed", { moduleId });
+      await enqueueOutbox(c, "engagement.recompute", { user_id: userId });
       return {
         progress_id: row.progress_id,
         module_id: moduleId,

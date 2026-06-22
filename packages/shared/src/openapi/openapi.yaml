@@ -2436,12 +2436,47 @@ paths:
         "200": { description: Disciplers }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /me/scores:
+    get:
+      tags: [progress]
+      summary: All my growth scores + a weighted overall (habits/curriculum/attendance/word/prayer).
+      responses:
+        "200": { description: Scores }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /me/scores/word:
     get:
       tags: [progress]
       summary: My Word score (consistency + memorization + breadth), 0–100 with breakdown.
       responses:
         "200": { description: Word score }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/scores/prayer:
+    get:
+      tags: [progress]
+      summary: My Prayer score (consistency + depth), 0–100. Private to the member.
+      responses:
+        "200": { description: Prayer score }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/scores/habits:
+    get:
+      tags: [progress]
+      summary: My Habits score (daily-rhythm consistency + completeness), 0–100.
+      responses:
+        "200": { description: Habits score }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/scores/curriculum:
+    get:
+      tags: [progress]
+      summary: My Curriculum score (completion + quiz mastery), 0–100.
+      responses:
+        "200": { description: Curriculum score }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/scores/attendance:
+    get:
+      tags: [progress]
+      summary: My Attendance score (check-ins vs cell cadence, 30d), 0–100.
+      responses:
+        "200": { description: Attendance score }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   # --- Growth-content authoring (Admin+) — every mobile growth element editable ---

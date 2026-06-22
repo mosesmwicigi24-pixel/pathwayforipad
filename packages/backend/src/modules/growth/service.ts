@@ -5,7 +5,7 @@
 // leader/admin read path — prayers are pastorally private (§5.4).
 import type { Pool } from "pg";
 import { z } from "zod";
-import { many, maybeOne, one, recordChange, tx } from "../../db/db.js";
+import { many, maybeOne, one, recordChange, tx, recordActivityEvent } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 
 export interface GiftProfile {
@@ -162,6 +162,9 @@ export class GrowthService {
         return { entry_id: input.entry_id, duplicate: true }; // stale LWW replay → no-op
       }
       await recordChange(c, "prayer_entries", input.entry_id, userId, "upsert");
+      // Praying (a real journal entry) ticks the daily "prayer" rhythm + feeds the
+      // Prayer score / streak — so the rhythm reflects actual prayer, not a tap.
+      await recordActivityEvent(c, userId, "prayer", { oncePerDayTz: "Africa/Nairobi" });
       return { entry_id: input.entry_id, duplicate: false };
     });
   }

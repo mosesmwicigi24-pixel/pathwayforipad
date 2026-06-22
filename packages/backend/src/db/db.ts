@@ -1,6 +1,7 @@
 // Thin query helpers over node-postgres. Modules code against these instead of
 // touching the pool directly, so transactions, change-log writes, and outbox
 // enqueues stay consistent (§1.6, §1.11). Parameterised queries only (§5.8).
+import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { ApiError } from "../http/errors.js";
 
@@ -54,6 +55,36 @@ export async function recordChange(
   await c.query(
     `INSERT INTO change_log (domain, row_id, user_id, op) VALUES ($1,$2,$3,$4)`,
     [domain, rowId, userId, op],
+  );
+}
+
+/**
+ * Emit a member-activity event into the canonical ledger (interaction_events).
+ * This is the single spine every score/streak reads from, so domain actions
+ * (module complete, quiz pass, check-in, prayer…) call this in their own tx in
+ * ADDITION to writing their domain row. `oncePerDayTz` makes it idempotent per
+ * EAT day (for rhythm-type kinds like prayer/word); omit it for discrete events.
+ */
+export async function recordActivityEvent(
+  c: Queryable,
+  userId: string,
+  kind: string,
+  opts: { moduleId?: string | null; oncePerDayTz?: string } = {},
+): Promise<void> {
+  if (opts.oncePerDayTz) {
+    const dup = await c.query(
+      `SELECT 1 FROM interaction_events
+        WHERE user_id = $1 AND kind = $2
+          AND (occurred_at AT TIME ZONE $3)::date = (now() AT TIME ZONE $3)::date
+        LIMIT 1`,
+      [userId, kind, opts.oncePerDayTz],
+    );
+    if (dup.rowCount && dup.rowCount > 0) return;
+  }
+  await c.query(
+    `INSERT INTO interaction_events (user_id, kind, module_id, occurred_at, client_event_id)
+     VALUES ($1, $2, $3, now(), $4) ON CONFLICT (client_event_id, occurred_at) DO NOTHING`,
+    [userId, kind, opts.moduleId ?? null, randomUUID()],
   );
 }
 

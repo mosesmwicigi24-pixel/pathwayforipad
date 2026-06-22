@@ -9,7 +9,7 @@
 // gating engine (§1.9) reads to unlock the next module.
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
-import { many, maybeOne, one, tx, recordChange, audit, type Queryable } from "../../db/db.js";
+import { many, maybeOne, one, tx, recordChange, audit, recordActivityEvent, type Queryable } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 import { loadEnrollment, loadModule, isModuleUnlocked, type EnrollmentRef } from "../progress/gating.js";
 import { gradeSubmission, stripAnswerSignal, type GradableQuestion } from "./grading.js";
@@ -213,6 +213,9 @@ export class AssessmentService {
 
       await recordChange(c, "quiz_attempts", attempt.attempt_id, userId, "upsert");
       await audit(c, userId, "quiz.attempted", "modules", moduleId, { score, is_passed: isPassed });
+      // Feed the activity ledger so quizzes count toward habit/curriculum scores
+      // + streak. A pass is the curriculum-significant signal; record both kinds.
+      await recordActivityEvent(c, userId, isPassed ? "quiz_passed" : "quiz_attempt", { moduleId });
 
       return {
         attempt_id: attempt.attempt_id,
