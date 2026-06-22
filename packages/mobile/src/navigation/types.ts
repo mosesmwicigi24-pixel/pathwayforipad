@@ -39,6 +39,7 @@ export type RootStackParamList = {
   MemoryVerses: undefined; // memory-verse library (D5)
   ReadingPlans: undefined; // reading plans list (D5)
   PlanDetail: { planId: string; title?: string }; // reading-plan detail (D5)
+  PlanDay: { planId: string; dayNumber: number; title?: string }; // YouVersion day reader
   Mentor: undefined; // discipler + meeting notes (D5)
   Resources: undefined; // resource library (D5)
   EventDetail: { eventId: string; title: string; startAt: string; endAt?: string; location?: string | null };

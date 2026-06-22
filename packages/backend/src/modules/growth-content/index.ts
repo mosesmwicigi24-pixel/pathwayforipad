@@ -54,6 +54,11 @@ export function registerGrowthContent(ctx: AppContext): Router {
     const input = parseBody(GrowthContentService.CompleteDay, req.body);
     res.json(await svc.completeDay(requirePrincipal(req).userId, id, input));
   }));
+  // YouVersion reader: mark one day-segment complete (rolls the day up when all done).
+  r.post("/growth/segments/:id/complete", auth, handler(async (req, res) => {
+    const { id } = parseBody(z.object({ id: z.string().uuid() }), req.params);
+    res.json(await svc.completeSegment(requirePrincipal(req).userId, id));
+  }));
 
   r.get("/growth/resources", auth, handler(async (_req, res) => {
     res.json(await svc.resources());

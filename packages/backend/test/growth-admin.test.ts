@@ -65,6 +65,29 @@ describe("growth-content admin authoring (Admin+)", () => {
     expect(after.days).toHaveLength(1);
   });
 
+  it("authors a plan with day segments; member reads them and completing all rolls up the day", async () => {
+    const plan = (await admin().createPlan(adminId, {
+      code: "seg-test", title: "Segments Test", image_url: "https://x.test/c.jpg", days: [
+        { day_number: 1, reference: "John 1", title: "Day 1", segments: [
+          { kind: "devotional", title: "Devotional", content: "Stay close." },
+          { kind: "scripture", title: "Today's Reading", reference: "John 1:1-5" },
+        ] },
+      ],
+    })) as { plan_id: string };
+    const detail = (await member().planDetail(memberId, plan.plan_id)) as { image_url: string; days: Array<{ completed: boolean; segments: Array<{ segment_id: string; kind: string; completed: boolean }> }> };
+    expect(detail.image_url).toBe("https://x.test/c.jpg");
+    expect(detail.days[0].segments).toHaveLength(2);
+    expect(detail.days[0].completed).toBe(false);
+    const segs = detail.days[0].segments;
+    const r1 = (await member().completeSegment(memberId, segs[0]!.segment_id)) as { day_completed: boolean };
+    expect(r1.day_completed).toBe(false);
+    const r2 = (await member().completeSegment(memberId, segs[1]!.segment_id)) as { day_completed: boolean; progress: { completed_days: number[] } };
+    expect(r2.day_completed).toBe(true);
+    expect(r2.progress.completed_days).toContain(1);
+    const after = (await member().planDetail(memberId, plan.plan_id)) as { days: Array<{ completed: boolean }> };
+    expect(after.days[0]!.completed).toBe(true);
+  });
+
   it("creates a resource that the member-facing library returns", async () => {
     await admin().createResource(adminId, { title: "Knowing God", author: "J.I. Packer", kind: "book", duration_label: "286 pages" });
     const res = (await member().resources()) as { data: Array<{ title: string; kind: string }> };

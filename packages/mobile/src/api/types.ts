@@ -545,8 +545,10 @@ export interface ReadingPlanRow {
   plan_id: string;
   code: string;
   title: string;
+  subtitle?: string | null;
   description: string | null;
   category: string | null;
+  image_url?: string | null;
   day_count: number;
   current_day: number | null;
   completed_days: number[] | null;
@@ -554,15 +556,36 @@ export interface ReadingPlanRow {
   completed_at: string | null;
 }
 
+export type PlanSegmentKind = "devotional" | "scripture" | "video" | "talk" | "reading";
+export interface PlanSegment {
+  segment_id: string;
+  sort: number;
+  kind: PlanSegmentKind;
+  title: string;
+  reference: string | null;
+  content: string | null;
+  video_url: string | null;
+  image_url: string | null;
+  completed: boolean;
+}
 export interface ReadingPlanDay {
   day_number: number;
   reference: string;
   title: string | null;
   content: string | null;
+  segments?: PlanSegment[];
+  completed?: boolean;
 }
 
 export interface ReadingPlanDetail extends Omit<ReadingPlanRow, "code" | "completed_at"> {
   days: ReadingPlanDay[];
+}
+
+export interface SegmentCompleteResult {
+  segment_id: string;
+  day_number: number;
+  day_completed: boolean;
+  progress: { plan_id: string; current_day: number; completed_days: number[]; completed_at: string | null } | null;
 }
 
 export interface ResourceRow {

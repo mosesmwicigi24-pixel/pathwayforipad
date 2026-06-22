@@ -7,11 +7,21 @@ import { z } from "zod";
 import { many, one, maybeOne, tx, audit } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 
+const segmentInput = z.object({
+  sort: z.coerce.number().int().min(0).optional(),
+  kind: z.enum(["devotional", "scripture", "video", "talk", "reading"]).optional(),
+  title: z.string().min(1).max(200),
+  reference: z.string().max(160).optional(),
+  content: z.string().optional(),
+  video_url: z.string().max(2048).optional(),
+  image_url: z.string().max(2048).optional(),
+});
 const dayInput = z.object({
   day_number: z.coerce.number().int().min(1),
   reference: z.string().min(1).max(120),
   title: z.string().max(200).optional(),
   content: z.string().optional(),
+  segments: z.array(segmentInput).optional(),
 });
 
 export class AdminGrowthService {
@@ -116,8 +126,10 @@ export class AdminGrowthService {
     .object({
       code: z.string().min(1).max(40),
       title: z.string().min(1).max(200),
+      subtitle: z.string().max(200).optional(),
       description: z.string().optional(),
       category: z.string().max(80).optional(),
+      image_url: z.string().max(2048).optional(),
       sort: z.coerce.number().int().optional(),
       is_active: z.boolean().optional(),
       days: z.array(dayInput).min(1),
@@ -134,16 +146,25 @@ export class AdminGrowthService {
   async planDetail(id: string): Promise<unknown> {
     const plan = await maybeOne(this.pool, `SELECT * FROM reading_plans WHERE plan_id = $1`, [id]);
     if (!plan) throw new ApiError("NOT_FOUND", "Plan not found");
-    const days = await many(this.pool, `SELECT * FROM reading_plan_days WHERE plan_id = $1 ORDER BY day_number`, [id]);
-    return { ...plan, days };
+    const days = await many<{ plan_day_id: string }>(this.pool, `SELECT * FROM reading_plan_days WHERE plan_id = $1 ORDER BY day_number`, [id]);
+    const segs = await many<{ plan_day_id: string }>(
+      this.pool,
+      `SELECT s.* FROM reading_plan_day_segments s
+         JOIN reading_plan_days d ON d.plan_day_id = s.plan_day_id
+        WHERE d.plan_id = $1 ORDER BY s.sort`,
+      [id],
+    );
+    const byDay = new Map<string, unknown[]>();
+    for (const s of segs) { const l = byDay.get(s.plan_day_id) ?? []; l.push(s); byDay.set(s.plan_day_id, l); }
+    return { ...plan, days: days.map((d) => ({ ...d, segments: byDay.get(d.plan_day_id) ?? [] })) };
   }
   async createPlan(adminId: string, input: z.infer<typeof AdminGrowthService.Plan>): Promise<unknown> {
     const planId = await tx(this.pool, async (c) => {
       const plan = await one<{ plan_id: string }>(
         c,
-        `INSERT INTO reading_plans (code, title, description, category, day_count, sort, is_active)
-         VALUES ($1,$2,$3,$4,$5,COALESCE($6,0),COALESCE($7,TRUE)) RETURNING plan_id`,
-        [input.code, input.title, input.description ?? null, input.category ?? null, input.days.length, input.sort ?? null, input.is_active ?? null],
+        `INSERT INTO reading_plans (code, title, subtitle, description, category, image_url, day_count, sort, is_active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,0),COALESCE($9,TRUE)) RETURNING plan_id`,
+        [input.code, input.title, input.subtitle ?? null, input.description ?? null, input.category ?? null, input.image_url ?? null, input.days.length, input.sort ?? null, input.is_active ?? null],
       );
       await this.replaceDays(c, plan.plan_id, input.days);
       await audit(c, adminId, "growth.plan_created", "reading_plans", plan.plan_id, { code: input.code });
@@ -155,7 +176,7 @@ export class AdminGrowthService {
     await tx(this.pool, async (c) => {
       const exists = await maybeOne(c, `SELECT 1 FROM reading_plans WHERE plan_id = $1`, [id]);
       if (!exists) throw new ApiError("NOT_FOUND", "Plan not found");
-      const { sql, params } = setClause(input, ["code", "title", "description", "category", "sort", "is_active"]);
+      const { sql, params } = setClause(input, ["code", "title", "subtitle", "description", "category", "image_url", "sort", "is_active"]);
       if (sql) await c.query(`UPDATE reading_plans SET ${sql} WHERE plan_id = $${params.length + 1}`, [...params, id]);
       const days = input.days as z.infer<typeof dayInput>[] | undefined;
       if (days) {
@@ -176,10 +197,21 @@ export class AdminGrowthService {
   private async replaceDays(c: PoolClient, planId: string, days: z.infer<typeof dayInput>[]): Promise<void> {
     await c.query(`DELETE FROM reading_plan_days WHERE plan_id = $1`, [planId]);
     for (const d of days) {
-      await c.query(
-        `INSERT INTO reading_plan_days (plan_id, day_number, reference, title, content) VALUES ($1,$2,$3,$4,$5)`,
+      const dayRow = await one<{ plan_day_id: string }>(
+        c,
+        `INSERT INTO reading_plan_days (plan_id, day_number, reference, title, content)
+         VALUES ($1,$2,$3,$4,$5) RETURNING plan_day_id`,
         [planId, d.day_number, d.reference, d.title ?? null, d.content ?? null],
       );
+      const segments = d.segments ?? [];
+      for (let i = 0; i < segments.length; i++) {
+        const s = segments[i]!;
+        await c.query(
+          `INSERT INTO reading_plan_day_segments (plan_day_id, sort, kind, title, reference, content, video_url, image_url)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [dayRow.plan_day_id, s.sort ?? i, s.kind ?? "reading", s.title, s.reference ?? null, s.content ?? null, s.video_url ?? null, s.image_url ?? null],
+        );
+      }
     }
   }
 

@@ -36,6 +36,7 @@ import type {
   MemoryVerseRow,
   ReadingPlanRow,
   ReadingPlanDetail,
+  SegmentCompleteResult,
   ResourceRow,
   MentorInfo,
   MyReflection,
@@ -521,6 +522,11 @@ export const NuruApi = {
   },
   async completePlanDay(id: string, day_number: number): Promise<unknown> {
     const { data } = await api.post(`/growth/plans/${id}/complete-day`, { day_number });
+    return data;
+  },
+  /** Mark one plan-day segment complete (YouVersion reader). */
+  async completePlanSegment(segmentId: string): Promise<SegmentCompleteResult> {
+    const { data } = await api.post<SegmentCompleteResult>(`/growth/segments/${segmentId}/complete`, {});
     return data;
   },
   async resources(): Promise<ResourceRow[]> {

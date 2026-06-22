@@ -112,7 +112,8 @@ export class GrowthContentService {
   async plans(userId: string): Promise<{ data: unknown[] }> {
     const data = await many(
       this.pool,
-      `SELECT p.plan_id, p.code, p.title, p.description, p.category, p.day_count,
+      `SELECT p.plan_id, p.code, p.title, p.subtitle, p.description, p.category, p.day_count,
+              p.image_url,
               pr.current_day, pr.completed_days, (pr.user_id IS NOT NULL) AS enrolled,
               pr.completed_at
          FROM reading_plans p
@@ -125,9 +126,9 @@ export class GrowthContentService {
   }
 
   async planDetail(userId: string, planId: string): Promise<unknown> {
-    const plan = await maybeOne(
+    const plan = await maybeOne<{ completed_days: number[] | null }>(
       this.pool,
-      `SELECT p.plan_id, p.title, p.description, p.category, p.day_count,
+      `SELECT p.plan_id, p.title, p.subtitle, p.description, p.category, p.day_count, p.image_url,
               pr.current_day, pr.completed_days, (pr.user_id IS NOT NULL) AS enrolled
          FROM reading_plans p
          LEFT JOIN reading_plan_progress pr ON pr.plan_id = p.plan_id AND pr.user_id = $1
@@ -135,12 +136,47 @@ export class GrowthContentService {
       [userId, planId],
     );
     if (!plan) throw new ApiError("NOT_FOUND", "Reading plan not found");
-    const days = await many(
+    const dayRows = await many<{ plan_day_id: string; day_number: number; reference: string; title: string | null; content: string | null }>(
       this.pool,
-      `SELECT day_number, reference, title, content FROM reading_plan_days
+      `SELECT plan_day_id, day_number, reference, title, content FROM reading_plan_days
         WHERE plan_id = $1 ORDER BY day_number`,
       [planId],
     );
+    // All segments for the plan + this viewer's completion, grouped by day.
+    const segRows = await many<{
+      segment_id: string; plan_day_id: string; sort: number; kind: string;
+      title: string; reference: string | null; content: string | null;
+      video_url: string | null; image_url: string | null; completed: boolean;
+    }>(
+      this.pool,
+      `SELECT s.segment_id, s.plan_day_id, s.sort, s.kind, s.title, s.reference, s.content,
+              s.video_url, s.image_url, (sp.user_id IS NOT NULL) AS completed
+         FROM reading_plan_day_segments s
+         JOIN reading_plan_days d ON d.plan_day_id = s.plan_day_id
+         LEFT JOIN reading_plan_segment_progress sp ON sp.segment_id = s.segment_id AND sp.user_id = $1
+        WHERE d.plan_id = $2
+        ORDER BY s.sort`,
+      [userId, planId],
+    );
+    const byDay = new Map<string, typeof segRows>();
+    for (const s of segRows) {
+      const list = byDay.get(s.plan_day_id) ?? [];
+      list.push(s);
+      byDay.set(s.plan_day_id, list);
+    }
+    const completedDays = new Set(plan.completed_days ?? []);
+    const days = dayRows.map((d) => {
+      const segments = (byDay.get(d.plan_day_id) ?? []).map((s) => ({
+        segment_id: s.segment_id, sort: s.sort, kind: s.kind, title: s.title,
+        reference: s.reference, content: s.content, video_url: s.video_url,
+        image_url: s.image_url, completed: s.completed,
+      }));
+      const segDone = segments.length > 0 && segments.every((s) => s.completed);
+      return {
+        day_number: d.day_number, reference: d.reference, title: d.title, content: d.content,
+        segments, completed: segDone || completedDays.has(d.day_number),
+      };
+    });
     return { ...plan, days };
   }
 
@@ -188,6 +224,62 @@ export class GrowthContentService {
        RETURNING plan_id, current_day, completed_days, completed_at`,
       [userId, planId, input.day_number, plan.day_count],
     );
+  }
+
+  /** Mark a single plan-day SEGMENT complete (YouVersion reader). Enrolls if
+   *  needed; when every segment of the day is done, rolls the day up into
+   *  reading_plan_progress (advancing current_day / stamping completion). */
+  async completeSegment(userId: string, segmentId: string): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const seg = await maybeOne<{ plan_day_id: string; plan_id: string; day_number: number; day_count: number }>(
+        c,
+        `SELECT s.plan_day_id, d.plan_id, d.day_number, p.day_count
+           FROM reading_plan_day_segments s
+           JOIN reading_plan_days d ON d.plan_day_id = s.plan_day_id
+           JOIN reading_plans p ON p.plan_id = d.plan_id
+          WHERE s.segment_id = $1 AND p.is_active`,
+        [segmentId],
+      );
+      if (!seg) throw new ApiError("NOT_FOUND", "Segment not found");
+      // Enroll (idempotent) so partial progress shows under "My plans".
+      await c.query(
+        `INSERT INTO reading_plan_progress (user_id, plan_id) VALUES ($1, $2)
+         ON CONFLICT (user_id, plan_id) DO UPDATE SET updated_at = now()`,
+        [userId, seg.plan_id],
+      );
+      await c.query(
+        `INSERT INTO reading_plan_segment_progress (user_id, segment_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [userId, segmentId],
+      );
+      // Any segments of this day still unread for this viewer?
+      const remaining = await one<{ n: number }>(
+        c,
+        `SELECT COUNT(*)::int AS n
+           FROM reading_plan_day_segments s
+           LEFT JOIN reading_plan_segment_progress sp ON sp.segment_id = s.segment_id AND sp.user_id = $1
+          WHERE s.plan_day_id = $2 AND sp.user_id IS NULL`,
+        [userId, seg.plan_day_id],
+      );
+      const dayComplete = remaining.n === 0;
+      let progress: unknown = null;
+      if (dayComplete) {
+        progress = await one(
+          c,
+          `UPDATE reading_plan_progress SET
+             completed_days = (SELECT ARRAY(SELECT DISTINCT unnest(completed_days || $3::int) ORDER BY 1)),
+             current_day = LEAST(GREATEST(current_day, $3::int + 1), $4::int),
+             completed_at = CASE
+               WHEN cardinality(ARRAY(SELECT DISTINCT unnest(completed_days || $3::int))) >= $4::int THEN now()
+               ELSE completed_at END,
+             updated_at = now()
+           WHERE user_id = $1 AND plan_id = $2
+           RETURNING plan_id, current_day, completed_days, completed_at`,
+          [userId, seg.plan_id, seg.day_number, seg.day_count],
+        );
+      }
+      return { segment_id: segmentId, day_number: seg.day_number, day_completed: dayComplete, progress };
+    });
   }
 
   // ---- Resources ----
