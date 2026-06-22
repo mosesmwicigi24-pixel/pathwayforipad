@@ -6,16 +6,17 @@
 // single mobile-app homepage welcome video (POST/DELETE …/homepage), attach to a
 // module (CurriculumApi.updateModule media_asset_id) and archive (soft delete).
 // Access stays module-gated (§1.9); external links are best-effort gated only.
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactElement, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronRight, Copy, ExternalLink,
-  Film, Filter, Grid3x3, Link2, List, Loader2, Lock, Play, Plus, RotateCcw, Search,
+  AlertTriangle, Calendar, Check, CheckCircle2, ChevronDown, ChevronRight, Copy, ExternalLink,
+  Film, Filter, Grid3x3, Home, Link2, List, Loader2, Lock, Megaphone, Play, Plus, RotateCcw, Search,
   Settings, ShieldCheck, Sparkles, Trash2, Tv, Upload, Video as VideoIcon, X,
 } from "lucide-react";
 import {
-  MediaApi, CurriculumApi,
+  MediaApi, CurriculumApi, OpsApi, AnnouncementsApi,
   type MediaAssetRow, type VideoSource, type AdminLevel, type AdminModuleSummary, type MediaListFilter, type CloudinaryUploadSignature,
+  type AnnouncementRow,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -168,9 +169,25 @@ export function VideoLibrary(): ReactElement {
   const [error, setError] = useState<string | null>(null);
 
   const [attachFor, setAttachFor] = useState<MediaAssetRow | null>(null);
+  const [attachEventFor, setAttachEventFor] = useState<MediaAssetRow | null>(null);
+  const [attachAnnFor, setAttachAnnFor] = useState<MediaAssetRow | null>(null);
+  const [attachMenu, setAttachMenu] = useState<{ asset: MediaAssetRow; x: number; y: number } | null>(null);
   const [previewFor, setPreviewFor] = useState<MediaAssetRow | null>(null);
   const [deleteFor, setDeleteFor] = useState<MediaAssetRow | null>(null);
   const [deleteText, setDeleteText] = useState("");
+
+  // Copy a video's shareable delivery URL to the clipboard.
+  const copyUrl = useCallback((a: MediaAssetRow): void => {
+    const url = a.external_url;
+    if (!url) { setError("This asset has no shareable URL to copy."); return; }
+    void navigator.clipboard?.writeText(url);
+    setError(null);
+    setNotice("✓ Video URL copied to the clipboard.");
+  }, []);
+  const openAttachMenu = useCallback((a: MediaAssetRow, e: ReactMouseEvent): void => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setAttachMenu({ asset: a, x: r.right, y: r.bottom + 6 });
+  }, []);
 
   const linkInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -274,6 +291,10 @@ export function VideoLibrary(): ReactElement {
   // Local refinement only for the derived Ready/Unattached UI states; the server
   // already applied source/level/attached/q + lifecycle status.
   const filtered = useMemo(() => assets.filter((a) => {
+    // Videos that failed to upload (or are stuck placeholders from a broken run)
+    // are never listed in the library — they live only in the Processing queue and
+    // the "Failed" status filter, where they can be reviewed and cleared.
+    if (statusFilter !== "Failed" && (a.status === "failed" || a.is_stuck)) return false;
     if (statusFilter === "Ready" && uiStatus(a) !== "Ready") return false;
     if (statusFilter === "Unattached" && uiStatus(a) !== "Unattached") return false;
     return true;
@@ -451,7 +472,8 @@ export function VideoLibrary(): ReactElement {
                     <td style={{ padding: "8px 16px" }}>
                       <div className="flex items-center gap-1.5 justify-end">
                         <button onClick={() => setPreviewFor(a)} className="rounded-lg px-2.5 py-1.5" style={{ background: "var(--secondary)", color: "var(--foreground)", fontSize: 11, fontWeight: 600, border: "none" }}>View</button>
-                        {a.status !== "failed" ? <button onClick={() => setAttachFor(a)} className="rounded-lg px-2.5 py-1.5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 11, fontWeight: 600, border: "none" }}>{a.attached_module_id ? "Reattach" : "Attach"}</button> : null}
+                        {a.external_url ? <button onClick={() => copyUrl(a)} title="Copy video URL" className="flex items-center gap-1 rounded-lg px-2.5 py-1.5" style={{ background: "var(--secondary)", color: "var(--foreground)", fontSize: 11, fontWeight: 600, border: "none" }}><Copy size={12} /> URL</button> : null}
+                        {a.status !== "failed" ? <button onClick={(e) => openAttachMenu(a, e)} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 11, fontWeight: 600, border: "none" }}>Attach <ChevronDown size={12} /></button> : null}
                         <button onClick={() => setDeleteFor(a)} className="rounded-lg p-1.5" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}><Trash2 size={14} /></button>
                       </div>
                     </td>
@@ -481,7 +503,8 @@ export function VideoLibrary(): ReactElement {
                     </div>
                     <div className="flex items-center gap-2 mt-4 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
                       <button onClick={() => setPreviewFor(a)} className="flex-1 rounded-lg px-3 py-2" style={{ background: "var(--secondary)", color: "var(--foreground)", fontSize: 12, fontWeight: 600, border: "none" }}>View</button>
-                      {a.status !== "failed" ? <button onClick={() => setAttachFor(a)} className="flex-1 rounded-lg px-3 py-2" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none" }}>{a.attached_module_id ? "Reattach" : "Attach"}</button> : null}
+                      {a.external_url ? <button onClick={() => copyUrl(a)} title="Copy video URL" className="flex items-center justify-center gap-1 rounded-lg px-3 py-2" style={{ background: "var(--secondary)", color: "var(--foreground)", fontSize: 12, fontWeight: 600, border: "none" }}><Copy size={13} /> URL</button> : null}
+                      {a.status !== "failed" ? <button onClick={(e) => openAttachMenu(a, e)} className="flex-1 flex items-center justify-center gap-1 rounded-lg px-3 py-2" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none" }}>Attach <ChevronDown size={13} /></button> : null}
                     </div>
                   </div>
                 </div>
@@ -492,7 +515,20 @@ export function VideoLibrary(): ReactElement {
         </div>
       </div>
 
+      {attachMenu ? (() => { const m = attachMenu; return (
+        <AttachMenu
+          asset={m.asset} x={m.x} y={m.y}
+          onClose={() => setAttachMenu(null)}
+          onModule={() => { setAttachMenu(null); setAttachFor(m.asset); }}
+          onEvent={() => { setAttachMenu(null); setAttachEventFor(m.asset); }}
+          onAnnouncement={() => { setAttachMenu(null); setAttachAnnFor(m.asset); }}
+          onHomepage={() => { setAttachMenu(null); void toggleHomepage(m.asset); }}
+        />
+      ); })() : null}
+
       {attachFor ? <AttachModal asset={attachFor} onClose={() => setAttachFor(null)} onDone={async () => { setAttachFor(null); await refreshAfter("Video attached to the module."); }} onError={setError} /> : null}
+      {attachEventFor ? <AttachEventModal asset={attachEventFor} onClose={() => setAttachEventFor(null)} onDone={async () => { setAttachEventFor(null); await refreshAfter("Video attached to the event."); }} onError={setError} /> : null}
+      {attachAnnFor ? <AttachAnnouncementModal asset={attachAnnFor} onClose={() => setAttachAnnFor(null)} onDone={async () => { setAttachAnnFor(null); await refreshAfter("Video attached to the announcement."); }} onError={setError} /> : null}
 
       {previewFor ? (
         <PreviewDrawer
@@ -652,6 +688,144 @@ function AttachModal({ asset, onClose, onDone, onError }: { asset: MediaAssetRow
       <div className="flex items-center justify-end gap-2 pt-1">
         <button onClick={onClose} className="rounded-xl px-4 py-2.5" style={{ background: "transparent", color: "var(--foreground)", fontSize: 13, fontWeight: 600, border: "none" }}>Cancel</button>
         <button onClick={() => void attach()} disabled={!moduleId || saving} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: !moduleId || saving ? "var(--secondary)" : "var(--nuru-gold)", color: !moduleId || saving ? "var(--muted-foreground)" : "#fff", fontSize: 13, fontWeight: 600, border: "none", cursor: !moduleId || saving ? "not-allowed" : "pointer" }}><Link2 size={13} /> Attach video</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ───────────────────────── Attach target dropdown ───────────────────────── */
+function AttachMenu({ asset, x, y, onClose, onModule, onEvent, onAnnouncement, onHomepage }: {
+  asset: MediaAssetRow; x: number; y: number; onClose: () => void;
+  onModule: () => void; onEvent: () => void; onAnnouncement: () => void; onHomepage: () => void;
+}): ReactElement {
+  const hasUrl = !!asset.external_url; // events/announcements need a shareable URL
+  const W = 248;
+  const Item = ({ icon, label, hint, onClick, disabled }: { icon: ReactNode; label: string; hint: string; onClick: () => void; disabled?: boolean }): ReactElement => (
+    <button onClick={disabled ? undefined : onClick} disabled={disabled}
+      className="w-full flex items-start gap-2.5 px-3 py-2.5 text-left"
+      style={{ background: "transparent", border: "none", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.45 : 1 }}
+      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = "var(--secondary)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+      <span className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 28, height: 28, background: "var(--secondary)", color: "var(--nuru-navy)" }}>{icon}</span>
+      <span style={{ minWidth: 0 }}>
+        <span className="block" style={{ fontSize: 12.5, fontWeight: 700, color: "var(--foreground)" }}>{label}</span>
+        <span className="block" style={{ fontSize: 11, color: "var(--muted-foreground)", lineHeight: 1.35 }}>{hint}</span>
+      </span>
+    </button>
+  );
+  return (
+    <div className="fixed inset-0 z-50" onClick={onClose}>
+      <div
+        className="rounded-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed", top: Math.min(y, window.innerHeight - 280), left: Math.max(8, Math.min(x, window.innerWidth - 8) - W),
+          width: W, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 16px 48px rgba(0,0,0,0.22)",
+        }}
+      >
+        <div className="px-3 py-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div className="truncate" style={{ fontSize: 12, fontWeight: 700, color: "var(--foreground)" }}>Attach “{assetTitle(asset)}”</div>
+          <div style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>Choose where this video should appear</div>
+        </div>
+        <Item icon={<Film size={14} />} label="A curriculum module" hint="Show inside a module lesson (hard-gated)" onClick={onModule} />
+        <Item icon={<Calendar size={14} />} label="An event" hint={hasUrl ? "Attach to an event series" : "Needs a shareable URL"} onClick={onEvent} disabled={!hasUrl} />
+        <Item icon={<Megaphone size={14} />} label="An announcement" hint={hasUrl ? "Attach to an announcement" : "Needs a shareable URL"} onClick={onAnnouncement} disabled={!hasUrl} />
+        <div style={{ borderTop: "1px solid var(--border)" }} />
+        <Item icon={<Home size={14} />} label={asset.is_homepage ? "Remove from homepage" : "Mobile homepage"} hint={asset.is_homepage ? "Currently the welcome video" : "Set as the single welcome video"} onClick={onHomepage} />
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────── Attach to an event series ───────────────────── */
+function AttachEventModal({ asset, onClose, onDone, onError }: { asset: MediaAssetRow; onClose: () => void; onDone: () => void; onError: (m: string) => void }): ReactElement {
+  const [events, setEvents] = useState<Array<{ series_id: string; title: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [seriesId, setSeriesId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const from = new Date(Date.now() - 30 * 86400000).toISOString();
+    const to = new Date(Date.now() + 180 * 86400000).toISOString();
+    void OpsApi.calendar(from, to)
+      .then((occ) => {
+        const seen = new Set<string>();
+        const series: Array<{ series_id: string; title: string }> = [];
+        for (const o of occ) { if (!seen.has(o.series_id)) { seen.add(o.series_id); series.push({ series_id: o.series_id, title: o.title }); } }
+        setEvents(series);
+        setSeriesId(series[0]?.series_id ?? null);
+      })
+      .catch((e) => onError(errorMessage(e, "Could not load events.")))
+      .finally(() => setLoading(false));
+  }, [onError]);
+
+  async function attach(): Promise<void> {
+    if (!seriesId || !asset.external_url) return;
+    setSaving(true);
+    try { await OpsApi.updateSeries(seriesId, { video_url: asset.external_url }); onDone(); }
+    catch (e) { onError(errorMessage(e, "Attach failed.")); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal onClose={onClose} title="Attach video to an event" subtitle="The video will show on the event in the mobile app.">
+      <div className="rounded-xl p-3 flex items-center gap-3" style={{ background: "var(--secondary)" }}>
+        <Thumb hue={hueOf(asset.media_asset_id)} status={uiStatus(asset)} duration={dur(asset.duration_sec)} poster={posterOf(asset)} />
+        <div style={{ minWidth: 0 }}><div className="flex items-center gap-2"><span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{assetTitle(asset)}</span><ProviderBadge source={asset.video_source} /></div></div>
+      </div>
+      <Field label="Select event" required>
+        {loading ? <div style={{ fontSize: 13, color: "var(--muted-foreground)" }}>Loading events…</div>
+          : events.length === 0 ? <div style={{ fontSize: 13, color: "var(--muted-foreground)" }}>No event series found.</div>
+          : <select value={seriesId ?? ""} onChange={(e) => setSeriesId(e.target.value)} className="w-full rounded-xl px-3 py-2.5 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13 }}>
+              {events.map((ev) => <option key={ev.series_id} value={ev.series_id}>{ev.title}</option>)}
+            </select>}
+      </Field>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button onClick={onClose} className="rounded-xl px-4 py-2.5" style={{ background: "transparent", color: "var(--foreground)", fontSize: 13, fontWeight: 600, border: "none" }}>Cancel</button>
+        <button onClick={() => void attach()} disabled={!seriesId || saving} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: !seriesId || saving ? "var(--secondary)" : "var(--nuru-gold)", color: !seriesId || saving ? "var(--muted-foreground)" : "#fff", fontSize: 13, fontWeight: 600, border: "none", cursor: !seriesId || saving ? "not-allowed" : "pointer" }}><Calendar size={13} /> Attach to event</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ──────────────────── Attach to an announcement ──────────────────── */
+function AttachAnnouncementModal({ asset, onClose, onDone, onError }: { asset: MediaAssetRow; onClose: () => void; onDone: () => void; onError: (m: string) => void }): ReactElement {
+  const [rows, setRows] = useState<AnnouncementRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [annId, setAnnId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    void AnnouncementsApi.list()
+      .then((r) => { setRows(r); setAnnId(r[0]?.announcement_id ?? null); })
+      .catch((e) => onError(errorMessage(e, "Could not load announcements.")))
+      .finally(() => setLoading(false));
+  }, [onError]);
+
+  async function attach(): Promise<void> {
+    if (!annId || !asset.external_url) return;
+    setSaving(true);
+    try { await AnnouncementsApi.setVideo(annId, asset.external_url); onDone(); }
+    catch (e) { onError(errorMessage(e, "Attach failed.")); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal onClose={onClose} title="Attach video to an announcement" subtitle="The video will show on the announcement in the mobile app.">
+      <div className="rounded-xl p-3 flex items-center gap-3" style={{ background: "var(--secondary)" }}>
+        <Thumb hue={hueOf(asset.media_asset_id)} status={uiStatus(asset)} duration={dur(asset.duration_sec)} poster={posterOf(asset)} />
+        <div style={{ minWidth: 0 }}><div className="flex items-center gap-2"><span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{assetTitle(asset)}</span><ProviderBadge source={asset.video_source} /></div></div>
+      </div>
+      <Field label="Select announcement" required>
+        {loading ? <div style={{ fontSize: 13, color: "var(--muted-foreground)" }}>Loading announcements…</div>
+          : rows.length === 0 ? <div style={{ fontSize: 13, color: "var(--muted-foreground)" }}>No announcements found.</div>
+          : <select value={annId ?? ""} onChange={(e) => setAnnId(e.target.value)} className="w-full rounded-xl px-3 py-2.5 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 13 }}>
+              {rows.map((a) => <option key={a.announcement_id} value={a.announcement_id}>{a.title} · {a.status}</option>)}
+            </select>}
+      </Field>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button onClick={onClose} className="rounded-xl px-4 py-2.5" style={{ background: "transparent", color: "var(--foreground)", fontSize: 13, fontWeight: 600, border: "none" }}>Cancel</button>
+        <button onClick={() => void attach()} disabled={!annId || saving} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: !annId || saving ? "var(--secondary)" : "var(--nuru-gold)", color: !annId || saving ? "var(--muted-foreground)" : "#fff", fontSize: 13, fontWeight: 600, border: "none", cursor: !annId || saving ? "not-allowed" : "pointer" }}><Megaphone size={13} /> Attach to announcement</button>
       </div>
     </Modal>
   );

@@ -66,6 +66,17 @@ export function registerAnnouncements(ctx: AppContext, svc?: AnnouncementService
     res.json(await service.setFeatured(requirePrincipal(req).userId, id, false));
   }));
 
+  // Attach / clear a video on an announcement (from the Video Library).
+  r.post("/admin/announcements/:id/video", ...adminOnly, handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    const { url } = parseBody(z.object({ url: z.string().url().max(2048) }), req.body ?? {});
+    res.json(await service.setVideo(requirePrincipal(req).userId, id, url));
+  }));
+  r.delete("/admin/announcements/:id/video", ...adminOnly, handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    res.json(await service.setVideo(requirePrincipal(req).userId, id, null));
+  }));
+
   // ---- Member ----
   r.get("/me/announcements", auth, handler(async (req, res) => {
     res.json(await service.myAnnouncements(requirePrincipal(req).userId));

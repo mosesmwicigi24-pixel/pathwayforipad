@@ -35,7 +35,7 @@ export interface AnnouncementRow {
 
 const SELECT_COLS = `announcement_id, title, body, channels, audience_kind, audience_cells,
   audience_level, status, scheduled_at, sent_at, banner_expires_at,
-  primary_image_url, gallery_image_urls, is_featured, created_by, created_at`;
+  primary_image_url, gallery_image_urls, video_url, is_featured, created_by, created_at`;
 
 export class AnnouncementService {
   private readonly notifications: NotificationService;
@@ -192,12 +192,27 @@ export class AnnouncementService {
     });
   }
 
+  /** Attach (or clear, url=null) a video on an announcement. */
+  async setVideo(adminId: string, id: string, url: string | null): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const row = await maybeOne(
+        c,
+        `UPDATE announcements SET video_url = $2, updated_at = now()
+          WHERE announcement_id = $1 AND deleted_at IS NULL RETURNING ${SELECT_COLS}`,
+        [id, url],
+      );
+      if (!row) throw new ApiError("NOT_FOUND", "Announcement not found");
+      await audit(c, adminId, url ? "announcement.video_set" : "announcement.video_cleared", "announcements", id, {});
+      return row;
+    });
+  }
+
   /** The single homepage-featured announcement for the mobile Home screen (or null). */
   async featured(): Promise<unknown | null> {
     return (
       (await maybeOne(
         this.pool,
-        `SELECT announcement_id, title, body, primary_image_url, gallery_image_urls, sent_at
+        `SELECT announcement_id, title, body, primary_image_url, gallery_image_urls, video_url, sent_at
            FROM announcements
           WHERE is_featured = true AND deleted_at IS NULL AND status = 'sent'
           LIMIT 1`,
@@ -211,7 +226,7 @@ export class AnnouncementService {
     const row = await maybeOne(
       this.pool,
       `SELECT a.announcement_id, a.title, a.body, a.sent_at, a.banner_expires_at,
-              a.primary_image_url, a.gallery_image_urls,
+              a.primary_image_url, a.gallery_image_urls, a.video_url,
               d.opened_at IS NOT NULL AS opened
          FROM announcement_deliveries d
          JOIN announcements a USING (announcement_id)
@@ -322,7 +337,7 @@ export class AnnouncementService {
     const rows = await many(
       this.pool,
       `SELECT a.announcement_id, a.title, a.body, a.sent_at, a.banner_expires_at,
-              a.primary_image_url, a.gallery_image_urls,
+              a.primary_image_url, a.gallery_image_urls, a.video_url,
               d.opened_at IS NOT NULL AS opened
          FROM announcement_deliveries d
          JOIN announcements a USING (announcement_id)

@@ -111,6 +111,7 @@ export interface EventDetail {
   category?: string | null;
   primary_image_url?: string | null;
   images?: string[];
+  video_url?: string | null;
   rsvp_counts: { going?: number; maybe?: number; declined?: number };
   my_rsvp: "going" | "maybe" | "declined" | null;
 }
@@ -466,6 +467,7 @@ export interface AnnouncementDetail {
   primary_image_url: string | null;
   gallery_image_urls: string[] | null;
   images: string[];
+  video_url?: string | null;
   opened: boolean;
 }
 

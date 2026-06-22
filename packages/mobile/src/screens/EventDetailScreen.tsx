@@ -5,8 +5,8 @@
 // time/title/location come from the calendar occurrence the caller passed in
 // (projected occurrences are virtual, so the route carries them).
 import { useEffect, useState, type ReactElement } from "react";
-import { Pressable, ScrollView, View } from "react-native";
-import { Check, ChevronLeft, Clock, MapPin, Users } from "lucide-react-native";
+import { Linking, Pressable, ScrollView, View } from "react-native";
+import { Check, ChevronLeft, Clock, MapPin, Play, Users } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -106,6 +106,22 @@ export function EventDetailScreen(): ReactElement {
             <View style={{ marginBottom: spacing.base }}>
               <ImageCarousel images={event.images} height={210} />
             </View>
+          ) : null}
+
+          {/* Watch video — opens the attached video (from the Video Library) */}
+          {event?.video_url ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Watch event video"
+              onPress={() => { const u = event.video_url; if (u) void Linking.openURL(u).catch(() => undefined); }}
+              style={({ pressed }) => [{ height: 180, borderRadius: 16, overflow: "hidden", marginBottom: spacing.base, alignItems: "center", justifyContent: "center" }, pressed && { opacity: 0.92 }]}
+            >
+              <GradientBg colors={[palette.navy, palette.navy700, palette.gold]} radius={16} />
+              <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" }}>
+                <Play size={22} color={palette.navy} fill={palette.navy} />
+              </View>
+              <T variant="micro" tone="onNavy" style={{ position: "absolute", bottom: 10, left: 12, fontWeight: "600", letterSpacing: 1 }}>WATCH VIDEO</T>
+            </Pressable>
           ) : null}
 
           {/* Meta card (2×2) */}

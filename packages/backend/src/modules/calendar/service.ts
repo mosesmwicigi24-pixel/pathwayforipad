@@ -352,6 +352,7 @@ export class CalendarService {
     // a pasted link.
     primary_image_url: z.string().url().max(2048).nullable().optional(),
     gallery_image_urls: z.array(z.string().url().max(2048)).max(5).optional(),
+    video_url: z.string().url().max(2048).nullable().optional(),
     timezone: z.string().min(1).max(64),
     dtstart_local: z.string().min(1), // ISO-ish wall clock
     duration_min: z.number().int().min(5).max(720),
@@ -448,6 +449,7 @@ export class CalendarService {
         category: input.category,
         primary_image_url: input.primary_image_url,
         gallery_image_urls: input.gallery_image_urls,
+        video_url: input.video_url,
         timezone: input.timezone,
         dtstart_local: input.dtstart_local,
         duration_min: input.duration_min,
@@ -675,10 +677,11 @@ export class CalendarService {
       category: string | null;
       primary_image_url: string | null;
       gallery_image_urls: string[] | null;
+      video_url: string | null;
     }>(
       this.pool,
       `SELECT e.event_id, e.title, e.occurs_at, e.congregation_id,
-              s.description, s.location, s.category, s.primary_image_url, s.gallery_image_urls
+              s.description, s.location, s.category, s.primary_image_url, s.gallery_image_urls, s.video_url
          FROM events e
          LEFT JOIN event_series s ON s.series_id = e.series_id
         WHERE e.event_id = $1`,
@@ -702,6 +705,7 @@ export class CalendarService {
       category: ev.category ?? null,
       primary_image_url: ev.primary_image_url ?? null,
       images,
+      video_url: ev.video_url ?? null,
       rsvp_counts: Object.fromEntries(counts.map((r) => [r.status, r.n])),
       my_rsvp: mine?.status ?? null,
     };

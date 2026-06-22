@@ -1755,6 +1755,21 @@ paths:
       responses:
         "200": { description: Unfeatured }
         "404": { $ref: "#/components/responses/NotFound" }
+  /admin/announcements/{id}/video:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [announcements]
+      summary: Admin. Attach a video (URL) to this announcement.
+      responses:
+        "200": { description: Video attached }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [announcements]
+      summary: Admin. Clear the announcement's video.
+      responses:
+        "200": { description: Video cleared }
+        "404": { $ref: "#/components/responses/NotFound" }
   /home/featured-announcement:
     get:
       tags: [announcements]

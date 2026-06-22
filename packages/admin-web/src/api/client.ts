@@ -995,6 +995,11 @@ export const AnnouncementsApi = {
     api.post(`/admin/announcements/${id}/homepage`, {}).then((r) => r.data),
   clearHomepage: (id: string) =>
     api.delete(`/admin/announcements/${id}/homepage`).then((r) => r.data),
+  // Attach / clear a Video Library video on an announcement.
+  setVideo: (id: string, url: string) =>
+    api.post<AnnouncementRow>(`/admin/announcements/${id}/video`, { url }).then((r) => r.data),
+  clearVideo: (id: string) =>
+    api.delete<AnnouncementRow>(`/admin/announcements/${id}/video`).then((r) => r.data),
 };
 
 // ---- Badges / Certificates / Finance / Audit (W4 over B1 + gamification) ----

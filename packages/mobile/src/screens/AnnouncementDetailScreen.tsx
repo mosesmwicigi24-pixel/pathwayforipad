@@ -2,8 +2,8 @@
 // (cover + gallery), the sent date, and the Markdown body — backed by the real
 // GET /announcements/:id (members only see announcements delivered to them).
 import { type ReactElement } from "react";
-import { Pressable, ScrollView, View } from "react-native";
-import { ChevronLeft } from "lucide-react-native";
+import { Linking, Pressable, ScrollView, View } from "react-native";
+import { ChevronLeft, Play } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -52,6 +52,22 @@ export function AnnouncementDetailScreen(): ReactElement {
                 <View style={{ marginBottom: spacing.base }}>
                   <ImageCarousel images={data.images} height={210} />
                 </View>
+              ) : null}
+
+              {/* Watch video — opens the attached video (from the Video Library) */}
+              {data.video_url ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Watch announcement video"
+                  onPress={() => { const u = data.video_url; if (u) void Linking.openURL(u).catch(() => undefined); }}
+                  style={({ pressed }) => [{ height: 180, borderRadius: 16, overflow: "hidden", marginBottom: spacing.base, alignItems: "center", justifyContent: "center" }, pressed && { opacity: 0.92 }]}
+                >
+                  <GradientBg colors={[palette.navy, palette.navy700, palette.gold]} radius={16} />
+                  <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" }}>
+                    <Play size={22} color={palette.navy} fill={palette.navy} />
+                  </View>
+                  <T variant="micro" tone="onNavy" style={{ position: "absolute", bottom: 10, left: 12, fontWeight: "600", letterSpacing: 1 }}>WATCH VIDEO</T>
+                </Pressable>
               ) : null}
 
               <View style={st.card}>
