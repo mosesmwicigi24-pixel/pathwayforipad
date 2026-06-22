@@ -1172,6 +1172,7 @@ export interface MediaAssetRow {
   caption: string | null;
   level_number: number | null;
   is_homepage: boolean;
+  thumbnail_url: string | null;
   duration_sec: number | null;
   error_detail: string | null;
   created_at: string;
@@ -1310,6 +1311,15 @@ export const MediaApi = {
     api.post<Partial<MediaAssetRow> & { media_asset_id: string }>("/admin/media/external", input).then((r) => r.data),
   patchAsset: (assetId: string, input: PatchAssetInput) =>
     api.patch<Partial<MediaAssetRow> & { media_asset_id: string }>(`/admin/media/${assetId}`, input).then((r) => r.data),
+  // Thumbnail (poster): upload an image file OR a frame captured from the video.
+  // Bytes go to our own storage; returns the updated asset row (with thumbnail_url).
+  uploadThumbnail: (assetId: string, file: Blob, filename = "thumbnail.jpg") => {
+    const form = new FormData();
+    form.append("file", file, filename);
+    return api.post<Partial<MediaAssetRow> & { media_asset_id: string }>(`/admin/media/${assetId}/thumbnail`, form).then((r) => r.data);
+  },
+  clearThumbnail: (assetId: string) =>
+    api.delete<Partial<MediaAssetRow> & { media_asset_id: string }>(`/admin/media/${assetId}/thumbnail`).then((r) => r.data),
   setHomepage: (assetId: string) =>
     api.post<{ is_homepage: true }>(`/admin/media/${assetId}/homepage`, {}).then((r) => r.data),
   clearHomepage: (assetId: string) =>

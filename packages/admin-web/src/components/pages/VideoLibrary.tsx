@@ -72,7 +72,37 @@ function assetTitle(a: MediaAssetRow): string {
   return `${a.kind.replace(/_/g, " ")} · ${a.media_asset_id.slice(0, 8)}`;
 }
 const relTime = (iso: string): string => { const t = new Date(iso).getTime(); if (Number.isNaN(t)) return ""; const d = Math.floor((Date.now() - t) / 86400000); return d <= 0 ? "Today" : d === 1 ? "Yesterday" : `${d} days ago`; };
-const posterOf = (a: MediaAssetRow): string | undefined => (a.video_source === "youtube" ? ytPoster(a.external_video_id) : undefined);
+const posterOf = (a: MediaAssetRow): string | undefined =>
+  a.thumbnail_url ?? (a.video_source === "youtube" ? ytPoster(a.external_video_id) : undefined);
+
+// Capture a frame from a (same-origin / CORS-ok) video file → a JPEG Blob, for
+// use as a thumbnail. Works for our self-hosted videos; rejects on tainted/cross
+// -origin sources so the caller can fall back to image upload.
+function captureVideoFrame(url: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const v = document.createElement("video");
+    v.crossOrigin = "anonymous";
+    v.muted = true;
+    v.preload = "auto";
+    v.src = url;
+    const fail = (m: string) => () => reject(new Error(m));
+    v.onerror = fail("Could not load the video to capture a frame");
+    v.onloadedmetadata = () => { try { v.currentTime = Math.min(1, (v.duration || 2) * 0.1); } catch { reject(new Error("seek failed")); } };
+    v.onseeked = () => {
+      try {
+        const c = document.createElement("canvas");
+        c.width = v.videoWidth || 1280;
+        c.height = v.videoHeight || 720;
+        const ctx = c.getContext("2d");
+        if (!ctx) return reject(new Error("Canvas not available"));
+        ctx.drawImage(v, 0, 0, c.width, c.height);
+        c.toBlob((b) => (b ? resolve(b) : reject(new Error("Could not capture the frame"))), "image/jpeg", 0.82);
+      } catch {
+        reject(new Error("This video can't be captured here — upload an image instead."));
+      }
+    };
+  });
+}
 
 function ProviderBadge({ source }: { source: VideoSource }): ReactElement {
   const m = providerMeta[source];
@@ -484,6 +514,7 @@ export function VideoLibrary(): ReactElement {
           onDelete={() => { setDeleteFor(previewFor); setPreviewFor(null); }}
           onToggleHomepage={() => void toggleHomepage(previewFor)}
           onSaveMeta={(input) => void saveMeta(previewFor, input)}
+          onThumbnailDone={(url) => { setPreviewFor((p) => (p ? { ...p, thumbnail_url: url } : p)); void load(); }}
         />
       ) : null}
 
@@ -777,15 +808,49 @@ function AttachAnnouncementModal({ asset, onClose, onDone, onError }: { asset: M
 }
 
 /* ───────────────────────────── Preview drawer ───────────────────────────── */
-function PreviewDrawer({ asset, onClose, onAttachMenu, onReplace, onDelete, onToggleHomepage, onSaveMeta }: {
+function PreviewDrawer({ asset, onClose, onAttachMenu, onReplace, onDelete, onToggleHomepage, onSaveMeta, onThumbnailDone }: {
   asset: MediaAssetRow; onClose: () => void; onAttachMenu: (e: ReactMouseEvent) => void; onReplace: () => void; onDelete: () => void;
   onToggleHomepage: () => void; onSaveMeta: (input: { caption?: string; level_number?: number | null }) => void;
+  onThumbnailDone: (url: string | null) => void;
 }): ReactElement {
   const us = uiStatus(asset);
   const [caption, setCaption] = useState(asset.caption ?? "");
   const [level, setLevel] = useState<string>(asset.level_number ? String(asset.level_number) : "");
   const captionDirty = caption.trim() !== (asset.caption ?? "");
   const levelDirty = (level ? Number(level) : null) !== (asset.level_number ?? null);
+
+  // Thumbnail: upload an image or capture a frame from the video.
+  const [thumbBusy, setThumbBusy] = useState(false);
+  const [thumbErr, setThumbErr] = useState<string | null>(null);
+  const thumbInputRef = useRef<HTMLInputElement>(null);
+  const capturable = !!asset.external_url && (asset.video_source === "direct" || asset.video_source === "private");
+  async function onPickThumb(e: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    if (!f.type.startsWith("image/")) { setThumbErr("Please choose an image file."); return; }
+    if (f.size > 10 * 1024 * 1024) { setThumbErr("Image is larger than 10 MB."); return; }
+    setThumbBusy(true); setThumbErr(null);
+    try { const row = await MediaApi.uploadThumbnail(asset.media_asset_id, f, f.name); onThumbnailDone(row.thumbnail_url ?? null); }
+    catch (err) { setThumbErr(errorMessage(err, "Could not set the thumbnail.")); }
+    finally { setThumbBusy(false); }
+  }
+  async function onCaptureThumb(): Promise<void> {
+    if (!asset.external_url) return;
+    setThumbBusy(true); setThumbErr(null);
+    try {
+      const blob = await captureVideoFrame(asset.external_url);
+      const row = await MediaApi.uploadThumbnail(asset.media_asset_id, blob, "frame.jpg");
+      onThumbnailDone(row.thumbnail_url ?? null);
+    } catch (err) { setThumbErr(err instanceof Error ? err.message : "Could not capture a frame."); }
+    finally { setThumbBusy(false); }
+  }
+  async function onRemoveThumb(): Promise<void> {
+    setThumbBusy(true); setThumbErr(null);
+    try { await MediaApi.clearThumbnail(asset.media_asset_id); onThumbnailDone(null); }
+    catch (err) { setThumbErr(errorMessage(err, "Could not remove the thumbnail.")); }
+    finally { setThumbBusy(false); }
+  }
 
   return (
     <Drawer onClose={onClose}>
@@ -842,6 +907,26 @@ function PreviewDrawer({ asset, onClose, onAttachMenu, onReplace, onDelete, onTo
             className="flex items-center gap-1.5 rounded-lg px-3 py-2"
             style={{ background: captionDirty || levelDirty ? "var(--nuru-navy)" : "var(--secondary)", color: captionDirty || levelDirty ? "#fff" : "var(--muted-foreground)", fontSize: 12, fontWeight: 700, border: "none", cursor: captionDirty || levelDirty ? "pointer" : "not-allowed" }}
           ><Check size={12} /> Save changes</button>
+        </div>
+
+        {/* Thumbnail (poster) */}
+        <div className="rounded-xl p-4 mt-4" style={{ background: "var(--secondary)", border: "1px solid var(--border)" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--foreground)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Thumbnail</div>
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg overflow-hidden shrink-0 flex items-center justify-center" style={{ width: 112, height: 64, background: "var(--card)", border: "1px solid var(--border)" }}>
+              {asset.thumbnail_url ? <img src={asset.thumbnail_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>No thumbnail</span>}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginBottom: 8 }}>Shown for this video across the library and the app. Upload an image or grab a frame from the video.</div>
+              <input ref={thumbInputRef} type="file" accept="image/*" hidden onChange={(e) => void onPickThumb(e)} />
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => thumbInputRef.current?.click()} disabled={thumbBusy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "var(--nuru-navy)", color: "#fff", fontSize: 12, fontWeight: 700, border: "none", opacity: thumbBusy ? 0.6 : 1, cursor: thumbBusy ? "not-allowed" : "pointer" }}>{thumbBusy ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Upload image</button>
+                {capturable ? <button onClick={() => void onCaptureThumb()} disabled={thumbBusy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)", fontSize: 12, fontWeight: 600, opacity: thumbBusy ? 0.6 : 1, cursor: thumbBusy ? "not-allowed" : "pointer" }}><Film size={12} /> Capture from video</button> : null}
+                {asset.thumbnail_url ? <button onClick={() => void onRemoveThumb()} disabled={thumbBusy} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: "transparent", border: "1px solid var(--border)", color: "#DC2626", fontSize: 12, fontWeight: 600 }}><Trash2 size={12} /> Remove</button> : null}
+              </div>
+              {thumbErr ? <div style={{ fontSize: 11, color: "#DC2626", marginTop: 6 }}>{thumbErr}</div> : null}
+            </div>
+          </div>
         </div>
 
         {/* Engagement */}

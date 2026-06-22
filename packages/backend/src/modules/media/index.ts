@@ -59,6 +59,35 @@ export function registerMedia(ctx: AppContext): Router {
       return next(err);
     });
 
+  // Thumbnail (poster) images also live on our own disk (served via /media). 10 MB
+  // cap, images only — used for uploaded posters and frames captured from a video.
+  const THUMB_MAX = 10 * 1024 * 1024;
+  const uploadThumb = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, storageDir),
+      filename: (_req, file, cb) => {
+        const ext = (extname(file.originalname) || ".jpg").toLowerCase().replace(/[^.a-z0-9]/g, "") || ".jpg";
+        cb(null, `thumb_${randomUUID()}${ext}`);
+      },
+    }),
+    limits: { fileSize: THUMB_MAX, files: 1 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype?.startsWith("image/")) cb(null, true);
+      else cb(new ApiError("VALIDATION_FAILED", "Thumbnail must be an image"));
+    },
+  });
+  const uploadThumbnail = (req: Request, res: Response, next: NextFunction): void =>
+    uploadThumb.single("file")(req, res, (err: unknown) => {
+      if (!err) return next();
+      if (err instanceof multer.MulterError) {
+        return next(new ApiError("VALIDATION_FAILED", err.code === "LIMIT_FILE_SIZE" ? "Thumbnail exceeds 10 MB" : err.message));
+      }
+      return next(err);
+    });
+  // Map a stored thumbnail URL back to its on-disk filename (for cleanup).
+  const thumbFile = (url: string | null): string | null =>
+    url && url.startsWith(publicBase + "/") ? url.slice(publicBase.length + 1) : null;
+
   // Broker a signed URL for an object key the caller already holds a reference to.
   r.get(
     "/media/url",
@@ -269,9 +298,31 @@ export function registerMedia(ctx: AppContext): Router {
     auth, perm("videos", "delete"),
     handler(async (req, res) => {
       const result = await video.archiveAsset(requirePrincipal(req).userId, req.params.id ?? "");
-      // Self-hosted file: remove the bytes from our disk (best-effort).
+      // Self-hosted files: remove the video + thumbnail bytes from our disk (best-effort).
       if (result.local_file) unlink(join(storageDir, result.local_file), () => undefined);
+      const tf = thumbFile(result.thumbnail_url);
+      if (tf) unlink(join(storageDir, tf), () => undefined);
       res.json({ archived: result.archived });
+    }),
+  );
+
+  // Per-video thumbnail (poster). Upload an image OR a frame captured client-side
+  // from the video; bytes land on our disk and we record the public URL.
+  r.post(
+    "/admin/media/:id/thumbnail",
+    auth, perm("videos", "update"),
+    uploadThumbnail,
+    handler(async (req, res) => {
+      const file = req.file;
+      if (!file) throw new ApiError("VALIDATION_FAILED", "No thumbnail image was uploaded (field 'file')");
+      res.json(await video.setThumbnail(requirePrincipal(req).userId, req.params.id ?? "", `${publicBase}/${file.filename}`));
+    }),
+  );
+  r.delete(
+    "/admin/media/:id/thumbnail",
+    auth, perm("videos", "update"),
+    handler(async (req, res) => {
+      res.json(await video.setThumbnail(requirePrincipal(req).userId, req.params.id ?? "", null));
     }),
   );
 

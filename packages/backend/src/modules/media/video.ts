@@ -201,7 +201,7 @@ export class VideoService {
       this.pool,
       `SELECT ma.media_asset_id, ma.kind, ma.status, ma.provider, ma.video_source,
               ma.external_url, ma.external_video_id, ma.caption, ma.level_number,
-              ma.is_homepage, ma.duration_sec, ma.error_detail, ma.created_at,
+              ma.is_homepage, ma.thumbnail_url, ma.duration_sec, ma.error_detail, ma.created_at,
               m.title AS attached_module_title, m.module_id AS attached_module_id,
               (ma.status = 'transcoding' AND ma.created_at < now() - interval '30 minutes') AS is_stuck,
               vp.views, vp.completion
@@ -460,7 +460,7 @@ export class VideoService {
     return one(
       c,
       `SELECT media_asset_id, kind, status, provider, video_source, external_url,
-              external_video_id, caption, level_number, is_homepage, ladder,
+              external_video_id, caption, level_number, is_homepage, thumbnail_url, ladder,
               duration_sec, hls_master_key, error_detail, created_at
          FROM media_assets WHERE media_asset_id = $1`,
       [id],
@@ -479,10 +479,30 @@ export class VideoService {
     });
   }
 
+  /** Set (or clear, url=null) the thumbnail/poster image for an asset. The image
+   *  itself is uploaded separately (to our own storage); here we just record its
+   *  public URL. Returns the updated asset row. */
+  async setThumbnail(adminId: string, id: string, url: string | null): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const updated = await maybeOne(
+        c,
+        `UPDATE media_assets SET thumbnail_url = $2 WHERE media_asset_id = $1 AND deleted_at IS NULL
+          RETURNING media_asset_id`,
+        [id, url],
+      );
+      if (!updated) throw new ApiError("NOT_FOUND", "Media asset not found");
+      await audit(c, adminId, url ? "media.thumbnail_set" : "media.thumbnail_cleared", "media_assets", id, {});
+      return this.getAssetRow(c, id);
+    });
+  }
+
   /** Archive an asset (soft-delete via deleted_at); refuse if a PUBLISHED module
-   *  still references it. Returns the on-disk filename for self-hosted assets so
-   *  the route can delete the file from our storage. */
-  async archiveAsset(adminId: string, id: string): Promise<{ archived: boolean; local_file: string | null }> {
+   *  still references it. Returns the on-disk filenames (video + thumbnail) for
+   *  self-hosted assets so the route can delete the files from our storage. */
+  async archiveAsset(
+    adminId: string,
+    id: string,
+  ): Promise<{ archived: boolean; local_file: string | null; thumbnail_url: string | null }> {
     return tx(this.pool, async (c) => {
       const refs = await one<{ n: number }>(
         c,
@@ -492,17 +512,21 @@ export class VideoService {
       if (refs.n > 0) {
         throw new ApiError("CONFLICT", "Asset is referenced by a published module; unpublish first");
       }
-      const row = await maybeOne<{ provider: string | null; source_object_key: string | null }>(
+      const row = await maybeOne<{ provider: string | null; source_object_key: string | null; thumbnail_url: string | null }>(
         c,
         `UPDATE media_assets
             SET deleted_at = now(), is_homepage = false
           WHERE media_asset_id = $1 AND deleted_at IS NULL
-          RETURNING provider, source_object_key`,
+          RETURNING provider, source_object_key, thumbnail_url`,
         [id],
       );
       if (!row) throw new ApiError("NOT_FOUND", "Media asset not found");
       await audit(c, adminId, "media.archived", "media_assets", id, {});
-      return { archived: true, local_file: row.provider === "local" ? row.source_object_key : null };
+      return {
+        archived: true,
+        local_file: row.provider === "local" ? row.source_object_key : null,
+        thumbnail_url: row.thumbnail_url,
+      };
     });
   }
 

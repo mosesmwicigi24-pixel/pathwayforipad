@@ -1310,6 +1310,33 @@ paths:
         "200": { description: Cleared }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /admin/media/{id}/thumbnail:
+    post:
+      tags: [system]
+      summary: Admin. Set the thumbnail/poster image (uploaded image or a frame captured from the video).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200": { description: Thumbnail set }
+        "400": { description: Validation failed (not an image / too large) }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [system]
+      summary: Admin. Clear the asset's thumbnail.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Thumbnail cleared }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   # --- Calendar (Features v2 §C) ---
   /calendar:
