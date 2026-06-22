@@ -374,6 +374,10 @@ export function Chat(): ReactElement {
           : file.type.startsWith("video/")
             ? "video"
             : "file";
+    if (kind === "image" && file.size > 10 * 1024 * 1024) {
+      setThreadError("Image is larger than 10 MB. Please choose a smaller image.");
+      return;
+    }
     setUploading(true);
     setThreadError(null);
     try {

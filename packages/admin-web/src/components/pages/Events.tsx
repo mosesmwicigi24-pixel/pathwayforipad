@@ -549,6 +549,10 @@ function ImagesField({
   const [pasteUrl, setPasteUrl] = useState("");
 
   async function uploadFile(file: File): Promise<string | null> {
+    if (file.size > 10 * 1024 * 1024) {
+      setUErr("Image is larger than 10 MB. Please choose a smaller image.");
+      return null;
+    }
     setBusy(true);
     setUErr(null);
     try {

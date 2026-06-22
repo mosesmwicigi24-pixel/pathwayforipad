@@ -187,7 +187,7 @@ export function VideoLibrary(): ReactElement {
   // host. XHR gives live upload progress (fetch can't).
   async function uploadFile(file: File): Promise<void> {
     if (!file.type.startsWith("video/")) { setError("Please choose a video file."); return; }
-    if (file.size > 2 * 1024 * 1024 * 1024) { setError("Video is larger than 2 GB. Please use a smaller file or paste an external link."); return; }
+    if (file.size > 500 * 1024 * 1024) { setError("Video is larger than 500 MB. Please use a smaller file or paste an external link."); return; }
     setUploading(true); setUploadName(file.name); setError(null); setNotice(null);
     setUploadStage("uploading"); setUploadPct(0); setUploadLoaded(0); setUploadTotal(file.size);
     try {
@@ -341,7 +341,7 @@ export function VideoLibrary(): ReactElement {
                 <button onClick={openFilePicker} className="rounded-2xl mt-4 w-full flex flex-col items-center justify-center gap-2" style={{ background: "linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%)", border: "2px dashed #93C5FD", padding: "26px 16px", cursor: "pointer" }}>
                   <div className="rounded-full flex items-center justify-center" style={{ width: 44, height: 44, background: "#DBEAFE", color: "#0369A1" }}><Upload size={20} /></div>
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)" }}>Choose a video to upload</span>
-                  <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>Click to browse — MP4, MOV, WebM · up to 2 GB · stored on your own server</span>
+                  <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>Click to browse — MP4, MOV, WebM · up to 500 MB · stored on your own server</span>
                 </button>
               )}
               <div className="flex items-center gap-2 mt-4"><ShieldCheck size={13} style={{ color: "#16A34A" }} /><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>Stored securely in your media library and attachable to any module.</span></div>

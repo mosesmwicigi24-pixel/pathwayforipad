@@ -92,7 +92,7 @@ const EnvSchema = z.object({
   // (/var/www/pathway-media → /data/media) and the base is the public /media path. ---
   MEDIA_STORAGE_DIR: z.string().default("/tmp/nuru-media"),
   MEDIA_PUBLIC_BASE_URL: z.string().default("http://localhost:8080/media"),
-  MEDIA_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(2_147_483_648), // 2 GiB
+  MEDIA_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(524_288_000), // 500 MB
   CAL_MATERIALIZE_HORIZON_DAYS: z.coerce.number().int().positive().default(35),
   CAL_MAX_INSTANCES: z.coerce.number().int().positive().default(500),
 });
