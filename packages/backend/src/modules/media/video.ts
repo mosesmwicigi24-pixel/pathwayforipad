@@ -421,29 +421,34 @@ export class VideoService {
   }
 
   /** Member: the current homepage welcome video, or null. External sources
-   *  return external_url + external_video_id; hosted return a signed delivery URL. */
-  async welcomeVideo(): Promise<unknown | null> {
+   *  return external_url + external_video_id; hosted return a signed delivery URL.
+   *  Carries the thumbnail + the viewer's reaction summary (love counter / liked). */
+  async welcomeVideo(userId: string): Promise<unknown | null> {
     const row = await maybeOne<{
       media_asset_id: string;
       video_source: string;
       external_url: string | null;
       external_video_id: string | null;
       caption: string | null;
+      thumbnail_url: string | null;
       hls_master_key: string | null;
       source_object_key: string | null;
       duration_sec: number | null;
     }>(
       this.pool,
       `SELECT media_asset_id, video_source, external_url, external_video_id, caption,
-              hls_master_key, source_object_key, duration_sec
-         FROM media_assets WHERE is_homepage = true LIMIT 1`,
+              thumbnail_url, hls_master_key, source_object_key, duration_sec
+         FROM media_assets WHERE is_homepage = true AND deleted_at IS NULL LIMIT 1`,
     );
     if (!row) return null;
+    const reactions = await this.reactionSummary(this.pool, userId, row.media_asset_id);
     const base = {
       media_asset_id: row.media_asset_id,
       video_source: row.video_source,
       caption: row.caption,
+      thumbnail_url: row.thumbnail_url,
       duration_sec: row.duration_sec,
+      ...reactions,
     };
     // youtube / vimeo / direct / private all carry a shareable external_url
     // (best-effort gating only — these are inherently shareable links).
@@ -454,6 +459,74 @@ export class VideoService {
     const key = row.hls_master_key ?? row.source_object_key;
     if (!key) return { ...base, url: null };
     return { ...base, ...this.media.signedUrl(key, MANIFEST_TTL) };
+  }
+
+  // ---------------- Reactions (emoji + love/like counter) ----------------
+
+  /** Supported content reactions; ❤️ doubles as "Like". */
+  static readonly REACTION_EMOJIS: ReadonlySet<string> = new Set(["❤️", "🙏", "🔥", "🎉", "👏"]);
+  static readonly LOVE = "❤️";
+
+  /** Per-subject reaction summary for one viewer: each emoji's count + whether the
+   *  viewer picked it, plus the love (❤️) count and whether the viewer liked it. */
+  private async reactionSummary(
+    c: Queryable,
+    userId: string,
+    subjectId: string,
+  ): Promise<{ reactions: Array<{ emoji: string; count: number; mine: boolean }>; love_count: number; liked: boolean }> {
+    const rows = await many<{ emoji: string; count: number; mine: boolean }>(
+      c,
+      `SELECT emoji, COUNT(*)::int AS count, bool_or(user_id = $2) AS mine
+         FROM content_reactions
+        WHERE subject_type = 'media_asset' AND subject_id = $1
+        GROUP BY emoji
+        ORDER BY count DESC, emoji`,
+      [subjectId, userId],
+    );
+    const reactions = rows.map((r) => ({ emoji: r.emoji, count: Number(r.count), mine: r.mine }));
+    const love = reactions.find((r) => r.emoji === VideoService.LOVE);
+    return { reactions, love_count: love?.count ?? 0, liked: !!love?.mine };
+  }
+
+  /** Toggle the viewer's reaction (emoji) on a media asset. Returns whether it's
+   *  now on, plus the refreshed reaction summary. */
+  async toggleReaction(
+    userId: string,
+    mediaAssetId: string,
+    emoji: string,
+  ): Promise<{ on: boolean; reactions: Array<{ emoji: string; count: number; mine: boolean }>; love_count: number; liked: boolean }> {
+    if (!VideoService.REACTION_EMOJIS.has(emoji)) {
+      throw new ApiError("VALIDATION_FAILED", "Unsupported reaction");
+    }
+    return tx(this.pool, async (c) => {
+      const asset = await maybeOne(
+        c,
+        `SELECT 1 FROM media_assets WHERE media_asset_id = $1 AND deleted_at IS NULL`,
+        [mediaAssetId],
+      );
+      if (!asset) throw new ApiError("NOT_FOUND", "Media asset not found");
+      const existing = await maybeOne(
+        c,
+        `SELECT 1 FROM content_reactions
+          WHERE subject_type = 'media_asset' AND subject_id = $1 AND user_id = $2 AND emoji = $3`,
+        [mediaAssetId, userId, emoji],
+      );
+      if (existing) {
+        await c.query(
+          `DELETE FROM content_reactions
+            WHERE subject_type = 'media_asset' AND subject_id = $1 AND user_id = $2 AND emoji = $3`,
+          [mediaAssetId, userId, emoji],
+        );
+      } else {
+        await c.query(
+          `INSERT INTO content_reactions (subject_type, subject_id, user_id, emoji)
+           VALUES ('media_asset', $1, $2, $3) ON CONFLICT DO NOTHING`,
+          [mediaAssetId, userId, emoji],
+        );
+      }
+      const summary = await this.reactionSummary(c, userId, mediaAssetId);
+      return { on: !existing, ...summary };
+    });
   }
 
   private getAssetRow(c: Queryable, id: string): Promise<unknown> {

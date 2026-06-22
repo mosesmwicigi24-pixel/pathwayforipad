@@ -1135,6 +1135,25 @@ paths:
         "200": { description: Signed manifest URL }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/GateLocked" }
+  /media/{id}/reactions:
+    post:
+      tags: [system]
+      summary: Member. Toggle a reaction (emoji; ❤️ = Like) on a media asset; returns the refreshed summary.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [emoji]
+              properties:
+                emoji: { type: string, description: "One of ❤️ 🙏 🔥 🎉 👏" }
+      responses:
+        "200": { description: "{ on, reactions[], love_count, liked }" }
+        "400": { description: Unsupported reaction }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/media:
     get:
       tags: [system]

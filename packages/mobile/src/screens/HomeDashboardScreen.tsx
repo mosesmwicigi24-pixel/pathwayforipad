@@ -4,8 +4,8 @@
 // rhythm with streak, progress snapshot, story card, upcoming events, the
 // verse for today (WEB default per D-M4), encouragement, and announcements —
 // real data wherever the API serves it; spec demo content elsewhere.
-import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { Image, Linking, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { Image, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import {
   BadgeCheck,
   Bell,
@@ -34,7 +34,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
-import { GradientBg, Glow, T } from "../theme/components";
+import { Glow, T } from "../theme/components";
 import {
   useAchievements,
   useCalendar,
@@ -50,10 +50,17 @@ import {
   useScripture,
   useWelcomeVideo,
 } from "../api/hooks";
-import type { WelcomeVideo } from "../api/types";
+import type { ContentReaction, WelcomeVideo } from "../api/types";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
+import { VideoPlayer } from "../components/VideoPlayer";
+import { ShareToChatSheet } from "../components/ShareToChatSheet";
+
+// Emoji reactions on the home video (❤️ is the dedicated Like; these are extras).
+const VIDEO_EMOJIS = ["🙏", "🔥", "🎉", "👏"];
+const SOCIAL_BTN = { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white };
+const EMOJI_BTN = { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white };
 
 function todayKicker(): string {
   const d = new Date();
@@ -75,10 +82,9 @@ function firstName(full?: string | null): string {
   return (full ?? "Friend").trim().split(/\s+/)[0] ?? "Friend";
 }
 
-// The single link the welcome-video card opens. External sources (youtube/vimeo/
+// The playable URL for the welcome video. External sources (youtube/vimeo/
 // direct/private) carry a shareable external_url; hosted (cloudinary) carries a
-// signed delivery url. No video player dependency ships in the app, so both paths
-// hand off to the OS via Linking.openURL (same pattern as GivingScreen).
+// signed delivery url. Fed to the inline VideoPlayer and the share-to-chat sheet.
 function welcomeVideoUrl(v: WelcomeVideo): string | null {
   if ("external_url" in v) return v.external_url;
   return v.url;
@@ -125,6 +131,22 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: featuredAnnouncement, refetch: refetchFeaturedAnnouncement } = useFeaturedAnnouncement();
   const { data: cellSummary } = useCellSummary();
   const [refreshing, setRefreshing] = useState(false);
+
+  // Home video social state (❤️ Like / emoji reactions / share), seeded from the
+  // server payload then updated optimistically from the toggle response.
+  const [react, setReact] = useState<{ reactions: ContentReaction[]; love_count: number; liked: boolean }>({ reactions: [], love_count: 0, liked: false });
+  const [shareOpen, setShareOpen] = useState(false);
+  useEffect(() => {
+    if (welcomeVideo) setReact({ reactions: welcomeVideo.reactions ?? [], love_count: welcomeVideo.love_count ?? 0, liked: !!welcomeVideo.liked });
+  }, [welcomeVideo]);
+  const reactionFor = useCallback((emoji: string): ContentReaction | undefined => react.reactions.find((r) => r.emoji === emoji), [react]);
+  const toggleVideoReaction = useCallback(async (emoji: string): Promise<void> => {
+    if (!welcomeVideo) return;
+    try {
+      const res = await NuruApi.toggleMediaReaction(welcomeVideo.media_asset_id, emoji);
+      setReact({ reactions: res.reactions, love_count: res.love_count, liked: res.liked });
+    } catch { /* best-effort, like chat reactions */ }
+  }, [welcomeVideo]);
 
   // Pull-to-refresh re-pulls every Home data source from the backend.
   const onRefresh = useCallback(async () => {
@@ -254,31 +276,51 @@ export function HomeDashboardScreen(): ReactElement {
               <View style={{ flex: 1 }} />
               <T variant="micro" tone="tertiary" style={{ letterSpacing: 1.2 }}>FEATURED</T>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Play welcome video"
-              onPress={() => void Linking.openURL(welcomeUrl).catch(() => undefined)}
-              style={({ pressed }) => [st.thumb, pressed && { opacity: 0.92 }]}
-            >
-              <GradientBg colors={[palette.navy, palette.navy700, palette.gold]} radius={16} />
-              <View style={st.playBtn}>
-                <Play size={24} color={palette.navy} fill={palette.navy} />
-              </View>
-            </Pressable>
+            {/* Inline playback (react-native-video); poster = thumbnail when set. */}
+            <VideoPlayer uri={welcomeUrl} poster={welcomeVideo.thumbnail_url ?? null} height={200} radius={16} />
             <T variant="heading" style={{ marginTop: spacing.md, fontSize: 17 }}>Welcome to the Pathway</T>
             {welcomeVideo.caption ? (
               <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>{welcomeVideo.caption}</T>
             ) : (
               <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>Start here — what the journey looks like</T>
             )}
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md }}>
-              {["Intro", "Level overview", "Testimonies"].map((c) => (
-                <View key={c} style={st.featChip}>
-                  <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>{c}</T>
-                </View>
-              ))}
+            {/* ❤️ Like · emoji reactions (with counts) · Share to chat — X-style. */}
+            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={react.liked ? "Unlike" : "Like"}
+                onPress={() => void toggleVideoReaction("❤️")}
+                style={[SOCIAL_BTN, react.liked ? { backgroundColor: "#FDE7EA", borderColor: "#F5C2C7" } : null]}
+              >
+                <Heart size={16} color={react.liked ? palette.error : palette.ink600} fill={react.liked ? palette.error : "transparent"} />
+                <T variant="caption" style={{ fontWeight: "600", color: react.liked ? palette.error : palette.ink600 }}>
+                  {react.love_count > 0 ? String(react.love_count) : "Like"}
+                </T>
+              </Pressable>
+              {VIDEO_EMOJIS.map((e) => {
+                const r = reactionFor(e);
+                return (
+                  <Pressable
+                    key={e}
+                    accessibilityRole="button"
+                    accessibilityLabel={`React ${e}`}
+                    onPress={() => void toggleVideoReaction(e)}
+                    style={[EMOJI_BTN, r?.mine ? { borderColor: palette.gold, backgroundColor: palette.goldChipBg } : null]}
+                  >
+                    <T variant="caption">{e}{r && r.count > 0 ? ` ${r.count}` : ""}</T>
+                  </Pressable>
+                );
+              })}
+              <View style={{ flex: 1 }} />
+              <Pressable accessibilityRole="button" accessibilityLabel="Share" onPress={() => setShareOpen(true)} style={SOCIAL_BTN}>
+                <Share2 size={16} color={palette.ink600} />
+                <T variant="caption" style={{ fontWeight: "600", color: palette.ink600 }}>Share</T>
+              </Pressable>
             </View>
           </View>
+        ) : null}
+        {shareOpen && welcomeVideo && welcomeUrl ? (
+          <ShareToChatSheet videoUrl={welcomeUrl} caption={welcomeVideo.caption} onClose={() => setShareOpen(false)} />
         ) : null}
 
         {/* ── This week at Nuru (real featured cell, PR #125; hidden when none) ── */}

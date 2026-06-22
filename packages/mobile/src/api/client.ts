@@ -50,6 +50,7 @@ import type {
   ChatPerson,
   NuruTurn,
   WelcomeVideo,
+  ReactionToggleResult,
   FeaturedCell,
   AnnouncementDetail,
   FeaturedEvent,
@@ -533,6 +534,11 @@ export const NuruApi = {
   // ---- Homepage welcome video (PR #120); null when none is set ----
   async welcomeVideo(): Promise<WelcomeVideo | null> {
     const { data } = await api.get<WelcomeVideo | null>("/home/welcome-video");
+    return data;
+  },
+  /** Toggle a reaction (emoji; ❤️ = Like) on a media asset. */
+  async toggleMediaReaction(mediaAssetId: string, emoji: string): Promise<ReactionToggleResult> {
+    const { data } = await api.post<ReactionToggleResult>(`/media/${mediaAssetId}/reactions`, { emoji });
     return data;
   },
 

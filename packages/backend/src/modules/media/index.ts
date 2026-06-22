@@ -347,8 +347,18 @@ export function registerMedia(ctx: AppContext): Router {
   r.get(
     "/home/welcome-video",
     auth,
-    handler(async (_req, res) => {
-      res.json(await video.welcomeVideo());
+    handler(async (req, res) => {
+      res.json(await video.welcomeVideo(requirePrincipal(req).userId));
+    }),
+  );
+
+  // Member: toggle a reaction (emoji; ❤️ = Like) on a media asset.
+  r.post(
+    "/media/:id/reactions",
+    auth,
+    handler(async (req, res) => {
+      const { emoji } = parseBody(z.object({ emoji: z.string().min(1).max(16) }), req.body ?? {});
+      res.json(await video.toggleReaction(requirePrincipal(req).userId, req.params.id ?? "", emoji));
     }),
   );
 

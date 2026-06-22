@@ -204,13 +204,13 @@ describe("homepage welcome video (single-row invariant)", () => {
     expect(onCount.rows[0].media_asset_id).toBe(b.media_asset_id);
 
     // Member welcome-video fetch returns the external link.
-    const w = (await v.welcomeVideo()) as { media_asset_id: string; external_url: string; video_source: string };
+    const w = (await v.welcomeVideo(studentId)) as { media_asset_id: string; external_url: string; video_source: string };
     expect(w.media_asset_id).toBe(b.media_asset_id);
     expect(w.video_source).toBe("vimeo");
     expect(w.external_url).toBe("https://vimeo.com/76979871");
 
     await v.clearHomepage(adminId, b.media_asset_id);
-    expect(await v.welcomeVideo()).toBeNull();
+    expect(await v.welcomeVideo(studentId)).toBeNull();
   });
 
   it("serves a signed delivery URL for a hosted homepage video", async () => {
@@ -219,7 +219,7 @@ describe("homepage welcome video (single-row invariant)", () => {
     await v.completeUpload(adminId, session.upload_id, {});
     await v.transcodeAsset({ media_asset_id: session.media_asset_id, content_hash: "z".repeat(64) });
     await v.setHomepage(adminId, session.media_asset_id);
-    const w = (await v.welcomeVideo()) as { url: string; expires_at: string };
+    const w = (await v.welcomeVideo(studentId)) as { url: string; expires_at: string };
     expect(w.url).toContain("res.cloudinary.com");
     expect(w.expires_at).toBeTruthy();
   });
@@ -326,6 +326,49 @@ describe("chunked parallel upload (speed: many small chunks → one file)", () =
       .post("/v1/admin/media/videos/finalize")
       .set("Authorization", tok)
       .send({ upload_id: uploadId, total_chunks: 3, filename: "x.mp4" });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("home video reactions (emoji + love/like counter)", () => {
+  it("toggles a ❤️ like and reflects love_count + liked in the welcome video", async () => {
+    const v = newVideo();
+    // A ready homepage video.
+    const asset = (await v.registerUploaded(adminId, {
+      storageFilename: "x.mp4",
+      publicUrl: "http://localhost/media/x.mp4",
+      title: "Welcome",
+    })) as { media_asset_id: string };
+    await v.setHomepage(adminId, asset.media_asset_id);
+
+    const tok = bearer({ sub: studentId, role: "Student", cong });
+
+    // Like (❤️) → on, love_count 1, liked true.
+    const r1 = await agent().post(`/v1/media/${asset.media_asset_id}/reactions`).set("Authorization", tok).send({ emoji: "❤️" });
+    expect(r1.status).toBe(200);
+    expect(r1.body).toMatchObject({ on: true, love_count: 1, liked: true });
+
+    // The welcome video payload carries the viewer's summary.
+    const wv = await agent().get("/v1/home/welcome-video").set("Authorization", tok);
+    expect(wv.body.love_count).toBe(1);
+    expect(wv.body.liked).toBe(true);
+    expect(wv.body.reactions.find((x: { emoji: string }) => x.emoji === "❤️").count).toBe(1);
+
+    // Another emoji from a different member.
+    const tok2 = bearer({ sub: adminId, role: "Admin", cong });
+    await agent().post(`/v1/media/${asset.media_asset_id}/reactions`).set("Authorization", tok2).send({ emoji: "🔥" }).expect(200);
+
+    // Un-like (toggle ❤️ off).
+    const r2 = await agent().post(`/v1/media/${asset.media_asset_id}/reactions`).set("Authorization", tok).send({ emoji: "❤️" });
+    expect(r2.body).toMatchObject({ on: false, love_count: 0, liked: false });
+    expect(r2.body.reactions.find((x: { emoji: string }) => x.emoji === "🔥").count).toBe(1);
+  });
+
+  it("rejects an unsupported reaction emoji", async () => {
+    const v = newVideo();
+    const asset = (await v.registerUploaded(adminId, { storageFilename: "y.mp4", publicUrl: "http://localhost/media/y.mp4" })) as { media_asset_id: string };
+    const tok = bearer({ sub: studentId, role: "Student", cong });
+    const res = await agent().post(`/v1/media/${asset.media_asset_id}/reactions`).set("Authorization", tok).send({ emoji: "💩" });
     expect(res.status).toBe(400);
   });
 });

@@ -590,11 +590,28 @@ export interface MentorInfo {
 // Homepage welcome video (GET /home/welcome-video, PR #120). Shared base fields,
 // then a source-dependent payload: external (youtube/vimeo/direct/private) carries
 // a shareable link; hosted (cloudinary) carries a signed, expiring delivery URL.
+export interface ContentReaction {
+  emoji: string;
+  count: number;
+  mine: boolean;
+}
 interface WelcomeVideoBase {
   media_asset_id: string;
   video_source: "cloudinary" | "youtube" | "vimeo" | "direct" | "private";
   caption: string | null;
   duration_sec: number | null;
+  thumbnail_url?: string | null;
+  // Reaction summary for the viewer (PR: home video social layer).
+  reactions?: ContentReaction[];
+  love_count?: number;
+  liked?: boolean;
+}
+// Returned by POST /media/:id/reactions.
+export interface ReactionToggleResult {
+  on: boolean;
+  reactions: ContentReaction[];
+  love_count: number;
+  liked: boolean;
 }
 export interface WelcomeVideoExternal extends WelcomeVideoBase {
   external_url: string | null;

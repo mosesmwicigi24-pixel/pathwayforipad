@@ -24,6 +24,7 @@ import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
 import { Loading, ErrorState } from "../components/states";
+import { VideoPlayer } from "../components/VideoPlayer";
 import {
   formatMillis,
   voiceFileName,
@@ -633,6 +634,7 @@ function Bubble({
   onPlayVoice: (url: string) => void;
 }): ReactElement {
   const meta = (m.attachment_meta ?? {}) as { duration?: number; name?: string; size?: number };
+  const [videoOpen, setVideoOpen] = useState(false);
   const chipColor = m.mine ? palette.onNavy : palette.navy;
   return (
     <View style={{ marginBottom: spacing.md, alignItems: m.mine ? "flex-end" : "flex-start" }}>
@@ -677,7 +679,20 @@ function Bubble({
             </T>
           </Pressable>
         ) : m.msg_type === "video" && m.attachment_url ? (
-          <View style={st.mediaChip}><Play size={14} color={chipColor} /><T variant="caption" style={{ color: m.mine ? "#fff" : palette.ink }}>Video</T></View>
+          videoOpen ? (
+            <View style={{ width: 248, maxWidth: "100%" }}>
+              <VideoPlayer uri={m.attachment_url} height={150} radius={12} />
+            </View>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Play video"
+              onPress={() => setVideoOpen(true)}
+              style={st.mediaChip}
+            >
+              <Play size={14} color={chipColor} /><T variant="caption" style={{ color: m.mine ? "#fff" : palette.ink }}>Play video</T>
+            </Pressable>
+          )
         ) : null}
         {m.body ? <T variant="body" style={{ color: m.mine ? "#fff" : palette.ink, marginTop: m.msg_type !== "text" ? 6 : 0 }}>{m.body}</T> : null}
         <T variant="micro" style={{ color: m.mine ? "rgba(255,255,255,0.6)" : palette.ink400, marginTop: 4, alignSelf: "flex-end" }}>{when(m.created_at)}</T>
