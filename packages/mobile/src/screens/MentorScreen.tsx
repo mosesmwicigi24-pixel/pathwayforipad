@@ -10,11 +10,8 @@ import { T } from "../theme/components";
 import { useMentor } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
+import { Avatar } from "../components/Avatar";
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "")).toUpperCase() || "NP";
-}
 function dateTime(iso: string): string {
   return new Date(iso).toLocaleString("en-US", { weekday: "long", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
@@ -56,7 +53,7 @@ export function MentorScreen(): ReactElement {
         <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false}>
           {/* Identity */}
           <View style={[st.card, { flexDirection: "row", alignItems: "center", gap: spacing.md }]}>
-            <View style={st.avatar}><T variant="label" style={{ color: palette.gold }}>{initials(mentor.full_name)}</T></View>
+            <Avatar uri={mentor.avatar_url} name={mentor.full_name} size={48} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <T variant="heading">{mentor.full_name}</T>
               <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>

@@ -63,6 +63,7 @@ import { Loading, ErrorState } from "../components/states";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { ShareToChatSheet } from "../components/ShareToChatSheet";
 import { DisciplerCarousel } from "../components/DisciplerCarousel";
+import { Avatar } from "../components/Avatar";
 
 // Emoji reactions on the home video (❤️ is the dedicated Like; these are extras).
 const VIDEO_EMOJIS = ["🙏", "🔥", "🎉", "👏"];
@@ -142,9 +143,6 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: mentorInfo } = useMentor();
   const { data: disciplers } = useDisciplers();
   const discipler = mentorInfo?.mentor ?? null;
-  const disciplerInitials = discipler
-    ? discipler.full_name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "·"
-    : "·";
   const { data: featuredEvent, refetch: refetchFeaturedEvent } = useFeaturedEvent();
   const { data: featuredAnnouncement, refetch: refetchFeaturedAnnouncement } = useFeaturedAnnouncement();
   const { data: cellSummary } = useCellSummary();
@@ -747,9 +745,7 @@ export function HomeDashboardScreen(): ReactElement {
             onPress={() => nav.navigate("Mentor")}
             style={({ pressed }) => [st.disciplerRow, pressed && { opacity: 0.9 }]}
           >
-            <View style={st.disciplerAvatar}>
-              <T variant="micro" style={{ color: palette.white, fontWeight: "700" }}>{disciplerInitials}</T>
-            </View>
+            <Avatar uri={discipler?.avatar_url} name={discipler?.full_name} size={36} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.2 }}>YOUR DISCIPLER</T>
               <T variant="caption" style={{ fontWeight: "700", color: palette.ink, marginTop: 1 }} numberOfLines={1}>{discipler?.full_name ?? "Meet your discipler"}</T>
@@ -806,13 +802,7 @@ export function HomeDashboardScreen(): ReactElement {
               <T variant="heading" style={{ fontSize: 15 }}>Your cohort</T>
               <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{cell?.name ?? "Your discipleship cell"}</T>
             </View>
-            <View style={{ flexDirection: "row" }}>
-              {["#FFE7B5", "#D9EBD4", "#E0E7FF", "#FFD9D2"].map((c, i) => (
-                <View key={i} style={[st.cohortAvatar, { backgroundColor: c, marginLeft: i === 0 ? 0 : -8 }]}>
-                  <Users size={12} color={palette.navy} />
-                </View>
-              ))}
-            </View>
+            {cell?.leader ? <Avatar uri={cell.leader.avatar_url} name={cell.leader.name} size={36} /> : null}
           </View>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md }}>
             <CohortStat icon={<Users size={13} color={palette.goldLo} />} label="Leader" value={cell?.leader?.name ?? "Not assigned"} />

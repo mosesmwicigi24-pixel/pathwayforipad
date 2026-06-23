@@ -18,6 +18,7 @@ import { useChatInbox, useChatPeople, queryKeys } from "../api/hooks";
 import { errorMessage, refreshQueries } from "../api/query";
 import { NuruApi } from "../api/client";
 import { Loading, ErrorState } from "../components/states";
+import { Avatar } from "../components/Avatar";
 import {
   groupInbox,
   inboxStats,
@@ -418,9 +419,7 @@ function ConvoRow({
       ) : group ? (
         <View style={[st.avatarSquare, { backgroundColor: avatarColor(c.conversation_id) }]}><Users size={20} color="#fff" /></View>
       ) : (
-        <View style={[st.avatarRound, { backgroundColor: avatarColor(c.conversation_id) }]}>
-          <T variant="heading" style={{ color: "#fff", fontSize: 15 }}>{initials(c.title)}</T>
-        </View>
+        <Avatar uri={c.avatar_url} name={c.title} size={48} />
       )}
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>

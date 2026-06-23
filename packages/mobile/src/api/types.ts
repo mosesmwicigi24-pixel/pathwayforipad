@@ -294,6 +294,7 @@ export interface ChatConversation {
   last_at: string | null;
   last_author: string | null;
   unread: number;
+  avatar_url?: string | null; // the other member's photo, for DMs
 }
 
 export interface DiscoverSpace {
@@ -314,6 +315,7 @@ export interface ChatPerson {
   user_id: string;
   full_name: string;
   role: string;
+  avatar_url?: string | null;
 }
 
 export interface ChatReaction {
@@ -326,6 +328,7 @@ export interface ChatMessage {
   message_id: string;
   author_user_id: string;
   author_name: string;
+  author_avatar?: string | null;
   body: string;
   msg_type: "text" | "voice" | "image" | "file" | "video";
   attachment_url: string | null;
@@ -613,7 +616,7 @@ export interface LevelEncouragement {
 }
 
 export interface MentorInfo {
-  mentor: { mentor_user_id: string; full_name: string; cell_name: string | null; established_at: string } | null;
+  mentor: { mentor_user_id: string; full_name: string; avatar_url: string | null; cell_name: string | null; established_at: string } | null;
   next_meeting_at: string | null;
   notes: Array<{ note_id: string; topic: string; note: string | null; met_at: string; next_meeting_at: string | null }>;
 }

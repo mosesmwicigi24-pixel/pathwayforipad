@@ -319,7 +319,7 @@ export class GrowthContentService {
   async mentor(userId: string): Promise<unknown> {
     const mentor = await maybeOne(
       this.pool,
-      `SELECT u.user_id AS mentor_user_id, u.full_name, cg.name AS cell_name, rt.established_at
+      `SELECT u.user_id AS mentor_user_id, u.full_name, u.avatar_url, cg.name AS cell_name, rt.established_at
          FROM relationship_tree rt
          JOIN users u ON u.user_id = rt.multiplier_id
          LEFT JOIN cell_groups cg ON cg.cell_group_id = u.cell_group_id

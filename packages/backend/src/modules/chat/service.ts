@@ -158,7 +158,7 @@ export class ChatService {
       // Only real congregation members appear: a user with a NULL congregation
       // (e.g. an unattached signup) is never DM-able. `= $1` already excludes
       // NULLs; the explicit IS NOT NULL locks the guarantee.
-      `SELECT u.user_id, u.full_name, u.role
+      `SELECT u.user_id, u.full_name, u.role, u.avatar_url
          FROM users u
         WHERE u.congregation_id = $1
           AND u.congregation_id IS NOT NULL
@@ -246,6 +246,7 @@ export class ChatService {
       this.pool,
       `SELECT cv.conversation_id, cv.kind, cv.is_public,
               CASE WHEN cv.kind = 'dm' THEN other.full_name ELSE cv.title END AS title,
+              CASE WHEN cv.kind = 'dm' THEN other.avatar_url ELSE NULL END AS avatar_url,
               cv.topic, cv.category,
               (SELECT count(*)::int FROM chat_members m2 WHERE m2.conversation_id = cv.conversation_id) AS member_count,
               lm.body AS last_body, lm.msg_type AS last_type, lm.created_at AS last_at,
@@ -302,6 +303,7 @@ export class ChatService {
       this.pool,
       `SELECT cv.conversation_id, cv.kind, cv.is_public, cv.topic, cv.category,
               CASE WHEN cv.kind = 'dm' THEN other.full_name ELSE cv.title END AS title,
+              CASE WHEN cv.kind = 'dm' THEN other.avatar_url ELSE NULL END AS avatar_url,
               (SELECT count(*)::int FROM chat_members m2 WHERE m2.conversation_id = cv.conversation_id) AS member_count,
               EXISTS (SELECT 1 FROM chat_members m WHERE m.conversation_id = cv.conversation_id AND m.user_id = $1) AS joined
          FROM chat_conversations cv
@@ -314,7 +316,7 @@ export class ChatService {
     );
     const messages = await many(
       this.pool,
-      `SELECT m.message_id, m.author_user_id, u.full_name AS author_name, m.body, m.msg_type,
+      `SELECT m.message_id, m.author_user_id, u.full_name AS author_name, u.avatar_url AS author_avatar, m.body, m.msg_type,
               m.attachment_url, m.attachment_meta, m.reply_to_id, m.ai_tag, m.is_edited, m.created_at,
               ${moderator ? "m.is_hidden, m.is_flagged, m.flag_reason, m.moderated_at," : ""}
               rt.body AS reply_body, ru.full_name AS reply_author,

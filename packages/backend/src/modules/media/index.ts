@@ -88,6 +88,43 @@ export function registerMedia(ctx: AppContext): Router {
   const thumbFile = (url: string | null): string | null =>
     url && url.startsWith(publicBase + "/") ? url.slice(publicBase.length + 1) : null;
 
+  // Member profile photo — any member uploads their own (5 MB, images only),
+  // bytes land on our disk (served via /media) and we store the URL on the user.
+  const AVATAR_MAX = 5 * 1024 * 1024;
+  const uploadAvatar = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, storageDir),
+      filename: (_req, file, cb) => {
+        const ext = (extname(file.originalname) || ".jpg").toLowerCase().replace(/[^.a-z0-9]/g, "") || ".jpg";
+        cb(null, `avatar_${randomUUID()}${ext}`);
+      },
+    }),
+    limits: { fileSize: AVATAR_MAX, files: 1 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype?.startsWith("image/")) cb(null, true);
+      else cb(new ApiError("VALIDATION_FAILED", "Profile photo must be an image"));
+    },
+  });
+  const uploadAvatarMw = (req: Request, res: Response, next: NextFunction): void =>
+    uploadAvatar.single("file")(req, res, (err: unknown) => {
+      if (!err) return next();
+      if (err instanceof multer.MulterError) {
+        return next(new ApiError("VALIDATION_FAILED", err.code === "LIMIT_FILE_SIZE" ? "Photo exceeds 5 MB" : err.message));
+      }
+      return next(err);
+    });
+
+  r.post("/me/avatar", auth, uploadAvatarMw, handler(async (req, res) => {
+    const file = req.file;
+    if (!file) throw new ApiError("VALIDATION_FAILED", "No image was uploaded (field 'file')");
+    const url = `${publicBase}/${file.filename}`;
+    await ctx.db.primary.query(`UPDATE users SET avatar_url = $2, updated_at = now() WHERE user_id = $1`, [
+      requirePrincipal(req).userId,
+      url,
+    ]);
+    res.status(201).json({ avatar_url: url });
+  }));
+
   // Broker a signed URL for an object key the caller already holds a reference to.
   r.get(
     "/media/url",

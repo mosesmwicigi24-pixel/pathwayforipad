@@ -5,7 +5,7 @@
 // edits are session-local (the make itself keeps them in component state), so the
 // data shown is real while the interactions mirror the design exactly.
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { Alert, Clipboard, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Clipboard, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import {
@@ -18,11 +18,13 @@ import {
 import type { RootStackParamList } from "../navigation/types";
 import { palette, spacing, shadow } from "../theme/tokens";
 import { T, Pill } from "../theme/components";
+import { launchImageLibrary } from "react-native-image-picker";
 import { useMe, useAchievements, useCertificates } from "../api/hooks";
 import { NuruApi } from "../api/client";
+import { Avatar } from "../components/Avatar";
 import { apiBaseUrl } from "../config";
 import type { Achievements, CertificateRow } from "../api/types";
-import { clearQueryCache, invalidateQueries } from "../api/query";
+import { clearQueryCache, invalidateQueries, errorMessage } from "../api/query";
 import { resetAnnouncementAlerts } from "../notifications/announcementAlerts";
 import { getVault } from "../auth/vault";
 
@@ -63,9 +65,6 @@ const LANG_TO_LOCALE: Record<string, string> = {
   English: "en", Swahili: "sw", Kikuyu: "ki", Luo: "luo", Luhya: "luy", Kamba: "kam", French: "fr", Arabic: "ar",
 };
 
-function initials(full: string): string {
-  return full.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "NP";
-}
 function formatDate(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -109,7 +108,24 @@ function cleanSocials(raw: Record<string, string>): Record<string, string> {
 
 export function ProfileScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { data: me } = useMe();
+  const { data: me, refetch: refetchMe } = useMe();
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  async function pickAvatar(): Promise<void> {
+    const res = await launchImageLibrary({ mediaType: "photo", quality: 0.8, selectionLimit: 1 });
+    const a = res.assets?.[0];
+    if (!a?.uri) return;
+    setUploadingAvatar(true);
+    try {
+      await NuruApi.uploadAvatar({ uri: a.uri, name: a.fileName ?? "avatar.jpg", type: a.type ?? "image/jpeg" });
+      invalidateQueries("me");
+      await refetchMe();
+    } catch (e) {
+      Alert.alert("Upload failed", errorMessage(e));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
   const { data: achievements } = useAchievements();
   const { data: certificates, isLoading: certsLoading, error: certsError } = useCertificates();
   const profileData = me?.profile;
@@ -266,10 +282,18 @@ export function ProfileScreen(): ReactElement {
             </Pressable>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: spacing.sm }}>
-            <View style={st.avatar}>
-              <T serif tone="onNavy" style={{ fontSize: 24 }}>{initials(name)}</T>
-              <View style={st.avatarEdit}><Pencil size={11} color={palette.navy} strokeWidth={2.5} /></View>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Change profile photo"
+              onPress={() => void pickAvatar()}
+              disabled={uploadingAvatar}
+              style={{ width: 64, height: 64 }}
+            >
+              <Avatar uri={profileData?.avatar_url} name={name} size={64} ring />
+              <View style={st.avatarEdit}>
+                {uploadingAvatar ? <ActivityIndicator size="small" color={palette.navy} /> : <Pencil size={11} color={palette.navy} strokeWidth={2.5} />}
+              </View>
+            </Pressable>
             <View style={{ flex: 1, minWidth: 0 }}>
               <T serif tone="onNavy" style={{ fontSize: 22 }} numberOfLines={1}>{name}</T>
               <T variant="caption" style={{ color: "rgba(255,255,255,0.6)", marginTop: 2 }} numberOfLines={1}>{email}</T>

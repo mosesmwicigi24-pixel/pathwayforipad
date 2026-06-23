@@ -278,6 +278,21 @@ paths:
               schema: { $ref: "#/components/schemas/MeProfile" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /me/avatar:
+    post:
+      tags: [auth]
+      summary: Upload my profile photo (multipart image, field 'file'); stores + returns avatar_url.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201": { description: Avatar set }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /me/onboarding:
     post:
       tags: [auth]

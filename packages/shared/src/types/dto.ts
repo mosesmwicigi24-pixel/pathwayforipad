@@ -38,6 +38,7 @@ export interface UserProfile {
   city?: string | null;
   country_code?: string | null;
   socials?: Record<string, string>;
+  avatar_url?: string | null;
   row_version: number;
 }
 

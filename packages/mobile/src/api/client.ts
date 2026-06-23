@@ -384,6 +384,13 @@ export const NuruApi = {
     const { data } = await api.post<CloudinarySign>("/chat/attachments/sign", body);
     return data;
   },
+  /** Upload my profile photo to our server (multipart); returns the stored URL. */
+  async uploadAvatar(asset: { uri: string; name: string; type: string }): Promise<{ avatar_url: string }> {
+    const form = new FormData();
+    form.append("file", { uri: asset.uri, name: asset.name, type: asset.type } as unknown as Blob);
+    const { data } = await api.post<{ avatar_url: string }>("/me/avatar", form);
+    return data;
+  },
   /** Multipart POST a local RN file straight to Cloudinary with the server-signed params. */
   async uploadChatAttachment(
     sign: CloudinarySign,
