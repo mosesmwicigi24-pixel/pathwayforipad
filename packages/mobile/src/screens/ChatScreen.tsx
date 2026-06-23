@@ -43,6 +43,36 @@ const TABS: { key: ChatTab; label: string }[] = [
 const meetingLabel = (iso: string): string =>
   new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 
+// Curated colour + cadence descriptor per space category, so the discover cards
+// read like the make (YOUTH green, MARKETPLACE amber, SERVICE pink …). Unknown
+// categories fall back to the deterministic avatar palette.
+const CATEGORY_META: Record<string, { color: string; status: string }> = {
+  youth: { color: "#22B07D", status: "Active" },
+  marketplace: { color: "#E07B39", status: "Weekly" },
+  service: { color: "#EC4899", status: "Active" },
+  discipleship: { color: "#14B8A6", status: "Welcoming" },
+  worship: { color: "#6366F1", status: "Active" },
+  prayer: { color: "#8B5CF6", status: "Daily" },
+  testimonies: { color: "#C9A227", status: "Active" },
+  leaders: { color: "#0EA5E9", status: "Active" },
+};
+
+function categoryColor(category: string | null | undefined): string {
+  const key = (category ?? "").trim().toLowerCase();
+  return CATEGORY_META[key]?.color ?? avatarColor(key || "space");
+}
+
+function spaceStatus(category: string | null | undefined): string {
+  const key = (category ?? "").trim().toLowerCase();
+  return CATEGORY_META[key]?.status ?? "Active";
+}
+
+// Compact member tallies for the count chip ("210", "1.2k").
+function compactCount(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+  return String(n);
+}
+
 export function ChatScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data, isLoading, error, refetch } = useChatInbox();
@@ -304,33 +334,48 @@ function SpacesTab({
                 onPress={() => nav.navigate("SpacePreview", { conversationId: s.conversation_id, ...(s.title ? { title: s.title } : {}) })}
                 style={{ flexDirection: "row", gap: spacing.md }}
               >
-                <View style={[st.avatarSquare, { backgroundColor: avatarColor(s.conversation_id) }]}>
-                  <Hash size={20} color="#fff" />
+                <View style={[st.avatarSquare, { backgroundColor: categoryColor(s.category) }]}>
+                  <Hash size={22} color="#fff" />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-                    <T variant="heading" style={{ flexShrink: 1, fontSize: 16 }} numberOfLines={1}>{s.title ?? "Space"}</T>
+                    <T variant="heading" style={{ flexShrink: 1, fontSize: 17 }} numberOfLines={1}>{s.title ?? "Space"}</T>
                     <CategoryPill category={s.category} />
                   </View>
-                  <T variant="caption" tone="secondary" style={{ marginTop: 2 }} numberOfLines={2}>
+                  <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>
                     {s.topic ?? "A public space in your congregation."}
                   </T>
                 </View>
               </Pressable>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.md }}>
-                <T variant="caption" tone="tertiary">
-                  {s.member_count} {s.member_count === 1 ? "member" : "members"}
-                </T>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Join ${s.title ?? "space"}`}
-                  disabled={joiningId === s.conversation_id}
-                  onPress={() => onJoin(s)}
-                  style={({ pressed }) => [st.joinBtn, pressed && { transform: [{ scale: 0.96 }] }]}
-                >
-                  <Plus size={15} color="#fff" />
-                  <T variant="label" style={{ color: "#fff" }}>{joiningId === s.conversation_id ? "Joining…" : "Join"}</T>
-                </Pressable>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.base }}>
+                {/* Overlapping member circles + total count (the make's social proof) */}
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  {[0, 1, 2].map((n) => (
+                    <View
+                      key={n}
+                      style={[
+                        st.memberDot,
+                        { backgroundColor: avatarColor(`${s.conversation_id}:${n}`), marginLeft: n === 0 ? 0 : -12, zIndex: 3 - n },
+                      ]}
+                    />
+                  ))}
+                  <View style={st.memberCount}>
+                    <T variant="micro" style={{ color: palette.navy, fontWeight: "800" }}>{compactCount(s.member_count)}</T>
+                  </View>
+                </View>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+                  <T variant="caption" tone="tertiary" style={{ fontWeight: "600" }}>{spaceStatus(s.category)}</T>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Join ${s.title ?? "space"}`}
+                    disabled={joiningId === s.conversation_id}
+                    onPress={() => onJoin(s)}
+                    style={({ pressed }) => [st.joinBtn, pressed && { transform: [{ scale: 0.96 }] }]}
+                  >
+                    <Plus size={16} color="#fff" />
+                    <T variant="label" style={{ color: "#fff" }}>{joiningId === s.conversation_id ? "Joining…" : "Join"}</T>
+                  </Pressable>
+                </View>
               </View>
             </View>
           ))}
@@ -498,7 +543,7 @@ function ConvoRow({
 function CategoryPill({ category }: { category: string | null }): ReactElement | null {
   const label = categoryTag(category);
   if (!label) return null;
-  const color = avatarColor(label);
+  const color = categoryColor(category);
   return (
     <View style={[st.tag, { backgroundColor: `${color}1A` }]}>
       <T variant="micro" style={{ color, fontWeight: "800", letterSpacing: 0.5 }}>{label}</T>
@@ -559,7 +604,9 @@ const st = {
   rowDivider: { borderTopWidth: 1, borderTopColor: palette.border },
   badge: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: palette.gold, alignItems: "center", justifyContent: "center" },
   tag: { paddingHorizontal: 8, height: 20, borderRadius: 6, alignItems: "center", justifyContent: "center" },
-  avatarSquare: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  avatarSquare: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  memberDot: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: palette.white },
+  memberCount: { width: 34, height: 34, borderRadius: 17, marginLeft: -12, backgroundColor: palette.white, borderWidth: 1.5, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
   avatarRound: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   discoverCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: spacing.base, marginBottom: spacing.sm, ...shadow.card },
   joinBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: palette.navy, paddingHorizontal: spacing.base, height: 38, borderRadius: radii.pill },
