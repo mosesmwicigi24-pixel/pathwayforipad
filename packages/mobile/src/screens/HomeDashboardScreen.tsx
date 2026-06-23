@@ -89,6 +89,11 @@ function firstName(full?: string | null): string {
   return (full ?? "Friend").trim().split(/\s+/)[0] ?? "Friend";
 }
 
+function nextGatheringLabel(startIso: string, location: string | null): string {
+  const date = new Date(startIso).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short" });
+  return location ? `${date} · ${location}` : date;
+}
+
 function heroAccent(accent: "gold" | "navy" | "success" | "steady"): string {
   return accent === "success" ? palette.success : accent === "steady" ? palette.steady : accent === "navy" ? palette.goldGlow : palette.gold;
 }
@@ -185,7 +190,8 @@ export function HomeDashboardScreen(): ReactElement {
   }, [refetch, refetchMe, refetchAch, refetchNotifs, refetchAnnouncements, refetchWelcomeVideo, refetchFeaturedCell, refetchFeaturedEvent, refetchFeaturedAnnouncement]);
   const [fromIso, toIso] = useMemo(() => {
     const now = new Date();
-    return [now.toISOString(), new Date(now.getTime() + 7 * 86_400_000).toISOString()];
+    // 30-day window so the "next gathering" fallback can look beyond this week.
+    return [now.toISOString(), new Date(now.getTime() + 30 * 86_400_000).toISOString()];
   }, []);
   const { data: occurrences } = useCalendar(fromIso, toIso);
 
@@ -527,11 +533,20 @@ export function HomeDashboardScreen(): ReactElement {
             style={({ pressed }) => [st.card, { padding: 0, overflow: "hidden" }, pressed && { opacity: 0.9 }]}
           >
             {featuredAnnouncement.primary_image_url ? (
-              <Image source={{ uri: featuredAnnouncement.primary_image_url }} style={{ width: "100%", height: 150 }} resizeMode="cover" />
+              <Image source={{ uri: featuredAnnouncement.primary_image_url }} style={{ width: "100%", height: 160 }} resizeMode="cover" />
             ) : null}
             <View style={{ padding: spacing.base }}>
               <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>FEATURED ANNOUNCEMENT</T>
               <T serif style={{ fontSize: 18, color: palette.ink, marginTop: spacing.sm }}>{featuredAnnouncement.title}</T>
+              {featuredAnnouncement.body ? (
+                <T variant="body" tone="secondary" style={{ marginTop: 6 }} numberOfLines={3}>{featuredAnnouncement.body}</T>
+              ) : null}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: spacing.md }}>
+                {featuredAnnouncement.sent_at ? (
+                  <T variant="micro" tone="tertiary">{new Date(featuredAnnouncement.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</T>
+                ) : null}
+                <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", marginLeft: "auto" }}>Read more ›</T>
+              </View>
             </View>
           </Pressable>
         ) : null}
@@ -800,10 +815,10 @@ export function HomeDashboardScreen(): ReactElement {
             </View>
           </View>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md }}>
-            <CohortStat icon={<Users size={13} color={palette.goldLo} />} label="Leader" value={cellSummary ? "Your leader" : "Pastor Daniel"} />
-            <CohortStat icon={<CalendarClock size={13} color={palette.goldLo} />} label="Next discussion" value={cell?.next?.location ?? "TBA"} />
-            <CohortStat icon={<Sparkles size={13} color={palette.goldLo} />} label="Active this week" value={cell ? `${cell.members} learner${cell.members === 1 ? "" : "s"}` : "14 learners"} />
-            <CohortStat icon={<Flame size={13} color={palette.goldLo} />} label="Streak together" value={`${streak} day${streak === 1 ? "" : "s"}`} />
+            <CohortStat icon={<Users size={13} color={palette.goldLo} />} label="Leader" value={cell?.leader?.name ?? "Not assigned"} />
+            <CohortStat icon={<CalendarClock size={13} color={palette.goldLo} />} label="Next gathering" value={cell?.next ? nextGatheringLabel(cell.next.start_at, cell.next.location) : "TBA"} />
+            <CohortStat icon={<Sparkles size={13} color={palette.goldLo} />} label="Members" value={cell ? `${cell.members} member${cell.members === 1 ? "" : "s"}` : "—"} />
+            <CohortStat icon={<Flame size={13} color={palette.goldLo} />} label="Attendance" value={cell ? `${cell.attendance.attended}/${Math.max(cell.attendance.expected, cell.attendance.attended)} this month` : "—"} />
           </View>
           <Pressable
             accessibilityRole="button"
@@ -896,6 +911,14 @@ function UpcomingCalendar({ occurrences, onSeeAll, onOpenEvent }: { occurrences:
   for (let i = 0; i < firstDow; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   const dayEvents = byDay.get(selected) ?? [];
+  // The soonest upcoming occurrence (used to fill the TODAY slot when today is empty).
+  const nextOcc = useMemo(() => {
+    const now = Date.now();
+    return [...occurrences]
+      .filter((o) => new Date(o.start_at).getTime() >= now)
+      .sort((a, b) => (a.start_at < b.start_at ? -1 : 1))[0] ?? null;
+  }, [occurrences]);
+  const showNextInToday = selected === todayDate && dayEvents.length === 0 && !!nextOcc;
 
   return (
     <View style={st.card}>
@@ -928,7 +951,17 @@ function UpcomingCalendar({ occurrences, onSeeAll, onOpenEvent }: { occurrences:
           <T variant="micro" tone="tertiary" style={{ fontWeight: "700", letterSpacing: 0.6 }}>
             {selected === todayDate ? "TODAY" : `${monthLabel.slice(0, 3)} ${selected}`}{dayEvents.length ? ` · ${dayEvents.length}` : ""}
           </T>
-          {dayEvents.length === 0 ? (
+          {showNextInToday && nextOcc ? (
+            // Nothing today → surface the next gathering here, labelled with its real date.
+            <Pressable onPress={() => onOpenEvent(nextOcc)} style={[st.calEvent, { marginTop: 6 }]}>
+              <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700" }}>
+                {new Date(nextOcc.start_at).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", year: "2-digit" })}
+              </T>
+              <T variant="caption" style={{ fontWeight: "700", color: palette.ink, marginTop: 1 }} numberOfLines={1}>{nextOcc.title}</T>
+              {nextOcc.location ? <T variant="micro" tone="tertiary" numberOfLines={1}>{nextOcc.location}</T> : null}
+              <T variant="micro" tone="tertiary" style={{ marginTop: 2, fontStyle: "italic" }}>Next gathering</T>
+            </Pressable>
+          ) : dayEvents.length === 0 ? (
             <View style={st.calEmpty}>
               <CalendarClock size={18} color={palette.ink300} />
               <T variant="micro" tone="tertiary" style={{ marginTop: 4 }}>No events</T>

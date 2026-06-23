@@ -97,6 +97,7 @@ export interface CellSummary {
     cell_group_id: string;
     name: string;
     members: number;
+    leader: { name: string; role: string | null; avatar_url: string | null } | null;
     attendance: { attended: number; expected: number };
     next: { start_at: string; location: string | null } | null;
   } | null;

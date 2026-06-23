@@ -298,11 +298,23 @@ export class CalendarService {
       [userId],
     );
     if (!me.cell_group_id) return { cell: null };
-    const cell = await one<{ name: string; meeting_cadence: number }>(
+    const cell = await one<{
+      name: string;
+      meeting_cadence: number;
+      discipler_name: string | null;
+      discipler_role: string | null;
+      leader_full_name: string | null;
+      leader_avatar_url: string | null;
+    }>(
       this.pool,
-      `SELECT name, meeting_cadence FROM cell_groups WHERE cell_group_id = $1`,
+      `SELECT cg.name, cg.meeting_cadence, cg.discipler_name, cg.discipler_role,
+              lu.full_name AS leader_full_name, lu.avatar_url AS leader_avatar_url
+         FROM cell_groups cg
+         LEFT JOIN users lu ON lu.user_id = cg.leader_user_id
+        WHERE cg.cell_group_id = $1`,
       [me.cell_group_id],
     );
+    const leaderName = cell.leader_full_name ?? cell.discipler_name;
     const members = await one<{ n: number }>(
       this.pool,
       `SELECT count(*)::int AS n FROM users WHERE cell_group_id = $1 AND deleted_at IS NULL`,
@@ -330,6 +342,7 @@ export class CalendarService {
         cell_group_id: me.cell_group_id,
         name: cell.name,
         members: members.n,
+        leader: leaderName ? { name: leaderName, role: cell.discipler_role, avatar_url: cell.leader_avatar_url } : null,
         attendance: { attended: attended.n, expected: cell.meeting_cadence },
         next: next ? { start_at: next.start_at, location: next.location } : null,
       },
