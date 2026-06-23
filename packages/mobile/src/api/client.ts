@@ -6,6 +6,7 @@ import axios, { type AxiosInstance } from "axios";
 import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 import type { MeResponse, PendingMutation, SyncPullResponse, SyncPushResponse, TokenPair } from "@nuru/shared";
 import type { TokenVault } from "../auth/tokenVault";
+import { navigationRef } from "../navigation/navigationRef";
 import { apiBaseUrl } from "../config";
 import type {
   Achievements,
@@ -92,10 +93,20 @@ export function installAuth(vault: TokenVault): void {
         original._retry = true;
         const refreshToken = await vault.getRefresh();
         if (refreshToken) {
-          const pair = await NuruApi.refresh(refreshToken);
-          await vault.setTokens(pair.access_token, pair.refresh_token);
-          original.headers.Authorization = `Bearer ${pair.access_token}`;
-          return api(original);
+          try {
+            const pair = await NuruApi.refresh(refreshToken);
+            await vault.setTokens(pair.access_token, pair.refresh_token);
+            original.headers.Authorization = `Bearer ${pair.access_token}`;
+            return api(original);
+          } catch (refreshErr) {
+            // Session is genuinely dead (refresh token revoked/expired) — the only
+            // ways out besides explicit logout. Clear the vault and return to Login
+            // so the user re-authenticates. (Offline failures are network errors,
+            // not 401s, so they never reach here — the session stays put.)
+            await vault.clear().catch(() => undefined);
+            if (navigationRef.isReady()) navigationRef.reset({ index: 0, routes: [{ name: "Login" }] });
+            return Promise.reject(refreshErr);
+          }
         }
       }
       return Promise.reject(error);

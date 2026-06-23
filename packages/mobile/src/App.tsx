@@ -2,7 +2,7 @@
 // in the background — the user never stares at a spinner because a tower dropped.
 // On a real device, swap the keychain vault in here (setVault(new KeychainTokenVault()))
 // before installAuth — kept in-memory by default so this stays import-safe in tests.
-import { useEffect, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { AppState, NativeModules, Platform, View } from "react-native";
 import { Provider } from "react-redux";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -25,6 +25,7 @@ import { NetInfoConnectivity, onReconnect } from "./net/netInfoConnectivity";
 import { startSyncLifecycle } from "./sync/syncLifecycle";
 import { startAnnouncementAlerts } from "./notifications/announcementAlerts";
 import { AnnouncementToast } from "./components/AnnouncementToast";
+import { palette } from "./theme/tokens";
 
 // In dev, the JS bundle is served by Metro from the dev machine. Reuse that host
 // for the API so a physical device reaches the backend on the same LAN address
@@ -37,12 +38,23 @@ function metroDevHost(): string | undefined {
 }
 
 export function App(): ReactElement {
+  // Persistent login: decide the entry screen from the secure vault. A stored
+  // token (kept across launches in the Keychain) resumes straight into the app;
+  // the session ends only on explicit logout or a server-confirmed dead token
+  // (handled in the API client). `null` = still reading the vault (brief splash).
+  const [bootRoute, setBootRoute] = useState<"Login" | "Tabs" | null>(null);
+
   useEffect(() => {
     // env override → Metro host (real device LAN IP) → platform default.
     configureApiBase(apiBaseUrl(Platform.OS, metroDevHost()));
     setConnectivity(new NetInfoConnectivity()); // real online/offline detection
     installAuth(getVault()); // attach Bearer + 401-refresh-retry against the vault
     void hydrateQueryCache(); // restore last-known reads so screens show instantly + work offline (§1.7)
+
+    void (async () => {
+      const refresh = await getVault().getRefresh().catch(() => null);
+      setBootRoute(refresh ? "Tabs" : "Login");
+    })();
 
     let cancelled = false;
     let stopSync = (): void => {};
@@ -91,8 +103,8 @@ export function App(): ReactElement {
         <SafeAreaView edges={["top"]} style={{ flex: 0 }}>
           <OfflineBanner />
         </SafeAreaView>
-        <View style={{ flex: 1 }}>
-          <RootNavigator />
+        <View style={{ flex: 1, backgroundColor: palette.coolPaper }}>
+          {bootRoute ? <RootNavigator initialRoute={bootRoute} /> : null}
         </View>
         {/* Heads-up banner for a freshly-arrived announcement (over everything). */}
         <AnnouncementToast />

@@ -14,7 +14,11 @@ const EnvSchema = z.object({
 
   JWT_SIGNING_KEY: z.string().min(1),
   JWT_ACCESS_TTL: z.coerce.number().int().positive().default(900),
-  REFRESH_TTL: z.coerce.number().int().positive().default(2_592_000),
+  // Persistent login: the refresh token slides forward on every use (rotation
+  // re-stamps expires_at), so a ~10-year window means a session never expires on
+  // its own — it ends only on explicit logout (revokeFamily) or token-reuse theft
+  // detection. The 15-min access token is refreshed transparently underneath.
+  REFRESH_TTL: z.coerce.number().int().positive().default(315_360_000),
 
   KINGSCHAT_OIDC_ISSUER: z.string().optional(),
   KINGSCHAT_OIDC_CLIENT_ID: z.string().optional(),

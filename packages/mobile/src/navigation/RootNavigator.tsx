@@ -67,10 +67,10 @@ function Tabs(): ReactElement {
   );
 }
 
-export function RootNavigator(): ReactElement {
+export function RootNavigator({ initialRoute = "Login" }: { initialRoute?: "Login" | "Tabs" }): ReactElement {
   return (
     <NavigationContainer ref={navigationRef}>
-      <Stack.Navigator initialRouteName="Login" screenOptions={{ headerShown: false }}>
+      <Stack.Navigator initialRouteName={initialRoute} screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Tabs" component={Tabs} />
         <Stack.Screen name="Level" component={LevelScreen} />
