@@ -1,25 +1,29 @@
 // Pathway tab root — "Today's journey" hub (new design, spec §3 PathwayHub).
-// Navy header with an overall-progress ring + verse of the day; then today's
-// rhythm, a Continue-learning card into the active level, the six-level pathway
-// list, an action grid into the growth screens, and a listen banner. Real
-// pathway + scripture + achievements data; the server stays authoritative for
-// unlocking (§1.9).
-import { useCallback, useState, type ReactElement } from "react";
+// Navy header (overall-progress ring + verse of the day); a TODAY rail with the
+// live Continue card + Devotional / Reading-plan / Prayer-wall previews; a GROW
+// stack of rich preview cards that surface what's happening on each growth page
+// (memory verse + recall, discipler + next meeting, gifts, journal, saved verses,
+// resources); then YOUR JOURNEY — vibrant per-level cards, unlocked ones live and
+// locked ones colored with a padlock. Server stays authoritative for unlocking
+// (§1.9): a level above current_level is never tappable.
+import { useCallback, useState, type ReactElement, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import {
   BookMarked,
   BookOpen,
+  CalendarClock,
   Check,
   ChevronRight,
+  Flame,
   HandHeart,
   Library,
   Lock,
-  PenLine,
   PlayCircle,
   Quote,
   Sparkles,
   Sun,
   UserRoundCheck,
+  Users,
   type LucideIcon,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -27,24 +31,57 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { T } from "../theme/components";
-import { useAchievements, usePathway, useScripture } from "../api/hooks";
+import { Avatar } from "../components/Avatar";
+import {
+  useAchievements,
+  useDevotional,
+  useMemoryVerses,
+  useMentor,
+  useMyGifts,
+  usePathway,
+  usePlans,
+  usePrayers,
+  usePrayerWallHome,
+  useResources,
+  useScripture,
+  useVerses,
+} from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
 import { isLevelLocked, lockedLevelLabel } from "./levelGating";
 import type { PathwayLevel } from "../api/types";
 
-const RHYTHM: Array<{ key: string; label: string; Icon: LucideIcon }> = [
-  { key: "prayer", label: "Prayer", Icon: HandHeart },
-  { key: "word", label: "Word", Icon: BookOpen },
-  { key: "reflection", label: "Reflection", Icon: PenLine },
-];
+// Per-level accent so the journey reads as a colourful ladder. Locked levels keep
+// their colour (just dimmed + padlocked) so the path ahead stays inviting.
+const LEVEL_ACCENTS = [
+  { tint: palette.goldTint, fg: palette.goldLo, bar: palette.gold },
+  { tint: "#E0E7FF", fg: "#4338CA", bar: "#6366F1" },
+  { tint: "#DCFCE7", fg: "#15803D", bar: "#22C55E" },
+  { tint: "#F3E8FF", fg: "#7E22CE", bar: "#A855F7" },
+  { tint: "#FFE4E6", fg: "#BE123C", bar: "#F43F5E" },
+  { tint: "#CFFAFE", fg: "#0E7490", bar: "#06B6D4" },
+] as const;
+
+const snippet = (s: string | null | undefined, n: number): string => {
+  const t = (s ?? "").replace(/\s+/g, " ").trim();
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t;
+};
 
 export function LevelsScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: pathway, isLoading, error, refetch } = usePathway();
   const { data: achievements, refetch: refetchAch } = useAchievements();
   const { data: verse } = useScripture("Romans 12:2");
-  const [rhythm, setRhythm] = useState<Record<string, boolean>>({ prayer: false, word: false, reflection: false });
+  // Live previews — each card mirrors what's on its page.
+  const { data: devotional } = useDevotional();
+  const { data: plans } = usePlans();
+  const { data: wall } = usePrayerWallHome();
+  const { data: prayers } = usePrayers();
+  const { data: mentor } = useMentor();
+  const { data: gifts } = useMyGifts();
+  const { data: memoryVerses } = useMemoryVerses();
+  const { data: savedVerses } = useVerses();
+  const { data: resources } = useResources();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -81,7 +118,20 @@ export function LevelsScreen(): ReactElement {
   const overallPct = totalModules > 0 ? Math.round((doneModules / totalModules) * 100) : 0;
   const activePct = active && active.total_modules > 0 ? Math.round((active.completed_modules / active.total_modules) * 100) : 0;
   const streak = achievements?.streak?.current ?? 0;
-  const rhythmLeft = RHYTHM.filter((r) => !rhythm[r.key]).length;
+
+  // ── derive preview content ──────────────────────────────────────────
+  const plan = plans?.find((p) => p.enrolled) ?? plans?.[0] ?? null;
+  const planDone = plan?.completed_days?.length ?? 0;
+  const planPct = plan && plan.day_count > 0 ? Math.round((planDone / plan.day_count) * 100) : 0;
+  const topPrayer = wall?.[0] ?? null;
+  const prayerCount = prayers?.length ?? 0;
+  const answeredCount = prayers?.filter((p) => p.is_answered).length ?? 0;
+  const latestPrayer = prayers?.[0] ?? null;
+  const mv = memoryVerses?.find((v) => v.status === "learning") ?? memoryVerses?.[0] ?? null;
+  const topGifts = gifts?.assessment?.top_gifts ?? [];
+  const savedLatest = savedVerses?.[0] ?? null;
+  const featured = resources?.[0] ?? null;
+  const me = mentor?.mentor ?? null;
 
   return (
     <ScrollView
@@ -120,43 +170,19 @@ export function LevelsScreen(): ReactElement {
         </Pressable>
       </View>
 
-      <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.base, gap: spacing.base }}>
-        {/* ── Today's rhythm ─────────────────────────────────────────── */}
-        <View style={st.card}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Sun size={14} color={palette.goldLo} />
-            <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", letterSpacing: 1.4, flex: 1 }}>
-              TODAY'S RHYTHM
-            </T>
+      <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.lg, gap: spacing.base }}>
+        {/* ── TODAY ──────────────────────────────────────────────────── */}
+        <View style={st.sectionHead}>
+          <T variant="micro" style={st.sectionLabel}>TODAY</T>
+          {streak > 0 ? (
             <View style={st.streakChip}>
-              <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "600" }}>{`🔥 ${streak}d`}</T>
+              <Flame size={11} color={palette.goldChipText} />
+              <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700" }}>{`${streak}-day streak`}</T>
             </View>
-          </View>
-          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
-            {RHYTHM.map(({ key, label, Icon }) => {
-              const on = rhythm[key] === true;
-              return (
-                <Pressable
-                  key={key}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
-                  onPress={() => setRhythm((p) => ({ ...p, [key]: !p[key] }))}
-                  style={[st.habitTile, on ? st.habitOn : st.habitOff]}
-                >
-                  <View style={[st.habitDot, { backgroundColor: on ? palette.gold : palette.white }]}>
-                    <Icon size={14} color={on ? palette.navy : palette.ink400} />
-                  </View>
-                  <T variant="caption" style={{ fontWeight: "600", color: on ? palette.navy : palette.ink600 }}>{label}</T>
-                </Pressable>
-              );
-            })}
-          </View>
-          <T variant="micro" tone="tertiary" style={{ marginTop: spacing.sm }}>
-            {rhythmLeft === 0 ? "Beautiful — all three today." : `${rhythmLeft} step${rhythmLeft === 1 ? "" : "s"} left today`}
-          </T>
+          ) : null}
         </View>
 
-        {/* ── Continue learning (deep navy) ──────────────────────────── */}
+        {/* Continue learning (deep navy) — the primary CTA */}
         {active ? (
           <Pressable
             accessibilityRole="button"
@@ -182,52 +208,292 @@ export function LevelsScreen(): ReactElement {
           </Pressable>
         ) : null}
 
-        {/* ── Devotional + Reading plan (2-up) ───────────────────────── */}
-        <View style={{ flexDirection: "row", gap: spacing.sm }}>
-          <Pressable accessibilityRole="button" onPress={() => nav.navigate("Devotional")} style={({ pressed }) => [st.featureCard, pressed && { opacity: 0.9 }]}>
-            <View style={[st.actionIcon, { backgroundColor: palette.goldTint }]}><Sun size={18} color={palette.goldLo} /></View>
-            <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", letterSpacing: 1.2, marginTop: spacing.sm }}>TODAY'S DEVOTIONAL</T>
-            <T serif style={{ fontSize: 15, color: palette.ink, marginTop: 2 }}>A daily word</T>
-          </Pressable>
-          <Pressable accessibilityRole="button" onPress={() => nav.navigate("ReadingPlans")} style={({ pressed }) => [st.featureCard, pressed && { opacity: 0.9 }]}>
-            <View style={[st.actionIcon, { backgroundColor: "#E0E7FF" }]}><BookOpen size={18} color="#4338CA" /></View>
-            <T variant="micro" style={{ color: "#4338CA", fontWeight: "700", letterSpacing: 1.2, marginTop: spacing.sm }}>READING PLAN</T>
-            <T serif style={{ fontSize: 15, color: palette.ink, marginTop: 2 }}>Read through Scripture</T>
-          </Pressable>
+        {/* Today's Devotional — gold-accent hero preview */}
+        <PreviewCard
+          label="Today's devotional"
+          Icon={Sun}
+          tint={palette.goldTint}
+          fg={palette.goldLo}
+          accent
+          onPress={() => nav.navigate("Devotional")}
+          chip={devotional?.day_number ? { text: `Day ${devotional.day_number}`, bg: palette.goldChipBg, fg: palette.goldChipText } : undefined}
+        >
+          <T serif style={{ fontSize: 16, color: palette.ink, marginTop: 2 }} numberOfLines={1}>
+            {devotional?.title ?? "A daily word to carry with you"}
+          </T>
+          {devotional?.scripture_ref ? (
+            <T variant="micro" tone="gold" style={{ marginTop: 3 }}>{devotional.scripture_ref}</T>
+          ) : null}
+          <T variant="caption" tone="secondary" style={{ marginTop: 6 }} numberOfLines={2}>
+            {snippet(devotional?.reflection_prompt ?? devotional?.scripture_text ?? devotional?.body, 110) || "Open today's reflection."}
+          </T>
+        </PreviewCard>
+
+        {/* Reading plan — live progress */}
+        <PreviewCard
+          label="Reading plan"
+          Icon={BookOpen}
+          tint="#E0E7FF"
+          fg="#4338CA"
+          onPress={() => (plan ? nav.navigate("PlanDetail", { planId: plan.plan_id, title: plan.title }) : nav.navigate("ReadingPlans"))}
+          chip={plan?.enrolled ? { text: `${planPct}%`, bg: "#E0E7FF", fg: "#4338CA" } : undefined}
+        >
+          <T variant="heading" style={{ fontSize: 15, marginTop: 2 }} numberOfLines={1}>
+            {plan?.title ?? "Read through Scripture"}
+          </T>
+          {plan?.enrolled ? (
+            <>
+              <View style={[st.miniTrack, { marginTop: 8 }]}>
+                <View style={{ width: `${planPct}%`, height: "100%", borderRadius: 2, backgroundColor: "#6366F1" }} />
+              </View>
+              <T variant="micro" tone="tertiary" style={{ marginTop: 6 }}>{`Day ${plan.current_day ?? planDone + 1} of ${plan.day_count}`}</T>
+            </>
+          ) : (
+            <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={1}>
+              {plans && plans.length > 0 ? `${plans.length} plans to start` : "Start a guided plan"}
+            </T>
+          )}
+        </PreviewCard>
+
+        {/* Prayer wall — the request the family is praying under most */}
+        <PreviewCard
+          label="Prayer wall"
+          Icon={Users}
+          tint="#FCE7F3"
+          fg="#BE185D"
+          onPress={() => (topPrayer ? nav.navigate("PrayerWallDetail", { postId: topPrayer.post_id }) : nav.navigate("PrayerWall"))}
+          chip={topPrayer ? { text: `🙏 ${topPrayer.pray_count}`, bg: "#FCE7F3", fg: "#BE185D" } : undefined}
+        >
+          {topPrayer ? (
+            <>
+              <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>
+                {snippet(topPrayer.title ?? topPrayer.body, 110)}
+              </T>
+              <T variant="micro" tone="tertiary" style={{ marginTop: 6 }}>
+                {`${topPrayer.author_name} · ${topPrayer.comment_count} ${topPrayer.comment_count === 1 ? "reply" : "replies"}`}
+              </T>
+            </>
+          ) : (
+            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Share a request for the family to pray under.</T>
+          )}
+        </PreviewCard>
+
+        {/* ── GROW ───────────────────────────────────────────────────── */}
+        <View style={st.sectionHead}>
+          <T variant="micro" style={st.sectionLabel}>GROW</T>
         </View>
 
-        {/* ── Six-level pathway ──────────────────────────────────────── */}
-        <View style={st.card}>
-          <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", letterSpacing: 1.4 }}>SIX-LEVEL PATHWAY</T>
-          <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
-            {levels.map((lvl) => (
-              <LevelRow
-                key={lvl.level_number}
-                level={lvl}
-                currentLevel={pathway.current_level}
-                isActive={active?.level_number === lvl.level_number}
-                onPress={() => nav.navigate("Level", { levelId: lvl.level_number })}
-              />
-            ))}
-          </View>
-        </View>
+        {/* Memory verses — the verse + how well it's hidden */}
+        <PreviewCard
+          label="Memory verses"
+          Icon={Quote}
+          tint="#FEF3C7"
+          fg="#92400E"
+          onPress={() => nav.navigate("MemoryVerses")}
+          chip={
+            mv
+              ? mv.status === "mastered"
+                ? { text: "Mastered", bg: palette.successBg, fg: palette.successText }
+                : { text: `${mv.best_match_pct ?? 0}% recall`, bg: "#FEF3C7", fg: "#92400E" }
+              : undefined
+          }
+        >
+          {mv ? (
+            <>
+              <T variant="micro" tone="gold" style={{ marginTop: 2 }}>{mv.reference}</T>
+              <T serif style={{ fontSize: 15, lineHeight: 22, color: palette.ink, marginTop: 3 }} numberOfLines={2}>{mv.verse_text}</T>
+            </>
+          ) : (
+            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Start hiding His Word in your heart.</T>
+          )}
+        </PreviewCard>
 
-        {/* ── Action grid → growth screens ───────────────────────────── */}
-        <View style={st.actionGrid}>
-          <ActionTile label="Prayer journal" sub="Private to you" Icon={HandHeart} tint="#FEE2E2" fg="#B91C1C" onPress={() => nav.navigate("PrayerJournal")} />
-          <ActionTile label="Your discipler" sub="Mentor & meetings" Icon={UserRoundCheck} tint={palette.successBg} fg={palette.successText} onPress={() => nav.navigate("Mentor")} />
-          <ActionTile label="Spiritual gifts" sub="Take assessment" Icon={Sparkles} tint="#F3E8FF" fg="#7E22CE" onPress={() => nav.navigate("Gifts")} />
-          <ActionTile label="Memory verses" sub="Hide His Word" Icon={Quote} tint="#FEF3C7" fg="#92400E" onPress={() => nav.navigate("MemoryVerses")} />
-          <ActionTile label="Verse library" sub="Saved scriptures" Icon={Library} tint="#E0F2FE" fg="#0369A1" onPress={() => nav.navigate("VerseLibrary")} />
-          <ActionTile label="Resources" sub="Books, audio, video" Icon={BookMarked} tint="#DBEAFE" fg="#1D4ED8" onPress={() => nav.navigate("Resources")} />
-        </View>
+        {/* Your discipler — who walks with you + next meeting */}
+        <PreviewCard
+          label="Your discipler"
+          Icon={UserRoundCheck}
+          tint={palette.successBg}
+          fg={palette.successText}
+          onPress={() => nav.navigate("Mentor")}
+        >
+          {me ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: 6 }}>
+              <Avatar uri={me.avatar_url} name={me.full_name} size={34} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <T variant="heading" style={{ fontSize: 14 }} numberOfLines={1}>{me.full_name}</T>
+                {mentor?.next_meeting_at ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+                    <CalendarClock size={11} color={palette.ink400} />
+                    <T variant="micro" tone="tertiary">{`Next: ${niceDate(mentor.next_meeting_at)}`}</T>
+                  </View>
+                ) : (
+                  <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>{me.cell_name ?? "Tap to see notes"}</T>
+                )}
+              </View>
+            </View>
+          ) : (
+            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>A discipler will be assigned to walk with you.</T>
+          )}
+        </PreviewCard>
 
+        {/* Spiritual gifts — top gifts or the prompt to take it */}
+        <PreviewCard
+          label="Spiritual gifts"
+          Icon={Sparkles}
+          tint="#F3E8FF"
+          fg="#7E22CE"
+          onPress={() => nav.navigate("Gifts")}
+          chip={topGifts.length > 0 ? { text: "Discovered", bg: "#F3E8FF", fg: "#7E22CE" } : undefined}
+        >
+          {topGifts.length > 0 ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+              {topGifts.slice(0, 3).map((g) => (
+                <View key={g} style={st.giftChip}>
+                  <T variant="micro" style={{ color: "#6B21A8", fontWeight: "600" }}>{g}</T>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Take the assessment to discover your gifts.</T>
+          )}
+        </PreviewCard>
+
+        {/* Prayer journal — private; latest entry + counts */}
+        <PreviewCard
+          label="Prayer journal"
+          Icon={HandHeart}
+          tint="#FEE2E2"
+          fg="#B91C1C"
+          onPress={() => nav.navigate("PrayerJournal")}
+          chip={prayerCount > 0 ? { text: `${prayerCount} · ${answeredCount} answered`, bg: "#FEE2E2", fg: "#B91C1C" } : { text: "Private", bg: palette.mutedBg, fg: palette.ink600 }}
+        >
+          {latestPrayer ? (
+            <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>
+              {snippet(latestPrayer.title ?? latestPrayer.body, 110)}
+            </T>
+          ) : (
+            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Pour out your heart — kept private to you.</T>
+          )}
+        </PreviewCard>
+
+        {/* Verse library — latest saved + count */}
+        <PreviewCard
+          label="Verse library"
+          Icon={Library}
+          tint="#E0F2FE"
+          fg="#0369A1"
+          onPress={() => nav.navigate("VerseLibrary")}
+          chip={savedVerses && savedVerses.length > 0 ? { text: `${savedVerses.length} saved`, bg: "#E0F2FE", fg: "#0369A1" } : undefined}
+        >
+          {savedLatest ? (
+            <>
+              <T variant="micro" tone="gold" style={{ marginTop: 2 }}>{savedLatest.reference}</T>
+              <T variant="caption" tone="secondary" style={{ marginTop: 3 }} numberOfLines={2}>{snippet(savedLatest.verse_text ?? savedLatest.note, 100)}</T>
+            </>
+          ) : (
+            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Save the verses that speak to you.</T>
+          )}
+        </PreviewCard>
+
+        {/* Resources — a featured item + count */}
+        <PreviewCard
+          label="Resources"
+          Icon={BookMarked}
+          tint="#DBEAFE"
+          fg="#1D4ED8"
+          onPress={() => nav.navigate("Resources")}
+          chip={featured ? { text: featured.kind, bg: "#DBEAFE", fg: "#1D4ED8" } : undefined}
+        >
+          {featured ? (
+            <>
+              <T variant="heading" style={{ fontSize: 14, marginTop: 2 }} numberOfLines={1}>{featured.title}</T>
+              <T variant="micro" tone="tertiary" style={{ marginTop: 3 }} numberOfLines={1}>
+                {[featured.author, featured.duration_label].filter(Boolean).join(" · ") || "Tap to browse"}
+              </T>
+            </>
+          ) : (
+            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Books, audio and video to go deeper.</T>
+          )}
+        </PreviewCard>
+
+        {/* ── YOUR JOURNEY (the six levels) ──────────────────────────── */}
+        <View style={st.sectionHead}>
+          <T variant="micro" style={st.sectionLabel}>YOUR JOURNEY</T>
+          <T variant="micro" tone="tertiary">{`Level ${pathway.current_level} of ${levels.length}`}</T>
+        </View>
+        <View style={{ gap: spacing.sm }}>
+          {levels.map((lvl) => (
+            <LevelCard
+              key={lvl.level_number}
+              level={lvl}
+              currentLevel={pathway.current_level}
+              isActive={active?.level_number === lvl.level_number}
+              onPress={() => nav.navigate("Level", { levelId: lvl.level_number })}
+            />
+          ))}
+        </View>
       </View>
     </ScrollView>
   );
 }
 
-function LevelRow({
+function niceDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+/** A rich, tappable preview card: icon tile + label (+ optional right chip), and
+ *  a body that previews the live state of the destination page. */
+function PreviewCard({
+  label,
+  Icon,
+  tint,
+  fg,
+  onPress,
+  chip,
+  accent,
+  children,
+}: {
+  label: string;
+  Icon: LucideIcon;
+  tint: string;
+  fg: string;
+  onPress: () => void;
+  chip?: { text: string; bg: string; fg: string } | undefined;
+  accent?: boolean;
+  children: ReactNode;
+}): ReactElement {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => [st.previewCard, accent && st.previewAccent, pressed && { opacity: 0.88 }]}
+    >
+      <View style={[st.previewIcon, { backgroundColor: tint }]}>
+        <Icon size={18} color={fg} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+          <T variant="micro" style={{ color: fg, fontWeight: "700", letterSpacing: 1.1, flex: 1 }} numberOfLines={1}>
+            {label.toUpperCase()}
+          </T>
+          {chip ? (
+            <View style={[st.chip, { backgroundColor: chip.bg }]}>
+              <T variant="micro" style={{ color: chip.fg, fontWeight: "700" }}>{chip.text}</T>
+            </View>
+          ) : null}
+        </View>
+        {children}
+      </View>
+      <ChevronRight size={18} color={palette.ink300} style={{ alignSelf: "center" }} />
+    </Pressable>
+  );
+}
+
+/** A vibrant per-level card. Unlocked → tappable with progress; locked → keeps
+ *  its colour (dimmed) with a padlock and the unlock hint. §1.9 hard-lock. */
+function LevelCard({
   level,
   currentLevel,
   isActive,
@@ -238,9 +504,8 @@ function LevelRow({
   isActive: boolean;
   onPress: () => void;
 }): ReactElement {
+  const accent = LEVEL_ACCENTS[(level.level_number - 1) % LEVEL_ACCENTS.length] ?? LEVEL_ACCENTS[0];
   const completed = level.status === "completed";
-  // §1.9 hard-lock: a level above current_level is locked & non-tappable, even if
-  // the server status hasn't been recomputed. Server stays authoritative.
   const locked = isLevelLocked(level.level_number, currentLevel, level.status);
   const pct = level.total_modules > 0 ? Math.round((level.completed_modules / level.total_modules) * 100) : 0;
   return (
@@ -250,65 +515,57 @@ function LevelRow({
       accessibilityRole="button"
       accessibilityState={{ disabled: locked }}
       accessibilityLabel={
-        locked ? `Level ${level.level_number}: ${level.title}, locked. ${lockedLevelLabel(currentLevel)}` : undefined
+        locked ? `Level ${level.level_number}: ${level.title}, locked. ${lockedLevelLabel(currentLevel)}` : `Level ${level.level_number}: ${level.title}`
       }
       style={({ pressed }) => [
-        st.levelRow,
-        isActive && { backgroundColor: "rgba(201,162,39,0.10)", borderColor: "rgba(201,162,39,0.4)" },
-        locked && { opacity: 0.55 },
-        pressed && !locked && { opacity: 0.85 },
+        st.levelCard,
+        isActive && { borderColor: accent.bar, backgroundColor: "#FFFDF7" },
+        locked && { opacity: 0.74 },
+        pressed && !locked && { opacity: 0.9 },
       ]}
     >
-      <View style={[st.levelTile, { backgroundColor: completed ? palette.goldTint : isActive ? palette.gold : palette.mutedBg }]}>
+      <View style={[st.levelBar, { backgroundColor: accent.bar }]} />
+      <View style={[st.levelBadge, { backgroundColor: accent.tint }]}>
         {locked ? (
-          <Lock size={15} color={palette.ink400} />
+          <Lock size={18} color={accent.fg} />
         ) : completed ? (
-          <Check size={15} color={palette.goldLo} />
+          <Check size={18} color={accent.fg} />
         ) : (
-          <T variant="caption" style={{ fontWeight: "700", color: isActive ? palette.navy : palette.ink600 }}>{`L${level.level_number}`}</T>
+          <T serif style={{ fontSize: 17, color: accent.fg }}>{level.level_number}</T>
         )}
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <T variant="heading" style={{ fontSize: 14 }} numberOfLines={1}>{level.title}</T>
+        <T variant="micro" style={{ color: accent.fg, fontWeight: "700", letterSpacing: 1.1 }} numberOfLines={1}>
+          {`LEVEL ${level.level_number}${level.theme ? ` · ${level.theme}` : ""}`}
+        </T>
+        <T variant="heading" style={{ fontSize: 15, marginTop: 1 }} numberOfLines={1}>{level.title}</T>
         {locked ? (
-          <T variant="micro" tone="tertiary" style={{ marginTop: 4 }}>{lockedLevelLabel(currentLevel)}</T>
-        ) : (
-          <View style={[st.miniTrack, { marginTop: 6 }]}>
-            <View style={{ width: `${pct}%`, height: "100%", borderRadius: 2, backgroundColor: completed || isActive ? palette.gold : palette.lockedFill }} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 }}>
+            <Lock size={11} color={palette.ink400} />
+            <T variant="micro" tone="tertiary">{lockedLevelLabel(currentLevel)}</T>
           </View>
+        ) : (
+          <>
+            <View style={[st.miniTrack, { marginTop: 8 }]}>
+              <View style={{ width: `${pct}%`, height: "100%", borderRadius: 2, backgroundColor: accent.bar }} />
+            </View>
+            <T variant="micro" tone="tertiary" style={{ marginTop: 5 }}>
+              {`${level.completed_modules} of ${level.total_modules} modules · ${pct}%`}
+            </T>
+          </>
         )}
       </View>
       {locked ? (
-        <Lock size={13} color={palette.ink300} />
+        <View style={st.lockPill}>
+          <Lock size={13} color={palette.ink400} />
+        </View>
+      ) : completed ? (
+        <View style={[st.lockPill, { backgroundColor: palette.successBg }]}>
+          <Check size={13} color={palette.successText} />
+        </View>
       ) : (
-        <T variant="micro" tone="tertiary">{`${pct}%`}</T>
+        <ChevronRight size={18} color={accent.fg} style={{ alignSelf: "center" }} />
       )}
-    </Pressable>
-  );
-}
-
-function ActionTile({
-  label,
-  sub,
-  Icon,
-  tint,
-  fg,
-  onPress,
-}: {
-  label: string;
-  sub: string;
-  Icon: LucideIcon;
-  tint: string;
-  fg: string;
-  onPress: () => void;
-}): ReactElement {
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => [st.actionTile, pressed && { opacity: 0.85 }]}>
-      <View style={[st.actionIcon, { backgroundColor: tint }]}>
-        <Icon size={18} color={fg} />
-      </View>
-      <T variant="heading" style={{ fontSize: 14, marginTop: spacing.sm }}>{label}</T>
-      <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{sub}</T>
     </Pressable>
   );
 }
@@ -340,12 +597,9 @@ const st = {
     padding: spacing.md,
   },
   verseIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: "rgba(201,162,39,0.15)", alignItems: "center", justifyContent: "center" },
-  card: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
-  streakChip: { backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
-  habitTile: { flex: 1, alignItems: "center", gap: 4, borderRadius: 14, paddingVertical: spacing.md, borderWidth: 1 },
-  habitOn: { backgroundColor: "rgba(201,162,39,0.12)", borderColor: "rgba(201,162,39,0.45)" },
-  habitOff: { backgroundColor: palette.surface, borderColor: "transparent" },
-  habitDot: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.xs },
+  sectionLabel: { color: palette.goldLo, fontWeight: "700", letterSpacing: 2 },
+  streakChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
   continueCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -361,36 +615,37 @@ const st = {
   continueTile: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(201,162,39,0.15)", alignItems: "center", justifyContent: "center" },
   track: { height: 6, borderRadius: 3, backgroundColor: palette.track, overflow: "hidden" },
   fill: { height: "100%", borderRadius: 3, backgroundColor: palette.gold },
-  levelRow: {
+  previewCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.md,
+    backgroundColor: palette.white,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: spacing.base,
+    ...shadow.card,
+  },
+  previewAccent: { borderColor: "rgba(201,162,39,0.45)", backgroundColor: palette.verseBg },
+  previewIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  chip: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3 },
+  giftChip: { backgroundColor: "#F3E8FF", borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  miniTrack: { height: 4, borderRadius: 2, backgroundColor: palette.track, overflow: "hidden" },
+  levelCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "transparent",
-    padding: spacing.sm,
-  },
-  levelTile: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  miniTrack: { height: 4, borderRadius: 2, backgroundColor: palette.track, overflow: "hidden" },
-  actionGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  actionTile: {
-    width: "48%",
-    flexGrow: 1,
     backgroundColor: palette.white,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: palette.border,
-    padding: spacing.base,
+    paddingVertical: spacing.md,
+    paddingRight: spacing.base,
+    paddingLeft: spacing.base + 6,
+    overflow: "hidden",
     ...shadow.card,
   },
-  actionIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  featureCard: {
-    flex: 1,
-    backgroundColor: palette.white,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: spacing.base,
-    ...shadow.card,
-  },
+  levelBar: { position: "absolute", left: 0, top: 0, bottom: 0, width: 5 },
+  levelBadge: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  lockPill: { width: 30, height: 30, borderRadius: 15, backgroundColor: palette.mutedBg, alignItems: "center", justifyContent: "center", alignSelf: "center" },
 } as const;
