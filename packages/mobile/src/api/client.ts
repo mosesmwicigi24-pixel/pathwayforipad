@@ -565,6 +565,10 @@ export const NuruApi = {
     const { data } = await api.get<{ action: NextAction | null }>("/me/home/next-action");
     return data;
   },
+  async dailyGreeting(): Promise<{ greeting: string }> {
+    const { data } = await api.get<{ greeting: string }>("/me/home/greeting");
+    return data;
+  },
   // ---- Disciplers carousel (Home "Meet your discipler", GET /home/disciplers) ----
   async disciplers(): Promise<Discipler[]> {
     const { data } = await api.get<{ data: Discipler[] }>("/home/disciplers");

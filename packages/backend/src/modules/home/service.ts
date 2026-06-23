@@ -8,6 +8,7 @@
 import type { Pool } from "pg";
 import { one, maybeOne } from "../../db/db.js";
 import { ScoresService, type ScoreBreakdown } from "../scores/service.js";
+import type { AiProvider } from "../assistant/provider.js";
 
 const TZ = "Africa/Nairobi";
 
@@ -44,8 +45,62 @@ interface Ctx {
 export class HomeService {
   constructor(
     private readonly pool: Pool,
+    private readonly provider: AiProvider | null = null,
     private readonly scores = new ScoresService(pool),
   ) {}
+
+  /**
+   * A warm, one-line greeting personal to the member, written by Nuru and cached
+   * once per EAT day (the model is called at most once/day/user). Pure copy inside
+   * the existing card — it never changes layout. Falls back to a gentle template
+   * when there's no live model (dev/tests) or a generation fails.
+   */
+  async dailyGreeting(userId: string): Promise<{ greeting: string }> {
+    const cached = await maybeOne<{ text: string }>(
+      this.pool,
+      `SELECT text FROM home_greetings WHERE user_id = $1 AND day_date = (now() AT TIME ZONE $2)::date`,
+      [userId, TZ],
+    );
+    if (cached) return { greeting: cached.text };
+
+    const u = await maybeOne<{ full_name: string }>(this.pool, `SELECT full_name FROM users WHERE user_id = $1`, [userId]);
+    const firstName = (u?.full_name ?? "friend").trim().split(/\s+/)[0] || "friend";
+    const fallback = `Grace and peace, ${firstName} — God is with you in today's step.`;
+
+    // No live model (dev / tests): a gentle deterministic line, cached for the day.
+    if (!this.provider || this.provider.name === "fake") {
+      await this.cacheGreeting(userId, fallback);
+      return { greeting: fallback };
+    }
+
+    try {
+      const scores = await this.scores.all(userId);
+      const weak = lowestLabel(scores);
+      const system =
+        "You are Nuru, a warm discipleship companion in a church app. Write ONE short, " +
+        "encouraging greeting (max 20 words) for this member today. Be specific and hopeful; " +
+        "you may reference Scripture lightly. No preamble, no quotes, no lists, plain sentence.";
+      const ctx = `Member's first name: ${firstName}. Overall growth: ${scores.overall.band}. Area to gently nurture: ${weak}.`;
+      const raw = (await this.provider.complete({ system, messages: [{ role: "user", text: ctx }] })).trim();
+      const text = raw.replace(/^["']|["']$/g, "").slice(0, 240);
+      if (text) {
+        await this.cacheGreeting(userId, text);
+        return { greeting: text };
+      }
+    } catch {
+      /* generation failed — return the fallback uncached so the next open retries */
+    }
+    return { greeting: fallback };
+  }
+
+  private async cacheGreeting(userId: string, text: string): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO home_greetings (user_id, day_date, text)
+       VALUES ($1, (now() AT TIME ZONE $2)::date, $3)
+       ON CONFLICT (user_id, day_date) DO NOTHING`,
+      [userId, TZ, text],
+    );
+  }
 
   /** The single most valuable next step for this member right now (or null). */
   async nextAction(userId: string): Promise<{ action: NextAction | null }> {
@@ -203,6 +258,23 @@ export class HomeService {
     candidates.sort((a, b) => b.priority - a.priority);
     return { action: candidates[0] ?? null };
   }
+}
+
+function lowestLabel(scores: { [k: string]: unknown }): string {
+  const labels: Record<string, string> = {
+    prayer: "prayer",
+    word: "time in the Word",
+    habits: "daily rhythm",
+    curriculum: "the pathway",
+    attendance: "gathering with the cell",
+  };
+  let best: { key: string; score: number } | null = null;
+  for (const key of Object.keys(labels)) {
+    const s = (scores[key] as { score?: number } | undefined)?.score;
+    if (typeof s !== "number") continue;
+    if (!best || s < best.score) best = { key, score: s };
+  }
+  return best ? labels[best.key]! : "daily rhythm";
 }
 
 function daysSince(date: string | null): number | null {

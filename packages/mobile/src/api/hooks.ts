@@ -94,6 +94,7 @@ export const queryKeys = {
   wordScore: "wordScore",
   scores: "scores",
   nextAction: "nextAction",
+  greeting: "greeting",
   announcement: (id: string) => `announcement:${id}`,
   certificates: "certificates",
 };
@@ -305,4 +306,8 @@ export function useScores(): QueryResult<ScoresSummary> {
 /** The server-decided next-best-action hero for Home. */
 export function useNextAction(): QueryResult<{ action: NextAction | null }> {
   return useQuery(queryKeys.nextAction, () => NuruApi.nextAction(), { staleMs: 60_000 });
+}
+/** Nuru's personal one-line greeting (cached per day server-side). */
+export function useDailyGreeting(): QueryResult<{ greeting: string }> {
+  return useQuery(queryKeys.greeting, () => NuruApi.dailyGreeting(), { staleMs: 6 * 60 * 60 * 1000 });
 }

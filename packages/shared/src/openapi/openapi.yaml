@@ -2443,6 +2443,13 @@ paths:
       responses:
         "200": { description: Next action }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/home/greeting:
+    get:
+      tags: [progress]
+      summary: A warm one-line greeting, Nuru-written and personal to me (cached daily).
+      responses:
+        "200": { description: Greeting }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /me/scores:
     get:
       tags: [progress]

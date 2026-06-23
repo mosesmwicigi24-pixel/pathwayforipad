@@ -44,6 +44,16 @@ describe("GET /me/home/next-action", () => {
     expect(["pathway", "module", "prayer", "memoryVerses", "devotional", "events", "none"]).toContain(res.body.action.route);
   });
 
+  it("returns a personal daily greeting and caches it for the day", async () => {
+    const res = await agent().get("/v1/me/home/greeting").set(auth(meTok));
+    expect(res.status).toBe(200);
+    expect(typeof res.body.greeting).toBe("string");
+    expect(res.body.greeting.length).toBeGreaterThan(0);
+    // second call returns the same cached line
+    const res2 = await agent().get("/v1/me/home/greeting").set(auth(meTok));
+    expect(res2.body.greeting).toBe(res.body.greeting);
+  });
+
   it("surfaces 'resume' once the member is underway", async () => {
     const enr = await createEnrollment(meId, 1);
     await createModule(1, 1, { evaluationKind: "none", published: true });

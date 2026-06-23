@@ -48,6 +48,7 @@ import {
   useCellSummary,
   useScores,
   useNextAction,
+  useDailyGreeting,
   useMe,
   useMyAnnouncements,
   useNotifications,
@@ -144,6 +145,7 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: cellSummary } = useCellSummary();
   const { data: scores } = useScores();
   const { data: nextAction } = useNextAction();
+  const { data: dailyGreeting } = useDailyGreeting();
   const [refreshing, setRefreshing] = useState(false);
 
   // Home video social state (❤️ Like / emoji reactions / share), seeded from the
@@ -278,7 +280,7 @@ export function HomeDashboardScreen(): ReactElement {
           <View style={{ flex: 1, minWidth: 0 }}>
             <T variant="micro" tone="gold" style={st.kicker}>{todayKicker()}</T>
             <T serif tone="onNavy" style={st.greeting}>{`${greeting()}, ${firstName(me?.profile?.full_name)}.`}</T>
-            <T variant="body" tone="onNavyDim" style={{ marginTop: 4 }}>Grace for today's step.</T>
+            <T variant="body" tone="onNavyDim" style={{ marginTop: 4 }}>{dailyGreeting?.greeting ?? "Grace for today's step."}</T>
           </View>
           <Pressable
             accessibilityRole="button"
