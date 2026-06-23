@@ -18,7 +18,6 @@ import {
   Flame,
   HandHeart,
   Heart,
-  Library,
   MapPin,
   Megaphone,
   MessageSquareText,
@@ -116,11 +115,8 @@ function welcomeVideoUrl(v: WelcomeVideo): string | null {
 const GROW: Array<{ label: string; sub: string; route: "Devotional" | "ReadingPlans" | "PrayerJournal" | "PrayerWall" | "MemoryVerses" | "Gifts" | "Resources"; Icon: LucideIcon; tint: string; fg: string }> = [
   { label: "Devotional", sub: "Today's devotional", route: "Devotional", Icon: Sun, tint: "#FFF4DA", fg: palette.goldLo },
   { label: "Reading plan", sub: "Continue your plan", route: "ReadingPlans", Icon: BookMarked, tint: "#EEF2FF", fg: "#6366F1" },
-  { label: "Prayer journal", sub: "Your prayers", route: "PrayerJournal", Icon: HandHeart, tint: "#FEE2E2", fg: "#DC2626" },
-  { label: "Prayer wall", sub: "Pray for one another", route: "PrayerWall", Icon: HandHeart, tint: "#FFF1F2", fg: "#E11D48" },
   { label: "Memory verses", sub: "Practice & master", route: "MemoryVerses", Icon: Quote, tint: "#FFF4DA", fg: palette.goldLo },
   { label: "Spiritual gifts", sub: "Take assessment", route: "Gifts", Icon: Sparkles, tint: "#F3E8FF", fg: "#A855F7" },
-  { label: "Resources", sub: "Books, audio, video", route: "Resources", Icon: Library, tint: "#E0F2FE", fg: "#0EA5E9" },
 ];
 
 // Placeholder story image (Figma "This week at Nuru"); shown only when no real
@@ -887,33 +883,52 @@ export function HomeDashboardScreen(): ReactElement {
           </Pressable>
         </View>
 
-        {/* ── Announcements (real, B5) ───────────────────────────────── */}
+        {/* ── Announcements — full cards (image + key info) as a carousel ── */}
         {(announcements ?? []).length > 0 ? (
-          <View style={st.card}>
-            <View style={{ flexDirection: "row", alignItems: "baseline" }}>
-              <T variant="heading" style={{ flex: 1, fontSize: 15 }}>Announcements</T>
+          <View>
+            <View style={{ flexDirection: "row", alignItems: "baseline", marginBottom: spacing.sm }}>
+              <T variant="overline" tone="gold" style={{ flex: 1 }}>ANNOUNCEMENTS</T>
               <Pressable onPress={() => nav.navigate("Tabs", { screen: "Events" })}>
                 <T variant="micro" style={{ color: palette.goldLo, fontWeight: "600" }}>View all ›</T>
               </Pressable>
             </View>
-            {(announcements ?? []).slice(0, 3).map((a) => (
-              <Pressable
-                key={a.announcement_id}
-                onPress={() => openAnnouncement(a.announcement_id)}
-                style={({ pressed }) => [st.annRow, pressed && { opacity: 0.85 }]}
-              >
-                <View style={st.annTile}>
-                  <Megaphone size={16} color={palette.navy} />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <T variant="heading" style={{ fontSize: 14 }} numberOfLines={1}>{a.title}</T>
-                  <T variant="micro" tone="tertiary" numberOfLines={1}>
-                    {a.sent_at ? new Date(a.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}
-                  </T>
-                </View>
-                {!a.opened ? <View style={st.unreadDot} /> : null}
-              </Pressable>
-            ))}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="fast"
+              snapToInterval={304}
+              style={{ marginHorizontal: -spacing.screen }}
+              contentContainerStyle={{ paddingHorizontal: spacing.screen, gap: spacing.md }}
+            >
+              {(announcements ?? []).slice(0, 3).map((a) => (
+                <Pressable
+                  key={a.announcement_id}
+                  accessibilityRole="button"
+                  accessibilityLabel={a.title}
+                  onPress={() => openAnnouncement(a.announcement_id, a.title)}
+                  style={({ pressed }) => [st.annCard, pressed && { opacity: 0.92 }]}
+                >
+                  <View style={st.annCardImgWrap}>
+                    {a.primary_image_url ? (
+                      <Image source={{ uri: a.primary_image_url }} style={st.annCardImg} resizeMode="cover" />
+                    ) : (
+                      <View style={[st.annCardImg, { backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" }]}>
+                        <Megaphone size={26} color={palette.gold} />
+                      </View>
+                    )}
+                    {a.video_url ? <View style={st.annPlayBadge}><Play size={13} color="#fff" fill="#fff" /></View> : null}
+                    {!a.opened ? <View style={st.annNewBadge}><T variant="micro" style={{ color: palette.navyDeep, fontWeight: "800" }}>NEW</T></View> : null}
+                  </View>
+                  <View style={{ padding: spacing.base }}>
+                    <T variant="heading" style={{ fontSize: 15 }} numberOfLines={1}>{a.title}</T>
+                    <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={3}>{a.body}</T>
+                    <T variant="micro" tone="tertiary" style={{ marginTop: spacing.sm }}>
+                      {a.sent_at ? new Date(a.sent_at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : ""}
+                    </T>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
           </View>
         ) : null}
 
@@ -1250,6 +1265,11 @@ const st = {
   },
   encourageTile: { width: 32, height: 32, borderRadius: 10, backgroundColor: palette.white, alignItems: "center", justifyContent: "center", ...shadow.card },
   annRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.md },
+  annCard: { width: 292, backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
+  annCardImgWrap: { height: 140, backgroundColor: palette.mutedBg },
+  annCardImg: { width: "100%", height: 140 },
+  annPlayBadge: { position: "absolute", top: 10, left: 10, width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
+  annNewBadge: { position: "absolute", top: 10, right: 10, backgroundColor: palette.gold, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   annTile: { width: 36, height: 36, borderRadius: 12, backgroundColor: palette.tintBlue, alignItems: "center", justifyContent: "center" },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.gold },
   cohortAvatars: { width: 36, height: 36, borderRadius: 12, backgroundColor: palette.tintBlue, alignItems: "center", justifyContent: "center" },

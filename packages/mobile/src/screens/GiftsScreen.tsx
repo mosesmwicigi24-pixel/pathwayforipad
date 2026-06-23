@@ -4,12 +4,15 @@
 // over the full bank; the client never computes its own gift profile (§1.1).
 import { useState, type ReactElement } from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { ArrowLeft } from "lucide-react-native";
+import { ArrowLeft, Sparkles } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
-import { PButton, ProgressBar, T } from "../theme/components";
+import { GradientBg, PButton, ProgressBar, T } from "../theme/components";
+
+// A vibrant palette so the assessment feels alive — one accent per question, cycled.
+const ACCENTS = ["#7C3AED", "#0B84E8", "#16A34A", "#C89B3C", "#E0567A", "#0F766E", "#E07B39"];
 import { queryKeys, useGiftQuestions, useMyGifts } from "../api/hooks";
 import { errorMessage, invalidateQueries } from "../api/query";
 import { writeThrough } from "../sync/offlineWrite";
@@ -211,19 +214,26 @@ function Assessment({ onDone }: { onDone: () => void }): ReactElement {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false}>
-      <T serif style={{ fontSize: 20, color: palette.ink }}>Discover your gifts</T>
-      <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>
-        {set.ai_influenced ? "These questions are chosen for you by Nuru, from your journey so far." : "A fresh set of questions, shuffled just for you."}
-      </T>
-      <View style={{ marginTop: spacing.base }}>
-        <T variant="caption" tone="secondary">{`${answered} of ${questions.length} answered`}</T>
-        <View style={{ marginTop: spacing.sm, marginBottom: spacing.base }}>
-          <ProgressBar pct={questions.length > 0 ? (answered / questions.length) * 100 : 0} />
+      {/* Colorful intro */}
+      <View style={st.intro}>
+        <GradientBg colors={["#7C3AED", "#5B2AA8", "#2A1A5E"]} radius={radii.card} />
+        <View style={st.introOrb}><Sparkles size={20} color="#fff" /></View>
+        <T serif tone="onNavy" style={{ fontSize: 21, lineHeight: 26, marginTop: spacing.sm }}>Discover how God wired you</T>
+        <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }}>
+          {set.ai_influenced ? "Chosen for you by Nuru, from your journey so far." : "A fresh set, shuffled just for you."}
+        </T>
+        <View style={{ marginTop: spacing.md }}>
+          <View style={st.introTrack}>
+            <View style={{ width: `${questions.length > 0 ? (answered / questions.length) * 100 : 0}%`, height: "100%", borderRadius: 4, backgroundColor: palette.gold }} />
+          </View>
+          <T variant="micro" tone="onNavyDim" style={{ marginTop: 6 }}>{`${answered} of ${questions.length} answered`}</T>
         </View>
       </View>
 
-      {questions.map((q) => (
-        <View key={q.question_id} style={st.questionCard}>
+      {questions.map((q, i) => {
+        const accent = ACCENTS[i % ACCENTS.length] as string;
+        return (
+        <View key={q.question_id} style={[st.questionCard, { borderLeftWidth: 4, borderLeftColor: accent }]}>
           <T variant="body" style={{ color: palette.ink }}>{q.prompt}</T>
           <View style={st.likertRow}>
             {LIKERT.map((opt) => {
@@ -235,9 +245,9 @@ function Assessment({ onDone }: { onDone: () => void }): ReactElement {
                   accessibilityState={{ selected: on }}
                   accessibilityLabel={opt.label}
                   onPress={() => setAnswers((prev) => ({ ...prev, [q.question_id]: opt.value }))}
-                  style={[st.likert, on && { backgroundColor: palette.navy }]}
+                  style={[st.likert, on && { backgroundColor: accent, borderColor: accent }]}
                 >
-                  <T variant="micro" style={{ color: on ? palette.gold : palette.ink600 }}>{opt.value}</T>
+                  <T variant="micro" style={{ color: on ? "#fff" : palette.ink600, fontWeight: on ? "800" : "400" }}>{opt.value}</T>
                 </Pressable>
               );
             })}
@@ -247,7 +257,8 @@ function Assessment({ onDone }: { onDone: () => void }): ReactElement {
             <T variant="micro" tone="tertiary">Strongly agree</T>
           </View>
         </View>
-      ))}
+        );
+      })}
 
       {submitError ? <T variant="caption" style={{ color: palette.error, marginBottom: spacing.sm }}>{submitError}</T> : null}
       <PButton variant="gold" onPress={() => void submit()} disabled={!complete || submitting}>
@@ -259,6 +270,9 @@ function Assessment({ onDone }: { onDone: () => void }): ReactElement {
 
 const st = {
   screen: { flex: 1, backgroundColor: palette.coolPaper },
+  intro: { borderRadius: radii.card, overflow: "hidden", padding: spacing.lg, marginBottom: spacing.lg, ...shadow.card },
+  introOrb: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
+  introTrack: { height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.18)", overflow: "hidden" },
   header: {
     flexDirection: "row",
     alignItems: "center",
