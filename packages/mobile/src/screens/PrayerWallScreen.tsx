@@ -2,8 +2,8 @@
 // under (🙏 + emoji) and comment. Opt-in (separate from the private journal).
 // Tap a request to open its own page; "+" composes a new one.
 import { useCallback, useState, type ReactElement } from "react";
-import { Modal, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
-import { ArrowLeft, MessageCircle, Plus, X, CheckCircle2 } from "lucide-react-native";
+import { Image, Modal, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
+import { ArrowLeft, HandHeart, MessageCircle, Plus, X, CheckCircle2 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -18,6 +18,9 @@ import { Loading, ErrorState } from "../components/states";
 import { useKeyboardInset } from "../components/useKeyboardInset";
 import { useVoiceNote, VoiceRecorderButton, VoiceNotePlayer } from "../components/voiceNote";
 import type { PrayerWallPost } from "../api/types";
+
+// A real, license-free worship image (Unsplash CDN) amplifying the wall header.
+const PRAYER_HERO_IMG = "https://images.unsplash.com/photo-1529070538774-1843cb3265df?w=1200&q=80";
 
 function ago(iso: string): string {
   const min = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));
@@ -81,6 +84,19 @@ export function PrayerWallScreen(): ReactElement {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
       >
+        {/* Hero image amplifying the wall */}
+        <View style={st.hero}>
+          <Image source={{ uri: PRAYER_HERO_IMG }} style={st.heroImg} resizeMode="cover" />
+          <View style={st.heroShade} />
+          <View style={st.heroBody}>
+            <View style={st.heroIcon}><HandHeart size={18} color={palette.navyDeep} /></View>
+            <T serif tone="onNavy" style={{ fontSize: 20, lineHeight: 25, marginTop: spacing.sm }}>Carry one another</T>
+            <T variant="caption" tone="onNavyDim" style={{ marginTop: 3 }} numberOfLines={2}>
+              “Carry each other’s burdens, and in this way you will fulfill the law of Christ.” — Galatians 6:2
+            </T>
+          </View>
+        </View>
+
         {isLoading ? <Loading label="Loading the wall…" /> : null}
         {error ? <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /> : null}
         {!isLoading && !error && (posts ?? []).length === 0 ? (
@@ -187,6 +203,11 @@ const st = {
   sortRow: { flexDirection: "row", gap: spacing.sm, paddingHorizontal: spacing.screen, paddingTop: spacing.md },
   sortChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: radii.pill, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border },
   sortChipOn: { backgroundColor: palette.goldChipBg, borderColor: palette.gold },
+  hero: { height: 150, borderRadius: radii.card, overflow: "hidden", justifyContent: "flex-end", backgroundColor: palette.navy },
+  heroImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  heroShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.55)" },
+  heroBody: { padding: spacing.base },
+  heroIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: palette.gold, alignItems: "center", justifyContent: "center" },
   card: { backgroundColor: palette.white, borderRadius: radii.card, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   answeredChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: palette.successBg, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
   prayBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radii.pill, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },

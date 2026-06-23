@@ -38,6 +38,7 @@ export class CurriculumService {
       level_number: number;
       title: string;
       theme: string | null;
+      description: string | null;
       total_modules: number;
       completed_modules: number;
       minutes: number;
@@ -46,7 +47,7 @@ export class CurriculumService {
       // A module counts as done if the member completed it OR it sits before the
       // admin-set entry point in their placed level (covered by placement, §1.9
       // entry-point). Defaults (start_level 1, seq 1) make the covered clause inert.
-      `SELECT l.level_number, l.title, l.theme,
+      `SELECT l.level_number, l.title, l.theme, l.description,
               COUNT(m.module_id)::int AS total_modules,
               COUNT(*) FILTER (
                 WHERE m.module_id IS NOT NULL
@@ -60,7 +61,7 @@ export class CurriculumService {
          LEFT JOIN module_progress mp
            ON mp.module_id = m.module_id AND mp.is_completed
           AND mp.enrollment_id = $1
-        GROUP BY l.level_number, l.title, l.theme
+        GROUP BY l.level_number, l.title, l.theme, l.description
         ORDER BY l.level_number`,
       [enrollment?.enrollment_id ?? null, enrollment?.start_level ?? 1, enrollment?.start_module_sequence ?? 1],
     );
@@ -79,6 +80,7 @@ export class CurriculumService {
         level_number: r.level_number,
         title: r.title,
         theme: r.theme,
+        description: r.description,
         total_modules: r.total_modules,
         completed_modules: r.completed_modules,
         minutes: r.minutes,

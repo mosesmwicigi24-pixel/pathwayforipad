@@ -15,6 +15,7 @@ export interface PathwayLevel {
   level_number: number;
   title: string;
   theme: string | null;
+  description: string | null;
   total_modules: number;
   completed_modules: number;
   minutes: number;

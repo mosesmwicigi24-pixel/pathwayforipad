@@ -263,6 +263,7 @@ export class AdminCurriculumService {
     .object({
       title: z.string().min(1).max(255).optional(),
       theme: z.string().nullable().optional(),
+      description: z.string().max(2000).nullable().optional(),
       required_exam_pass_mark: z.number().min(0).max(100).optional(),
       duration: z.string().max(40).nullable().optional(),
       status: z.enum(["published", "draft", "in_review"]).optional(),

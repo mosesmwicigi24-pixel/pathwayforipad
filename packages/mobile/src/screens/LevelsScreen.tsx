@@ -6,8 +6,8 @@
 // resources); then YOUR JOURNEY — vibrant per-level cards, unlocked ones live and
 // locked ones colored with a padlock. Server stays authoritative for unlocking
 // (§1.9): a level above current_level is never tappable.
-import { useCallback, useState, type ReactElement, type ReactNode } from "react";
-import { Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Fragment, useCallback, useState, type ReactElement, type ReactNode } from "react";
+import { Image, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import {
   BookMarked,
   BookOpen,
@@ -30,7 +30,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
-import { T } from "../theme/components";
+import { GradientBg, T } from "../theme/components";
 import { Avatar } from "../components/Avatar";
 import {
   useAchievements,
@@ -61,6 +61,10 @@ const LEVEL_ACCENTS = [
   { tint: "#FFE4E6", fg: "#BE123C", bar: "#F43F5E" },
   { tint: "#CFFAFE", fg: "#0E7490", bar: "#06B6D4" },
 ] as const;
+
+// Interleaved imagery between the level cards. The Bible-study photo is a real,
+// license-free image (Unsplash CDN); swap for an uploaded asset later if desired.
+const BIBLE_STUDY_IMG = "https://images.unsplash.com/photo-1504052434569-70ad5836ab65?w=1200&q=80";
 
 const snippet = (s: string | null | undefined, n: number): string => {
   const t = (s ?? "").replace(/\s+/g, " ").trim();
@@ -278,6 +282,30 @@ export function LevelsScreen(): ReactElement {
           )}
         </PreviewCard>
 
+        {/* ── YOUR JOURNEY (the seven levels, each with a summary) ─────── */}
+        <View style={st.sectionHead}>
+          <T variant="micro" style={st.sectionLabel}>YOUR JOURNEY</T>
+          <T variant="micro" tone="tertiary">{`Level ${pathway.current_level} of ${levels.length}`}</T>
+        </View>
+        <View style={{ gap: spacing.sm }}>
+          {levels.map((lvl) => (
+            <Fragment key={lvl.level_number}>
+              <LevelCard
+                level={lvl}
+                currentLevel={pathway.current_level}
+                isActive={active?.level_number === lvl.level_number}
+                onPress={() => nav.navigate("Level", { levelId: lvl.level_number })}
+              />
+              {/* After Level 3: a Bible-study image that resonates with the Word. */}
+              {lvl.level_number === 3 ? (
+                <BibleStudyBanner onPress={() => nav.navigate("ReadingPlans")} />
+              ) : null}
+              {/* After Level 6: an in-app ad promoting the Pathway app. */}
+              {lvl.level_number === 6 ? <PathwayAdBanner /> : null}
+            </Fragment>
+          ))}
+        </View>
+
         {/* ── GROW ───────────────────────────────────────────────────── */}
         <View style={st.sectionHead}>
           <T variant="micro" style={st.sectionLabel}>GROW</T>
@@ -415,23 +443,6 @@ export function LevelsScreen(): ReactElement {
             <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Books, audio and video to go deeper.</T>
           )}
         </PreviewCard>
-
-        {/* ── YOUR JOURNEY (the six levels) ──────────────────────────── */}
-        <View style={st.sectionHead}>
-          <T variant="micro" style={st.sectionLabel}>YOUR JOURNEY</T>
-          <T variant="micro" tone="tertiary">{`Level ${pathway.current_level} of ${levels.length}`}</T>
-        </View>
-        <View style={{ gap: spacing.sm }}>
-          {levels.map((lvl) => (
-            <LevelCard
-              key={lvl.level_number}
-              level={lvl}
-              currentLevel={pathway.current_level}
-              isActive={active?.level_number === lvl.level_number}
-              onPress={() => nav.navigate("Level", { levelId: lvl.level_number })}
-            />
-          ))}
-        </View>
       </View>
     </ScrollView>
   );
@@ -539,6 +550,9 @@ function LevelCard({
           {`LEVEL ${level.level_number}${level.theme ? ` · ${level.theme}` : ""}`}
         </T>
         <T variant="heading" style={{ fontSize: 15, marginTop: 1 }} numberOfLines={1}>{level.title}</T>
+        {level.description ? (
+          <T variant="caption" tone="secondary" style={{ marginTop: 4, lineHeight: 18 }} numberOfLines={2}>{level.description}</T>
+        ) : null}
         {locked ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 }}>
             <Lock size={11} color={palette.ink400} />
@@ -567,6 +581,47 @@ function LevelCard({
         <ChevronRight size={18} color={accent.fg} style={{ alignSelf: "center" }} />
       )}
     </Pressable>
+  );
+}
+
+/** A real Bible-study photo with a scripture overlay — placed after Level 3. */
+function BibleStudyBanner({ onPress }: { onPress: () => void }): ReactElement {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel="Study the Word — open reading plans" onPress={onPress} style={({ pressed }) => [st.banner, pressed && { opacity: 0.92 }]}>
+      <Image source={{ uri: BIBLE_STUDY_IMG }} style={st.bannerImg} resizeMode="cover" />
+      <View style={st.bannerShade} />
+      <View style={st.bannerBody}>
+        <T variant="micro" tone="gold" style={{ letterSpacing: 1.6, fontWeight: "800" }}>GO DEEPER</T>
+        <T serif tone="onNavy" style={{ fontSize: 19, lineHeight: 24, marginTop: 3 }}>Study the Word together</T>
+        <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }} numberOfLines={2}>
+          “Be diligent… a worker who correctly handles the word of truth.” — 2 Timothy 2:15
+        </T>
+      </View>
+    </Pressable>
+  );
+}
+
+/** An in-app ad promoting the Pathway app — placed after Level 6. */
+function PathwayAdBanner(): ReactElement {
+  return (
+    <View style={st.adCard} accessibilityRole="image" accessibilityLabel="Nuru Pathway — your discipleship journey">
+      <GradientBg colors={[palette.navyDeep, palette.navy, palette.navy700]} radius={radii.card} />
+      <View style={st.adRow}>
+        <View style={st.adMark}>
+          <Sparkles size={24} color={palette.gold} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <T variant="micro" tone="gold" style={{ letterSpacing: 1.6, fontWeight: "800" }}>NURU PATHWAY</T>
+          <T serif tone="onNavy" style={{ fontSize: 19, lineHeight: 24, marginTop: 2 }}>Keep growing, every day</T>
+        </View>
+      </View>
+      <T variant="caption" tone="onNavyDim" style={{ marginTop: spacing.sm }}>
+        Devotionals, your levels, prayer, and your church family — all in one place. Invite a friend to walk the journey with you.
+      </T>
+      <View style={st.adPill}>
+        <T variant="micro" style={{ color: palette.navyDeep, fontWeight: "800", letterSpacing: 0.4 }}>YOUR JOURNEY, EVERY DAY</T>
+      </View>
+    </View>
   );
 }
 
@@ -633,7 +688,7 @@ const st = {
   miniTrack: { height: 4, borderRadius: 2, backgroundColor: palette.track, overflow: "hidden" },
   levelCard: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: spacing.md,
     backgroundColor: palette.white,
     borderRadius: 18,
@@ -648,4 +703,12 @@ const st = {
   levelBar: { position: "absolute", left: 0, top: 0, bottom: 0, width: 5 },
   levelBadge: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   lockPill: { width: 30, height: 30, borderRadius: 15, backgroundColor: palette.mutedBg, alignItems: "center", justifyContent: "center", alignSelf: "center" },
+  banner: { height: 150, borderRadius: radii.card, overflow: "hidden", justifyContent: "flex-end", backgroundColor: palette.navy, marginVertical: 2, ...shadow.card },
+  bannerImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  bannerShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.5)" },
+  bannerBody: { padding: spacing.base },
+  adCard: { borderRadius: radii.card, overflow: "hidden", padding: spacing.base, marginVertical: 2, backgroundColor: palette.navyDeep, ...shadow.card },
+  adRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  adMark: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(201,162,39,0.16)", alignItems: "center", justifyContent: "center" },
+  adPill: { alignSelf: "flex-start", marginTop: spacing.md, backgroundColor: palette.gold, borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 6 },
 } as const;
