@@ -26,54 +26,85 @@ afterAll(async () => {
   await closeTestPool();
 });
 
-describe("spiritual gifts (server-scored, §1.1)", () => {
-  it("serves the seeded bank and scores a submission server-side", async () => {
-    const bank = await agent().get("/v1/gifts/questions").set(auth(meTok));
-    expect(bank.status).toBe(200);
-    expect(bank.body.data.length).toBe(21);
-    expect(bank.body.data[0]).not.toHaveProperty("is_active"); // only member-safe fields
+describe("spiritual gifts (personalized, server-scored, §1.1)", () => {
+  it("serves a personalized 20-question set with baseline coverage of every gift", async () => {
+    const r = await agent().get("/v1/gifts/questions").set(auth(meTok));
+    expect(r.status).toBe(200);
+    expect(typeof r.body.set_id).toBe("string");
+    expect(r.body.ai_influenced).toBe(false); // no AI key in tests → deterministic
+    expect(r.body.data.length).toBe(20); // bank is ~49; served subset is 20
+    expect(r.body.data[0]).not.toHaveProperty("is_active"); // only member-safe fields
+    // Every gift is represented (baseline coverage so each can score).
+    const gifts = new Set(r.body.data.map((q: { gift_key: string }) => q.gift_key));
+    expect(gifts.size).toBe(7);
 
-    // Strongly agree on every teaching item, low on everything else.
-    const answers = bank.body.data.map((q: { question_id: string; gift_key: string }) => ({
+    // The open set is reused across refetches (stable list).
+    const again = await agent().get("/v1/gifts/questions").set(auth(meTok));
+    expect(again.body.set_id).toBe(r.body.set_id);
+  });
+
+  it("scores over the SERVED subset and returns a personality result", async () => {
+    const r = await agent().get("/v1/gifts/questions").set(auth(meTok));
+    // Strongly agree on teaching, agree on mercy, low elsewhere — over the served set.
+    const answers = r.body.data.map((q: { question_id: string; gift_key: string }) => ({
       question_id: q.question_id,
       value: q.gift_key === "teaching" ? 5 : q.gift_key === "mercy" ? 4 : 1,
     }));
     const res = await agent()
       .post("/v1/gifts/assessments")
       .set(auth(meTok))
-      .send({ client_mutation_id: uuid(1), answers });
+      .send({ client_mutation_id: uuid(1), set_id: r.body.set_id, answers });
     expect(res.status).toBe(201);
     expect(res.body.scores.teaching).toBe(100);
     expect(res.body.scores.mercy).toBe(80);
     expect(res.body.scores.leadership).toBe(20);
     expect(res.body.top_gifts[0]).toBe("teaching");
-    expect(res.body.top_gifts[1]).toBe("mercy");
+    expect(typeof res.body.persona_summary).toBe("string"); // deterministic persona narrative
 
-    // Replay is a no-op returning the original profile.
+    // Replay is a no-op returning the original.
     const replay = await agent()
       .post("/v1/gifts/assessments")
       .set(auth(meTok))
-      .send({ client_mutation_id: uuid(1), answers });
+      .send({ client_mutation_id: uuid(1), set_id: r.body.set_id, answers });
     expect(replay.body.duplicate).toBe(true);
     expect(replay.body.assessment_id).toBe(res.body.assessment_id);
 
-    // "Where to serve" matches the top gifts.
+    // Result reads as a personality: personas for the top gifts + serving tracks.
     const mine = await agent().get("/v1/me/gifts").set(auth(meTok));
     expect(mine.body.assessment.assessment_id).toBe(res.body.assessment_id);
+    expect(mine.body.personas.length).toBe(res.body.top_gifts.length);
+    expect(mine.body.personas[0].gift_key).toBe(res.body.top_gifts[0]);
+    expect(mine.body.personas[0].persona_name.length).toBeGreaterThan(0);
     const tracks = mine.body.suggested_tracks.map((t: { track_key: string }) => t.track_key);
     expect(tracks).toContain("teaching_team");
-    expect(tracks).toContain("care_visitation");
-    expect(tracks).not.toContain("kingdom_partners"); // giving+leadership — no overlap
+
+    // Raw answers are persisted.
+    const cnt = await testPool().query("SELECT count(*)::int AS n FROM gift_answers WHERE assessment_id = $1", [res.body.assessment_id]);
+    expect(cnt.rows[0].n).toBe(answers.length);
+
+    // After submitting, the next draw is a fresh set (the old one is consumed).
+    const next = await agent().get("/v1/gifts/questions").set(auth(meTok));
+    expect(next.body.set_id).not.toBe(r.body.set_id);
   });
 
-  it("omitted questions count as zero — answers cannot cherry-pick", async () => {
-    const bank = await agent().get("/v1/gifts/questions").set(auth(meTok));
-    const one = bank.body.data.find((q: { gift_key: string }) => q.gift_key === "service");
+  it("denominator is the served set, not the full bank (uniform answers → uniform %)", async () => {
+    const r = await agent().get("/v1/gifts/questions").set(auth(meTok));
+    const answers = r.body.data.map((q: { question_id: string }) => ({ question_id: q.question_id, value: 3 }));
     const res = await agent()
       .post("/v1/gifts/assessments")
       .set(auth(meTok))
-      .send({ client_mutation_id: uuid(2), answers: [{ question_id: one.question_id, value: 5 }] });
-    expect(res.body.scores.service).toBe(33); // 5 of 15 possible
+      .send({ client_mutation_id: uuid(2), set_id: r.body.set_id, answers });
+    expect(res.status).toBe(201);
+    // 3 of 5 on every served question → 60% for every gift represented.
+    for (const v of Object.values(res.body.scores as Record<string, number>)) expect(v).toBe(60);
+  });
+
+  it("rejects a submission against an unknown set", async () => {
+    const res = await agent()
+      .post("/v1/gifts/assessments")
+      .set(auth(meTok))
+      .send({ client_mutation_id: uuid(3), set_id: uuid(9), answers: [{ question_id: uuid(8), value: 5 }] });
+    expect(res.status).toBe(404);
   });
 });
 

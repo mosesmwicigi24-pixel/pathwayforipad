@@ -334,6 +334,7 @@ export class SyncService {
         // Server-scored (§1.1) even when queued offline; replays return the original.
         const r = await this.growth.submitGifts(userId, {
           client_mutation_id: m.mutation_id,
+          set_id: String(p.set_id ?? ""),
           answers: Array.isArray(p.answers)
             ? (p.answers as Array<Record<string, unknown>>).map((a) => ({
                 question_id: String(a.question_id ?? ""),

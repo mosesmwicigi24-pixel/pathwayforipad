@@ -382,7 +382,14 @@ export interface GiftQuestion {
   question_id: string;
   gift_key: string;
   prompt: string;
-  sort: number;
+  sort?: number;
+}
+
+// A personalized, shuffled draw of questions for one member (the served subset).
+export interface GiftQuestionSet {
+  set_id: string;
+  ai_influenced: boolean;
+  data: GiftQuestion[];
 }
 
 export interface ServingTrack {
@@ -393,15 +400,30 @@ export interface ServingTrack {
   match_count: number;
 }
 
+// The "personality" profile copy for a gift.
+export interface GiftPersona {
+  gift_key: string;
+  title: string;
+  persona_name: string;
+  tagline: string | null;
+  summary: string;
+  strengths: string[];
+  serving: string[];
+  emoji: string | null;
+  color: string | null;
+}
+
 export interface GiftAssessment {
   assessment_id: string;
   scores: Record<string, number>;
   top_gifts: string[];
   submitted_at: string;
+  persona_summary: string | null;
 }
 
 export interface MyGifts {
   assessment: GiftAssessment | null;
+  personas: GiftPersona[];
   suggested_tracks: ServingTrack[];
 }
 

@@ -3421,9 +3421,10 @@ components:
         client_mutation_id: { type: string, format: uuid }
     GiftsSubmission:
       type: object
-      required: [client_mutation_id, answers]
+      required: [client_mutation_id, set_id, answers]
       properties:
         client_mutation_id: { type: string, format: uuid }
+        set_id: { type: string, format: uuid, description: The served question-set this submission answers (scored over its subset). }
         answers:
           type: array
           minItems: 1

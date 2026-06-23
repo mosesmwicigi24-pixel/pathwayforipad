@@ -5,57 +5,199 @@
 // leader/admin read path — prayers are pastorally private (§5.4).
 import type { Pool } from "pg";
 import { z } from "zod";
-import { many, maybeOne, one, recordChange, tx, recordActivityEvent } from "../../db/db.js";
+import { many, maybeOne, one, recordChange, tx, recordActivityEvent, type Queryable } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
+import { ScoresService } from "../scores/service.js";
+import type { AiProvider } from "../assistant/provider.js";
 
 export interface GiftProfile {
   assessment_id: string;
   scores: Record<string, number>;
   top_gifts: string[];
   submitted_at: string;
+  persona_summary: string | null;
   duplicate: boolean;
 }
 
+// How a member's engagement (0–100 per axis) biases which gifts we probe more
+// deeply. This is influence, not exclusion — every gift keeps baseline coverage.
+const GIFT_AXES: Record<string, Partial<Record<"habits" | "curriculum" | "attendance" | "word" | "prayer", number>>> = {
+  leadership: { curriculum: 0.5, attendance: 0.5 },
+  teaching: { curriculum: 0.6, word: 0.4 },
+  service: { habits: 0.6, attendance: 0.4 },
+  mercy: { prayer: 0.7, habits: 0.3 },
+  evangelism: { attendance: 0.6, word: 0.4 },
+  giving: { habits: 0.4, attendance: 0.3, curriculum: 0.3 },
+  hospitality: { attendance: 0.6, habits: 0.4 },
+};
+
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j] as T, arr[i] as T];
+  }
+  return arr;
+}
+const r2 = (n: number): number => Math.round(n * 100) / 100;
+
 export class GrowthService {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Pool, private readonly provider?: AiProvider) {}
 
   // ---- Spiritual gifts ----
 
   static readonly GiftsSubmission = z.object({
     client_mutation_id: z.string().uuid(),
+    set_id: z.string().uuid(),
     answers: z
       .array(z.object({ question_id: z.string().uuid(), value: z.number().int().min(1).max(5) }))
       .min(1),
   });
 
-  async giftQuestions(): Promise<{ data: unknown[] }> {
-    const data = await many(
-      this.pool,
-      `SELECT question_id, gift_key, prompt, sort FROM gift_questions WHERE is_active ORDER BY sort`,
-    );
-    return { data };
+  /** Per-gift probe weight (0.3–1.0) from the member's engagement fingerprint,
+   *  optionally refined by Nuru AI. Deterministic + offline-safe by default. */
+  private async giftWeights(userId: string): Promise<{ weights: Record<string, number>; ai: boolean }> {
+    const all = await new ScoresService(this.pool).all(userId).catch(() => null);
+    const axis = (k: string): number => {
+      const b = all?.[k] as { score?: number } | undefined;
+      return typeof b?.score === "number" ? b.score : 0;
+    };
+    const s = { habits: axis("habits"), curriculum: axis("curriculum"), attendance: axis("attendance"), word: axis("word"), prayer: axis("prayer") };
+    const weights: Record<string, number> = {};
+    for (const [gift, axes] of Object.entries(GIFT_AXES)) {
+      let v = 0;
+      for (const [ax, w] of Object.entries(axes)) v += (w ?? 0) * (s[ax as keyof typeof s] ?? 0);
+      weights[gift] = r2(0.5 + 0.5 * Math.max(0, Math.min(100, v)) / 100); // 0.5..1.0
+    }
+    let ai = false;
+    if (this.provider && this.provider.name !== "fake") {
+      try {
+        const system =
+          "You tune a spiritual-gifts questionnaire. Given a member's engagement scores (0-100), return ONLY compact JSON mapping each gift_key to a probe weight between 0.3 and 1.0 (higher = ask more questions about that gift). Keys: leadership, teaching, service, mercy, evangelism, giving, hospitality.";
+        const user = `Engagement: ${JSON.stringify(s)}. Baseline weights: ${JSON.stringify(weights)}. JSON only.`;
+        const out = await this.provider.complete({ system, messages: [{ role: "user", text: user }] });
+        const parsed = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1)) as Record<string, number>;
+        for (const g of Object.keys(weights)) {
+          const v = parsed[g];
+          if (typeof v === "number" && Number.isFinite(v)) { weights[g] = Math.max(0.3, Math.min(1, v)); ai = true; }
+        }
+      } catch { ai = false; }
+    }
+    return { weights, ai };
   }
 
-  /** Score over the FULL active bank: unanswered items count as 0, so a client
-   *  cannot inflate a gift by omitting its low-scoring questions. */
+  /** Draw a shuffled ~20-question subset, biased by the member's weights but with
+   *  baseline coverage of every gift, and persist it so scoring uses this set. */
+  private async buildSet(userId: string): Promise<{ set_id: string; ai_influenced: boolean; data: unknown[] }> {
+    const bank = await many<{ question_id: string; gift_key: string; prompt: string }>(
+      this.pool,
+      `SELECT question_id, gift_key, prompt FROM gift_questions WHERE is_active`,
+    );
+    if (bank.length === 0) throw new ApiError("UNPROCESSABLE", "Gifts assessment is not configured");
+    const byGift = new Map<string, typeof bank>();
+    for (const q of bank) { const a = byGift.get(q.gift_key) ?? []; a.push(q); byGift.set(q.gift_key, a); }
+    const gifts = [...byGift.keys()];
+    const N = Math.min(20, bank.length);
+    const { weights, ai } = await this.giftWeights(userId);
+
+    const baseline = Math.max(1, Math.min(2, Math.floor(N / Math.max(1, gifts.length))));
+    const counts = new Map<string, number>();
+    for (const g of gifts) counts.set(g, Math.min(baseline, byGift.get(g)!.length));
+    let used = [...counts.values()].reduce((a, b) => a + b, 0);
+    const order = [...gifts].sort((a, b) => (weights[b] ?? 0.6) - (weights[a] ?? 0.6));
+    while (used < N) {
+      let added = false;
+      for (const g of order) {
+        if (used >= N) break;
+        if ((counts.get(g) ?? 0) < byGift.get(g)!.length) { counts.set(g, (counts.get(g) ?? 0) + 1); used++; added = true; }
+      }
+      if (!added) break;
+    }
+    const picked: typeof bank = [];
+    for (const g of gifts) picked.push(...shuffle([...byGift.get(g)!]).slice(0, counts.get(g) ?? 0));
+    const finalQ = shuffle(picked).slice(0, N);
+    const ids = finalQ.map((q) => q.question_id);
+    const row = await one<{ set_id: string }>(
+      this.pool,
+      `INSERT INTO gift_question_sets (user_id, question_ids, weights, ai_influenced) VALUES ($1, $2, $3, $4) RETURNING set_id`,
+      [userId, ids, JSON.stringify(weights), ai],
+    );
+    return { set_id: row.set_id, ai_influenced: ai, data: finalQ.map((q) => ({ question_id: q.question_id, gift_key: q.gift_key, prompt: q.prompt })) };
+  }
+
+  /** The member's current question set — reuse their open (unsubmitted) draw so
+   *  the list is stable across refetches; otherwise draw a fresh personalized set. */
+  async giftQuestions(userId: string): Promise<{ set_id: string; ai_influenced: boolean; data: unknown[] }> {
+    const open = await maybeOne<{ set_id: string; question_ids: string[]; ai_influenced: boolean }>(
+      this.pool,
+      `SELECT set_id, question_ids, ai_influenced FROM gift_question_sets
+        WHERE user_id = $1 AND submitted_assessment_id IS NULL ORDER BY created_at DESC LIMIT 1`,
+      [userId],
+    );
+    if (open && open.question_ids.length > 0) {
+      const qs = await many<{ question_id: string; gift_key: string; prompt: string }>(
+        this.pool,
+        `SELECT question_id, gift_key, prompt FROM gift_questions WHERE question_id = ANY($1) AND is_active`,
+        [open.question_ids],
+      );
+      const m = new Map(qs.map((q) => [q.question_id, q]));
+      const data = open.question_ids.map((id) => m.get(id)).filter((q): q is { question_id: string; gift_key: string; prompt: string } => !!q);
+      if (data.length > 0) return { set_id: open.set_id, ai_influenced: open.ai_influenced, data };
+    }
+    return this.buildSet(userId);
+  }
+
+  /** A short, personal "gift personality" narrative across the top gifts —
+   *  deterministic from persona copy, enhanced by Nuru AI when available. */
+  private async composePersona(c: Queryable, top: string[], scores: Record<string, number>): Promise<string | null> {
+    const defs = await many<{ gift_key: string; persona_name: string; title: string; summary: string }>(
+      c,
+      `SELECT gift_key, persona_name, title, summary FROM gift_definitions WHERE gift_key = ANY($1)`,
+      [top],
+    );
+    const byKey = new Map(defs.map((d) => [d.gift_key, d]));
+    const ordered = top.map((k) => byKey.get(k)).filter((d): d is NonNullable<typeof d> => !!d);
+    if (ordered.length === 0) return null;
+    const names = ordered.map((d) => d.persona_name);
+    let text = `Your gifting shines as ${names[0]}${names[1] ? `, with ${names[1]}` : ""}${names[2] ? ` and ${names[2]}` : ""}. ${ordered[0]!.summary}`;
+    if (this.provider && this.provider.name !== "fake") {
+      try {
+        const system = "You are Nuru, a warm discipleship guide. In 2-3 sentences, write an encouraging, personal summary of a believer's spiritual-gift personality from their top gifts. Second person, no headings, no lists.";
+        const user = `Top gifts: ${ordered.map((d) => `${d.title} (${d.persona_name})`).join(", ")}. Scores: ${JSON.stringify(scores)}.`;
+        const out = await this.provider.complete({ system, messages: [{ role: "user", text: user }] });
+        if (out && out.trim().length > 20) text = out.trim();
+      } catch { /* keep the deterministic narrative */ }
+    }
+    return text;
+  }
+
+  /** Score over the SERVED subset (not the full bank): the denominator is the set
+   *  the member was actually given, so a personalized draw scores fairly. */
   async submitGifts(userId: string, sub: z.infer<typeof GrowthService.GiftsSubmission>): Promise<GiftProfile> {
     return tx(this.pool, async (c) => {
-      const dup = await maybeOne<{ assessment_id: string; scores: Record<string, number>; top_gifts: string[]; submitted_at: string }>(
+      const dup = await maybeOne<{ assessment_id: string; scores: Record<string, number>; top_gifts: string[]; submitted_at: string; persona_summary: string | null }>(
         c,
-        `SELECT assessment_id, scores, top_gifts, submitted_at FROM gift_assessments WHERE client_mutation_id = $1`,
+        `SELECT assessment_id, scores, top_gifts, submitted_at, persona_summary FROM gift_assessments WHERE client_mutation_id = $1`,
         [sub.client_mutation_id],
       );
       if (dup) return { ...dup, duplicate: true };
 
-      const bank = await many<{ question_id: string; gift_key: string }>(
+      const set = await maybeOne<{ question_ids: string[] }>(
         c,
-        `SELECT question_id, gift_key FROM gift_questions WHERE is_active`,
+        `SELECT question_ids FROM gift_question_sets WHERE set_id = $1 AND user_id = $2`,
+        [sub.set_id, userId],
       );
-      if (bank.length === 0) throw new ApiError("UNPROCESSABLE", "Gifts assessment is not configured");
+      if (!set) throw new ApiError("NOT_FOUND", "Question set not found");
+      const served = await many<{ question_id: string; gift_key: string }>(
+        c,
+        `SELECT question_id, gift_key FROM gift_questions WHERE question_id = ANY($1)`,
+        [set.question_ids],
+      );
+      if (served.length === 0) throw new ApiError("UNPROCESSABLE", "Question set is empty");
 
-      const given = new Map(sub.answers.map((a) => [a.question_id, a.value]));
+      const servedIds = new Set(served.map((q) => q.question_id));
+      const given = new Map(sub.answers.filter((a) => servedIds.has(a.question_id)).map((a) => [a.question_id, a.value]));
       const sums = new Map<string, { got: number; max: number }>();
-      for (const q of bank) {
+      for (const q of served) {
         const agg = sums.get(q.gift_key) ?? { got: 0, max: 0 };
         agg.got += given.get(q.question_id) ?? 0;
         agg.max += 5;
@@ -63,30 +205,43 @@ export class GrowthService {
       }
       const scores: Record<string, number> = {};
       for (const [gift, { got, max }] of sums) scores[gift] = Math.round((got / max) * 100);
-      const top = [...sums.keys()]
-        .sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0) || a.localeCompare(b))
-        .slice(0, 3);
+      const top = [...sums.keys()].sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0) || a.localeCompare(b)).slice(0, 3);
+      const persona = await this.composePersona(c, top, scores);
 
       const row = await one<{ assessment_id: string; submitted_at: string }>(
         c,
-        `INSERT INTO gift_assessments (user_id, scores, top_gifts, client_mutation_id)
-         VALUES ($1, $2, $3, $4) RETURNING assessment_id, submitted_at`,
-        [userId, JSON.stringify(scores), top, sub.client_mutation_id],
+        `INSERT INTO gift_assessments (user_id, scores, top_gifts, client_mutation_id, set_id, persona_summary)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING assessment_id, submitted_at`,
+        [userId, JSON.stringify(scores), top, sub.client_mutation_id, sub.set_id, persona],
       );
+      for (const [qid, val] of given) {
+        await c.query(`INSERT INTO gift_answers (assessment_id, question_id, value) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [row.assessment_id, qid, val]);
+      }
+      await c.query(`UPDATE gift_question_sets SET submitted_assessment_id = $1 WHERE set_id = $2`, [row.assessment_id, sub.set_id]);
       await recordChange(c, "gift_assessments", row.assessment_id, userId, "upsert");
-      return { assessment_id: row.assessment_id, scores, top_gifts: top, submitted_at: row.submitted_at, duplicate: false };
+      await recordActivityEvent(c, userId, "gift_assessment");
+      return { assessment_id: row.assessment_id, scores, top_gifts: top, submitted_at: row.submitted_at, persona_summary: persona, duplicate: false };
     });
   }
 
-  /** Latest gift profile + "where to serve" tracks matched to the top gifts. */
+  /** Latest gift profile as a personality result: top-gift personas + the
+   *  personalized narrative + "where to serve" tracks. */
   async myGifts(userId: string): Promise<unknown> {
-    const latest = await maybeOne<{ assessment_id: string; scores: Record<string, number>; top_gifts: string[]; submitted_at: string }>(
+    const latest = await maybeOne<{ assessment_id: string; scores: Record<string, number>; top_gifts: string[]; submitted_at: string; persona_summary: string | null }>(
       this.pool,
-      `SELECT assessment_id, scores, top_gifts, submitted_at FROM gift_assessments
+      `SELECT assessment_id, scores, top_gifts, submitted_at, persona_summary FROM gift_assessments
         WHERE user_id = $1 ORDER BY submitted_at DESC LIMIT 1`,
       [userId],
     );
-    if (!latest) return { assessment: null, suggested_tracks: [] };
+    if (!latest) return { assessment: null, personas: [], suggested_tracks: [] };
+    const personaRows = await many<{ gift_key: string }>(
+      this.pool,
+      `SELECT gift_key, title, persona_name, tagline, summary, strengths, serving, emoji, color
+         FROM gift_definitions WHERE gift_key = ANY($1)`,
+      [latest.top_gifts],
+    );
+    const pm = new Map(personaRows.map((p) => [p.gift_key, p]));
+    const personas = latest.top_gifts.map((k) => pm.get(k)).filter(Boolean);
     const tracks = await many(
       this.pool,
       `SELECT track_key, title, description, gift_keys,
@@ -96,7 +251,7 @@ export class GrowthService {
         ORDER BY match_count DESC, track_key`,
       [latest.top_gifts],
     );
-    return { assessment: latest, suggested_tracks: tracks };
+    return { assessment: latest, personas, suggested_tracks: tracks };
   }
 
   // ---- Prayer journal (private, offline-synced) ----

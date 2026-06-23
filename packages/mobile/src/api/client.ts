@@ -28,7 +28,7 @@ import type {
   LevelEncouragement,
   ModuleDetail,
   GiftAssessment,
-  GiftQuestion,
+  GiftQuestionSet,
   MyAnnouncement,
   NotificationRow,
   ScripturePassage,
@@ -449,12 +449,13 @@ export const NuruApi = {
   },
 
   // ---- Growth domains (M3 over B6; server-scored, user-private) ----
-  async giftQuestions(): Promise<GiftQuestion[]> {
-    const { data } = await api.get<{ data: GiftQuestion[] }>("/gifts/questions");
-    return data.data;
+  async giftQuestions(): Promise<GiftQuestionSet> {
+    const { data } = await api.get<GiftQuestionSet>("/gifts/questions");
+    return data;
   },
   async submitGifts(body: {
     client_mutation_id: string;
+    set_id: string;
     answers: Array<{ question_id: string; value: number }>;
   }): Promise<GiftAssessment & { duplicate: boolean }> {
     const { data } = await api.post<GiftAssessment & { duplicate: boolean }>("/gifts/assessments", body);

@@ -14,7 +14,7 @@ import type {
   EventPost,
   GivingRecord,
   GivingDetail,
-  GiftQuestion,
+  GiftQuestionSet,
   GivingSchedule,
   MyAnnouncement,
   MyGifts,
@@ -201,7 +201,7 @@ export function useChatPeople(query: string): QueryResult<{ people: ChatPerson[]
   return useQuery(queryKeys.chatPeople(query), () => NuruApi.chatPeople(query || undefined), { staleMs: 30_000 });
 }
 
-export function useGiftQuestions(): QueryResult<GiftQuestion[]> {
+export function useGiftQuestions(): QueryResult<GiftQuestionSet> {
   return useQuery(queryKeys.giftQuestions, () => NuruApi.giftQuestions(), { staleMs: 300_000 });
 }
 

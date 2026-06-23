@@ -8,19 +8,20 @@ import type { AppContext } from "../../http/context.js";
 import { authenticate } from "../../http/auth.js";
 import { handler, parseBody, requirePrincipal } from "../../http/http.js";
 import { GrowthService } from "./service.js";
+import { buildAiProvider, type AiProvider } from "../assistant/provider.js";
 
 const IdParam = z.object({ id: z.string().uuid() });
 
 export const growthRouter: Router = Router();
 
-export function registerGrowth(ctx: AppContext): Router {
-  const svc = new GrowthService(ctx.db.primary);
+export function registerGrowth(ctx: AppContext, providerOverride?: AiProvider): Router {
+  const svc = new GrowthService(ctx.db.primary, providerOverride ?? buildAiProvider(ctx.env));
   const auth = authenticate(ctx.env);
   const r = growthRouter;
 
   // ---- Spiritual gifts ----
-  r.get("/gifts/questions", auth, handler(async (_req, res) => {
-    res.json(await svc.giftQuestions());
+  r.get("/gifts/questions", auth, handler(async (req, res) => {
+    res.json(await svc.giftQuestions(requirePrincipal(req).userId));
   }));
 
   r.post("/gifts/assessments", auth, handler(async (req, res) => {
