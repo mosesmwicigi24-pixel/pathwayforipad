@@ -43,6 +43,8 @@ import type {
   GrowthScore,
   ScoresSummary,
   NextAction,
+  PrayerWallPost,
+  PrayerWallDetail,
   MyReflection,
   PathwaySummary,
   PrayerEntry,
@@ -578,6 +580,43 @@ export const NuruApi = {
   },
   async dailyGreeting(): Promise<{ greeting: string }> {
     const { data } = await api.get<{ greeting: string }>("/me/home/greeting");
+    return data;
+  },
+  // ---- Prayer Wall (public, opt-in; GET/POST /prayer-wall) ----
+  async prayerWall(sort?: "latest" | "prayed"): Promise<PrayerWallPost[]> {
+    const { data } = await api.get<{ data: PrayerWallPost[] }>(`/prayer-wall${sort ? `?sort=${sort}` : ""}`);
+    return data.data;
+  },
+  async prayerWallHome(): Promise<PrayerWallPost[]> {
+    const { data } = await api.get<{ data: PrayerWallPost[] }>("/home/prayer-wall");
+    return data.data;
+  },
+  async prayerWallGet(postId: string): Promise<PrayerWallDetail> {
+    const { data } = await api.get<PrayerWallDetail>(`/prayer-wall/${postId}`);
+    return data;
+  },
+  async createPrayerWallPost(body: { post_id: string; title?: string | null; body: string; client_mutation_id?: string }): Promise<{ post_id: string }> {
+    const { data } = await api.post<{ post_id: string }>("/prayer-wall", body);
+    return data;
+  },
+  async prayerWallReact(postId: string, emoji: string): Promise<{ on: boolean }> {
+    const { data } = await api.post<{ on: boolean }>(`/prayer-wall/${postId}/reactions`, { emoji });
+    return data;
+  },
+  async prayerWallComment(postId: string, body: { comment_id: string; body: string; client_mutation_id?: string }): Promise<{ comment_id: string }> {
+    const { data } = await api.post<{ comment_id: string }>(`/prayer-wall/${postId}/comments`, body);
+    return data;
+  },
+  async prayerWallAnswered(postId: string, answered: boolean): Promise<{ is_answered: boolean }> {
+    const { data } = await api.post<{ is_answered: boolean }>(`/prayer-wall/${postId}/answered`, { answered });
+    return data;
+  },
+  async deletePrayerWallPost(postId: string): Promise<{ deleted: boolean }> {
+    const { data } = await api.delete<{ deleted: boolean }>(`/prayer-wall/${postId}`);
+    return data;
+  },
+  async sharePrayerToWall(entryId: string): Promise<{ post_id: string }> {
+    const { data } = await api.post<{ post_id: string }>(`/me/prayers/${entryId}/share-to-wall`);
     return data;
   },
   // ---- Disciplers carousel (Home "Meet your discipler", GET /home/disciplers) ----

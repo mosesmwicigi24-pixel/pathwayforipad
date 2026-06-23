@@ -49,6 +49,7 @@ import {
   useScores,
   useNextAction,
   useDailyGreeting,
+  usePrayerWallHome,
   useMe,
   useMyAnnouncements,
   useNotifications,
@@ -63,6 +64,7 @@ import { Loading, ErrorState } from "../components/states";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { ShareToChatSheet } from "../components/ShareToChatSheet";
 import { DisciplerCarousel } from "../components/DisciplerCarousel";
+import { PrayerWallCarousel } from "../components/PrayerWallCarousel";
 import { Avatar } from "../components/Avatar";
 
 // Emoji reactions on the home video (❤️ is the dedicated Like; these are extras).
@@ -109,10 +111,11 @@ function welcomeVideoUrl(v: WelcomeVideo): string | null {
 
 // "Grow your faith" quick-access grid → the growth screens (D5/B9). Matches the
 // Figma HomeTab tools row (6 tiles + discipler).
-const GROW: Array<{ label: string; sub: string; route: "Devotional" | "ReadingPlans" | "PrayerJournal" | "MemoryVerses" | "Gifts" | "Resources"; Icon: LucideIcon; tint: string; fg: string }> = [
+const GROW: Array<{ label: string; sub: string; route: "Devotional" | "ReadingPlans" | "PrayerJournal" | "PrayerWall" | "MemoryVerses" | "Gifts" | "Resources"; Icon: LucideIcon; tint: string; fg: string }> = [
   { label: "Devotional", sub: "Today's devotional", route: "Devotional", Icon: Sun, tint: "#FFF4DA", fg: palette.goldLo },
   { label: "Reading plan", sub: "Continue your plan", route: "ReadingPlans", Icon: BookMarked, tint: "#EEF2FF", fg: "#6366F1" },
   { label: "Prayer journal", sub: "Your prayers", route: "PrayerJournal", Icon: HandHeart, tint: "#FEE2E2", fg: "#DC2626" },
+  { label: "Prayer wall", sub: "Pray for one another", route: "PrayerWall", Icon: HandHeart, tint: "#FFF1F2", fg: "#E11D48" },
   { label: "Memory verses", sub: "Practice & master", route: "MemoryVerses", Icon: Quote, tint: "#FFF4DA", fg: palette.goldLo },
   { label: "Spiritual gifts", sub: "Take assessment", route: "Gifts", Icon: Sparkles, tint: "#F3E8FF", fg: "#A855F7" },
   { label: "Resources", sub: "Books, audio, video", route: "Resources", Icon: Library, tint: "#E0F2FE", fg: "#0EA5E9" },
@@ -142,6 +145,7 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: rhythmServer } = useRhythmToday();
   const { data: mentorInfo } = useMentor();
   const { data: disciplers } = useDisciplers();
+  const { data: wallPosts } = usePrayerWallHome();
   const discipler = mentorInfo?.mentor ?? null;
   const { data: featuredEvent, refetch: refetchFeaturedEvent } = useFeaturedEvent();
   const { data: featuredAnnouncement, refetch: refetchFeaturedAnnouncement } = useFeaturedAnnouncement();
@@ -497,6 +501,15 @@ export function HomeDashboardScreen(): ReactElement {
 
         {/* ── Meet your discipler (auto-advancing carousel) ──────────── */}
         {disciplers && disciplers.length > 0 ? <DisciplerCarousel disciplers={disciplers} /> : null}
+
+        {/* ── Prayer Wall (public requests, auto-advancing) ──────────── */}
+        {wallPosts && wallPosts.length > 0 ? (
+          <PrayerWallCarousel
+            posts={wallPosts}
+            onOpen={(postId) => nav.navigate("PrayerWallDetail", { postId })}
+            onSeeAll={() => nav.navigate("PrayerWall")}
+          />
+        ) : null}
 
         {/* ── Featured event (homepage toggle) ───────────────────────── */}
         {featuredEvent ? (

@@ -2120,6 +2120,75 @@ paths:
       responses:
         "200": { description: Profile + tracks }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /prayer-wall:
+    get:
+      tags: [progress]
+      summary: Public prayer wall for my congregation (?sort=latest|prayed) with reaction + comment counts.
+      responses:
+        "200": { description: Wall }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [progress]
+      summary: Post a public prayer request (text + optional voice note).
+      responses:
+        "201": { description: Posted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /prayer-wall/{id}:
+    get:
+      tags: [progress]
+      summary: A prayer request + its comments + reactions.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200": { description: Prayer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [progress]
+      summary: Make my prayer private again (remove it from the wall).
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200": { description: Removed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /prayer-wall/{id}/reactions:
+    post:
+      tags: [progress]
+      summary: Toggle an emoji reaction (🙏 = "I'm praying") on a prayer.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200": { description: Toggled }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /prayer-wall/{id}/comments:
+    post:
+      tags: [progress]
+      summary: Comment on a prayer (text + optional voice note).
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "201": { description: Commented }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /prayer-wall/{id}/answered:
+    post:
+      tags: [progress]
+      summary: Mark my prayer answered (a testimony).
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200": { description: Updated }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /home/prayer-wall:
+    get:
+      tags: [progress]
+      summary: Most-prayed recent requests for the Home carousel.
+      responses:
+        "200": { description: Wall }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/prayers/{id}/share-to-wall:
+    post:
+      tags: [progress]
+      summary: Share one of my private journal prayers to the public wall.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "201": { description: Shared }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /me/prayers:
     get:
       tags: [progress]

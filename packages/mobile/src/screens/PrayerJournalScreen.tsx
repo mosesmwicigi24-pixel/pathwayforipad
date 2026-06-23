@@ -3,7 +3,7 @@
 // mark answered (with an optional note of what God did), delete forever.
 // Client-generated ids keep writes idempotent; entries sync across devices.
 import { useState, type ReactElement } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, TextInput, View } from "react-native";
 import { ArrowLeft, Check, Trash2 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NuruApi } from "../api/client";
@@ -39,6 +39,23 @@ export function PrayerJournalScreen(): ReactElement {
     invalidateQueries("prayers");
     refreshQueries("scores"); // praying moves the Prayer score
     void refetch();
+  }
+
+  async function shareToWall(entryId: string): Promise<void> {
+    Alert.alert("Share to the wall?", "Your congregation will see this request and can pray with you. You can make it private again anytime.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Share",
+        onPress: () =>
+          void NuruApi.sharePrayerToWall(entryId)
+            .then(() => {
+              invalidateQueries("prayerWall");
+              invalidateQueries("prayerWallHome");
+              Alert.alert("Shared", "Your prayer is now on the wall 🙏");
+            })
+            .catch((e) => Alert.alert("Couldn't share", errorMessage(e))),
+      },
+    ]);
   }
 
   async function save(): Promise<void> {
@@ -208,6 +225,9 @@ export function PrayerJournalScreen(): ReactElement {
                   {`Answered${p.answered_at ? ` · ${when(p.answered_at)}` : ""}`}
                 </T>
               )}
+              <Pressable accessibilityRole="button" accessibilityLabel="Share to the prayer wall" onPress={() => void shareToWall(p.entry_id)}>
+                <T variant="caption" style={{ color: palette.goldLo, fontWeight: "700" }}>Share to wall ›</T>
+              </Pressable>
               <View style={{ flex: 1 }} />
               <Pressable accessibilityRole="button" accessibilityLabel="Delete prayer" onPress={() => void remove(p.entry_id)}>
                 <Trash2 size={16} color={palette.ink400} />

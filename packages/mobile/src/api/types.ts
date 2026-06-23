@@ -641,6 +641,43 @@ export interface NextAction {
   priority: number;
 }
 
+// Prayer Wall — public, congregation-scoped prayer requests (GET /prayer-wall).
+export interface PrayerReaction {
+  emoji: string;
+  count: number;
+  mine: boolean;
+}
+export interface PrayerWallPost {
+  post_id: string;
+  author_user_id: string;
+  author_name: string;
+  author_avatar: string | null;
+  title: string | null;
+  body: string;
+  audio_url: string | null;
+  is_answered: boolean;
+  created_at: string;
+  mine: boolean;
+  pray_count: number;
+  i_prayed: boolean;
+  comment_count: number;
+  reactions: PrayerReaction[];
+}
+export interface PrayerWallComment {
+  comment_id: string;
+  author_user_id: string;
+  author_name: string;
+  author_avatar: string | null;
+  body: string;
+  audio_url: string | null;
+  created_at: string;
+  mine: boolean;
+}
+export interface PrayerWallDetail {
+  post: PrayerWallPost;
+  comments: PrayerWallComment[];
+}
+
 // Composite of all five member scores + a weighted overall (GET /me/scores).
 export interface ScoresSummary {
   overall: { score: number; band: string };

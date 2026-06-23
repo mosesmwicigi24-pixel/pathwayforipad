@@ -30,6 +30,8 @@ export type RootStackParamList = {
   CohortDiscussions: undefined; // cohort thread board (D3, pushed from Community)
   Gifts: undefined; // spiritual-gifts assessment + results (M3)
   PrayerJournal: undefined; // private journal (M3)
+  PrayerWall: undefined; // public prayer wall
+  PrayerWallDetail: { postId: string };
   VerseLibrary: undefined; // saved verses (M3)
   Notifications: undefined; // notification center (D1)
   ChatThread: { conversationId: string; title?: string }; // DM/group/space thread (Chat make)

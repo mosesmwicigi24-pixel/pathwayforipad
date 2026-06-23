@@ -29,6 +29,8 @@ import type {
   GrowthScore,
   ScoresSummary,
   NextAction,
+  PrayerWallPost,
+  PrayerWallDetail,
   NotificationRow,
   ScripturePassage,
   WelcomeVideo,
@@ -95,6 +97,9 @@ export const queryKeys = {
   scores: "scores",
   nextAction: "nextAction",
   greeting: "greeting",
+  prayerWall: (sort: string) => `prayerWall:${sort}`,
+  prayerWallHome: "prayerWallHome",
+  prayerWallPost: (id: string) => `prayerWallPost:${id}`,
   announcement: (id: string) => `announcement:${id}`,
   certificates: "certificates",
 };
@@ -310,4 +315,16 @@ export function useNextAction(): QueryResult<{ action: NextAction | null }> {
 /** Nuru's personal one-line greeting (cached per day server-side). */
 export function useDailyGreeting(): QueryResult<{ greeting: string }> {
   return useQuery(queryKeys.greeting, () => NuruApi.dailyGreeting(), { staleMs: 6 * 60 * 60 * 1000 });
+}
+/** The public prayer wall for my congregation. */
+export function usePrayerWall(sort: "latest" | "prayed" = "latest"): QueryResult<PrayerWallPost[]> {
+  return useQuery(queryKeys.prayerWall(sort), () => NuruApi.prayerWall(sort), { staleMs: 15_000 });
+}
+/** Most-prayed recent requests for the Home carousel. */
+export function usePrayerWallHome(): QueryResult<PrayerWallPost[]> {
+  return useQuery(queryKeys.prayerWallHome, () => NuruApi.prayerWallHome(), { staleMs: 60_000 });
+}
+/** A single prayer request + its comments. */
+export function usePrayerWallPost(postId: string | null): QueryResult<PrayerWallDetail> {
+  return useQuery(postId ? queryKeys.prayerWallPost(postId) : null, () => NuruApi.prayerWallGet(postId as string), { staleMs: 10_000 });
 }

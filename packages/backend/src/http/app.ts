@@ -40,6 +40,7 @@ import { registerCommunity } from "../modules/community/index.js";
 import { registerGrowthContent } from "../modules/growth-content/index.js";
 import { registerScores } from "../modules/scores/index.js";
 import { registerHome } from "../modules/home/index.js";
+import { registerPrayerWall } from "../modules/prayer-wall/index.js";
 import { registerChat } from "../modules/chat/index.js";
 import { registerAssistant } from "../modules/assistant/index.js";
 import { registerSystem } from "../modules/system/index.js";
@@ -156,6 +157,7 @@ export function createApp(ctx: AppContext): Express {
   v1.use(registerGrowthContent(ctx));
   v1.use(registerScores(ctx));
   v1.use(registerHome(ctx));
+  v1.use(registerPrayerWall(ctx));
   v1.use(registerSystem(ctx));
   v1.use(registerEncouragements(ctx));
   app.use("/v1", v1);
