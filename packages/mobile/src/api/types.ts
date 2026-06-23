@@ -625,6 +625,18 @@ export interface GrowthScore {
   detail: Record<string, number>;
 }
 
+// Server-decided "next best action" hero for Home (GET /me/home/next-action).
+export interface NextAction {
+  id: string;
+  title: string;
+  body: string;
+  cta_label: string;
+  route: "pathway" | "module" | "prayer" | "memoryVerses" | "devotional" | "events" | "none";
+  params?: { moduleId?: string };
+  accent: "gold" | "navy" | "success" | "steady";
+  priority: number;
+}
+
 // Composite of all five member scores + a weighted overall (GET /me/scores).
 export interface ScoresSummary {
   overall: { score: number; band: string };

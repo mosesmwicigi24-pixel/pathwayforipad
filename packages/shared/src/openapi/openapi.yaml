@@ -2436,6 +2436,13 @@ paths:
         "200": { description: Disciplers }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /me/home/next-action:
+    get:
+      tags: [progress]
+      summary: The single best next step for me (server-driven Home hero card).
+      responses:
+        "200": { description: Next action }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /me/scores:
     get:
       tags: [progress]

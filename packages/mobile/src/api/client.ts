@@ -42,6 +42,7 @@ import type {
   Discipler,
   GrowthScore,
   ScoresSummary,
+  NextAction,
   MyReflection,
   PathwaySummary,
   PrayerEntry,
@@ -557,6 +558,11 @@ export const NuruApi = {
   },
   async scores(): Promise<ScoresSummary> {
     const { data } = await api.get<ScoresSummary>("/me/scores");
+    return data;
+  },
+  // ---- Server-driven Home: the next-best-action hero (GET /me/home/next-action) ----
+  async nextAction(): Promise<{ action: NextAction | null }> {
+    const { data } = await api.get<{ action: NextAction | null }>("/me/home/next-action");
     return data;
   },
   // ---- Disciplers carousel (Home "Meet your discipler", GET /home/disciplers) ----

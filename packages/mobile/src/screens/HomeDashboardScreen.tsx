@@ -47,6 +47,7 @@ import {
   useFeaturedAnnouncement,
   useCellSummary,
   useScores,
+  useNextAction,
   useMe,
   useMyAnnouncements,
   useNotifications,
@@ -54,7 +55,7 @@ import {
   useScripture,
   useWelcomeVideo,
 } from "../api/hooks";
-import type { ContentReaction, WelcomeVideo } from "../api/types";
+import type { ContentReaction, WelcomeVideo, NextAction } from "../api/types";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -85,6 +86,10 @@ function greeting(): string {
 
 function firstName(full?: string | null): string {
   return (full ?? "Friend").trim().split(/\s+/)[0] ?? "Friend";
+}
+
+function heroAccent(accent: "gold" | "navy" | "success" | "steady"): string {
+  return accent === "success" ? palette.success : accent === "steady" ? palette.steady : accent === "navy" ? palette.goldGlow : palette.gold;
 }
 
 // The playable URL for the welcome video. External sources (youtube/vimeo/
@@ -138,6 +143,7 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: featuredAnnouncement, refetch: refetchFeaturedAnnouncement } = useFeaturedAnnouncement();
   const { data: cellSummary } = useCellSummary();
   const { data: scores } = useScores();
+  const { data: nextAction } = useNextAction();
   const [refreshing, setRefreshing] = useState(false);
 
   // Home video social state (❤️ Like / emoji reactions / share), seeded from the
@@ -196,6 +202,23 @@ export function HomeDashboardScreen(): ReactElement {
       const next = await NuruApi.completeRhythm(kind);
       setRhythm({ prayer: next.prayer, word: next.word, reflection: next.reflection });
     } catch { setRhythm((p) => ({ ...p, [kind]: false })); }
+  }
+
+  // Server-driven hero → screen. The mapping is the only client-side knowledge;
+  // the server decides WHICH action, the client just knows how to navigate each.
+  function goAction(a: NextAction): void {
+    switch (a.route) {
+      case "module":
+        if (a.params?.moduleId) nav.navigate("Module", { moduleId: a.params.moduleId });
+        else nav.navigate("Tabs", { screen: "Pathway" });
+        break;
+      case "pathway": nav.navigate("Tabs", { screen: "Pathway" }); break;
+      case "events": nav.navigate("Tabs", { screen: "Events" }); break;
+      case "prayer": nav.navigate("PrayerJournal"); break;
+      case "memoryVerses": nav.navigate("MemoryVerses"); break;
+      case "devotional": nav.navigate("Devotional"); break;
+      case "none": break;
+    }
   }
 
   if (isLoading) {
@@ -283,6 +306,27 @@ export function HomeDashboardScreen(): ReactElement {
       </View>
 
       <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.base, gap: spacing.base }}>
+        {/* ── Next best action (server-driven hero, personal to this member) ── */}
+        {nextAction?.action ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={nextAction.action.title}
+            onPress={() => goAction(nextAction.action as NextAction)}
+            style={({ pressed }) => [st.heroCard, pressed && { opacity: 0.94 }]}
+          >
+            <View style={[st.heroAccent, { backgroundColor: heroAccent(nextAction.action.accent) }]} />
+            <View style={{ flex: 1 }}>
+              <T variant="micro" style={{ color: palette.goldGlow, fontWeight: "700", letterSpacing: 1.4 }}>FOR YOU TODAY</T>
+              <T serif tone="onNavy" style={{ fontSize: 19, marginTop: 4 }}>{nextAction.action.title}</T>
+              <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }}>{nextAction.action.body}</T>
+              <View style={st.heroCta}>
+                <T variant="caption" style={{ color: palette.navyDeep, fontWeight: "800" }}>{nextAction.action.cta_label}</T>
+                <ChevronRight size={14} color={palette.navyDeep} />
+              </View>
+            </View>
+          </Pressable>
+        ) : null}
+
         {/* ── Featured welcome video (real, PR #120; hidden when none set) ── */}
         {welcomeVideo && welcomeUrl ? (
           <View style={st.featuredCard}>
@@ -1013,6 +1057,9 @@ const st = {
   habitDot: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   metricTile: { flex: 1, backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
   miniTrack: { height: 4, borderRadius: 2, backgroundColor: palette.track, overflow: "hidden" },
+  heroCard: { flexDirection: "row", gap: spacing.md, backgroundColor: palette.navyDeep, borderRadius: radii.card, padding: spacing.base, ...shadow.card },
+  heroAccent: { width: 4, borderRadius: 2, alignSelf: "stretch" },
+  heroCta: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", marginTop: spacing.md, backgroundColor: palette.gold, borderRadius: radii.pill, paddingVertical: 7, paddingHorizontal: 14 },
   overallRow: { flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: spacing.md },
   overallRing: { width: 68, height: 68, borderRadius: 34, borderWidth: 3, borderColor: palette.gold, alignItems: "center", justifyContent: "center", backgroundColor: palette.verseBg },
   targetStrip: {

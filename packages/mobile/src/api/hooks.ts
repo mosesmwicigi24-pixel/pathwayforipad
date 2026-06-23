@@ -28,6 +28,7 @@ import type {
   Discipler,
   GrowthScore,
   ScoresSummary,
+  NextAction,
   NotificationRow,
   ScripturePassage,
   WelcomeVideo,
@@ -92,6 +93,7 @@ export const queryKeys = {
   disciplers: "disciplers",
   wordScore: "wordScore",
   scores: "scores",
+  nextAction: "nextAction",
   announcement: (id: string) => `announcement:${id}`,
   certificates: "certificates",
 };
@@ -299,4 +301,8 @@ export function useWordScore(): QueryResult<GrowthScore> {
 /** All five growth scores + a weighted overall (Home "Your progress"). */
 export function useScores(): QueryResult<ScoresSummary> {
   return useQuery(queryKeys.scores, () => NuruApi.scores(), { staleMs: 30_000 });
+}
+/** The server-decided next-best-action hero for Home. */
+export function useNextAction(): QueryResult<{ action: NextAction | null }> {
+  return useQuery(queryKeys.nextAction, () => NuruApi.nextAction(), { staleMs: 60_000 });
 }
