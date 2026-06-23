@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Flame,
   HandHeart,
+  PenLine,
   Library,
   Lock,
   PlayCircle,
@@ -23,7 +24,6 @@ import {
   Sparkles,
   Sun,
   UserRoundCheck,
-  Users,
   type LucideIcon,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -39,17 +39,17 @@ import {
   useMentor,
   useMyGifts,
   usePathway,
-  usePlans,
-  usePrayers,
-  usePrayerWallHome,
   useResources,
+  useRhythmToday,
   useScripture,
   useVerses,
+  queryKeys,
 } from "../api/hooks";
-import { errorMessage } from "../api/query";
+import { NuruApi } from "../api/client";
+import { errorMessage, refreshQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
 import { isLevelLocked, lockedLevelLabel } from "./levelGating";
-import type { PathwayLevel } from "../api/types";
+import type { PathwayLevel, RhythmToday } from "../api/types";
 
 // Per-level accent so the journey reads as a colourful ladder. Locked levels keep
 // their colour (just dimmed + padlocked) so the path ahead stays inviting.
@@ -80,9 +80,7 @@ export function LevelsScreen(): ReactElement {
   const { data: verse } = useScripture("Romans 12:2");
   // Live previews — each card mirrors what's on its page.
   const { data: devotional } = useDevotional();
-  const { data: plans } = usePlans();
-  const { data: wall } = usePrayerWallHome();
-  const { data: prayers } = usePrayers();
+  const { data: rhythm } = useRhythmToday();
   const { data: mentor } = useMentor();
   const { data: gifts } = useMyGifts();
   const { data: memoryVerses } = useMemoryVerses();
@@ -126,13 +124,6 @@ export function LevelsScreen(): ReactElement {
   const streak = achievements?.streak?.current ?? 0;
 
   // ── derive preview content ──────────────────────────────────────────
-  const plan = plans?.find((p) => p.enrolled) ?? plans?.[0] ?? null;
-  const planDone = plan?.completed_days?.length ?? 0;
-  const planPct = plan && plan.day_count > 0 ? Math.round((planDone / plan.day_count) * 100) : 0;
-  const topPrayer = wall?.[0] ?? null;
-  const prayerCount = prayers?.length ?? 0;
-  const answeredCount = prayers?.filter((p) => p.is_answered).length ?? 0;
-  const latestPrayer = prayers?.[0] ?? null;
   const mv = memoryVerses?.find((v) => v.status === "learning") ?? memoryVerses?.[0] ?? null;
   const topGifts = gifts?.assessment?.top_gifts ?? [];
   const savedLatest = savedVerses?.[0] ?? null;
@@ -235,55 +226,8 @@ export function LevelsScreen(): ReactElement {
           </T>
         </PreviewCard>
 
-        {/* Reading plan + Prayer wall — side by side */}
-        <View style={{ flexDirection: "row", gap: spacing.sm }}>
-          <TwoUpCard
-            label="Reading plan"
-            Icon={BookOpen}
-            tint="#E0E7FF"
-            fg="#4338CA"
-            onPress={() => (plan ? nav.navigate("PlanDetail", { planId: plan.plan_id, title: plan.title }) : nav.navigate("ReadingPlans"))}
-            chip={plan?.enrolled ? { text: `${planPct}%`, bg: "#E0E7FF", fg: "#4338CA" } : undefined}
-          >
-            <T variant="heading" style={{ fontSize: 14, marginTop: 2 }} numberOfLines={2}>
-              {plan?.title ?? "Read through Scripture"}
-            </T>
-            {plan?.enrolled ? (
-              <>
-                <View style={[st.miniTrack, { marginTop: 8 }]}>
-                  <View style={{ width: `${planPct}%`, height: "100%", borderRadius: 2, backgroundColor: "#6366F1" }} />
-                </View>
-                <T variant="micro" tone="tertiary" style={{ marginTop: 6 }}>{`Day ${plan.current_day ?? planDone + 1} of ${plan.day_count}`}</T>
-              </>
-            ) : (
-              <T variant="micro" tone="tertiary" style={{ marginTop: 4 }} numberOfLines={1}>
-                {plans && plans.length > 0 ? `${plans.length} plans to start` : "Start a guided plan"}
-              </T>
-            )}
-          </TwoUpCard>
-
-          <TwoUpCard
-            label="Prayer wall"
-            Icon={Users}
-            tint="#FCE7F3"
-            fg="#BE185D"
-            onPress={() => (topPrayer ? nav.navigate("PrayerWallDetail", { postId: topPrayer.post_id }) : nav.navigate("PrayerWall"))}
-            chip={topPrayer ? { text: `🙏 ${topPrayer.pray_count}`, bg: "#FCE7F3", fg: "#BE185D" } : undefined}
-          >
-            {topPrayer ? (
-              <>
-                <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>
-                  {snippet(topPrayer.title ?? topPrayer.body, 64)}
-                </T>
-                <T variant="micro" tone="tertiary" style={{ marginTop: 6 }} numberOfLines={1}>
-                  {`${topPrayer.author_name}`}
-                </T>
-              </>
-            ) : (
-              <T variant="micro" tone="tertiary" style={{ marginTop: 4 }} numberOfLines={2}>Share a request to pray under.</T>
-            )}
-          </TwoUpCard>
-        </View>
+        {/* Today's rhythm — prayer, word, reflection */}
+        <RhythmCard rhythm={rhythm} />
 
         {/* ── YOUR JOURNEY (the seven levels, each with a summary) ─────── */}
         <View style={st.sectionHead}>
@@ -398,24 +342,6 @@ export function LevelsScreen(): ReactElement {
           </View>
         </Pressable>
 
-        {/* Prayer journal — private; latest entry + counts */}
-        <PreviewCard
-          label="Prayer journal"
-          Icon={HandHeart}
-          tint="#FEE2E2"
-          fg="#B91C1C"
-          onPress={() => nav.navigate("PrayerJournal")}
-          chip={prayerCount > 0 ? { text: `${prayerCount} · ${answeredCount} answered`, bg: "#FEE2E2", fg: "#B91C1C" } : { text: "Private", bg: palette.mutedBg, fg: palette.ink600 }}
-        >
-          {latestPrayer ? (
-            <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>
-              {snippet(latestPrayer.title ?? latestPrayer.body, 110)}
-            </T>
-          ) : (
-            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Pour out your heart — kept private to you.</T>
-          )}
-        </PreviewCard>
-
         {/* Verse library — latest saved + count */}
         <PreviewCard
           label="Verse library"
@@ -465,41 +391,57 @@ function niceDate(iso: string): string {
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-/** A compact, half-width preview for a 2-up row: icon + chip on top, label, body. */
-function TwoUpCard({
-  label,
-  Icon,
-  tint,
-  fg,
-  onPress,
-  chip,
-  children,
-}: {
-  label: string;
-  Icon: LucideIcon;
-  tint: string;
-  fg: string;
-  onPress: () => void;
-  chip?: { text: string; bg: string; fg: string } | undefined;
-  children: ReactNode;
-}): ReactElement {
+/** Today's rhythm — prayer, word, reflection. Tap to mark done (idempotent per
+ *  day); completions tick the Word/Habits scores. */
+const RHYTHM_ITEMS = [
+  { key: "prayer" as const, label: "Prayer", Icon: HandHeart },
+  { key: "word" as const, label: "Word", Icon: BookOpen },
+  { key: "reflection" as const, label: "Reflection", Icon: PenLine },
+];
+function RhythmCard({ rhythm }: { rhythm: RhythmToday | undefined }): ReactElement {
+  const [local, setLocal] = useState<Partial<Record<"prayer" | "word" | "reflection", boolean>>>({});
+  const isDone = (k: "prayer" | "word" | "reflection"): boolean => local[k] ?? (rhythm?.[k] ?? false);
+  async function mark(k: "prayer" | "word" | "reflection"): Promise<void> {
+    if (isDone(k)) return;
+    setLocal((p) => ({ ...p, [k]: true }));
+    try {
+      await NuruApi.completeRhythm(k);
+      refreshQueries(queryKeys.rhythmToday);
+    } catch {
+      setLocal((p) => ({ ...p, [k]: false }));
+    }
+  }
+  const left = RHYTHM_ITEMS.filter((i) => !isDone(i.key)).length;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [st.twoUp, pressed && { opacity: 0.88 }]}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <View style={[st.previewIcon, { backgroundColor: tint }]}>
-          <Icon size={18} color={fg} />
-        </View>
-        {chip ? (
-          <View style={[st.chip, { backgroundColor: chip.bg }]}>
-            <T variant="micro" style={{ color: chip.fg, fontWeight: "700" }}>{chip.text}</T>
-          </View>
-        ) : null}
+    <View style={st.rhythmCard}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Sun size={14} color={palette.goldLo} />
+        <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", letterSpacing: 1.4 }}>TODAY'S RHYTHM</T>
       </View>
-      <T variant="micro" style={{ color: fg, fontWeight: "700", letterSpacing: 1.1, marginTop: spacing.sm }} numberOfLines={1}>
-        {label.toUpperCase()}
+      <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
+        {RHYTHM_ITEMS.map(({ key, label, Icon }) => {
+          const on = isDone(key);
+          return (
+            <Pressable
+              key={key}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={`${label}${on ? ", done" : ""}`}
+              onPress={() => void mark(key)}
+              style={[st.habitTile, on ? st.habitOn : st.habitOff]}
+            >
+              <View style={[st.habitDot, { backgroundColor: on ? palette.gold : palette.white }]}>
+                {on ? <Check size={14} color={palette.navy} /> : <Icon size={14} color={palette.ink400} />}
+              </View>
+              <T variant="caption" style={{ fontWeight: "600", color: on ? palette.navy : palette.ink600 }}>{label}</T>
+            </Pressable>
+          );
+        })}
+      </View>
+      <T variant="micro" tone="tertiary" style={{ marginTop: spacing.sm }}>
+        {left === 0 ? "Beautiful — all three today." : `${left} step${left === 1 ? "" : "s"} left today`}
       </T>
-      {children}
-    </Pressable>
+    </View>
   );
 }
 
@@ -732,6 +674,11 @@ const st = {
     ...shadow.card,
   },
   previewAccent: { borderColor: "rgba(201,162,39,0.45)", backgroundColor: palette.verseBg },
+  rhythmCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
+  habitTile: { flex: 1, alignItems: "center", gap: 4, borderRadius: 14, paddingVertical: spacing.md, borderWidth: 1 },
+  habitOn: { backgroundColor: "rgba(201,162,39,0.12)", borderColor: "rgba(201,162,39,0.45)" },
+  habitOff: { backgroundColor: palette.surface, borderColor: "transparent" },
+  habitDot: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   twoUp: {
     flex: 1,
     minHeight: 132,

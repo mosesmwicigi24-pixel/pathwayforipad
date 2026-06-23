@@ -50,6 +50,8 @@ import {
   useNextAction,
   useDailyGreeting,
   usePrayerWallHome,
+  usePlans,
+  usePrayers,
   useMe,
   useMyAnnouncements,
   useNotifications,
@@ -146,7 +148,15 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: mentorInfo } = useMentor();
   const { data: disciplers } = useDisciplers();
   const { data: wallPosts } = usePrayerWallHome();
+  const { data: plans } = usePlans();
+  const { data: prayers } = usePrayers();
   const discipler = mentorInfo?.mentor ?? null;
+  const plan = plans?.find((p) => p.enrolled) ?? plans?.[0] ?? null;
+  const planDone = plan?.completed_days?.length ?? 0;
+  const planPct = plan && plan.day_count > 0 ? Math.round((planDone / plan.day_count) * 100) : 0;
+  const prayerCount = prayers?.length ?? 0;
+  const answeredCount = prayers?.filter((p) => p.is_answered).length ?? 0;
+  const latestPrayer = prayers?.[0] ?? null;
   const { data: featuredEvent, refetch: refetchFeaturedEvent } = useFeaturedEvent();
   const { data: featuredAnnouncement, refetch: refetchFeaturedAnnouncement } = useFeaturedAnnouncement();
   const { data: cellSummary } = useCellSummary();
@@ -510,6 +520,51 @@ export function HomeDashboardScreen(): ReactElement {
             onSeeAll={() => nav.navigate("PrayerWall")}
           />
         ) : null}
+
+        {/* ── Reading plan + Prayer journal (moved from Pathway) ─────── */}
+        <View style={{ flexDirection: "row", gap: spacing.sm }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Reading plan"
+            onPress={() => (plan ? nav.navigate("PlanDetail", { planId: plan.plan_id, title: plan.title }) : nav.navigate("ReadingPlans"))}
+            style={({ pressed }) => [st.homeMini, pressed && { opacity: 0.9 }]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View style={[st.homeMiniIcon, { backgroundColor: "#E0E7FF" }]}><BookOpen size={18} color="#4338CA" /></View>
+              {plan?.enrolled ? <View style={[st.homeChip, { backgroundColor: "#E0E7FF" }]}><T variant="micro" style={{ color: "#4338CA", fontWeight: "700" }}>{`${planPct}%`}</T></View> : null}
+            </View>
+            <T variant="micro" style={{ color: "#4338CA", fontWeight: "700", letterSpacing: 1.1, marginTop: spacing.sm }}>READING PLAN</T>
+            <T variant="heading" style={{ fontSize: 14, marginTop: 2 }} numberOfLines={2}>{plan?.title ?? "Read through Scripture"}</T>
+            {plan?.enrolled ? (
+              <>
+                <View style={[st.miniTrack, { marginTop: 8 }]}><View style={{ width: `${planPct}%`, height: "100%", borderRadius: 2, backgroundColor: "#6366F1" }} /></View>
+                <T variant="micro" tone="tertiary" style={{ marginTop: 6 }}>{`Day ${plan.current_day ?? planDone + 1} of ${plan.day_count}`}</T>
+              </>
+            ) : (
+              <T variant="micro" tone="tertiary" style={{ marginTop: 4 }} numberOfLines={1}>{plans && plans.length > 0 ? `${plans.length} plans to start` : "Start a guided plan"}</T>
+            )}
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Prayer journal"
+            onPress={() => nav.navigate("PrayerJournal")}
+            style={({ pressed }) => [st.homeMini, pressed && { opacity: 0.9 }]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View style={[st.homeMiniIcon, { backgroundColor: "#FEE2E2" }]}><HandHeart size={18} color="#B91C1C" /></View>
+              <View style={[st.homeChip, { backgroundColor: prayerCount > 0 ? "#FEE2E2" : palette.mutedBg }]}>
+                <T variant="micro" style={{ color: prayerCount > 0 ? "#B91C1C" : palette.ink600, fontWeight: "700" }}>{prayerCount > 0 ? `${answeredCount} answered` : "Private"}</T>
+              </View>
+            </View>
+            <T variant="micro" style={{ color: "#B91C1C", fontWeight: "700", letterSpacing: 1.1, marginTop: spacing.sm }}>PRAYER JOURNAL</T>
+            {latestPrayer ? (
+              <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>{latestPrayer.title ?? latestPrayer.body}</T>
+            ) : (
+              <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>Pour out your heart — private to you.</T>
+            )}
+          </Pressable>
+        </View>
 
         {/* ── Featured event (homepage toggle) ───────────────────────── */}
         {featuredEvent ? (
@@ -1095,6 +1150,9 @@ const st = {
   habitDot: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   metricTile: { flex: 1, backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
   miniTrack: { height: 4, borderRadius: 2, backgroundColor: palette.track, overflow: "hidden" },
+  homeMini: { flex: 1, minHeight: 132, backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
+  homeMiniIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  homeChip: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3 },
   heroCard: { flexDirection: "row", gap: spacing.md, backgroundColor: palette.navyDeep, borderRadius: radii.card, padding: spacing.base, ...shadow.card },
   heroAccent: { width: 4, borderRadius: 2, alignSelf: "stretch" },
   heroCta: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", marginTop: spacing.md, backgroundColor: palette.gold, borderRadius: radii.pill, paddingVertical: 7, paddingHorizontal: 14 },
