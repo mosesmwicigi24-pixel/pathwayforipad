@@ -79,8 +79,11 @@ export const queryKeys = {
   chatInbox: "chatInbox",
   chatConvo: (id: string) => `chatConvo:${id}`,
   chatPeople: (q: string) => `chatPeople:${q}`,
-  giftQuestions: "giftQuestions",
-  myGifts: "myGifts",
+  // v2: the gifts payloads changed shape (question SET object; personas on
+  // myGifts). Bumping the keys ensures a stale array/old-shaped cache persisted
+  // by the previous app build is never read into the new screen (which would crash).
+  giftQuestions: "giftQuestions:v2",
+  myGifts: "myGifts:v2",
   prayers: "prayers",
   verses: "verses",
   myReflection: (moduleId: string) => `myReflection:${moduleId}`,

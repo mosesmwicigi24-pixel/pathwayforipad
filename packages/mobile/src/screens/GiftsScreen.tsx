@@ -10,7 +10,7 @@ import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, ProgressBar, T } from "../theme/components";
-import { useGiftQuestions, useMyGifts } from "../api/hooks";
+import { queryKeys, useGiftQuestions, useMyGifts } from "../api/hooks";
 import { errorMessage, invalidateQueries } from "../api/query";
 import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
@@ -68,7 +68,7 @@ export function GiftsScreen(): ReactElement {
         <Assessment
           onDone={() => {
             setRetaking(false);
-            invalidateQueries("myGifts");
+            invalidateQueries(queryKeys.myGifts);
             void refetch();
           }}
         />
@@ -173,7 +173,15 @@ function Assessment({ onDone }: { onDone: () => void }): ReactElement {
     );
   }
 
-  const questions = set.data;
+  // Tolerate any unexpected/stale shape: a valid set has a set_id + a data array.
+  const questions = Array.isArray(set.data) ? set.data : [];
+  if (!set.set_id || questions.length === 0) {
+    return (
+      <View style={st.center}>
+        <Loading label="Tailoring your questions…" />
+      </View>
+    );
+  }
   const answered = Object.keys(answers).length;
   const complete = answered === questions.length;
 
