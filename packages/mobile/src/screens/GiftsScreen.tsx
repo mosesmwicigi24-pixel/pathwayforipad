@@ -80,10 +80,13 @@ export function GiftsScreen(): ReactElement {
 function Results({ gifts, onRetake }: { gifts: NonNullable<ReturnType<typeof useMyGifts>["data"]>; onRetake: () => void }): ReactElement {
   const a = gifts.assessment;
   if (!a) return <View />;
-  const top = a.top_gifts;
-  const personaByKey = new Map(gifts.personas.map((p) => [p.gift_key, p]));
+  const top = Array.isArray(a.top_gifts) ? a.top_gifts : [];
+  const personaList = Array.isArray(gifts.personas) ? gifts.personas : []; // tolerate stale cache
+  const tracks = Array.isArray(gifts.suggested_tracks) ? gifts.suggested_tracks : [];
+  const scores = a.scores ?? {};
+  const personaByKey = new Map(personaList.map((p) => [p.gift_key, p]));
   const label = (g: string): string => personaByKey.get(g)?.title ?? GIFT_NAMES[g] ?? g;
-  const lead = gifts.personas[0];
+  const lead = personaList[0];
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl, gap: spacing.base }} showsVerticalScrollIndicator={false}>
       {/* Personality headline */}
@@ -114,13 +117,13 @@ function Results({ gifts, onRetake }: { gifts: NonNullable<ReturnType<typeof use
                 <T variant="heading">{p?.persona_name ?? label(g)}</T>
                 <T variant="micro" tone="tertiary">{label(g)}</T>
               </View>
-              <T variant="heading" style={{ fontSize: 15, color: accent }}>{`${a.scores[g] ?? 0}%`}</T>
+              <T variant="heading" style={{ fontSize: 15, color: accent }}>{`${scores[g] ?? 0}%`}</T>
             </View>
             <View style={{ marginTop: spacing.sm }}>
-              <ProgressBar pct={a.scores[g] ?? 0} />
+              <ProgressBar pct={scores[g] ?? 0} />
             </View>
             {p?.summary ? <T variant="caption" tone="secondary" style={{ marginTop: spacing.sm, lineHeight: 20 }}>{p.summary}</T> : null}
-            {p && p.strengths.length > 0 ? (
+            {p && Array.isArray(p.strengths) && p.strengths.length > 0 ? (
               <View style={st.chipWrap}>
                 {p.strengths.slice(0, 4).map((s) => (
                   <View key={s} style={st.strengthChip}><T variant="micro" style={{ color: palette.ink600, fontWeight: "600" }}>{s}</T></View>
@@ -132,13 +135,13 @@ function Results({ gifts, onRetake }: { gifts: NonNullable<ReturnType<typeof use
       })}
 
       <T variant="overline" tone="secondary" style={{ marginTop: spacing.sm }}>WHERE TO SERVE</T>
-      {gifts.suggested_tracks.map((t) => (
+      {tracks.map((t) => (
         <View key={t.track_key} style={st.trackCard}>
           <T variant="heading">{t.title}</T>
           <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>{t.description}</T>
         </View>
       ))}
-      {gifts.suggested_tracks.length === 0 ? (
+      {tracks.length === 0 ? (
         <T variant="caption" tone="secondary">Talk to your leader about where these gifts fit best.</T>
       ) : null}
 

@@ -12,7 +12,8 @@ import { store } from "./store/store";
 import { RootNavigator } from "./navigation/RootNavigator";
 import { configureApiBase, installAuth } from "./api/client";
 import { apiBaseUrl } from "./config";
-import { getVault } from "./auth/vault";
+import { getVault, setVault } from "./auth/vault";
+import { KeychainTokenVault } from "./auth/keychainTokenVault";
 import { setLocalStore } from "./db/localStoreProvider";
 import { AsyncStorageLocalStore } from "./db/asyncStorageLocalStore";
 import type { KeyValueStore } from "./db/keyValueStore";
@@ -45,6 +46,10 @@ export function App(): ReactElement {
   const [bootRoute, setBootRoute] = useState<"Login" | "Tabs" | null>(null);
 
   useEffect(() => {
+    // Persist tokens in the OS secure enclave (§5.7) so login survives restarts —
+    // MUST be installed before installAuth + the resume check below, or the app
+    // falls back to the in-memory vault and forgets the session on every launch.
+    setVault(new KeychainTokenVault());
     // env override → Metro host (real device LAN IP) → platform default.
     configureApiBase(apiBaseUrl(Platform.OS, metroDevHost()));
     setConnectivity(new NetInfoConnectivity()); // real online/offline detection
