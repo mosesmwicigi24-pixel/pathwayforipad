@@ -3,7 +3,7 @@
 // announcement. Fired by the alert engine (announcementAlerts.ts) alongside the
 // chime + vibration. Lives at the app root, above the navigator.
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Bell } from "lucide-react-native";
 import { palette, radii, spacing, type, shadow } from "../theme/tokens";
@@ -61,9 +61,13 @@ export function AnnouncementToast(): ReactElement | null {
       style={[styles.wrap, { paddingTop: insets.top + 6, transform: [{ translateY: slide }] }]}
     >
       <Pressable onPress={open} style={({ pressed }) => [styles.card, pressed && { opacity: 0.92 }]}>
-        <View style={styles.iconChip}>
-          <Bell size={18} color={palette.navyDeep} />
-        </View>
+        {current.primary_image_url ? (
+          <Image source={{ uri: current.primary_image_url }} style={styles.thumb} resizeMode="cover" />
+        ) : (
+          <View style={styles.iconChip}>
+            <Bell size={18} color={palette.navyDeep} />
+          </View>
+        )}
         <View style={styles.textCol}>
           <Text style={styles.kicker}>NEW ANNOUNCEMENT</Text>
           <Text style={styles.title} numberOfLines={1}>
@@ -110,6 +114,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  thumb: { width: 44, height: 44, borderRadius: radii.control, backgroundColor: "rgba(255,255,255,0.08)" },
   textCol: { flex: 1 },
   kicker: { ...type.overline, color: palette.goldGlow, marginBottom: 2 },
   title: { ...type.heading, color: palette.onNavy },
