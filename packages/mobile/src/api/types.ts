@@ -75,6 +75,7 @@ export interface CalendarOccurrence {
   visibility: string;
   category: string | null;
   cell_group_id: string | null;
+  primary_image_url: string | null;
   start_at: string;
   end_at: string;
   rescheduled: boolean;

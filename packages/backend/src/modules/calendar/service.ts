@@ -35,6 +35,7 @@ interface SeriesRow {
   checkin_opens_min_before?: number | null;
   is_paused?: boolean;
   status?: "draft" | "active";
+  primary_image_url?: string | null;
 }
 
 // The admin portal's Create-event modal posts a richer, UI-shaped payload than
@@ -143,7 +144,7 @@ export class CalendarService {
       c,
       `SELECT series_id, congregation_id, cell_group_id, title, description, location, timezone,
               to_char(dtstart_local, 'YYYY-MM-DD"T"HH24:MI:SS') AS dtstart_local,
-              duration_min, rrule, visibility, category, is_paused, status
+              duration_min, rrule, visibility, category, is_paused, status, primary_image_url
          FROM event_series es
         WHERE es.deleted_at IS NULL AND es.is_paused = FALSE AND es.congregation_id = $1
           -- Drafts are visible only to leaders/admins ($4), never to members.
@@ -193,6 +194,7 @@ export class CalendarService {
           category: s.category ?? null,
           status: s.status ?? "active",
           cell_group_id: s.cell_group_id,
+          primary_image_url: s.primary_image_url ?? null,
           start_at: start,
           end_at: end,
           original_start_at: o.start_at,

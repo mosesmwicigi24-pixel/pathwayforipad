@@ -25,6 +25,7 @@ function occ(over: Partial<CalendarOccurrence>): CalendarOccurrence {
     visibility: "congregation",
     category: "worship",
     cell_group_id: null,
+    primary_image_url: null,
     start_at: "2026-06-10T06:00:00Z",
     end_at: "2026-06-10T07:30:00Z",
     rescheduled: false,
