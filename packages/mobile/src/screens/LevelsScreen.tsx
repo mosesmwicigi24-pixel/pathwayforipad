@@ -325,7 +325,9 @@ export function LevelsScreen(): ReactElement {
             mv
               ? mv.status === "mastered"
                 ? { text: "Mastered", bg: palette.successBg, fg: palette.successText }
-                : { text: `${mv.best_match_pct ?? 0}% recall`, bg: "#FEF3C7", fg: "#92400E" }
+                : (mv.best_match_pct ?? 0) > 0
+                  ? { text: `${mv.best_match_pct}% recall`, bg: "#FEF3C7", fg: "#92400E" }
+                  : { text: "New", bg: "#FEF3C7", fg: "#92400E" }
               : undefined
           }
         >

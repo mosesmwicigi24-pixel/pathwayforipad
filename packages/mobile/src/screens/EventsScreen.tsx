@@ -27,6 +27,9 @@ import {
 
 type Segment = "today" | "upcoming" | "rsvps";
 
+// A real, license-free worship image for the Psalm 122:1 banner.
+const GLAD_IMG = "https://images.unsplash.com/photo-1438232992991-995b7058bbb3?auto=format&fit=crop&w=1200&q=80";
+
 export function EventsScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // Snapshot "now" ONCE per mount. (Date.now() in render would change every
@@ -237,6 +240,18 @@ export function EventsScreen(): ReactElement {
             </Pressable>
           </View>
 
+          {/* Scripture banner — Psalm 122:1 */}
+          <View style={st.gladBanner}>
+            <Image source={{ uri: GLAD_IMG }} style={st.gladImg} resizeMode="cover" />
+            <View style={st.gladShade} />
+            <View style={st.gladBody}>
+              <T serif tone="onNavy" style={{ fontSize: 19, lineHeight: 26 }}>
+                “I was glad when they said to me, ‘Let us go to the house of the LORD.’”
+              </T>
+              <T variant="micro" tone="gold" style={{ marginTop: 6, letterSpacing: 1.2, fontWeight: "700" }}>PSALM 122:1</T>
+            </View>
+          </View>
+
           {/* Event cards */}
           {isLoading ? (
             <Loading label="Loading gatherings…" />
@@ -419,6 +434,10 @@ function CellTile({ label, value, sub }: { label: string; value: string; sub: st
 
 const st = {
   screen: { flex: 1, backgroundColor: palette.paper },
+  gladBanner: { height: 150, borderRadius: radii.card, overflow: "hidden", justifyContent: "flex-end", backgroundColor: palette.navy },
+  gladImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  gladShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.55)" },
+  gladBody: { padding: spacing.base },
   header: { backgroundColor: palette.navy, paddingHorizontal: spacing.screen, paddingTop: 58, paddingBottom: spacing.lg, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, overflow: "hidden" },
   kicker: { letterSpacing: 2.4, fontWeight: "600" },
   bellBtn: { width: 44, height: 44, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center" },

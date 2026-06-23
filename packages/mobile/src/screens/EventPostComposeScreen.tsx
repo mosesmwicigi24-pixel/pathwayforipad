@@ -86,7 +86,7 @@ export function EventPostComposeScreen(): ReactElement {
         {/* Photo */}
         {photo ? (
           <View style={st.previewWrap}>
-            <Image source={{ uri: photo.uri }} style={st.preview} resizeMode="cover" />
+            <Image source={{ uri: photo.uri }} style={st.preview} resizeMode="contain" />
             <Pressable accessibilityRole="button" accessibilityLabel="Remove photo" onPress={() => setPhoto(null)} style={st.removeBtn}>
               <X size={16} color="#fff" />
             </Pressable>

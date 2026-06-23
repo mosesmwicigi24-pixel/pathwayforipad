@@ -19,9 +19,14 @@ export function ImageCarousel({ images, height = 220 }: { images: string[]; heig
     if (next !== page) setPage(next);
   }
 
-  // Single image: no need for a scroll view / dots.
+  // Single image: no need for a scroll view / dots. Contain (never crop) on a
+  // soft backdrop so the whole image is visible whatever its aspect ratio.
   if (list.length === 1) {
-    return <Image source={{ uri: list[0] }} style={{ width: slideW, height, borderRadius: radii.card }} resizeMode="cover" />;
+    return (
+      <View style={{ width: slideW, height, borderRadius: radii.card, overflow: "hidden", backgroundColor: palette.mutedBg }}>
+        <Image source={{ uri: list[0] }} style={{ width: slideW, height }} resizeMode="contain" />
+      </View>
+    );
   }
 
   return (
@@ -36,12 +41,9 @@ export function ImageCarousel({ images, height = 220 }: { images: string[]; heig
         snapToInterval={slideW}
       >
         {list.map((uri, i) => (
-          <Image
-            key={`${uri}-${i}`}
-            source={{ uri }}
-            style={{ width: slideW, height, borderRadius: radii.card, marginRight: i < list.length - 1 ? 0 : 0 }}
-            resizeMode="cover"
-          />
+          <View key={`${uri}-${i}`} style={{ width: slideW, height, borderRadius: radii.card, overflow: "hidden", backgroundColor: palette.mutedBg }}>
+            <Image source={{ uri }} style={{ width: slideW, height }} resizeMode="contain" />
+          </View>
         ))}
       </ScrollView>
       <View style={{ flexDirection: "row", justifyContent: "center", gap: 6, marginTop: spacing.sm }}>

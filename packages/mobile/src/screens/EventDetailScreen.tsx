@@ -233,7 +233,7 @@ export function EventDetailScreen(): ReactElement {
                         <View style={st.goingTag}><T variant="micro" style={{ color: palette.successText, fontWeight: "700" }}>Going</T></View>
                       ) : null}
                     </View>
-                    {p.image_url ? <Image source={{ uri: p.image_url }} style={st.postImage} resizeMode="cover" /> : null}
+                    {p.image_url ? <Image source={{ uri: p.image_url }} style={st.postImage} resizeMode="contain" /> : null}
                     {p.body ? <T variant="body" style={{ color: palette.ink, marginTop: spacing.sm }}>{p.body}</T> : null}
                   </View>
                 ))}
