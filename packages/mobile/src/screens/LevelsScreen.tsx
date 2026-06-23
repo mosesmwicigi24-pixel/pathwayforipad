@@ -65,6 +65,8 @@ const LEVEL_ACCENTS = [
 // Interleaved imagery between the level cards. The Bible-study photo is a real,
 // license-free image (Unsplash CDN); swap for an uploaded asset later if desired.
 const BIBLE_STUDY_IMG = "https://images.unsplash.com/photo-1504052434569-70ad5836ab65?w=1200&q=80";
+// Light breaking through — resonates with discovering God-given gifts.
+const GIFTS_IMG = "https://images.unsplash.com/photo-1499209974431-9dddcece7f88?w=1200&q=80";
 
 const snippet = (s: string | null | undefined, n: number): string => {
   const t = (s ?? "").replace(/\s+/g, " ").trim();
@@ -233,54 +235,55 @@ export function LevelsScreen(): ReactElement {
           </T>
         </PreviewCard>
 
-        {/* Reading plan — live progress */}
-        <PreviewCard
-          label="Reading plan"
-          Icon={BookOpen}
-          tint="#E0E7FF"
-          fg="#4338CA"
-          onPress={() => (plan ? nav.navigate("PlanDetail", { planId: plan.plan_id, title: plan.title }) : nav.navigate("ReadingPlans"))}
-          chip={plan?.enrolled ? { text: `${planPct}%`, bg: "#E0E7FF", fg: "#4338CA" } : undefined}
-        >
-          <T variant="heading" style={{ fontSize: 15, marginTop: 2 }} numberOfLines={1}>
-            {plan?.title ?? "Read through Scripture"}
-          </T>
-          {plan?.enrolled ? (
-            <>
-              <View style={[st.miniTrack, { marginTop: 8 }]}>
-                <View style={{ width: `${planPct}%`, height: "100%", borderRadius: 2, backgroundColor: "#6366F1" }} />
-              </View>
-              <T variant="micro" tone="tertiary" style={{ marginTop: 6 }}>{`Day ${plan.current_day ?? planDone + 1} of ${plan.day_count}`}</T>
-            </>
-          ) : (
-            <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={1}>
-              {plans && plans.length > 0 ? `${plans.length} plans to start` : "Start a guided plan"}
+        {/* Reading plan + Prayer wall — side by side */}
+        <View style={{ flexDirection: "row", gap: spacing.sm }}>
+          <TwoUpCard
+            label="Reading plan"
+            Icon={BookOpen}
+            tint="#E0E7FF"
+            fg="#4338CA"
+            onPress={() => (plan ? nav.navigate("PlanDetail", { planId: plan.plan_id, title: plan.title }) : nav.navigate("ReadingPlans"))}
+            chip={plan?.enrolled ? { text: `${planPct}%`, bg: "#E0E7FF", fg: "#4338CA" } : undefined}
+          >
+            <T variant="heading" style={{ fontSize: 14, marginTop: 2 }} numberOfLines={2}>
+              {plan?.title ?? "Read through Scripture"}
             </T>
-          )}
-        </PreviewCard>
+            {plan?.enrolled ? (
+              <>
+                <View style={[st.miniTrack, { marginTop: 8 }]}>
+                  <View style={{ width: `${planPct}%`, height: "100%", borderRadius: 2, backgroundColor: "#6366F1" }} />
+                </View>
+                <T variant="micro" tone="tertiary" style={{ marginTop: 6 }}>{`Day ${plan.current_day ?? planDone + 1} of ${plan.day_count}`}</T>
+              </>
+            ) : (
+              <T variant="micro" tone="tertiary" style={{ marginTop: 4 }} numberOfLines={1}>
+                {plans && plans.length > 0 ? `${plans.length} plans to start` : "Start a guided plan"}
+              </T>
+            )}
+          </TwoUpCard>
 
-        {/* Prayer wall — the request the family is praying under most */}
-        <PreviewCard
-          label="Prayer wall"
-          Icon={Users}
-          tint="#FCE7F3"
-          fg="#BE185D"
-          onPress={() => (topPrayer ? nav.navigate("PrayerWallDetail", { postId: topPrayer.post_id }) : nav.navigate("PrayerWall"))}
-          chip={topPrayer ? { text: `🙏 ${topPrayer.pray_count}`, bg: "#FCE7F3", fg: "#BE185D" } : undefined}
-        >
-          {topPrayer ? (
-            <>
-              <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>
-                {snippet(topPrayer.title ?? topPrayer.body, 110)}
-              </T>
-              <T variant="micro" tone="tertiary" style={{ marginTop: 6 }}>
-                {`${topPrayer.author_name} · ${topPrayer.comment_count} ${topPrayer.comment_count === 1 ? "reply" : "replies"}`}
-              </T>
-            </>
-          ) : (
-            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Share a request for the family to pray under.</T>
-          )}
-        </PreviewCard>
+          <TwoUpCard
+            label="Prayer wall"
+            Icon={Users}
+            tint="#FCE7F3"
+            fg="#BE185D"
+            onPress={() => (topPrayer ? nav.navigate("PrayerWallDetail", { postId: topPrayer.post_id }) : nav.navigate("PrayerWall"))}
+            chip={topPrayer ? { text: `🙏 ${topPrayer.pray_count}`, bg: "#FCE7F3", fg: "#BE185D" } : undefined}
+          >
+            {topPrayer ? (
+              <>
+                <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>
+                  {snippet(topPrayer.title ?? topPrayer.body, 64)}
+                </T>
+                <T variant="micro" tone="tertiary" style={{ marginTop: 6 }} numberOfLines={1}>
+                  {`${topPrayer.author_name}`}
+                </T>
+              </>
+            ) : (
+              <T variant="micro" tone="tertiary" style={{ marginTop: 4 }} numberOfLines={2}>Share a request to pray under.</T>
+            )}
+          </TwoUpCard>
+        </View>
 
         {/* ── YOUR JOURNEY (the seven levels, each with a summary) ─────── */}
         <View style={st.sectionHead}>
@@ -364,27 +367,34 @@ export function LevelsScreen(): ReactElement {
           )}
         </PreviewCard>
 
-        {/* Spiritual gifts — top gifts or the prompt to take it */}
-        <PreviewCard
-          label="Spiritual gifts"
-          Icon={Sparkles}
-          tint="#F3E8FF"
-          fg="#7E22CE"
+        {/* Spiritual gifts — image-backed feature with a clear call to the test */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={topGifts.length > 0 ? "View your spiritual gifts" : "Take the spiritual gifts test"}
           onPress={() => nav.navigate("Gifts")}
-          chip={topGifts.length > 0 ? { text: "Discovered", bg: "#F3E8FF", fg: "#7E22CE" } : undefined}
+          style={({ pressed }) => [st.giftsFeature, pressed && { opacity: 0.92 }]}
         >
-          {topGifts.length > 0 ? (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-              {topGifts.slice(0, 3).map((g) => (
-                <View key={g} style={st.giftChip}>
-                  <T variant="micro" style={{ color: "#6B21A8", fontWeight: "600" }}>{g}</T>
-                </View>
-              ))}
+          <Image source={{ uri: GIFTS_IMG }} style={st.giftsImg} resizeMode="cover" />
+          <View style={st.giftsShade} />
+          <View style={st.giftsBody}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Sparkles size={14} color={palette.goldGlow} />
+              <T variant="micro" tone="gold" style={{ letterSpacing: 1.6, fontWeight: "800" }}>SPIRITUAL GIFTS</T>
             </View>
-          ) : (
-            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Take the assessment to discover your gifts.</T>
-          )}
-        </PreviewCard>
+            <T serif tone="onNavy" style={{ fontSize: 19, lineHeight: 24, marginTop: 4 }}>
+              {topGifts.length > 0 ? "Your gift personality" : "Discover how God wired you"}
+            </T>
+            <T variant="caption" tone="onNavyDim" style={{ marginTop: 3 }} numberOfLines={2}>
+              {topGifts.length > 0 ? topGifts.join(" · ") : "A short, personalized test reveals your top gifts and where to serve."}
+            </T>
+            <View style={st.giftsCta}>
+              <T variant="label" style={{ color: palette.navyDeep, fontWeight: "800" }}>
+                {topGifts.length > 0 ? "View your gifts" : "Take the test"}
+              </T>
+              <ChevronRight size={15} color={palette.navyDeep} />
+            </View>
+          </View>
+        </Pressable>
 
         {/* Prayer journal — private; latest entry + counts */}
         <PreviewCard
@@ -451,6 +461,44 @@ export function LevelsScreen(): ReactElement {
 function niceDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+/** A compact, half-width preview for a 2-up row: icon + chip on top, label, body. */
+function TwoUpCard({
+  label,
+  Icon,
+  tint,
+  fg,
+  onPress,
+  chip,
+  children,
+}: {
+  label: string;
+  Icon: LucideIcon;
+  tint: string;
+  fg: string;
+  onPress: () => void;
+  chip?: { text: string; bg: string; fg: string } | undefined;
+  children: ReactNode;
+}): ReactElement {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [st.twoUp, pressed && { opacity: 0.88 }]}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <View style={[st.previewIcon, { backgroundColor: tint }]}>
+          <Icon size={18} color={fg} />
+        </View>
+        {chip ? (
+          <View style={[st.chip, { backgroundColor: chip.bg }]}>
+            <T variant="micro" style={{ color: chip.fg, fontWeight: "700" }}>{chip.text}</T>
+          </View>
+        ) : null}
+      </View>
+      <T variant="micro" style={{ color: fg, fontWeight: "700", letterSpacing: 1.1, marginTop: spacing.sm }} numberOfLines={1}>
+        {label.toUpperCase()}
+      </T>
+      {children}
+    </Pressable>
+  );
 }
 
 /** A rich, tappable preview card: icon tile + label (+ optional right chip), and
@@ -682,6 +730,21 @@ const st = {
     ...shadow.card,
   },
   previewAccent: { borderColor: "rgba(201,162,39,0.45)", backgroundColor: palette.verseBg },
+  twoUp: {
+    flex: 1,
+    minHeight: 132,
+    backgroundColor: palette.white,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: spacing.base,
+    ...shadow.card,
+  },
+  giftsFeature: { height: 168, borderRadius: radii.card, overflow: "hidden", justifyContent: "flex-end", backgroundColor: palette.navy, ...shadow.card },
+  giftsImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  giftsShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(28,16,54,0.58)" },
+  giftsBody: { padding: spacing.base },
+  giftsCta: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", marginTop: spacing.md, backgroundColor: palette.gold, borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 7 },
   previewIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   chip: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3 },
   giftChip: { backgroundColor: "#F3E8FF", borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
