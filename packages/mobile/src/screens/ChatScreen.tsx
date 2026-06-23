@@ -7,14 +7,14 @@
 // an undiscovered space opens its preview first.
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
-import { Bell, ChevronRight, Hash, Pencil, Plus, Search, Sparkles, Users } from "lucide-react-native";
+import { Bell, CalendarClock, ChevronRight, Hash, MessageCircle, Pencil, Plus, Search, Sparkles, Users } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import type { ChatConversation, ChatPerson, DiscoverSpace } from "../api/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { GradientBg, T } from "../theme/components";
-import { useChatInbox, useChatPeople, queryKeys } from "../api/hooks";
+import { useChatInbox, useChatPeople, useMentor, queryKeys } from "../api/hooks";
 import { errorMessage, refreshQueries } from "../api/query";
 import { NuruApi } from "../api/client";
 import { Loading, ErrorState } from "../components/states";
@@ -40,10 +40,15 @@ const TABS: { key: ChatTab; label: string }[] = [
   { key: "groups", label: "My Groups" },
 ];
 
+const meetingLabel = (iso: string): string =>
+  new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+
 export function ChatScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data, isLoading, error, refetch } = useChatInbox();
+  const { data: mentor } = useMentor();
   const [refreshing, setRefreshing] = useState(false);
+  const [messagingDiscipler, setMessagingDiscipler] = useState(false);
   const [tab, setTab] = useState<ChatTab>("spaces");
   const [query, setQuery] = useState("");
   const [joiningId, setJoiningId] = useState<string | null>(null);
@@ -90,6 +95,23 @@ export function ChatScreen(): ReactElement {
     await refetch();
     nav.navigate("ChatThread", { conversationId: conversation_id, title: person.full_name });
   }, [nav, refetch]);
+
+  // Open (or create) the DM with your discipler and jump straight into it.
+  const messageDiscipler = useCallback(async (): Promise<void> => {
+    const m = mentor?.mentor;
+    if (!m) return;
+    setMessagingDiscipler(true);
+    try {
+      const { conversation_id } = await NuruApi.createDm(m.mentor_user_id);
+      refreshQueries(queryKeys.chatInbox);
+      await refetch();
+      nav.navigate("ChatThread", { conversationId: conversation_id, title: m.full_name });
+    } catch {
+      /* best-effort (e.g. minor-safety scope) — the card stays for retry */
+    } finally {
+      setMessagingDiscipler(false);
+    }
+  }, [mentor, nav, refetch]);
 
   const spaces = grouped.spaces.filter((c) => matchesConversation(c, query));
   const dms = grouped.dms.filter((c) => matchesConversation(c, query));
@@ -163,6 +185,35 @@ export function ChatScreen(): ReactElement {
               </View>
               <View style={st.nuruChevron}><ChevronRight size={18} color="rgba(255,255,255,0.8)" /></View>
             </Pressable>
+
+            {/* Your discipler — quick contact */}
+            {mentor?.mentor ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Message your discipler ${mentor.mentor.full_name}`}
+                onPress={() => void messageDiscipler()}
+                disabled={messagingDiscipler}
+                style={({ pressed }) => [st.discipler, pressed && { opacity: 0.92 }]}
+              >
+                <Avatar uri={mentor.mentor.avatar_url} name={mentor.mentor.full_name} size={48} ring />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <T variant="micro" tone="gold" style={{ letterSpacing: 1.2, fontWeight: "700" }}>YOUR DISCIPLER</T>
+                  <T variant="heading" style={{ fontSize: 15, marginTop: 1 }} numberOfLines={1}>{mentor.mentor.full_name}</T>
+                  {mentor.next_meeting_at ? (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+                      <CalendarClock size={11} color={palette.ink400} />
+                      <T variant="micro" tone="tertiary" numberOfLines={1}>{`Next: ${meetingLabel(mentor.next_meeting_at)}`}</T>
+                    </View>
+                  ) : (
+                    <T variant="micro" tone="tertiary" numberOfLines={1}>{mentor.mentor.cell_name ?? "Walking with you"}</T>
+                  )}
+                </View>
+                <View style={st.msgBtn}>
+                  <MessageCircle size={15} color="#fff" />
+                  <T variant="label" style={{ color: "#fff" }}>{messagingDiscipler ? "…" : "Message"}</T>
+                </View>
+              </Pressable>
+            ) : null}
 
             {/* Segmented control */}
             <View style={st.segmented}>
@@ -490,6 +541,12 @@ const st = {
     borderWidth: 1, borderColor: "rgba(201,162,39,0.35)", ...shadow.card,
   },
   nuruOrb: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#7c3aed", alignItems: "center", justifyContent: "center" },
+  discipler: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md,
+    backgroundColor: palette.white, borderRadius: 20, padding: spacing.base, marginBottom: spacing.base,
+    borderWidth: 1, borderColor: palette.border, ...shadow.card,
+  },
+  msgBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: palette.navy, paddingHorizontal: spacing.base, height: 38, borderRadius: radii.pill },
   aiTag: { backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 },
   nuruChevron: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" },
   segmented: { flexDirection: "row", backgroundColor: palette.white, borderRadius: radii.pill, padding: 5, marginBottom: spacing.base, borderWidth: 1, borderColor: palette.border, ...shadow.card },
