@@ -6,14 +6,16 @@
 // (projected occurrences are virtual, so the route carries them).
 import { useEffect, useState, type ReactElement } from "react";
 import { Image, Linking, Pressable, ScrollView, View } from "react-native";
-import { Check, ChevronLeft, Clock, MapPin, Play, Users } from "lucide-react-native";
+import { Check, ChevronLeft, Clock, ImagePlus, MapPin, Play, Timer, Users } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { GradientBg, T } from "../theme/components";
 import { ImageCarousel } from "../components/ImageCarousel";
-import { useEvent } from "../api/hooks";
+import { Avatar } from "../components/Avatar";
+import { countdown, timeAgo } from "./eventHelpers";
+import { useEvent, useEventPosts } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { writeThrough } from "../sync/offlineWrite";
@@ -40,6 +42,7 @@ export function EventDetailScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { eventId, title, startAt, endAt, location } = useRoute<RouteProp<RootStackParamList, "EventDetail">>().params;
   const { data: event, refetch } = useEvent(eventId);
+  const { data: posts } = useEventPosts(eventId);
 
   // Local RSVP mirrors the server (my_rsvp) once loaded; optimistic on tap.
   const [rsvp, setRsvp] = useState<RsvpStatus | null>(null);
@@ -52,6 +55,7 @@ export function EventDetailScreen(): ReactElement {
   const goingCount = event?.rsvp_counts?.going ?? 0;
   const timeRange = endAt ? `${timeLabel(startAt)} – ${timeLabel(endAt)}` : timeLabel(startAt);
   const heroUri = event?.primary_image_url ?? event?.images?.[0] ?? null;
+  const ticker = countdown(startAt);
   const gallery = (event?.images ?? []).slice(heroUri && event?.images?.[0] === heroUri ? 1 : 0);
 
   async function choose(status: RsvpStatus): Promise<void> {
@@ -104,10 +108,18 @@ export function EventDetailScreen(): ReactElement {
             </Pressable>
           </View>
           <View style={st.heroBottom}>
-            <View style={st.eventBadge}>
-              <T variant="micro" tone="onNavy" style={{ fontWeight: "800", letterSpacing: 1.5 }}>
-                {(event?.category ?? "EVENT").toUpperCase()}
-              </T>
+            <View style={{ flexDirection: "row", gap: 6 }}>
+              <View style={st.eventBadge}>
+                <T variant="micro" tone="onNavy" style={{ fontWeight: "800", letterSpacing: 1.5 }}>
+                  {(event?.category ?? "EVENT").toUpperCase()}
+                </T>
+              </View>
+              {ticker ? (
+                <View style={st.countdownChip}>
+                  <Timer size={11} color={palette.navyDeep} />
+                  <T variant="micro" style={{ color: palette.navyDeep, fontWeight: "800" }}>{`${ticker}!`}</T>
+                </View>
+              ) : null}
             </View>
             <T serif tone="onNavy" style={st.title}>{title}</T>
           </View>
@@ -191,6 +203,54 @@ export function EventDetailScreen(): ReactElement {
             ) : null}
             {error ? <T variant="micro" style={{ color: palette.error, marginTop: spacing.sm }}>{error}</T> : null}
           </View>
+
+          {/* Event wall — attendee posts (photo + caption) */}
+          <View style={{ marginTop: spacing.lg }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <T variant="micro" style={st.cardKicker}>{`WHO'S COMING${posts && posts.length > 0 ? ` · ${posts.length}` : ""}`}</T>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Add a post"
+                onPress={() => nav.navigate("EventPostCompose", { eventId, title })}
+                style={({ pressed }) => [st.addPostBtn, pressed && { opacity: 0.85 }]}
+              >
+                <ImagePlus size={14} color={palette.navy} />
+                <T variant="caption" style={{ color: palette.navy, fontWeight: "700" }}>Post</T>
+              </Pressable>
+            </View>
+
+            {posts && posts.length > 0 ? (
+              <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
+                {posts.map((p) => (
+                  <View key={p.post_id} style={st.postCard}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                      <Avatar uri={p.author_avatar} name={p.author_name} size={34} />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <T variant="caption" style={{ fontWeight: "700", color: palette.ink }} numberOfLines={1}>{p.author_name}</T>
+                        <T variant="micro" tone="tertiary">{timeAgo(p.created_at)}</T>
+                      </View>
+                      {p.rsvp_status === "going" ? (
+                        <View style={st.goingTag}><T variant="micro" style={{ color: palette.successText, fontWeight: "700" }}>Going</T></View>
+                      ) : null}
+                    </View>
+                    {p.image_url ? <Image source={{ uri: p.image_url }} style={st.postImage} resizeMode="cover" /> : null}
+                    {p.body ? <T variant="body" style={{ color: palette.ink, marginTop: spacing.sm }}>{p.body}</T> : null}
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => nav.navigate("EventPostCompose", { eventId, title })}
+                style={({ pressed }) => [st.emptyWall, pressed && { opacity: 0.9 }]}
+              >
+                <ImagePlus size={20} color={palette.goldLo} />
+                <T variant="caption" tone="secondary" style={{ marginTop: 6, textAlign: "center" }}>
+                  Be the first to share a photo or a word about this gathering.
+                </T>
+              </Pressable>
+            )}
+          </View>
         </View>
       </ScrollView>
     </View>
@@ -218,6 +278,7 @@ const st = {
   heroBottom: { padding: spacing.screen, paddingBottom: spacing.xl },
   glassBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" },
   eventBadge: { alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.22)", borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  countdownChip: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", backgroundColor: palette.gold, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
   title: { fontSize: 26, lineHeight: 32, marginTop: spacing.sm, fontWeight: "600" },
   metaCard: { backgroundColor: palette.white, borderRadius: radii.card, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   metaRow: { flexDirection: "row", gap: spacing.sm },
@@ -227,4 +288,9 @@ const st = {
   cardKicker: { color: palette.goldLo, fontWeight: "700", letterSpacing: 1.4 },
   rsvpRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
   rsvpBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, height: 44, borderRadius: radii.control, borderWidth: 1.5 },
+  addPostBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 6 },
+  postCard: { backgroundColor: palette.white, borderRadius: radii.card, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
+  postImage: { width: "100%", height: 220, borderRadius: 14, marginTop: spacing.md, backgroundColor: palette.mutedBg },
+  goingTag: { backgroundColor: palette.successBg, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 3 },
+  emptyWall: { alignItems: "center", justifyContent: "center", padding: spacing.lg, marginTop: spacing.md, borderRadius: radii.card, borderWidth: 1.5, borderColor: palette.border, borderStyle: "dashed", backgroundColor: palette.white },
 } as const;

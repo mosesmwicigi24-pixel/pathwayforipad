@@ -47,26 +47,26 @@ export function AnnouncementDetailScreen(): ReactElement {
 
           {data ? (
             <>
-              {data.images && data.images.length > 0 ? (
-                <View style={{ marginBottom: spacing.base }}>
-                  <ImageCarousel images={data.images} height={210} />
-                </View>
-              ) : null}
-
-              {/* Watch video — opens the attached video (from the Video Library) */}
+              {/* Video takes priority — when present it leads, larger, over the image. */}
               {data.video_url ? (
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Watch announcement video"
                   onPress={() => { const u = data.video_url; if (u) void Linking.openURL(u).catch(() => undefined); }}
-                  style={({ pressed }) => [{ height: 180, borderRadius: 16, overflow: "hidden", marginBottom: spacing.base, alignItems: "center", justifyContent: "center" }, pressed && { opacity: 0.92 }]}
+                  style={({ pressed }) => [{ height: 210, borderRadius: 16, overflow: "hidden", marginBottom: spacing.base, alignItems: "center", justifyContent: "center" }, pressed && { opacity: 0.92 }]}
                 >
                   <GradientBg colors={[palette.navy, palette.navy700, palette.gold]} radius={16} />
-                  <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" }}>
-                    <Play size={22} color={palette.navy} fill={palette.navy} />
+                  <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" }}>
+                    <Play size={26} color={palette.navy} fill={palette.navy} />
                   </View>
                   <T variant="micro" tone="onNavy" style={{ position: "absolute", bottom: 10, left: 12, fontWeight: "600", letterSpacing: 1 }}>WATCH VIDEO</T>
                 </Pressable>
+              ) : null}
+
+              {data.images && data.images.length > 0 ? (
+                <View style={{ marginBottom: spacing.base }}>
+                  <ImageCarousel images={data.images} height={data.video_url ? 150 : 210} />
+                </View>
               ) : null}
 
               <View style={st.card}>

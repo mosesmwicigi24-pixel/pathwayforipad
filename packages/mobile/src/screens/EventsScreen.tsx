@@ -6,9 +6,9 @@
 // occurrences, RSVPs, series follows, announcements, cell summary. Decorative make
 // elements with no data source (Moments gallery, "We missed you") are omitted.
 import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
+import { Image, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import {
-  Bell, CalendarDays, Check, ChevronRight, Clock, MapPin, Megaphone, QrCode, Search, Sparkles, Users,
+  Bell, CalendarDays, Check, ChevronRight, Clock, MapPin, Megaphone, Play, QrCode, Search, Sparkles, Users,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -114,6 +114,7 @@ export function EventsScreen(): ReactElement {
     if (!a.opened) {
       void NuruApi.openAnnouncement(a.announcement_id).then(() => { invalidateQueries("myAnnouncements"); void refetchAnnouncements(); }).catch(() => undefined);
     }
+    nav.navigate("AnnouncementDetail", { announcementId: a.announcement_id, title: a.title });
   }
 
   const unread = notifications?.unread ?? 0;
@@ -311,15 +312,27 @@ export function EventsScreen(): ReactElement {
               </View>
               {(announcements ?? []).slice(0, 3).map((a, i, arr) => (
                 <Pressable key={a.announcement_id} accessibilityRole="button" onPress={() => openAnnouncement(a)} style={[st.annRow, i < arr.length - 1 && st.divider]}>
-                  <View style={st.annIcon}><Sparkles size={16} color={palette.goldLo} /></View>
+                  <View style={st.annThumbWrap}>
+                    {a.primary_image_url ? (
+                      <Image source={{ uri: a.primary_image_url }} style={st.annThumb} resizeMode="cover" />
+                    ) : (
+                      <View style={st.annIcon}><Sparkles size={16} color={palette.goldLo} /></View>
+                    )}
+                    {a.video_url ? (
+                      <View style={st.annPlay}><Play size={11} color="#fff" fill="#fff" /></View>
+                    ) : null}
+                  </View>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
                       <T variant="heading" style={{ flex: 1, fontSize: 14 }} numberOfLines={1}>{a.title}</T>
                       <T variant="micro" tone="tertiary">{timeAgo(a.sent_at, now)}</T>
                     </View>
-                    <T variant="micro" tone="secondary" style={{ marginTop: 2 }} numberOfLines={1}>{a.body}</T>
+                    <T variant="micro" tone="secondary" style={{ marginTop: 2 }} numberOfLines={2}>{a.body}</T>
+                    {a.video_url ? (
+                      <View style={st.annVideoChip}><Play size={9} color={palette.navy} fill={palette.navy} /><T variant="micro" style={{ color: palette.navy, fontWeight: "700" }}>Video</T></View>
+                    ) : null}
                   </View>
-                  {!a.opened ? <View style={st.unreadDot} /> : null}
+                  {!a.opened ? <View style={st.unreadDot} /> : <ChevronRight size={16} color={palette.ink300} />}
                 </Pressable>
               ))}
             </View>
@@ -445,7 +458,11 @@ const st = {
   followingBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: radii.pill, paddingHorizontal: 14, height: 36, backgroundColor: palette.navy },
   divider: { borderBottomWidth: 1, borderBottomColor: palette.border },
   annRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
-  annIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
+  annIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
+  annThumbWrap: { width: 48, height: 48, borderRadius: 14, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  annThumb: { width: 48, height: 48, borderRadius: 14, backgroundColor: palette.mutedBg },
+  annPlay: { position: "absolute", width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
+  annVideoChip: { flexDirection: "row", alignItems: "center", gap: 3, alignSelf: "flex-start", marginTop: 4, backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 7, paddingVertical: 2 },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.gold },
   cellTile: { flexGrow: 1, flexBasis: "46%", minWidth: 140, backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
   openCellBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, backgroundColor: palette.navy, borderRadius: radii.pill, height: 50, marginTop: spacing.base },

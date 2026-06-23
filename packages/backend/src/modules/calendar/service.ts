@@ -716,6 +716,62 @@ export class CalendarService {
     return { duplicate: false, status: row.status };
   }
 
+  // ---------------- Event wall (attendee posts: image + caption) ----------------
+
+  static readonly EventPost = z.object({
+    post_id: z.string().uuid(),
+    body: z.string().max(2000).nullable().optional(),
+    image_url: z.string().url().max(500).nullable().optional(),
+    client_mutation_id: z.string().uuid().optional(),
+  });
+
+  /** Posts on an occurrence's wall (author + avatar), newest first. */
+  async listEventPosts(userId: string, eventId: string): Promise<{ data: unknown[] }> {
+    await this.ensureOccurrence(this.pool, eventId);
+    const ev = await maybeOne<{ event_id: string }>(this.pool, `SELECT event_id FROM events WHERE event_id = $1`, [eventId]);
+    if (!ev) throw new ApiError("NOT_FOUND", "Event not found");
+    const data = await many(
+      this.pool,
+      `SELECT p.post_id, p.author_user_id, u.full_name AS author_name, u.avatar_url AS author_avatar,
+              p.body, p.image_url, p.created_at,
+              (p.author_user_id = $2) AS mine,
+              r.status AS rsvp_status
+         FROM event_posts p
+         JOIN users u ON u.user_id = p.author_user_id
+         LEFT JOIN event_rsvps r ON r.event_id = p.event_id AND r.user_id = p.author_user_id
+        WHERE p.event_id = $1 AND NOT p.is_hidden
+        ORDER BY p.created_at DESC
+        LIMIT 100`,
+      [eventId, userId],
+    );
+    return { data };
+  }
+
+  async createEventPost(
+    userId: string,
+    eventId: string,
+    input: z.infer<typeof CalendarService.EventPost>,
+  ): Promise<{ post_id: string; duplicate: boolean }> {
+    if (!input.body?.trim() && !input.image_url) {
+      throw new ApiError("UNPROCESSABLE", "A post needs a caption or a photo");
+    }
+    return tx(this.pool, async (c) => {
+      if (input.client_mutation_id) {
+        const dup = await maybeOne<{ post_id: string }>(c, `SELECT post_id FROM event_posts WHERE client_mutation_id = $1`, [input.client_mutation_id]);
+        if (dup) return { post_id: dup.post_id, duplicate: true };
+      }
+      const ok = await this.ensureOccurrence(c, eventId);
+      if (!ok) throw new ApiError("NOT_FOUND", "Event not found");
+      const res = await c.query(
+        `INSERT INTO event_posts (post_id, event_id, author_user_id, body, image_url, client_mutation_id)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (post_id) DO NOTHING RETURNING post_id`,
+        [input.post_id, eventId, userId, input.body?.trim() || null, input.image_url ?? null, input.client_mutation_id ?? null],
+      );
+      if (res.rowCount === 0) return { post_id: input.post_id, duplicate: true };
+      return { post_id: input.post_id, duplicate: false };
+    });
+  }
+
   /** The member's RSVPs for upcoming events ("My RSVPs", Contract Matrix B2). */
   async myRsvps(userId: string): Promise<unknown[]> {
     return many(

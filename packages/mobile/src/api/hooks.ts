@@ -11,6 +11,7 @@ import type {
   CellSummary,
   CertificateRow,
   EventDetail,
+  EventPost,
   GivingRecord,
   GivingDetail,
   GiftQuestion,
@@ -61,6 +62,7 @@ export const queryKeys = {
   quiz: (id: string) => `quiz:${id}`,
   calendar: (from: string, to: string) => `calendar:${from}:${to}`,
   event: (id: string) => `event:${id}`,
+  eventPosts: (id: string) => `eventPosts:${id}`,
   myRsvps: "myRsvps",
   devotional: "devotional",
   memoryVerses: "memoryVerses",
@@ -151,6 +153,10 @@ export function useCalendar(from: string, to: string): QueryResult<CalendarOccur
 
 export function useEvent(eventId: string | null): QueryResult<EventDetail> {
   return useQuery(eventId ? queryKeys.event(eventId) : null, () => NuruApi.event(eventId as string));
+}
+
+export function useEventPosts(eventId: string | null): QueryResult<EventPost[]> {
+  return useQuery(eventId ? queryKeys.eventPosts(eventId) : null, () => NuruApi.eventPosts(eventId as string), { staleMs: 15_000 });
 }
 
 export function useGivingHistory(): QueryResult<GivingRecord[]> {

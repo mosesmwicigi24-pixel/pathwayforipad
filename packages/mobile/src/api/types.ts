@@ -120,6 +120,19 @@ export interface EventDetail {
   my_rsvp: "going" | "maybe" | "declined" | null;
 }
 
+// A post on an event's wall (attendee photo + caption).
+export interface EventPost {
+  post_id: string;
+  author_user_id: string;
+  author_name: string;
+  author_avatar: string | null;
+  body: string | null;
+  image_url: string | null;
+  created_at: string;
+  mine: boolean;
+  rsvp_status: "going" | "maybe" | "declined" | null;
+}
+
 export interface GivingRecord {
   transaction_id: string;
   amount_minor: number;
@@ -461,6 +474,7 @@ export interface MyAnnouncement {
   banner_expires_at: string | null;
   primary_image_url?: string | null;
   gallery_image_urls?: string[] | null;
+  video_url?: string | null;
   opened: boolean;
 }
 

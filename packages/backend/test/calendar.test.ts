@@ -175,6 +175,48 @@ describe("Events tab: category, going counts, series follow, cell summary", () =
     expect(row.next_at).toBeTruthy();
   });
 
+  it("posts to an event wall (image + caption) and lists it with the author", async () => {
+    const s = (await svc().createSeries(principal(admin, "Admin", cong), {
+      title: "Community Picnic",
+      timezone: "Africa/Nairobi",
+      dtstart_local: "2026-07-11T12:00:00",
+      duration_min: 120,
+      rrule: "FREQ=WEEKLY;BYDAY=SA;COUNT=3",
+      visibility: "congregation",
+    })) as { series_id: string };
+    const projected = (await svc().projectRange(member, "2026-06-25T00:00:00Z", "2026-08-15T00:00:00Z")) as Array<{ occurrence_id: string; series_id: string }>;
+    const occId = projected.find((o) => o.series_id === s.series_id)!.occurrence_id;
+
+    const pid = "00000000-0000-4000-8000-0000000000aa";
+    const created = await svc().createEventPost(member, occId, { post_id: pid, body: "Can't wait!", image_url: "https://res.cloudinary.com/demo/image/upload/p.jpg" });
+    expect(created.duplicate).toBe(false);
+    // idempotent replay
+    const again = await svc().createEventPost(member, occId, { post_id: pid, body: "Can't wait!" });
+    expect(again.duplicate).toBe(true);
+
+    const { data } = await svc().listEventPosts(member, occId);
+    expect(data.length).toBe(1);
+    const post = data[0] as { author_name: string; body: string; image_url: string; mine: boolean };
+    expect(post.body).toBe("Can't wait!");
+    expect(post.image_url).toContain("p.jpg");
+    expect(post.mine).toBe(true);
+    expect(post.author_name).toBeTruthy();
+  });
+
+  it("rejects an empty event-wall post", async () => {
+    const s = (await svc().createSeries(principal(admin, "Admin", cong), {
+      title: "Prayer Vigil",
+      timezone: "Africa/Nairobi",
+      dtstart_local: "2026-07-12T20:00:00",
+      duration_min: 60,
+      rrule: "FREQ=WEEKLY;BYDAY=SU;COUNT=2",
+      visibility: "congregation",
+    })) as { series_id: string };
+    const projected = (await svc().projectRange(member, "2026-06-25T00:00:00Z", "2026-08-15T00:00:00Z")) as Array<{ occurrence_id: string; series_id: string }>;
+    const occId = projected.find((o) => o.series_id === s.series_id)!.occurrence_id;
+    await expect(svc().createEventPost(member, occId, { post_id: "00000000-0000-4000-8000-0000000000bb" })).rejects.toThrow();
+  });
+
   it("follows then unfollows a series (idempotent toggle)", async () => {
     const s = (await svc().createSeries(principal(admin, "Admin", cong), {
       title: "Midweek Cell",

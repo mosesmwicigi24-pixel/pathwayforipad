@@ -45,6 +45,23 @@ export function registerCalendar(ctx: AppContext): Router {
     }),
   );
 
+  // Event wall: attendee posts (image + caption) under an occurrence.
+  r.get(
+    "/events/:id/posts",
+    auth,
+    handler(async (req, res) => {
+      res.json(await svc.listEventPosts(requirePrincipal(req).userId, req.params.id ?? ""));
+    }),
+  );
+  r.post(
+    "/events/:id/posts",
+    auth,
+    handler(async (req, res) => {
+      const input = parseBody(CalendarService.EventPost, req.body ?? {});
+      res.status(201).json(await svc.createEventPost(requirePrincipal(req).userId, req.params.id ?? "", input));
+    }),
+  );
+
   // The member's upcoming RSVPs ("My RSVPs", Contract Matrix B2).
   r.get(
     "/me/rsvps",

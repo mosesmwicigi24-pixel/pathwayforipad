@@ -18,6 +18,7 @@ import type {
   CertificateVerification,
   CompleteResult,
   EventDetail,
+  EventPost,
   GivingIntentResult,
   GivingRecord,
   GivingDetail,
@@ -239,6 +240,14 @@ export const NuruApi = {
   },
   async rsvp(eventId: string, status: "going" | "maybe" | "declined"): Promise<unknown> {
     const { data } = await api.post(`/events/${eventId}/rsvp`, { status });
+    return data;
+  },
+  async eventPosts(eventId: string): Promise<EventPost[]> {
+    const { data } = await api.get<{ data: EventPost[] }>(`/events/${encodeURIComponent(eventId)}/posts`);
+    return data.data;
+  },
+  async createEventPost(eventId: string, body: { post_id: string; body?: string | null; image_url?: string | null; client_mutation_id?: string }): Promise<{ post_id: string }> {
+    const { data } = await api.post<{ post_id: string }>(`/events/${encodeURIComponent(eventId)}/posts`, body);
     return data;
   },
   async eventSeries(): Promise<EventSeries[]> {

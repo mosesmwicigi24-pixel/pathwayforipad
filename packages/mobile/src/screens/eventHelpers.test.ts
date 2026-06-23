@@ -10,6 +10,7 @@ import {
   matchesSearch,
   categoryColor,
   timeAgo,
+  countdown,
   EVENT_CATEGORIES,
 } from "./eventHelpers";
 import type { CalendarOccurrence } from "../api/types";
@@ -95,6 +96,20 @@ describe("categoryColor + timeAgo", () => {
     expect(timeAgo("2026-06-09T10:00:00Z", now)).toBe("Yesterday");
     expect(timeAgo("2026-06-08T10:00:00Z", now)).toBe("2d ago");
     expect(timeAgo(null, now)).toBe("");
+  });
+});
+
+describe("countdown", () => {
+  const now = new Date("2026-06-10T12:00:00Z").getTime();
+  it("counts days, hours, minutes to a future start", () => {
+    expect(countdown("2026-06-15T12:00:00Z", now)).toBe("5 days to go");
+    expect(countdown("2026-06-11T12:00:00Z", now)).toBe("1 day to go");
+    expect(countdown("2026-06-10T20:00:00Z", now)).toBe("8 hours to go");
+    expect(countdown("2026-06-10T13:00:00Z", now)).toBe("1 hour to go");
+    expect(countdown("2026-06-10T12:45:00Z", now)).toBe("45 min to go");
+  });
+  it("shows 'Happening now' once the start has passed", () => {
+    expect(countdown("2026-06-10T11:59:00Z", now)).toBe("Happening now");
   });
 });
 

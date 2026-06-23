@@ -16,6 +16,7 @@ import { LevelsScreen } from "../screens/LevelsScreen.js";
 import { LevelScreen } from "../screens/LevelScreen.js";
 import { CalendarScreen } from "../screens/CalendarScreen.js";
 import { EventDetailScreen } from "../screens/EventDetailScreen.js";
+import { EventPostComposeScreen } from "../screens/EventPostComposeScreen.js";
 import { AnnouncementDetailScreen } from "../screens/AnnouncementDetailScreen.js";
 import { ProfileScreen } from "../screens/ProfileScreen.js";
 import { EventsScreen } from "../screens/EventsScreen.js";
@@ -101,6 +102,7 @@ export function RootNavigator({ initialRoute = "Login" }: { initialRoute?: "Logi
         <Stack.Screen name="Mentor" component={MentorScreen} />
         <Stack.Screen name="Resources" component={ResourcesLibraryScreen} />
         <Stack.Screen name="EventDetail" component={EventDetailScreen} />
+        <Stack.Screen name="EventPostCompose" component={EventPostComposeScreen} />
         <Stack.Screen name="AnnouncementDetail" component={AnnouncementDetailScreen} />
       </Stack.Navigator>
     </NavigationContainer>

@@ -1408,6 +1408,24 @@ paths:
       responses:
         "200": { description: RSVP recorded }
         "404": { $ref: "#/components/responses/NotFound" }
+  /events/{id}/posts:
+    get:
+      tags: [system]
+      summary: Event wall — attendee posts (image + caption) for an occurrence.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Posts }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [system]
+      summary: Post to an event wall (photo and/or caption; idempotent via client_mutation_id).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "201": { description: Posted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/events/series:
     post:
       tags: [system]

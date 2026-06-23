@@ -85,6 +85,20 @@ export function categoryColor(category: string | null): string {
   }
 }
 
+/** Forward countdown to a start time ("5 days to go", "8 hours to go",
+ *  "45 min to go", "Happening now"). UI may add emphasis (e.g. a trailing !). */
+export function countdown(iso: string, now: number = Date.now()): string {
+  const ms = new Date(iso).getTime() - now;
+  if (Number.isNaN(ms)) return "";
+  if (ms <= 0) return "Happening now";
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return `${Math.max(1, mins)} min to go`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} to go`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"} to go`;
+}
+
 /** Relative "time ago" for announcements ("2h ago", "Yesterday", "2d ago"). */
 export function timeAgo(iso: string | null, now: number = Date.now()): string {
   if (!iso) return "";
