@@ -5,7 +5,7 @@
 // time/title/location come from the calendar occurrence the caller passed in
 // (projected occurrences are virtual, so the route carries them).
 import { useEffect, useState, type ReactElement } from "react";
-import { Linking, Pressable, ScrollView, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, View } from "react-native";
 import { Check, ChevronLeft, Clock, MapPin, Play, Users } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -51,6 +51,8 @@ export function EventDetailScreen(): ReactElement {
 
   const goingCount = event?.rsvp_counts?.going ?? 0;
   const timeRange = endAt ? `${timeLabel(startAt)} – ${timeLabel(endAt)}` : timeLabel(startAt);
+  const heroUri = event?.primary_image_url ?? event?.images?.[0] ?? null;
+  const gallery = (event?.images ?? []).slice(heroUri && event?.images?.[0] === heroUri ? 1 : 0);
 
   async function choose(status: RsvpStatus): Promise<void> {
     setRsvp(status); // optimistic
@@ -80,9 +82,17 @@ export function EventDetailScreen(): ReactElement {
   return (
     <View style={st.screen}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
-        {/* Hero */}
+        {/* Full-bleed hero — the cover image fills the top like the module detail,
+            with the back button + title overlaid; gradient fallback when no image. */}
         <View style={st.hero}>
-          <GradientBg colors={[palette.navy700, palette.navy, palette.navyDeep]} />
+          {heroUri ? (
+            <>
+              <Image source={{ uri: heroUri }} style={st.heroImg} resizeMode="cover" />
+              <View style={st.heroShade} />
+            </>
+          ) : (
+            <GradientBg colors={[palette.navy700, palette.navy, palette.navyDeep]} />
+          )}
           <View style={st.heroTop}>
             <Pressable
               accessibilityRole="button"
@@ -93,17 +103,21 @@ export function EventDetailScreen(): ReactElement {
               <ChevronLeft size={20} color={palette.onNavy} />
             </Pressable>
           </View>
-          <View>
-            <T variant="micro" tone="gold" style={st.kicker}>EVENT</T>
+          <View style={st.heroBottom}>
+            <View style={st.eventBadge}>
+              <T variant="micro" tone="onNavy" style={{ fontWeight: "800", letterSpacing: 1.5 }}>
+                {(event?.category ?? "EVENT").toUpperCase()}
+              </T>
+            </View>
             <T serif tone="onNavy" style={st.title}>{title}</T>
           </View>
         </View>
 
-        <View style={{ paddingHorizontal: spacing.screen, marginTop: -spacing.lg }}>
-          {/* Image carousel (cover + gallery) — only when the event has images */}
-          {event?.images && event.images.length > 0 ? (
+        <View style={{ paddingHorizontal: spacing.screen, marginTop: -28 }}>
+          {/* Extra gallery images (the cover already shows in the hero) */}
+          {gallery.length > 0 ? (
             <View style={{ marginBottom: spacing.base }}>
-              <ImageCarousel images={event.images} height={210} />
+              <ImageCarousel images={gallery} height={180} />
             </View>
           ) : null}
 
@@ -166,9 +180,13 @@ export function EventDetailScreen(): ReactElement {
                 );
               })}
             </View>
-            {rsvp === "going" ? (
+            {rsvp ? (
               <T variant="micro" style={{ color: palette.successText, marginTop: spacing.sm }}>
-                ✓ Saved · we'll remind you the day before.
+                {rsvp === "going"
+                  ? "✓ Saved · we'll remind you the day before."
+                  : rsvp === "maybe"
+                    ? "✓ Saved · marked as maybe."
+                    : "✓ Saved · marked as can't make it."}
               </T>
             ) : null}
             {error ? <T variant="micro" style={{ color: palette.error, marginTop: spacing.sm }}>{error}</T> : null}
@@ -193,10 +211,13 @@ function MetaTile({ icon, label, value }: { icon: ReactElement; label: string; v
 
 const st = {
   screen: { flex: 1, backgroundColor: palette.coolPaper },
-  hero: { height: 220, paddingHorizontal: spacing.screen, paddingTop: 54, paddingBottom: spacing.xl, overflow: "hidden", justifyContent: "space-between" },
-  heroTop: { flexDirection: "row" },
-  glassBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" },
-  kicker: { letterSpacing: 2, fontWeight: "700" },
+  hero: { height: 260, overflow: "hidden", borderBottomLeftRadius: 28, borderBottomRightRadius: 28, justifyContent: "space-between", backgroundColor: palette.navy },
+  heroImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  heroShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.5)" },
+  heroTop: { flexDirection: "row", paddingHorizontal: spacing.screen, paddingTop: 54 },
+  heroBottom: { padding: spacing.screen, paddingBottom: spacing.xl },
+  glassBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" },
+  eventBadge: { alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.22)", borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
   title: { fontSize: 26, lineHeight: 32, marginTop: spacing.sm, fontWeight: "600" },
   metaCard: { backgroundColor: palette.white, borderRadius: radii.card, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   metaRow: { flexDirection: "row", gap: spacing.sm },

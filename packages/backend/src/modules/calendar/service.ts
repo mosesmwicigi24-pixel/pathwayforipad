@@ -264,6 +264,10 @@ export class CalendarService {
           category: s.category ?? null,
           cadence: this.cadenceLabel(s),
           next_at: next?.start_at ?? null,
+          // The next occurrence as a tappable event (its id = materialized event_id).
+          next_occurrence_id: next ? occurrenceId(s.series_id, next.start_at) : null,
+          next_end_at: next?.end_at ?? null,
+          location: s.location ?? null,
           following: followed.has(s.series_id),
           new_count: occ.filter((o) => new Date(o.start_at) <= soon).length,
         };
@@ -607,6 +611,54 @@ export class CalendarService {
     return { created };
   }
 
+  /** Resolve an occurrence id to a real `events` row, materializing it on demand
+   *  if the worker hasn't yet — so RSVP + detail work the instant a member opens a
+   *  projected occurrence. The occurrence id is `occurrenceId(series_id, start)`,
+   *  which is exactly the materialized `event_id`. Returns true if a row now
+   *  exists. A bare UUID that doesn't exist (or a fake instant) returns false →
+   *  the caller surfaces NOT_FOUND. */
+  private async ensureOccurrence(c: Queryable, eventId: string): Promise<boolean> {
+    const exists = await maybeOne<{ event_id: string }>(c, `SELECT event_id FROM events WHERE event_id = $1`, [eventId]);
+    if (exists) return true;
+    const idx = eventId.indexOf(":"); // synthetic id = "<series uuid>:<ISO start>"
+    if (idx < 0) return false;
+    const seriesId = eventId.slice(0, idx);
+    const startMs = Date.parse(eventId.slice(idx + 1));
+    if (Number.isNaN(startMs)) return false;
+    const s = await maybeOne<SeriesRow>(
+      c,
+      `SELECT series_id, congregation_id, cell_group_id, title, description, location, timezone,
+              to_char(dtstart_local, 'YYYY-MM-DD"T"HH24:MI:SS') AS dtstart_local,
+              duration_min, rrule, visibility,
+              rsvp_enabled, qr_enabled, reminders_enabled, checkin_opens_min_before
+         FROM event_series WHERE series_id = $1 AND deleted_at IS NULL`,
+      [seriesId],
+    );
+    if (!s) return false;
+    // Only materialize a genuine, non-cancelled instant of this series.
+    const lo = new Date(Math.min(Date.now(), startMs) - 86_400_000);
+    const hi = new Date(Math.max(Date.now(), startMs) + 86_400_000);
+    const match = expandOccurrences(s, lo, hi, this.maxInstances).find((o) => new Date(o.start_at).getTime() === startMs);
+    if (!match) return false;
+    const cancelled = await maybeOne(
+      c,
+      `SELECT 1 FROM event_exceptions WHERE series_id = $1 AND original_start_at = $2 AND is_cancelled`,
+      [seriesId, new Date(startMs).toISOString()],
+    );
+    if (cancelled) return false;
+    const opensAt =
+      s.checkin_opens_min_before == null ? null : new Date(startMs - s.checkin_opens_min_before * 60_000).toISOString();
+    await c.query(
+      `INSERT INTO events (event_id, congregation_id, cell_group_id, title, occurs_at, qr_secret, series_id, occurrence_start,
+                           rsvp_enabled, qr_enabled, checkin_opens_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (series_id, occurrence_start) DO NOTHING`,
+      [eventId, s.congregation_id, s.cell_group_id, s.title, match.start_at, randomBytes(24).toString("hex"),
+        seriesId, match.start_at, s.rsvp_enabled ?? true, s.qr_enabled ?? true, opensAt],
+    );
+    return true;
+  }
+
   // ---------------- RSVP ----------------
 
   static readonly Rsvp = z.object({
@@ -624,6 +676,7 @@ export class CalendarService {
       const dup = await maybeOne<{ status: string }>(c, `SELECT status FROM event_rsvps WHERE client_mutation_id = $1`, [input.client_mutation_id]);
       if (dup) return { duplicate: true, status: dup.status };
     }
+    await this.ensureOccurrence(c, eventId); // materialize a projected occurrence on first RSVP
     const ev = await maybeOne<{ event_id: string; occurs_at: string; rsvp_enabled: boolean; reminders: boolean }>(
       c,
       `SELECT e.event_id, e.occurs_at, e.rsvp_enabled,
@@ -678,6 +731,7 @@ export class CalendarService {
   }
 
   async getEvent(userId: string, eventId: string): Promise<unknown> {
+    await this.ensureOccurrence(this.pool, eventId); // realize a projected occurrence so detail + counts resolve
     // Join the parent series for the descriptive fields + cover image / gallery
     // (the materialized `events` row only carries title + occurs_at).
     const ev = await maybeOne<{

@@ -85,6 +85,17 @@ export function EventsScreen(): ReactElement {
 
   const openEvent = (o: CalendarOccurrence): void =>
     nav.navigate("EventDetail", { eventId: o.occurrence_id, title: o.title, startAt: o.start_at, endAt: o.end_at, location: o.location });
+  // Tapping a followed series opens its next occurrence as the event itself.
+  const openSeries = (s: EventSeries): void => {
+    if (!s.next_occurrence_id || !s.next_at) return;
+    nav.navigate("EventDetail", {
+      eventId: s.next_occurrence_id,
+      title: s.title,
+      startAt: s.next_at,
+      ...(s.next_end_at ? { endAt: s.next_end_at } : {}),
+      location: s.location,
+    });
+  };
 
   async function toggleFollow(s: EventSeries): Promise<void> {
     setFollowBusy(s.series_id);
@@ -257,7 +268,14 @@ export function EventsScreen(): ReactElement {
                 <Pressable accessibilityRole="button" onPress={() => nav.navigate("Calendar")}><T variant="caption" style={{ color: palette.navy, fontWeight: "700" }}>See all</T></Pressable>
               </View>
               {(series ?? []).slice(0, 4).map((s, i, arr) => (
-                <View key={s.series_id} style={[st.seriesRow, i < arr.length - 1 && st.divider]}>
+                <Pressable
+                  key={s.series_id}
+                  accessibilityRole="button"
+                  accessibilityLabel={s.next_occurrence_id ? `Open ${s.title}` : s.title}
+                  disabled={!s.next_occurrence_id}
+                  onPress={() => openSeries(s)}
+                  style={({ pressed }) => [st.seriesRow, i < arr.length - 1 && st.divider, pressed && s.next_occurrence_id ? { opacity: 0.7 } : null]}
+                >
                   <View style={[st.seriesDot, { backgroundColor: `${categoryColor(s.category)}22`, borderColor: categoryColor(s.category) }]} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -276,7 +294,7 @@ export function EventsScreen(): ReactElement {
                     {s.following ? <Check size={14} color={palette.onNavy} /> : <T variant="caption" style={{ color: palette.navy, fontWeight: "700" }}>+ </T>}
                     <T variant="caption" style={{ color: s.following ? palette.onNavy : palette.navy, fontWeight: "700" }}>{s.following ? "Following" : "Follow"}</T>
                   </Pressable>
-                </View>
+                </Pressable>
               ))}
             </View>
           ) : null}

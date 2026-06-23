@@ -87,6 +87,9 @@ export interface EventSeries {
   category: string | null;
   cadence: string;
   next_at: string | null;
+  next_occurrence_id: string | null;
+  next_end_at: string | null;
+  location: string | null;
   following: boolean;
   new_count: number;
 }

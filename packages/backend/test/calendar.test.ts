@@ -125,6 +125,56 @@ describe("Events tab: category, going counts, series follow, cell summary", () =
     expect(projected.reduce((sum, o) => sum + o.going, 0)).toBe(1);
   });
 
+  it("RSVPs to a projected occurrence id (materialized on demand) and reflects the count", async () => {
+    const s = (await svc().createSeries(principal(admin, "Admin", cong), {
+      title: "Friday Encounter",
+      category: "worship",
+      timezone: "Africa/Nairobi",
+      dtstart_local: "2026-07-03T18:00:00",
+      duration_min: 90,
+      rrule: "FREQ=WEEKLY;BYDAY=FR;COUNT=6",
+      visibility: "congregation",
+    })) as { series_id: string };
+    // No materialize() — the member opens a projected occurrence straight from the list.
+    const projected = (await svc().projectRange(member, "2026-06-25T00:00:00Z", "2026-08-15T00:00:00Z")) as Array<{ occurrence_id: string }>;
+    const occId = projected[0]!.occurrence_id;
+    expect(occId).toContain(":"); // synthetic series_id:ISO, not yet a materialized row
+    const before = await testPool().query("SELECT count(*)::int AS n FROM events WHERE series_id=$1", [s.series_id]);
+    expect(before.rows[0].n).toBe(0);
+
+    const res = await svc().setRsvp(member, occId, { status: "going" });
+    expect(res.status).toBe("going");
+    const after = await testPool().query("SELECT count(*)::int AS n FROM events WHERE event_id=$1", [occId]);
+    expect(after.rows[0].n).toBe(1); // materialized on demand
+
+    const detail = (await svc().getEvent(member, occId)) as { rsvp_counts: Record<string, number>; my_rsvp: string };
+    expect(detail.rsvp_counts.going).toBe(1);
+    expect(detail.my_rsvp).toBe("going");
+
+    // changing the answer updates in place (no double count)
+    await svc().setRsvp(member, occId, { status: "maybe" });
+    const detail2 = (await svc().getEvent(member, occId)) as { rsvp_counts: Record<string, number>; my_rsvp: string };
+    expect(detail2.my_rsvp).toBe("maybe");
+    expect(detail2.rsvp_counts.going ?? 0).toBe(0);
+  });
+
+  it("listSeries exposes the next occurrence as a tappable event id", async () => {
+    const s = (await svc().createSeries(principal(admin, "Admin", cong), {
+      title: "Sunday Service",
+      timezone: "Africa/Nairobi",
+      dtstart_local: "2026-07-05T09:00:00",
+      duration_min: 90,
+      rrule: "FREQ=WEEKLY;BYDAY=SU;COUNT=6",
+      visibility: "congregation",
+    })) as { series_id: string };
+    const projected = (await svc().projectRange(member, "2026-06-25T00:00:00Z", "2026-08-15T00:00:00Z")) as Array<{ occurrence_id: string; series_id: string }>;
+    const next = projected.find((o) => o.series_id === s.series_id)!;
+    const list = (await svc().listSeries(member)) as Array<{ series_id: string; next_occurrence_id: string | null; next_at: string | null }>;
+    const row = list.find((x) => x.series_id === s.series_id)!;
+    expect(row.next_occurrence_id).toBe(next.occurrence_id);
+    expect(row.next_at).toBeTruthy();
+  });
+
   it("follows then unfollows a series (idempotent toggle)", async () => {
     const s = (await svc().createSeries(principal(admin, "Admin", cong), {
       title: "Midweek Cell",
