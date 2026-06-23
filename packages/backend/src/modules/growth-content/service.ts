@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { z } from "zod";
-import { many, maybeOne, one, tx } from "../../db/db.js";
+import { many, maybeOne, one, tx, recordActivityEvent } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
 
 export class GrowthContentService {
@@ -252,9 +252,9 @@ export class GrowthContentService {
    *  reading_plan_progress (advancing current_day / stamping completion). */
   async completeSegment(userId: string, segmentId: string): Promise<unknown> {
     return tx(this.pool, async (c) => {
-      const seg = await maybeOne<{ plan_day_id: string; plan_id: string; day_number: number; day_count: number }>(
+      const seg = await maybeOne<{ plan_day_id: string; plan_id: string; day_number: number; day_count: number; kind: string }>(
         c,
-        `SELECT s.plan_day_id, d.plan_id, d.day_number, p.day_count
+        `SELECT s.plan_day_id, s.kind, d.plan_id, d.day_number, p.day_count
            FROM reading_plan_day_segments s
            JOIN reading_plan_days d ON d.plan_day_id = s.plan_day_id
            JOIN reading_plans p ON p.plan_id = d.plan_id
@@ -262,6 +262,11 @@ export class GrowthContentService {
         [segmentId],
       );
       if (!seg) throw new ApiError("NOT_FOUND", "Segment not found");
+      // Engaging Scripture in a plan counts toward the Word score (§1.8) — once
+      // per day, like memory-verse practice. Reading/devotional/scripture qualify.
+      if (seg.kind === "scripture" || seg.kind === "reading" || seg.kind === "devotional") {
+        await recordActivityEvent(c, userId, "scripture_read", { oncePerDayTz: "Africa/Nairobi" });
+      }
       // Enroll (idempotent) so partial progress shows under "My plans".
       await c.query(
         `INSERT INTO reading_plan_progress (user_id, plan_id) VALUES ($1, $2)

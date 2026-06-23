@@ -46,22 +46,36 @@ export function PlanDetailScreen(): ReactElement {
         <View style={st.center}><ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /></View>
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false}>
-          {/* Cover */}
-          <View style={{ height: 200 }}>
+          {/* Full-bleed hero: cover image + title overlaid (fits, never clipped) */}
+          <View style={st.hero}>
             {plan.image_url ? (
-              <Image source={{ uri: plan.image_url }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+              <Image source={{ uri: plan.image_url }} style={st.heroImg} resizeMode="cover" />
             ) : (
               <GradientBg colors={[palette.navy, palette.navy700, palette.gold]} />
             )}
+            <View style={st.heroShade} />
             <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={st.backBtn}>
               <ArrowLeft size={20} color={palette.onNavy} />
             </Pressable>
+            <View style={st.heroBottom}>
+              <View style={st.heroBadge}>
+                <T variant="micro" tone="onNavy" style={{ fontWeight: "800", letterSpacing: 1.4 }}>
+                  {(plan.category ?? "Reading plan").toUpperCase()} · {plan.day_count} DAYS
+                </T>
+              </View>
+              <T serif tone="onNavy" style={st.heroTitle} numberOfLines={2}>{plan.title ?? title}</T>
+              {plan.subtitle ? <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }} numberOfLines={2}>{plan.subtitle}</T> : null}
+            </View>
           </View>
 
-          <View style={{ padding: spacing.screen }}>
-            <T serif style={{ fontSize: 24, color: palette.ink }}>{plan.title ?? title}</T>
-            {plan.subtitle ? <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>{plan.subtitle}</T> : null}
-            {plan.description ? <T variant="body" tone="secondary" style={{ marginTop: spacing.sm }}>{plan.description}</T> : null}
+          <View style={{ paddingHorizontal: spacing.screen, marginTop: -24 }}>
+            {/* About this plan — formatted info card */}
+            {plan.description ? (
+              <View style={st.infoCard}>
+                <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", letterSpacing: 1.4 }}>ABOUT THIS PLAN</T>
+                <T variant="body" tone="secondary" style={{ marginTop: spacing.sm, lineHeight: 22 }}>{plan.description}</T>
+              </View>
+            ) : null}
 
             {/* Day strip */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.lg }} contentContainerStyle={{ gap: spacing.sm, paddingRight: spacing.screen }}>
@@ -97,7 +111,23 @@ export function PlanDetailScreen(): ReactElement {
                 <T variant="caption" tone="tertiary">{day?.reference ?? "No readings for this day yet."}</T>
               ) : (
                 segments.map((s) => (
-                  <Pressable key={s.segment_id} accessibilityRole="button" onPress={openReader} style={st.segRow}>
+                  <Pressable
+                    key={s.segment_id}
+                    accessibilityRole="button"
+                    onPress={() =>
+                      s.kind === "video" && s.video_url
+                        ? nav.navigate("Watch", {
+                            videoUrl: s.video_url,
+                            poster: (s.image_url ?? plan.image_url) ?? null,
+                            title: s.title,
+                            ...(day?.title ? { subtitle: day.title } : {}),
+                            segmentId: s.segment_id,
+                            planId,
+                          })
+                        : openReader()
+                    }
+                    style={st.segRow}
+                  >
                     <View style={[st.segCircle, s.completed && { backgroundColor: palette.successText, borderColor: palette.successText }]}>
                       {s.completed ? <Check size={13} color="#fff" /> : kindIcon(s.kind, palette.ink400)}
                     </View>
@@ -126,6 +156,13 @@ export function PlanDetailScreen(): ReactElement {
 const st = {
   screen: { flex: 1, backgroundColor: palette.coolPaper },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  hero: { height: 244, overflow: "hidden", borderBottomLeftRadius: 28, borderBottomRightRadius: 28, justifyContent: "flex-end", backgroundColor: palette.navy },
+  heroImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  heroShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.55)" },
+  heroBottom: { padding: spacing.screen, paddingBottom: spacing.xl },
+  heroBadge: { alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.22)", borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  heroTitle: { fontSize: 25, lineHeight: 30, marginTop: spacing.sm, fontWeight: "600" },
+  infoCard: { backgroundColor: palette.white, borderRadius: radii.card, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   backBtn: { position: "absolute", top: 50, left: spacing.lg, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" },
   dayChip: { width: 60, height: 64, borderRadius: radii.control, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center", gap: 2, ...shadow.card },
   countPill: { borderRadius: 999, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: palette.white },

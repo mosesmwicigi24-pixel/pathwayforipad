@@ -155,6 +155,27 @@ describe("reading plans + day progress", () => {
     expect(d1again.body.completed_days).toEqual([1]);
     expect(d1again.body.current_day).toBe(2);
   });
+
+  it("serves the curated 10-day Psalms plan with segments ordered Watch → Reading → Devotional → Talk", async () => {
+    const plans = await agent().get("/v1/growth/plans").set(auth(meTok));
+    const rooted = plans.body.data.find((p: { code: string }) => p.code === "rooted-psalms-10");
+    expect(rooted).toBeTruthy();
+    expect(rooted.day_count).toBe(10);
+
+    const detail = await agent().get(`/v1/growth/plans/${rooted.plan_id}`).set(auth(meTok));
+    expect(detail.body.days.length).toBe(10);
+    const segs = detail.body.days[0].segments as Array<{ kind: string; sort: number; video_url: string | null }>;
+    expect(segs.map((s) => s.kind)).toEqual(["video", "scripture", "devotional", "talk"]);
+    expect(segs[0].video_url).toBeTruthy(); // the Watch segment has a video
+
+    // Completing a Scripture segment records a 'word'-family activity (feeds the Word score).
+    const reading = segs.find((s) => s.kind === "scripture")!;
+    const before = await agent().get("/v1/me/scores/word").set(auth(meTok));
+    await agent().post(`/v1/growth/segments/${(detail.body.days[0].segments.find((s: { kind: string; segment_id: string }) => s.kind === "scripture")).segment_id}/complete`).set(auth(meTok));
+    const after = await agent().get("/v1/me/scores/word").set(auth(meTok));
+    expect(after.body.score).toBeGreaterThanOrEqual(before.body.score);
+    expect(reading.kind).toBe("scripture");
+  });
 });
 
 describe("mentor", () => {

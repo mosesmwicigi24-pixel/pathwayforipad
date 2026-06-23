@@ -43,6 +43,7 @@ export type RootStackParamList = {
   ReadingPlans: undefined; // reading plans list (D5)
   PlanDetail: { planId: string; title?: string }; // reading-plan detail (D5)
   PlanDay: { planId: string; dayNumber: number; title?: string }; // YouVersion day reader
+  Watch: { videoUrl: string; poster?: string | null; title?: string; subtitle?: string; segmentId?: string; planId?: string }; // full-screen plan video
   Mentor: undefined; // discipler + meeting notes (D5)
   Resources: undefined; // resource library (D5)
   EventDetail: { eventId: string; title: string; startAt: string; endAt?: string; location?: string | null };
