@@ -43,11 +43,46 @@ function metaFor(template: string): TypeMeta {
   return { Icon: Settings, bg: palette.mutedBg, fg: palette.ink600 };
 }
 
+const TITLES: Record<string, string> = {
+  reengage: "We miss you",
+  level_completed: "Level complete!",
+  badge_awarded: "New badge earned",
+  certificate_issued: "Certificate ready",
+  giving_receipt: "Giving receipt",
+  event_reminder_24h: "Event tomorrow",
+  event_reminder_1h: "Event starting soon",
+  reflection_approved: "Reflection approved",
+  reflection_returned: "Reflection returned",
+  reflection_deferred: "Reflection received",
+};
+
 function titleFor(n: NotificationRow): string {
   const payload = n.payload ?? {};
   if (typeof payload.title === "string" && payload.title) return payload.title;
+  if (TITLES[n.template]) return TITLES[n.template]!;
   // Template fallbacks, humanized.
   return n.template.replace(/[_-]+/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+
+/** A descriptive line for the notification — the real "detail". Uses the payload's
+ *  own body/feedback when present, otherwise a sensible per-type default. */
+function bodyFor(n: NotificationRow): string | null {
+  const p = (n.payload ?? {}) as Record<string, unknown>;
+  if (typeof p.body === "string" && p.body) return p.body;
+  if (typeof p.feedback === "string" && p.feedback) return p.feedback;
+  const t = n.template;
+  if (t.startsWith("reflection_approved")) return "Your discipler approved your reflection — well done.";
+  if (t.startsWith("reflection_returned")) return "Your discipler returned your reflection for another look.";
+  if (t.startsWith("reflection")) return "Your discipler has reviewed your reflection.";
+  if (t.startsWith("level_completed")) return typeof p.level_number === "number" ? `You've completed Level ${p.level_number}. Keep pressing on!` : "You've completed a level. Keep pressing on!";
+  if (t.startsWith("badge")) return typeof p.name === "string" ? `You earned the "${p.name}" badge.` : "You earned a new badge — well done!";
+  if (t.startsWith("certificate")) return "Your certificate is ready to view and share.";
+  if (t.startsWith("event_reminder_24h")) return "Your event is coming up tomorrow.";
+  if (t.startsWith("event_reminder_1h")) return "Your event starts in about an hour.";
+  if (t.startsWith("event")) return "You have an upcoming gathering.";
+  if (t.startsWith("giving")) return "Thank you for giving — your receipt is ready.";
+  if (t === "reengage") return "We've missed you — pick up your journey where you left off.";
+  return null;
 }
 
 function ago(iso: string): string {
@@ -90,17 +125,26 @@ export function NotificationsScreen(): ReactElement {
         })
         .catch(() => undefined);
     }
-    // Deep-link routing (D-M9 / Chat make's routeTarget): every notification
-    // family lands somewhere sensible.
-    if (n.template.startsWith("announcement")) nav.navigate("Tabs", { screen: "Events" });
-    else if (n.template.startsWith("event")) nav.navigate("Calendar");
-    else if (n.template.startsWith("reflection")) nav.navigate("Tabs", { screen: "Pathway" });
-    else if (
+    // Deep-link routing (D-M9): prefer the SPECIFIC item when the payload carries
+    // its id, else fall back to the sensible section.
+    const p = (n.payload ?? {}) as Record<string, unknown>;
+    const announcementId = typeof p.announcement_id === "string" ? p.announcement_id : null;
+    const moduleId = typeof p.module_id === "string" ? p.module_id : null;
+    if (n.template.startsWith("announcement")) {
+      if (announcementId) nav.navigate("AnnouncementDetail", { announcementId, ...(typeof p.title === "string" ? { title: p.title } : {}) });
+      else nav.navigate("Tabs", { screen: "Events" });
+    } else if (n.template.startsWith("reflection")) {
+      if (moduleId) nav.navigate("Module", { moduleId });
+      else nav.navigate("Tabs", { screen: "Pathway" });
+    } else if (n.template.startsWith("event")) {
+      nav.navigate("Calendar");
+    } else if (
       n.template.startsWith("level") ||
       n.template.startsWith("certificate") ||
       n.template.startsWith("badge")
-    )
+    ) {
       nav.navigate("Tabs", { screen: "Profile" }); // achievements live on Profile
+    }
   }
 
   return (
@@ -148,7 +192,7 @@ export function NotificationsScreen(): ReactElement {
           (data?.data ?? []).map((n) => {
             const meta = metaFor(n.template);
             const unreadRow = !n.read_at && n.status === "sent";
-            const body = typeof n.payload?.body === "string" ? (n.payload.body as string) : null;
+            const body = bodyFor(n);
             return (
               <Pressable
                 key={n.notification_id}

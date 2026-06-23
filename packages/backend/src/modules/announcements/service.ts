@@ -12,6 +12,17 @@ import { NotificationService } from "../notifications/service.js";
 import { FakeMessageProvider, type MessageProvider } from "./providers.js";
 
 const CHANNELS = ["push", "email", "sms", "whatsapp", "banner"] as const;
+
+/** A short plain-text preview of a Markdown body, for notification detail. */
+function notifExcerpt(md: string, max = 160): string {
+  const text = (md ?? "")
+    .replace(/!\[(.*?)\]\(.*?\)/g, "") // images
+    .replace(/\[(.*?)\]\(.*?\)/g, "$1") // links → text
+    .replace(/[#>*_`~]+/g, " ") // md marks
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+}
 type Channel = (typeof CHANNELS)[number];
 
 export interface AnnouncementRow {
@@ -417,7 +428,7 @@ export class AnnouncementService {
           userId: r.user_id,
           channel,
           template: "announcement",
-          payload: { announcement_id: ann.announcement_id, title: ann.title },
+          payload: { announcement_id: ann.announcement_id, title: ann.title, body: notifExcerpt(ann.body) },
           timezone: r.timezone,
         });
         await c.query(
