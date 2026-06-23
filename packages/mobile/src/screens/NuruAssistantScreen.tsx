@@ -1,10 +1,11 @@
 // Nuru — the in-app AI companion (new design, mobile "Chat" make). A chat with
 // the assistant: suggestion chips, a typing indicator, and a composer. Every
 // turn calls the backend proxy (POST /assistant/chat) — the provider key lives
-// server-side, never on device (§5.10). History is kept on-device and replayed
-// each turn (the assistant is stateless server-side). AI needs connectivity, so
-// failures surface gently rather than queueing.
-import { useRef, useState, type ReactElement } from "react";
+// server-side, never on device (§5.10). The thread is PERSISTED server-side
+// (assistant_messages) and restored on open (GET /assistant/history); each turn
+// is also replayed for LLM context. AI needs connectivity, so failures surface
+// gently rather than queueing.
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { ChevronLeft, SendHorizontal, Sparkles } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -37,6 +38,22 @@ export function NuruAssistantScreen(): ReactElement {
   const [typing, setTyping] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const kbInset = useKeyboardInset();
+
+  // Restore the member's saved Nuru thread (persisted server-side) on open.
+  useEffect(() => {
+    let cancelled = false;
+    void NuruApi.assistantHistory()
+      .then((h) => {
+        if (!cancelled && h.messages.length > 0) {
+          setMessages(h.messages.map((m) => ({ id: nextId(), role: m.role, text: m.text })));
+          setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function ask(text: string): Promise<void> {
     const trimmed = text.trim();

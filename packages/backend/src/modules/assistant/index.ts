@@ -20,5 +20,10 @@ export function registerAssistant(ctx: AppContext, providerOverride?: AiProvider
     res.json(await svc.chat(requirePrincipal(req).userId, input));
   }));
 
+  // The member's persisted Nuru thread (retrieval + persistence across sessions).
+  r.get("/assistant/history", auth, handler(async (req, res) => {
+    res.json(await svc.history(requirePrincipal(req).userId));
+  }));
+
   return r;
 }

@@ -6,6 +6,7 @@
 // turn (the make keeps the Nuru thread ephemeral on-device).
 import type { Pool } from "pg";
 import { z } from "zod";
+import { many } from "../../db/db.js";
 import { ChatService } from "../chat/service.js";
 import type { AiProvider } from "./provider.js";
 
@@ -51,6 +52,29 @@ export class AssistantService {
         `If asked to suggest or draft a reply, respond with a single natural message the member could send next — no preamble, no quotes, no options list.`;
     }
     const reply = await this.provider.complete({ system, messages: input.messages });
+    // Persist this exchange so the Nuru thread is retrievable across sessions
+    // (best-effort — a storage hiccup must never swallow the member's reply).
+    const lastUser = [...input.messages].reverse().find((m) => m.role === "user");
+    try {
+      if (lastUser) await this.persist(userId, "user", lastUser.text);
+      await this.persist(userId, "assistant", reply);
+    } catch {
+      /* non-fatal */
+    }
     return { reply };
+  }
+
+  private async persist(userId: string, role: "user" | "assistant", text: string): Promise<void> {
+    await this.pool.query(`INSERT INTO assistant_messages (user_id, role, text) VALUES ($1, $2, $3)`, [userId, role, text]);
+  }
+
+  /** The member's saved Nuru thread, oldest→newest (their own only, §5.4). */
+  async history(userId: string, limit = 200): Promise<{ messages: Array<{ role: string; text: string; created_at: string }> }> {
+    const messages = await many<{ role: string; text: string; created_at: string }>(
+      this.pool,
+      `SELECT role, text, created_at FROM assistant_messages WHERE user_id = $1 ORDER BY created_at LIMIT $2`,
+      [userId, Math.min(Math.max(limit, 1), 500)],
+    );
+    return { messages };
   }
 }

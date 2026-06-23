@@ -2912,6 +2912,13 @@ paths:
         "200": { description: Reply }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /assistant/history:
+    get:
+      tags: [progress]
+      summary: My persisted Nuru thread (oldest→newest). Private to me.
+      responses:
+        "200": { description: Nuru thread }
+        "401": { $ref: "#/components/responses/Unauthorized" }
 
   # --- Webhooks & sync (system) (§3.3) ---
   /webhooks/stripe:

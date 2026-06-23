@@ -60,4 +60,24 @@ describe("Nuru assistant", () => {
     const res = await agent().post("/v1/assistant/chat").set(auth(aTok)).send({ messages: [] });
     expect([400, 422]).toContain(res.status);
   });
+
+  it("persists the Nuru thread and returns it from history (private per member)", async () => {
+    const empty = await agent().get("/v1/assistant/history").set(auth(aTok));
+    expect(empty.status).toBe(200);
+    expect(empty.body.messages).toEqual([]);
+
+    await agent().post("/v1/assistant/chat").set(auth(aTok))
+      .send({ messages: [{ role: "user", text: "Help me plan a quiet time" }] });
+
+    const hist = await agent().get("/v1/assistant/history").set(auth(aTok));
+    const msgs = hist.body.messages as Array<{ role: string; text: string }>;
+    expect(msgs.length).toBe(2); // the user turn + Nuru's reply
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[0].text).toBe("Help me plan a quiet time");
+    expect(msgs[1].role).toBe("assistant");
+    expect(msgs[1].text.length).toBeGreaterThan(0);
+
+    const other = await agent().get("/v1/assistant/history").set(auth(bTok));
+    expect((other.body.messages as unknown[]).length).toBe(0); // another member can't see it
+  });
 });
