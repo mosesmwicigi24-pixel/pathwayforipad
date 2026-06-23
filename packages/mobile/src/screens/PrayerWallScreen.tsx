@@ -16,6 +16,7 @@ import { usePrayerWall } from "../api/hooks";
 import { invalidateQueries, errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
 import { useKeyboardInset } from "../components/useKeyboardInset";
+import { useVoiceNote, VoiceRecorderButton, VoiceNotePlayer } from "../components/voiceNote";
 import type { PrayerWallPost } from "../api/types";
 
 function ago(iso: string): string {
@@ -102,6 +103,7 @@ export function PrayerWallScreen(): ReactElement {
             </View>
             {p.title ? <T variant="heading" style={{ marginTop: spacing.sm, color: palette.ink }}>{p.title}</T> : null}
             <T variant="body" tone="secondary" style={{ marginTop: 4 }} numberOfLines={3}>{p.body}</T>
+            {p.audio_url ? <VoiceNotePlayer url={p.audio_url} waveform={p.audio_waveform} /> : null}
             <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: spacing.md }}>
               <Pressable accessibilityRole="button" accessibilityLabel="Pray for this" onPress={() => void pray(p)} style={[st.prayBtn, p.i_prayed && st.prayBtnOn]}>
                 <T style={{ fontSize: 15 }}>🙏</T>
@@ -129,14 +131,22 @@ function ComposeSheet({ onClose, onPosted }: { onClose: () => void; onPosted: ()
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const kb = useKeyboardInset();
+  const voice = useVoiceNote();
 
   async function post(): Promise<void> {
     const text = body.trim();
-    if (!text) return;
+    if (!text && !voice.audioUrl) return;
     setBusy(true);
     setErr(null);
     try {
-      await NuruApi.createPrayerWallPost({ post_id: uuidv4(), title: title.trim() || null, body: text, client_mutation_id: uuidv4() });
+      await NuruApi.createPrayerWallPost({
+        post_id: uuidv4(),
+        title: title.trim() || null,
+        body: text || "🎤 Voice prayer",
+        audio_url: voice.audioUrl,
+        audio_waveform: voice.audioUrl ? voice.waveform : null,
+        client_mutation_id: uuidv4(),
+      });
       onPosted();
     } catch (e) {
       setErr(errorMessage(e));
@@ -155,8 +165,12 @@ function ComposeSheet({ onClose, onPosted }: { onClose: () => void; onPosted: ()
         <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>The family in your congregation can pray with you.</T>
         <TextInput value={title} onChangeText={setTitle} placeholder="Title (optional)" placeholderTextColor={palette.ink400} style={st.titleInput} />
         <TextInput value={body} onChangeText={setBody} placeholder="What would you like prayer for?" placeholderTextColor={palette.ink400} multiline style={st.bodyInput} />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm }}>
+          <VoiceRecorderButton v={voice} onError={setErr} />
+          <T variant="micro" tone="tertiary" style={{ flex: 1 }}>{voice.uploading ? "Uploading voice…" : "Add a voice note (optional)"}</T>
+        </View>
         {err ? <T variant="caption" style={{ color: palette.error, marginTop: 6 }}>{err}</T> : null}
-        <Pressable accessibilityRole="button" onPress={() => void post()} disabled={busy || !body.trim()} style={[st.postBtn, (busy || !body.trim()) && { opacity: 0.5 }]}>
+        <Pressable accessibilityRole="button" onPress={() => void post()} disabled={busy || (!body.trim() && !voice.audioUrl)} style={[st.postBtn, (busy || (!body.trim() && !voice.audioUrl)) && { opacity: 0.5 }]}>
           <T variant="heading" style={{ color: "#fff" }}>{busy ? "Posting…" : "Post to wall"}</T>
         </Pressable>
       </View>

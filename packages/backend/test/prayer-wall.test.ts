@@ -51,6 +51,24 @@ describe("Prayer Wall", () => {
     expect(p2.comment_count).toBe(1);
   });
 
+  it("persists a voice note's audio url + waveform on posts and comments", async () => {
+    const audio = "https://res.cloudinary.com/demo/video/upload/voice.m4a";
+    const wave = [5, 40, 90, 20, 70, 12];
+    const post = await agent().post("/v1/prayer-wall").set(auth(meTok)).send({ post_id: uuid(8), body: "🎤 Voice prayer", audio_url: audio, audio_waveform: wave });
+    expect(post.status).toBe(201);
+    await agent().post(`/v1/prayer-wall/${uuid(8)}/comments`).set(auth(otherTok)).send({ comment_id: uuid(9), body: "🎤 Voice note", audio_url: audio, audio_waveform: [10, 30, 50] });
+
+    const detail = await agent().get(`/v1/prayer-wall/${uuid(8)}`).set(auth(meTok));
+    expect(detail.body.post.audio_url).toBe(audio);
+    expect(detail.body.post.audio_waveform).toEqual(wave);
+    expect(detail.body.comments[0].audio_url).toBe(audio);
+    expect(detail.body.comments[0].audio_waveform).toEqual([10, 30, 50]);
+
+    const list = await agent().get("/v1/prayer-wall").set(auth(meTok));
+    const p = (list.body.data as Array<{ post_id: string; audio_waveform: number[] | null }>).find((x) => x.post_id === uuid(8))!;
+    expect(p.audio_waveform).toEqual(wave);
+  });
+
   it("shares a private journal prayer to the wall", async () => {
     await agent().put("/v1/me/prayers").set(auth(meTok)).send({ entry_id: uuid(3), body: "A quiet burden." });
     const shared = await agent().post(`/v1/me/prayers/${uuid(3)}/share-to-wall`).set(auth(meTok));

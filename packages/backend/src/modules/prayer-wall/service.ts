@@ -13,17 +13,21 @@ const PRAY = "🙏";
 export class PrayerWallService {
   constructor(private readonly pool: Pool) {}
 
+  // Normalized peak amplitudes (0–100), ~40 bars, captured from the mic meter.
+  private static readonly Waveform = z.array(z.number().int().min(0).max(100)).max(80).nullable().optional();
   static readonly Post = z.object({
     post_id: z.string().uuid(),
     title: z.string().max(200).nullable().optional(),
     body: z.string().min(1).max(4000),
     audio_url: z.string().url().max(500).nullable().optional(),
+    audio_waveform: PrayerWallService.Waveform,
     client_mutation_id: z.string().uuid().optional(),
   });
   static readonly Comment = z.object({
     comment_id: z.string().uuid(),
     body: z.string().min(1).max(2000),
     audio_url: z.string().url().max(500).nullable().optional(),
+    audio_waveform: PrayerWallService.Waveform,
     client_mutation_id: z.string().uuid().optional(),
   });
   static readonly Reaction = z.object({ emoji: z.string().min(1).max(16) });
@@ -39,7 +43,7 @@ export class PrayerWallService {
     const data = await many(
       this.pool,
       `SELECT p.post_id, p.author_user_id, u.full_name AS author_name, u.avatar_url AS author_avatar,
-              p.title, p.body, p.audio_url, p.is_answered, p.created_at,
+              p.title, p.body, p.audio_url, p.audio_waveform, p.is_answered, p.created_at,
               (p.author_user_id = $1) AS mine,
               COALESCE((SELECT count(*)::int FROM prayer_wall_reactions r WHERE r.post_id = p.post_id AND r.emoji = '${PRAY}'), 0) AS pray_count,
               COALESCE((SELECT bool_or(r.user_id = $1) FROM prayer_wall_reactions r WHERE r.post_id = p.post_id AND r.emoji = '${PRAY}'), false) AS i_prayed,
@@ -74,9 +78,9 @@ export class PrayerWallService {
       }
       const cong = await this.congregationOf(c, userId);
       const res = await c.query(
-        `INSERT INTO prayer_wall_posts (post_id, author_user_id, congregation_id, title, body, audio_url, client_mutation_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (post_id) DO NOTHING RETURNING post_id`,
-        [input.post_id, userId, cong, input.title ?? null, input.body, input.audio_url ?? null, input.client_mutation_id ?? null],
+        `INSERT INTO prayer_wall_posts (post_id, author_user_id, congregation_id, title, body, audio_url, audio_waveform, client_mutation_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (post_id) DO NOTHING RETURNING post_id`,
+        [input.post_id, userId, cong, input.title ?? null, input.body, input.audio_url ?? null, input.audio_waveform ? JSON.stringify(input.audio_waveform) : null, input.client_mutation_id ?? null],
       );
       if (res.rowCount === 0) return { post_id: input.post_id, duplicate: true };
       return { post_id: input.post_id, duplicate: false };
@@ -110,7 +114,7 @@ export class PrayerWallService {
     const post = await maybeOne(
       this.pool,
       `SELECT p.post_id, p.author_user_id, u.full_name AS author_name, u.avatar_url AS author_avatar,
-              p.title, p.body, p.audio_url, p.is_answered, p.created_at,
+              p.title, p.body, p.audio_url, p.audio_waveform, p.is_answered, p.created_at,
               (p.author_user_id = $1) AS mine,
               COALESCE((SELECT count(*)::int FROM prayer_wall_reactions r WHERE r.post_id = p.post_id AND r.emoji = '${PRAY}'), 0) AS pray_count,
               COALESCE((SELECT bool_or(r.user_id = $1) FROM prayer_wall_reactions r WHERE r.post_id = p.post_id AND r.emoji = '${PRAY}'), false) AS i_prayed,
@@ -129,7 +133,7 @@ export class PrayerWallService {
     const comments = await many(
       this.pool,
       `SELECT cm.comment_id, cm.author_user_id, u.full_name AS author_name, u.avatar_url AS author_avatar,
-              cm.body, cm.audio_url, cm.created_at, (cm.author_user_id = $1) AS mine
+              cm.body, cm.audio_url, cm.audio_waveform, cm.created_at, (cm.author_user_id = $1) AS mine
          FROM prayer_wall_comments cm
          JOIN users u ON u.user_id = cm.author_user_id
         WHERE cm.post_id = $2 AND NOT cm.is_hidden
@@ -169,9 +173,9 @@ export class PrayerWallService {
         if (dup) return { comment_id: dup.comment_id, duplicate: true };
       }
       const res = await c.query(
-        `INSERT INTO prayer_wall_comments (comment_id, post_id, author_user_id, body, audio_url, client_mutation_id)
-         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (comment_id) DO NOTHING RETURNING comment_id`,
-        [input.comment_id, postId, userId, input.body, input.audio_url ?? null, input.client_mutation_id ?? null],
+        `INSERT INTO prayer_wall_comments (comment_id, post_id, author_user_id, body, audio_url, audio_waveform, client_mutation_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (comment_id) DO NOTHING RETURNING comment_id`,
+        [input.comment_id, postId, userId, input.body, input.audio_url ?? null, input.audio_waveform ? JSON.stringify(input.audio_waveform) : null, input.client_mutation_id ?? null],
       );
       if (res.rowCount === 0) return { comment_id: input.comment_id, duplicate: true };
       return { comment_id: input.comment_id, duplicate: false };

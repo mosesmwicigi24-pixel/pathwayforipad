@@ -16,6 +16,7 @@ import { usePrayerWallPost } from "../api/hooks";
 import { invalidateQueries, errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
 import { useKeyboardInset } from "../components/useKeyboardInset";
+import { useVoiceNote, VoiceRecorderButton, VoiceNotePlayer } from "../components/voiceNote";
 
 const QUICK = ["🙏", "❤️", "🕊️", "🙌", "✨"];
 const when = (iso: string): string => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -27,6 +28,7 @@ export function PrayerWallDetailScreen(): ReactElement {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const kb = useKeyboardInset();
+  const voice = useVoiceNote();
 
   const refresh = (): void => {
     invalidateQueries(`prayerWallPost:${postId}`);
@@ -40,11 +42,12 @@ export function PrayerWallDetailScreen(): ReactElement {
   }
   async function comment(): Promise<void> {
     const body = draft.trim();
-    if (!body) return;
+    if (!body && !voice.audioUrl) return;
     setSending(true);
     try {
-      await NuruApi.prayerWallComment(postId, { comment_id: uuidv4(), body, client_mutation_id: uuidv4() });
+      await NuruApi.prayerWallComment(postId, { comment_id: uuidv4(), body: body || "🎤 Voice note", audio_url: voice.audioUrl, audio_waveform: voice.audioUrl ? voice.waveform : null, client_mutation_id: uuidv4() });
       setDraft("");
+      voice.reset();
       refresh();
     } catch { /* keep draft */ } finally { setSending(false); }
   }
@@ -88,6 +91,7 @@ export function PrayerWallDetailScreen(): ReactElement {
               </View>
               {data.post.title ? <T serif style={{ fontSize: 18, color: palette.ink, marginTop: spacing.md }}>{data.post.title}</T> : null}
               <T variant="bodyLg" style={{ color: palette.ink, marginTop: spacing.sm }}>{data.post.body}</T>
+              {data.post.audio_url ? <VoiceNotePlayer url={data.post.audio_url} waveform={data.post.audio_waveform} /> : null}
 
               {/* Reaction bar */}
               <View style={st.reactBar}>
@@ -128,13 +132,15 @@ export function PrayerWallDetailScreen(): ReactElement {
                   <T variant="micro" tone="tertiary">{when(cm.created_at)}</T>
                 </View>
                 <T variant="body" style={{ color: palette.ink, marginTop: 6 }}>{cm.body}</T>
+                {cm.audio_url ? <VoiceNotePlayer url={cm.audio_url} waveform={cm.audio_waveform} /> : null}
               </View>
             ))}
           </ScrollView>
 
           <View style={[st.composer, { marginBottom: kb }]}>
-            <TextInput value={draft} onChangeText={setDraft} placeholder="Write an encouragement…" placeholderTextColor={palette.ink400} multiline style={st.input} />
-            <Pressable accessibilityRole="button" accessibilityLabel="Send" onPress={() => void comment()} disabled={sending || !draft.trim()} style={[st.sendBtn, (sending || !draft.trim()) && { opacity: 0.5 }]}>
+            <VoiceRecorderButton v={voice} onError={(m) => Alert.alert("Voice note", m)} />
+            <TextInput value={draft} onChangeText={setDraft} placeholder={voice.audioUrl ? "Add a note (optional)…" : "Write an encouragement…"} placeholderTextColor={palette.ink400} multiline style={st.input} />
+            <Pressable accessibilityRole="button" accessibilityLabel="Send" onPress={() => void comment()} disabled={sending || (!draft.trim() && !voice.audioUrl)} style={[st.sendBtn, (sending || (!draft.trim() && !voice.audioUrl)) && { opacity: 0.5 }]}>
               <Send size={18} color="#fff" />
             </Pressable>
           </View>

@@ -655,6 +655,7 @@ export interface PrayerWallPost {
   title: string | null;
   body: string;
   audio_url: string | null;
+  audio_waveform: number[] | null;
   is_answered: boolean;
   created_at: string;
   mine: boolean;
@@ -670,6 +671,7 @@ export interface PrayerWallComment {
   author_avatar: string | null;
   body: string;
   audio_url: string | null;
+  audio_waveform: number[] | null;
   created_at: string;
   mine: boolean;
 }

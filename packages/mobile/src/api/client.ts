@@ -595,7 +595,7 @@ export const NuruApi = {
     const { data } = await api.get<PrayerWallDetail>(`/prayer-wall/${postId}`);
     return data;
   },
-  async createPrayerWallPost(body: { post_id: string; title?: string | null; body: string; client_mutation_id?: string }): Promise<{ post_id: string }> {
+  async createPrayerWallPost(body: { post_id: string; title?: string | null; body: string; audio_url?: string | null; audio_waveform?: number[] | null; client_mutation_id?: string }): Promise<{ post_id: string }> {
     const { data } = await api.post<{ post_id: string }>("/prayer-wall", body);
     return data;
   },
@@ -603,7 +603,7 @@ export const NuruApi = {
     const { data } = await api.post<{ on: boolean }>(`/prayer-wall/${postId}/reactions`, { emoji });
     return data;
   },
-  async prayerWallComment(postId: string, body: { comment_id: string; body: string; client_mutation_id?: string }): Promise<{ comment_id: string }> {
+  async prayerWallComment(postId: string, body: { comment_id: string; body: string; audio_url?: string | null; audio_waveform?: number[] | null; client_mutation_id?: string }): Promise<{ comment_id: string }> {
     const { data } = await api.post<{ comment_id: string }>(`/prayer-wall/${postId}/comments`, body);
     return data;
   },
