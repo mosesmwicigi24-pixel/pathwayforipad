@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import Svg, { Defs, LinearGradient as SvgGradient, Rect, Stop } from "react-native-svg";
 import { palette, radii, shadow, spacing, type as typ, buttonHeight } from "./tokens.js";
+import { rf } from "./responsive.js";
 
 // --- GradientBg: an absolutely-filling linear gradient (uses react-native-svg).
 // Diagonal top-left → bottom-right by default, matching the Figma hero blocks.
@@ -173,17 +174,22 @@ export function T({
   const v = typ[variant] as TextStyle;
   const flat = (StyleSheet.flatten(style) ?? {}) as TextStyle;
   const face = fontFace(serif, flat.fontWeight ?? v.fontWeight, serif ? 600 : 400);
+  // Responsive type: scale the EFFECTIVE size (inline override or the variant
+  // default) to this device, so every T text flexes with the screen.
+  const baseFs = (flat.fontSize ?? v.fontSize ?? 14) as number;
+  const baseLh = (flat.lineHeight ?? v.lineHeight) as number | undefined;
+  const scaled: TextStyle = { fontSize: rf(baseFs) };
+  if (baseLh != null) scaled.lineHeight = rf(baseLh);
   // Fraunces (serif) has taller ascenders/longer descenders than the system font,
-  // so guarantee enough line height to never clip glyphs — even where a call site
-  // set a tight explicit lineHeight for the old font.
-  const fs = (flat.fontSize ?? v.fontSize ?? 14) as number;
-  const lh = (flat.lineHeight ?? v.lineHeight) as number | undefined;
+  // so guarantee enough line height to never clip glyphs.
+  const fs = scaled.fontSize as number;
+  const lh = scaled.lineHeight;
   const serifLine = serif ? { lineHeight: Math.max(lh ?? 0, Math.ceil(fs * 1.28)) } : null;
   return (
     <Text
       numberOfLines={numberOfLines}
-      // serifLine + fontFamily LAST so they win over anything set upstream in `style`.
-      style={[typ[variant], { color: toneColor[tone] }, style, serifLine, { fontFamily: face }]}
+      // scaled + serifLine + fontFamily LAST so they win over anything in `style`.
+      style={[typ[variant], { color: toneColor[tone] }, style, scaled, serifLine, { fontFamily: face }]}
     >
       {children}
     </Text>
@@ -230,7 +236,7 @@ export function PButton({
       ]}
     >
       {leadingIcon ? <View style={s.btnIcon}>{leadingIcon}</View> : null}
-      <Text style={[s.btnLabel, { fontSize: size === "lg" ? 16 : 15, color: disabled ? palette.disabledText : v.fg, fontWeight: v.weight, fontFamily: fontFace(false, v.weight, 600) }]}>
+      <Text style={[s.btnLabel, { fontSize: rf(size === "lg" ? 16 : 15), color: disabled ? palette.disabledText : v.fg, fontWeight: v.weight, fontFamily: fontFace(false, v.weight, 600) }]}>
         {children}
       </Text>
       {trailingIcon ? <View style={[s.btnIcon, { marginLeft: "auto" }]}>{trailingIcon}</View> : null}

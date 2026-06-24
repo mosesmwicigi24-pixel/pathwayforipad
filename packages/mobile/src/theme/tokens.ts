@@ -86,8 +86,11 @@ export const tabBarSpace = 96;
 export const radii = { control: 14, button: 14, card: 24, hero: 30, pill: 999 } as const;
 
 // Type scale (system font: SF on iOS, Roboto on Android). size / lineHeight.
+// These are the base sizes (designed at ~390pt); the T component runs them
+// through rf() so every variant scales responsively to the device (see
+// theme/responsive.ts). Kept pure here so the tokens stay framework-free.
 export const type = {
-  display: { fontSize: 28, lineHeight: 32, fontWeight: "500" as const, letterSpacing: -1 },
+  display: { fontSize: 28, lineHeight: 34, fontWeight: "500" as const, letterSpacing: -1 },
   title: { fontSize: 22, lineHeight: 28, fontWeight: "500" as const, letterSpacing: -0.75 },
   heading: { fontSize: 16, lineHeight: 22, fontWeight: "500" as const, letterSpacing: -0.3 },
   body: { fontSize: 14, lineHeight: 22, fontWeight: "400" as const },
