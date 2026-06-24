@@ -14,6 +14,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 
 // Dev convenience: the seed (`pnpm db:seed:dev`) gives every @dev.local account
 // this password, so the simulator can sign in immediately.
@@ -142,6 +143,13 @@ export function LoginScreen(): ReactElement {
     } finally { setBusy(false); }
   }
 
+  // iOS lifts the form via KeyboardAvoidingView "padding". Android's
+  // KeyboardAvoidingView is unreliable with adjustResize, so we add the live
+  // keyboard height as bottom padding on the scroll content — pushing the
+  // flex-end form up so the focused field floats above the keyboard, like iOS.
+  const kbInset = useKeyboardInset();
+  const androidKbPad = Platform.OS === "android" ? kbInset : 0;
+
   const heading = mode === "register" ? "Create account" : mode === "forgot" ? "Reset password" : mode === "reset" ? "Set a new password" : null;
   const subhead = mode === "register" ? "Begin your discipleship journey on Pathway."
     : mode === "forgot" ? "Enter your account email and we'll send you a reset link."
@@ -150,7 +158,11 @@ export function LoginScreen(): ReactElement {
 
   return (
     <KeyboardAvoidingView style={st.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={st.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[st.scroll, androidKbPad ? { paddingBottom: 44 + androidKbPad } : null]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         {/* Upper third — the cross + brand info */}
         <View style={st.upper}>
         <View style={st.brand}>
