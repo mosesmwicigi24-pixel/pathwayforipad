@@ -15,6 +15,7 @@ import {
 import Svg, { Defs, LinearGradient as SvgGradient, Rect, Stop } from "react-native-svg";
 import { palette, radii, shadow, spacing, type as typ, buttonHeight } from "./tokens.js";
 import { rf } from "./responsive.js";
+import { useFontScale } from "./fontScale.js";
 
 // --- GradientBg: an absolutely-filling linear gradient (uses react-native-svg).
 // Diagonal top-left → bottom-right by default, matching the Figma hero blocks.
@@ -170,6 +171,9 @@ export function T({
   numberOfLines?: number;
   children: ReactNode;
 }): ReactNode {
+  // Subscribe to the user font-size preference so a change re-renders all text
+  // (rf() reads the same multiplier under the hood).
+  useFontScale();
   // Effective weight = variant default overridden by anything in `style`.
   const v = typ[variant] as TextStyle;
   const flat = (StyleSheet.flatten(style) ?? {}) as TextStyle;

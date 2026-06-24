@@ -12,12 +12,13 @@ import {
   AtSign, Award, Bell, Calendar, Check, ChevronRight, Compass, Copy, Download,
   Fingerprint, Globe, Heart, KeyRound, Languages, LifeBuoy, Link2, Lock, LogOut,
   Mail, MapPin, Pencil, Phone, ScrollText, Settings, ShieldCheck, Smartphone, Sparkles, Tag,
-  Trash2, User, UserCog, X,
+  Trash2, Type, User, UserCog, X,
   type LucideIcon,
 } from "lucide-react-native";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, spacing, shadow } from "../theme/tokens";
 import { T, Pill } from "../theme/components";
+import { useFontScale, type FontSize } from "../theme/fontScale";
 import { launchImageLibrary } from "react-native-image-picker";
 import { useMe, useAchievements, useCertificates } from "../api/hooks";
 import { NuruApi } from "../api/client";
@@ -108,6 +109,7 @@ function cleanSocials(raw: Record<string, string>): Record<string, string> {
 
 export function ProfileScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { size: fontSize, setSize: setFontSize } = useFontScale();
   const { data: me, refetch: refetchMe } = useMe();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
@@ -421,6 +423,26 @@ export function ProfileScreen(): ReactElement {
             ) : (
               <T variant="caption" tone="secondary">No certificates yet — complete a level to earn your first.</T>
             )}
+          </Section>
+
+          <Section title="DISPLAY" Icon={Type}>
+            <T variant="caption" tone="secondary" style={{ marginBottom: spacing.sm }}>Text size</T>
+            <View style={{ flexDirection: "row", gap: spacing.sm }}>
+              {(["small", "default", "large"] as FontSize[]).map((s) => (
+                <Pressable
+                  key={s}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: fontSize === s }}
+                  onPress={() => setFontSize(s)}
+                  style={[st.sizeOpt, fontSize === s && st.sizeOptOn]}
+                >
+                  <T style={{ fontSize: s === "small" ? 13 : s === "large" ? 18 : 15, fontWeight: "700", color: fontSize === s ? palette.navyDeep : palette.ink600 }}>
+                    {s === "small" ? "Small" : s === "large" ? "Large" : "Default"}
+                  </T>
+                </Pressable>
+              ))}
+            </View>
+            <T variant="micro" tone="tertiary" style={{ marginTop: 8 }}>Adjusts text size across the whole app.</T>
           </Section>
 
           <Section title="HELP & PRIVACY" Icon={LifeBuoy}>
@@ -890,6 +912,8 @@ const st = {
   sheetClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center" },
   input: { backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 16, paddingHorizontal: spacing.base, paddingVertical: 12, fontSize: 15, color: palette.navy },
   selectOpt: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: spacing.md },
+  sizeOpt: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 52, backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 14 },
+  sizeOptOn: { backgroundColor: palette.goldChipBg, borderColor: palette.gold },
   selectOptOn: { backgroundColor: "rgba(201,162,39,0.10)", borderColor: palette.gold },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: palette.border, backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
   defaultPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "rgba(201,162,39,0.4)" },

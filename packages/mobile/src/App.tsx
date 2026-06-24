@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { AppState, NativeModules, Platform, StatusBar, View } from "react-native";
 import { Provider } from "react-redux";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { FontScaleProvider } from "./theme/fontScale";
 import { OfflineBanner } from "./components/OfflineBanner";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { store } from "./store/store";
@@ -102,6 +103,7 @@ export function App(): ReactElement {
 
   return (
     <Provider store={store}>
+      <FontScaleProvider>
       <SafeAreaProvider>
         {/* Draw edge-to-edge (the app fills the whole screen, content behind the
             status bar) while keeping the system bars visible. The navy headers sit
@@ -122,6 +124,7 @@ export function App(): ReactElement {
         {/* Heads-up banner for a freshly-arrived announcement (over everything). */}
         <AnnouncementToast />
       </SafeAreaProvider>
+      </FontScaleProvider>
     </Provider>
   );
 }

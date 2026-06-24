@@ -20,7 +20,18 @@ function deviceShortestSide(): number {
 /** Global font scale for this device (0.90–1.15 of the 390pt baseline). */
 export const FONT_SCALE = Math.min(Math.max(deviceShortestSide() / 390, 0.9), 1.15);
 
-/** Scale a font size designed at ~390pt to this device. */
+// User preference multiplier (Small / Default / Large) on top of the device scale.
+// Kept here so rf() — used by non-T callers like buttons — stays in sync with the
+// FontScale context. The context drives the re-render when it changes.
+let userMult = 1;
+export function setUserFontMult(m: number): void {
+  userMult = m;
+}
+export function getUserFontMult(): number {
+  return userMult;
+}
+
+/** Scale a font size designed at ~390pt to this device + the user preference. */
 export function rf(n: number): number {
-  return Math.round(n * FONT_SCALE);
+  return Math.round(n * FONT_SCALE * userMult);
 }
