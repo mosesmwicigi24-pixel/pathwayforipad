@@ -7,11 +7,20 @@
   },
   "scripts": {
     "start": "react-native start",
-    "ios": "react-native run-ios",
-    "android": "react-native run-android",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "assets:link": "react-native-asset",
+
+    "ios": "react-native run-ios",
+    "ios:pods": "cd ios && RCT_NEW_ARCH_ENABLED=1 bundle exec pod install",
+    "ios:build": "cd ios && xcodebuild -workspace NuruPlace.xcworkspace -scheme NuruPlace -configuration Release -destination 'generic/platform=iOS' -derivedDataPath /tmp/nuru-dd -allowProvisioningUpdates build",
+    "ios:clean": "cd ios && xcodebuild -workspace NuruPlace.xcworkspace -scheme NuruPlace clean && rm -rf /tmp/nuru-dd",
+
+    "android": "react-native run-android",
+    "android:apk": "cd android && ./gradlew assembleRelease",
+    "android:bundle": "cd android && ./gradlew bundleRelease",
+    "android:clean": "cd android && ./gradlew clean"
   },
   "dependencies": {
     "@nuru/shared": "workspace:*",
