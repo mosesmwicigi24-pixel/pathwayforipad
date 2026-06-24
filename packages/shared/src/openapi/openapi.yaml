@@ -2843,6 +2843,17 @@ paths:
         "200": { description: Toggled }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /chat/messages/{id}/readers:
+    get:
+      tags: [progress]
+      summary: Read receipts for my message — who has seen it (author-only).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Readers + recipient/read counts }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /chat/messages/{id}:
     patch:
       tags: [progress]

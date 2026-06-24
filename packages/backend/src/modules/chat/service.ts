@@ -325,7 +325,14 @@ export class ChatService {
                  SELECT json_agg(json_build_object('emoji', r.emoji, 'count', r.cnt, 'mine', r.mine))
                    FROM (SELECT emoji, count(*)::int AS cnt, bool_or(user_id = $1) AS mine
                            FROM chat_reactions WHERE message_id = m.message_id GROUP BY emoji) r
-              ), '[]'::json) AS reactions
+              ), '[]'::json) AS reactions,
+              -- Read receipts: how many recipients (everyone but the author) have a
+              -- last_read pointer at/after this message, and how many recipients exist.
+              (SELECT count(*)::int FROM chat_members mr
+                 WHERE mr.conversation_id = m.conversation_id AND mr.user_id <> m.author_user_id
+                   AND mr.last_read_at IS NOT NULL AND mr.last_read_at >= m.created_at) AS read_count,
+              (SELECT count(*)::int FROM chat_members mr2
+                 WHERE mr2.conversation_id = m.conversation_id AND mr2.user_id <> m.author_user_id) AS recipient_count
          FROM chat_messages m
          JOIN users u ON u.user_id = m.author_user_id
          LEFT JOIN chat_messages rt ON rt.message_id = m.reply_to_id
@@ -417,6 +424,36 @@ export class ChatService {
       [conversationId, userId],
     );
     return { conversation_id: conversationId };
+  }
+
+  /** Read receipts for a message — who (other than the author) has seen it, and how
+   *  many recipients there are. Author-only (the "eye" / Seen-by view). */
+  async messageReaders(
+    userId: string,
+    messageId: string,
+  ): Promise<{ recipient_count: number; read_count: number; readers: unknown[] }> {
+    const msg = await maybeOne<{ conversation_id: string; author_user_id: string; created_at: string }>(
+      this.pool,
+      `SELECT conversation_id, author_user_id, created_at FROM chat_messages WHERE message_id = $1 AND deleted_at IS NULL`,
+      [messageId],
+    );
+    if (!msg) throw new ApiError("NOT_FOUND", "Message not found");
+    if (msg.author_user_id !== userId) throw new ApiError("FORBIDDEN_SCOPE", "Only the author can see read receipts");
+    const recipient = await one<{ n: number }>(
+      this.pool,
+      `SELECT count(*)::int AS n FROM chat_members WHERE conversation_id = $1 AND user_id <> $2`,
+      [msg.conversation_id, userId],
+    );
+    const readers = await many(
+      this.pool,
+      `SELECT u.user_id, u.full_name, u.avatar_url, mr.last_read_at AS read_at
+         FROM chat_members mr JOIN users u ON u.user_id = mr.user_id
+        WHERE mr.conversation_id = $1 AND mr.user_id <> $2
+          AND mr.last_read_at IS NOT NULL AND mr.last_read_at >= $3
+        ORDER BY mr.last_read_at DESC`,
+      [msg.conversation_id, userId, msg.created_at],
+    );
+    return { recipient_count: recipient.n, read_count: readers.length, readers };
   }
 
   /** Create or return the 1:1 DM with another member (minor-safe, same congregation). */

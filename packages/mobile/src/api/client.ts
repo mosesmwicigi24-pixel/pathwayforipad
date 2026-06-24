@@ -56,6 +56,7 @@ import type {
   ThreadSummary,
   ChatInbox,
   ChatThreadDetail,
+  ChatReaders,
   ChatPerson,
   NuruTurn,
   WelcomeVideo,
@@ -374,6 +375,11 @@ export const NuruApi = {
   },
   async toggleChatReaction(messageId: string, emoji: string): Promise<{ on: boolean }> {
     const { data } = await api.post<{ on: boolean }>(`/chat/messages/${messageId}/reactions`, { emoji });
+    return data;
+  },
+  // Read receipts: who has seen my message (the "eye" / Seen-by view).
+  async chatMessageReaders(messageId: string): Promise<ChatReaders> {
+    const { data } = await api.get<ChatReaders>(`/chat/messages/${messageId}/readers`);
     return data;
   },
   // Author-only edit / delete of a sent message (online; mirrors reactions).

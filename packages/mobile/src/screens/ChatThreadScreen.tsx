@@ -8,7 +8,7 @@ import { ActivityIndicator, Alert, Image, Keyboard, Linking, Modal, PermissionsA
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
 import AudioRecorderPlayer from "react-native-audio-recorder-player";
 import { pick as pickDocument, isCancel } from "react-native-document-picker";
-import { ArrowLeft, Camera, Check, FileText, Hash, ImagePlus, Mic, MoreVertical, Paperclip, PenLine, Play, Plus, Send, Smile, Sparkles, Square, Users, Video, X } from "lucide-react-native";
+import { ArrowLeft, Camera, Check, CheckCheck, Eye, FileText, Hash, ImagePlus, Mic, MoreVertical, Paperclip, PenLine, Play, Plus, Send, Smile, Sparkles, Square, Users, Video, X } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -26,6 +26,8 @@ import { getConnectivity } from "../net/connectivity";
 import { Loading, ErrorState } from "../components/states";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { FitImage } from "../components/FitImage";
+import { Avatar } from "../components/Avatar";
+import type { ChatReaders } from "../api/types";
 import {
   formatMillis,
   voiceFileName,
@@ -76,6 +78,7 @@ export function ChatThreadScreen(): ReactElement {
   const [sendError, setSendError] = useState<string | null>(null);
   const [reactingId, setReactingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null); // message being edited (composer in edit mode)
+  const [seenBy, setSeenBy] = useState<{ msg: ChatMessage; data: ChatReaders | null } | null>(null); // "eye" / Seen-by sheet
   const [showAttach, setShowAttach] = useState(false); // the "+" attachment grid
   const [showEmoji, setShowEmoji] = useState(false); // the emoji strip
   const [aiBusy, setAiBusy] = useState(false); // sparkle → AI drafting
@@ -357,6 +360,20 @@ export function ChatThreadScreen(): ReactElement {
     setEditingId(null);
     setText("");
   }
+  // ── Seen-by ("eye"): who has read my message ──
+  async function openSeenBy(m: ChatMessage): Promise<void> {
+    setSeenBy({ msg: m, data: null });
+    try {
+      const data = await NuruApi.chatMessageReaders(m.message_id);
+      setSeenBy((cur) => (cur && cur.msg.message_id === m.message_id ? { msg: m, data } : cur));
+    } catch {
+      setSeenBy((cur) =>
+        cur && cur.msg.message_id === m.message_id
+          ? { msg: m, data: { recipient_count: m.recipient_count, read_count: m.read_count, readers: [] } }
+          : cur,
+      );
+    }
+  }
   function confirmDelete(id: string): void {
     Alert.alert("Delete message?", "This removes it for everyone in the chat.", [
       { text: "Cancel", style: "cancel" },
@@ -500,6 +517,7 @@ export function ChatThreadScreen(): ReactElement {
                 playing={playingId === m.message_id}
                 onPlayVoice={(url) => void toggleVoicePlayback(m.message_id, url)}
                 onMore={m.mine ? () => openMessageActions(m) : undefined}
+                onSeenBy={m.mine ? () => void openSeenBy(m) : undefined}
               />
             ))}
             {convo.messages.length === 0 ? (
@@ -665,6 +683,38 @@ export function ChatThreadScreen(): ReactElement {
           </View>
         </>
       )}
+
+      {/* Seen-by sheet (the "eye") — who has read this message. */}
+      <Modal visible={!!seenBy} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setSeenBy(null)}>
+        <Pressable style={st.sheetScrim} accessibilityRole="button" accessibilityLabel="Close" onPress={() => setSeenBy(null)} />
+        <View style={st.seenSheet}>
+          <View style={st.sheetGrip} />
+          <T variant="heading" style={{ marginBottom: 2 }}>Seen by</T>
+          {seenBy ? (
+            <T variant="caption" tone="tertiary" style={{ marginBottom: spacing.sm }}>
+              {`${seenBy.data?.read_count ?? seenBy.msg.read_count} of ${seenBy.data?.recipient_count ?? seenBy.msg.recipient_count} read`}
+            </T>
+          ) : null}
+          {!seenBy?.data ? (
+            <ActivityIndicator color={palette.gold} style={{ marginVertical: spacing.lg }} />
+          ) : seenBy.data.readers.length === 0 ? (
+            <T variant="caption" tone="secondary" style={{ marginVertical: spacing.md }}>No one has read this yet.</T>
+          ) : (
+            <ScrollView style={{ maxHeight: 320 }}>
+              {seenBy.data.readers.map((r) => (
+                <View key={r.user_id} style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm }}>
+                  <Avatar uri={r.avatar_url} name={r.full_name} size={36} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <T variant="caption" style={{ fontWeight: "700", color: palette.ink }} numberOfLines={1}>{r.full_name}</T>
+                    {r.read_at ? <T variant="micro" tone="tertiary">{when(r.read_at)}</T> : null}
+                  </View>
+                  <CheckCheck size={16} color="#3DA8E0" />
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -687,6 +737,7 @@ function Bubble({
   playing,
   onPlayVoice,
   onMore,
+  onSeenBy,
 }: {
   m: ChatMessage;
   onLongPress: () => void;
@@ -695,12 +746,19 @@ function Bubble({
   playing: boolean;
   onPlayVoice: (url: string) => void;
   onMore?: (() => void) | undefined;
+  onSeenBy?: (() => void) | undefined;
 }): ReactElement {
   const meta = (m.attachment_meta ?? {}) as { duration?: number; name?: string; size?: number };
   const [videoOpen, setVideoOpen] = useState(false);
   const chipColor = m.mine ? palette.onNavy : palette.navy;
+  const recipients = m.recipient_count ?? 0;
+  const reads = m.read_count ?? 0;
+  const allRead = recipients > 0 && reads >= recipients;
   return (
-    <View style={{ marginBottom: spacing.md, alignItems: m.mine ? "flex-end" : "flex-start" }}>
+    <View style={{ marginBottom: spacing.md, flexDirection: "row", gap: spacing.xs, justifyContent: m.mine ? "flex-end" : "flex-start" }}>
+      {/* Other people's messages show their avatar thumbnail on the left. */}
+      {!m.mine ? <Avatar uri={m.author_avatar} name={m.author_name} size={28} /> : null}
+      <View style={{ alignItems: m.mine ? "flex-end" : "flex-start", maxWidth: "82%", minWidth: 0 }}>
       {!m.mine ? <T variant="micro" tone="tertiary" style={{ marginBottom: 2, marginLeft: spacing.sm }}>{m.author_name}</T> : null}
       <Pressable
         accessibilityRole="button"
@@ -763,6 +821,22 @@ function Bubble({
             <T variant="micro" style={{ color: m.mine ? "rgba(255,255,255,0.55)" : palette.ink400, fontStyle: "italic" }}>edited</T>
           ) : null}
           <T variant="micro" style={{ color: m.mine ? "rgba(255,255,255,0.6)" : palette.ink400 }}>{when(m.created_at)}</T>
+          {/* Read receipt: ✓ sent · ✓✓ blue when everyone has read it. */}
+          {m.mine ? (
+            allRead ? (
+              <CheckCheck size={15} color="#5BC8FF" />
+            ) : reads > 0 ? (
+              <CheckCheck size={15} color="rgba(255,255,255,0.6)" />
+            ) : (
+              <Check size={15} color="rgba(255,255,255,0.6)" />
+            )
+          ) : null}
+          {/* Eye: who has seen it (Seen-by view). */}
+          {m.mine && recipients > 0 && onSeenBy ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Seen by" onPress={onSeenBy} hitSlop={8}>
+              <Eye size={14} color="rgba(255,255,255,0.7)" />
+            </Pressable>
+          ) : null}
           {m.mine && onMore ? (
             <Pressable accessibilityRole="button" accessibilityLabel="More actions" onPress={onMore} hitSlop={10} style={{ marginLeft: 2 }}>
               <MoreVertical size={14} color="rgba(255,255,255,0.7)" />
@@ -770,6 +844,13 @@ function Bubble({
           ) : null}
         </View>
       </Pressable>
+
+      {/* Group read tally: e.g. "3 read · 9 waiting" until everyone has seen it. */}
+      {m.mine && recipients > 1 && !allRead ? (
+        <Pressable accessibilityRole="button" onPress={onSeenBy} hitSlop={6} style={{ marginTop: 3, marginRight: spacing.sm }}>
+          <T variant="micro" tone="tertiary">{`${reads} read · ${recipients - reads} waiting`}</T>
+        </Pressable>
+      ) : null}
 
       {m.reactions.length > 0 ? (
         <View style={{ flexDirection: "row", gap: 4, marginTop: 4 }}>
@@ -788,6 +869,7 @@ function Bubble({
           ))}
         </View>
       ) : null}
+      </View>
     </View>
   );
 }
@@ -835,6 +917,9 @@ const st = {
   viewerRoot: { flex: 1, backgroundColor: "rgba(0,0,0,0.96)", alignItems: "center", justifyContent: "center" },
   viewerImg: { width: "100%", height: "100%" },
   viewerClose: { position: "absolute", top: 54, right: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center" },
+  sheetScrim: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.4)" },
+  seenSheet: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: palette.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: spacing.lg, paddingBottom: spacing.xxl },
+  sheetGrip: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: palette.border, marginBottom: spacing.base },
   mediaChip: { flexDirection: "row", alignItems: "center", gap: 6, maxWidth: 240 },
   recordRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.sm },
   recDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: palette.error },

@@ -359,6 +359,23 @@ export interface ChatMessage {
   created_at: string;
   mine: boolean;
   reactions: ChatReaction[];
+  /** Read receipts: recipients who've seen it, out of the total recipients. */
+  read_count: number;
+  recipient_count: number;
+}
+
+/** A member who has seen a message (the "eye" / Seen-by view). */
+export interface ChatReader {
+  user_id: string;
+  full_name: string;
+  avatar_url?: string | null;
+  read_at: string | null;
+}
+
+export interface ChatReaders {
+  recipient_count: number;
+  read_count: number;
+  readers: ChatReader[];
 }
 
 export interface ChatThreadDetail {

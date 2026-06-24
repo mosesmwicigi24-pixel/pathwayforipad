@@ -59,6 +59,12 @@ export function registerChat(ctx: AppContext): Router {
     res.json(await svc.toggleReaction(requirePrincipal(req).userId, { message_id: id, ...body }));
   }));
 
+  // Read receipts — who has seen this message (author only; the "eye" / Seen-by view).
+  r.get("/chat/messages/:id/readers", auth, handler(async (req, res) => {
+    const { id } = parseBody(IdParam, req.params);
+    res.json(await svc.messageReaders(requirePrincipal(req).userId, id));
+  }));
+
   // Author-only edit / delete of a sent message (mobile three-dot "more actions").
   r.patch("/chat/messages/:id", auth, handler(async (req, res) => {
     const { id } = parseBody(IdParam, req.params);
