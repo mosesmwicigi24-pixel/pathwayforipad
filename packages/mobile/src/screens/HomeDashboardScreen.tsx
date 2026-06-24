@@ -5,7 +5,7 @@
 // verse for today (WEB default per D-M4), encouragement, and announcements —
 // real data wherever the API serves it; spec demo content elsewhere.
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from "react-native";
+import { Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from "react-native";
 import {
   BadgeCheck,
   Bell,
@@ -928,11 +928,11 @@ export function HomeDashboardScreen(): ReactElement {
                   onPress={() => openAnnouncement(a.announcement_id, a.title)}
                   style={({ pressed }) => [st.annCard, { width: annSlideW }, pressed && { opacity: 0.92 }]}
                 >
-                  <View style={st.annCardImgWrap}>
+                  <View>
                     {a.primary_image_url ? (
-                      <Image source={{ uri: a.primary_image_url }} style={st.annCardImg} resizeMode="contain" />
+                      <FitImage uri={a.primary_image_url} />
                     ) : (
-                      <View style={[st.annCardImg, { backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" }]}>
+                      <View style={[st.annCardImgWrap, { alignItems: "center", justifyContent: "center", backgroundColor: palette.navy }]}>
                         <Megaphone size={26} color={palette.gold} />
                       </View>
                     )}
@@ -1091,7 +1091,7 @@ function CalEventMini({ ev, onOpen, label, subtitle }: { ev: CalOcc; onOpen: (e:
   return (
     <Pressable onPress={() => onOpen(ev)} style={st.calEvent}>
       {ev.primary_image_url ? (
-        <FitImage uri={ev.primary_image_url} radius={10} maxHeight={150} style={{ marginBottom: 6 }} />
+        <FitImage uri={ev.primary_image_url} radius={10} maxHeight={260} style={{ marginBottom: 6 }} />
       ) : null}
       <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700" }}>{label}</T>
       <T variant="caption" style={{ fontWeight: "700", color: palette.ink, marginTop: 1 }} numberOfLines={2}>{ev.title}</T>
@@ -1315,7 +1315,6 @@ const st = {
   annRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.md },
   annCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
   annCardImgWrap: { height: 140, backgroundColor: palette.mutedBg },
-  annCardImg: { width: "100%", height: 140 },
   annPlayBadge: { position: "absolute", top: 10, left: 10, width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
   annNewBadge: { position: "absolute", top: 10, right: 10, backgroundColor: palette.gold, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   annTile: { width: 36, height: 36, borderRadius: 12, backgroundColor: palette.tintBlue, alignItems: "center", justifyContent: "center" },

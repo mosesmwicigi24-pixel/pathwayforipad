@@ -4,7 +4,7 @@
 // offline they queue (chat_messages:create) and replay on reconnect (§1.7).
 // Opening the thread marks it read.
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { ActivityIndicator, Alert, Keyboard, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Keyboard, Linking, Modal, PermissionsAndroid, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
 import AudioRecorderPlayer from "react-native-audio-recorder-player";
 import { pick as pickDocument, isCancel } from "react-native-document-picker";
@@ -793,12 +793,22 @@ function Bubble({
 }
 
 /** Renders a chat image from its Cloudinary secure URL — shown in full (no crop),
- *  the bubble adapting to the photo's aspect within a fixed width. */
+ *  the bubble adapting to the photo's aspect within a fixed width. Tapping opens a
+ *  full-screen viewer (image fits the screen); tap anywhere or ✕ to go back. */
 function AttachmentImage({ url }: { url: string }): ReactElement {
+  const [open, setOpen] = useState(false);
   return (
-    <View style={st.imageWrap}>
-      <FitImage uri={url} radius={14} maxHeight={320} />
-    </View>
+    <>
+      <Pressable accessibilityRole="imagebutton" accessibilityLabel="Shared photo, tap to view" onPress={() => setOpen(true)} style={st.imageWrap}>
+        <FitImage uri={url} radius={14} maxHeight={320} />
+      </Pressable>
+      <Modal visible={open} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setOpen(false)}>
+        <Pressable style={st.viewerRoot} accessibilityRole="button" accessibilityLabel="Close photo" onPress={() => setOpen(false)}>
+          <Image source={{ uri: url }} style={st.viewerImg} resizeMode="contain" />
+          <View style={st.viewerClose}><X size={24} color="#fff" /></View>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -822,6 +832,9 @@ const st = {
   reactPick: { paddingHorizontal: 4 },
   attachBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: palette.coolPaper, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
   imageWrap: { width: 240, marginBottom: 2 },
+  viewerRoot: { flex: 1, backgroundColor: "rgba(0,0,0,0.96)", alignItems: "center", justifyContent: "center" },
+  viewerImg: { width: "100%", height: "100%" },
+  viewerClose: { position: "absolute", top: 54, right: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center" },
   mediaChip: { flexDirection: "row", alignItems: "center", gap: 6, maxWidth: 240 },
   recordRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.sm },
   recDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: palette.error },
