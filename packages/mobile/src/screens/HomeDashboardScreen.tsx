@@ -294,7 +294,7 @@ export function HomeDashboardScreen(): ReactElement {
     >
       {/* ── Navy header ─────────────────────────────────────────────── */}
       <View style={st.header}>
-        {/* Row 1 — date · notifications */}
+        {/* Top line — date (left) · bell · progress ring (right, in one line) */}
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <T variant="micro" tone="gold" style={[st.kicker, { flex: 1 }]}>{todayKicker()}</T>
           <Pressable
@@ -312,26 +312,23 @@ export function HomeDashboardScreen(): ReactElement {
               </View>
             ) : null}
           </Pressable>
-        </View>
-
-        {/* Row 2 — greeting · progress ring */}
-        <View style={{ flexDirection: "row", alignItems: "center", marginTop: spacing.lg }}>
-          <View style={{ flex: 1, minWidth: 0, paddingRight: spacing.base }}>
-            <T serif tone="onNavy" style={st.greeting}>{`${greeting()}, ${firstName(me?.profile?.full_name)}.`}</T>
-            <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.sm, lineHeight: 21 }}>
-              {dailyGreeting?.greeting ?? "Grace for today's step."}
-            </T>
-          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Pathway progress ${overallPct}%`}
             onPress={() => nav.navigate("Tabs", { screen: "Pathway" })}
-            style={({ pressed }) => [st.ring, pressed && { opacity: 0.85 }]}
+            style={({ pressed }) => [st.ring, { marginLeft: spacing.md }, pressed && { opacity: 0.85 }]}
           >
-            <T serif tone="onNavy" style={{ fontSize: 17 }}>{`${overallPct}%`}</T>
-            <T variant="micro" tone="onNavyFaint" style={{ fontSize: 8, letterSpacing: 1.2 }}>DONE</T>
+            <T serif tone="onNavy" style={{ fontSize: 14 }}>{`${overallPct}%`}</T>
           </Pressable>
         </View>
+
+        {/* Greeting + explanation (full width) */}
+        <T serif tone="onNavy" style={[st.greeting, { marginTop: spacing.lg }]}>
+          {`${greeting()}, ${firstName(me?.profile?.full_name)}.`}
+        </T>
+        <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.sm, lineHeight: 21 }}>
+          {dailyGreeting?.greeting ?? "Grace for today's step."}
+        </T>
 
         {active ? (
           <View style={st.statusChip}>
@@ -1127,7 +1124,7 @@ const st = {
   },
   kicker: { letterSpacing: 2.4, fontWeight: "600" },
   greeting: { fontSize: 28, lineHeight: 36, fontWeight: "600" },
-  ring: { width: 64, height: 64, borderRadius: 32, borderWidth: 5, borderColor: palette.gold, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(201,162,39,0.08)" },
+  ring: { width: 48, height: 48, borderRadius: 24, borderWidth: 4, borderColor: palette.gold, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(201,162,39,0.08)" },
   bellBtn: {
     width: 44,
     height: 44,
