@@ -68,6 +68,7 @@ import { ShareToChatSheet } from "../components/ShareToChatSheet";
 import { DisciplerCarousel } from "../components/DisciplerCarousel";
 import { PrayerWallCarousel } from "../components/PrayerWallCarousel";
 import { FitImage } from "../components/FitImage";
+import { GrowthCtaRow } from "../components/GrowthCtaRow";
 import { Avatar } from "../components/Avatar";
 
 // Emoji reactions on the home video (❤️ is the dedicated Like; these are extras).
@@ -966,6 +967,9 @@ export function HomeDashboardScreen(): ReactElement {
             </ScrollView>
           </View>
         ) : null}
+
+        {/* Always-available growth disciplines: gifts · memory verse · prayer */}
+        <GrowthCtaRow />
 
         {/* ── Give — lead members to give (M-Pesa-first Give tab) ─────── */}
         <Pressable

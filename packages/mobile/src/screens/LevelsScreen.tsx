@@ -48,6 +48,7 @@ import {
 import { NuruApi } from "../api/client";
 import { errorMessage, refreshQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
+import { GrowthCtaRow } from "../components/GrowthCtaRow";
 import { isLevelLocked, lockedLevelLabel } from "./levelGating";
 import type { PathwayLevel, RhythmToday } from "../api/types";
 
@@ -228,6 +229,9 @@ export function LevelsScreen(): ReactElement {
 
         {/* Today's rhythm — prayer, word, reflection */}
         <RhythmCard rhythm={rhythm} />
+
+        {/* Always-available growth disciplines: gifts · memory verse · prayer */}
+        <GrowthCtaRow />
 
         {/* ── YOUR JOURNEY (the seven levels, each with a summary) ─────── */}
         <View style={st.sectionHead}>
@@ -583,11 +587,14 @@ function BibleStudyBanner({ onPress }: { onPress: () => void }): ReactElement {
       <Image source={{ uri: BIBLE_STUDY_IMG }} style={st.bannerImg} resizeMode="cover" />
       <View style={st.bannerShade} />
       <View style={st.bannerBody}>
-        <T variant="micro" tone="gold" style={{ letterSpacing: 1.6, fontWeight: "800" }}>GO DEEPER</T>
-        <T serif tone="onNavy" style={{ fontSize: 19, lineHeight: 24, marginTop: 3 }}>Study the Word together</T>
-        <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }} numberOfLines={2}>
+        <T variant="micro" tone="gold" style={{ letterSpacing: 1.8, fontWeight: "800" }}>GO DEEPER</T>
+        <T serif tone="onNavy" style={{ fontSize: 23, lineHeight: 28, marginTop: 4 }}>Study the Word together</T>
+        <T variant="caption" tone="onNavyDim" style={{ marginTop: 6 }} numberOfLines={2}>
           “Be diligent… a worker who correctly handles the word of truth.” — 2 Timothy 2:15
         </T>
+        <View style={st.bannerCta}>
+          <T variant="micro" style={{ color: palette.navyDeep, fontWeight: "800", letterSpacing: 0.4 }}>OPEN READING PLANS ›</T>
+        </View>
       </View>
     </Pressable>
   );
@@ -726,10 +733,11 @@ const st = {
   levelBar: { position: "absolute", left: 0, top: 0, bottom: 0, width: 5 },
   levelBadge: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   lockPill: { width: 30, height: 30, borderRadius: 15, backgroundColor: palette.mutedBg, alignItems: "center", justifyContent: "center", alignSelf: "center" },
-  banner: { height: 150, borderRadius: radii.card, overflow: "hidden", justifyContent: "flex-end", backgroundColor: palette.navy, marginVertical: 2, ...shadow.card },
+  banner: { height: 210, borderRadius: radii.card, overflow: "hidden", justifyContent: "flex-end", backgroundColor: palette.navy, marginVertical: 2, ...shadow.card },
   bannerImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
   bannerShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.5)" },
-  bannerBody: { padding: spacing.base },
+  bannerBody: { padding: spacing.lg },
+  bannerCta: { alignSelf: "flex-start", marginTop: spacing.md, backgroundColor: palette.gold, borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 7 },
   adCard: { borderRadius: radii.card, overflow: "hidden", padding: spacing.base, marginVertical: 2, backgroundColor: palette.navyDeep, ...shadow.card },
   adRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   adMark: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(201,162,39,0.16)", alignItems: "center", justifyContent: "center" },
