@@ -18,6 +18,7 @@ import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
 import { Loading } from "../components/states";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 
 function ago(iso: string): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
@@ -29,6 +30,7 @@ function ago(iso: string): string {
 
 export function CohortDiscussionsScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const kb = useKeyboardInset(); // lift the compose fields above the keyboard (Android + iOS)
   const { data: threads, isLoading, error, refetch } = useThreads();
   const [composing, setComposing] = useState(false);
   const [title, setTitle] = useState("");
@@ -87,7 +89,7 @@ export function CohortDiscussionsScreen(): ReactElement {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }}
+        contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl + kb }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"

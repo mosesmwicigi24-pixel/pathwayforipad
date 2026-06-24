@@ -16,11 +16,13 @@ import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
 import type { SavedVerse } from "../api/types";
 import { Loading, ErrorState } from "../components/states";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 
 const VERSES_KEY = "verses";
 
 export function VerseLibraryScreen(): ReactElement {
   const nav = useNavigation();
+  const kb = useKeyboardInset(); // lift compose fields above the keyboard (Android + iOS)
   const { data: verses, isLoading, error, refetch } = useVerses();
   const [adding, setAdding] = useState(false);
   const [reference, setReference] = useState("");
@@ -101,7 +103,7 @@ export function VerseLibraryScreen(): ReactElement {
         <T variant="heading" tone="onNavy">Verse library</T>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl + kb }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         {adding ? (
           <View style={[st.card, { gap: spacing.sm, marginBottom: spacing.base }]}>
             <TextInput

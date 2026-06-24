@@ -10,6 +10,7 @@ import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
+import { useKeyboardInset } from "../components/useKeyboardInset";
 import { usePrayers, useScores } from "../api/hooks";
 import { errorMessage, invalidateQueries, refreshQueries, setQueryData } from "../api/query";
 import { writeThrough } from "../sync/offlineWrite";
@@ -27,6 +28,7 @@ function when(iso: string): string {
 
 export function PrayerJournalScreen(): ReactElement {
   const nav = useNavigation();
+  const kb = useKeyboardInset(); // lift compose fields above the keyboard (Android + iOS)
   const { data: prayers, isLoading, error, refetch } = usePrayers();
   const { data: scores } = useScores();
   const [composing, setComposing] = useState(false);
@@ -146,7 +148,7 @@ export function PrayerJournalScreen(): ReactElement {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl + kb }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         {scores && !composing ? (
           <View style={[st.card, st.scoreCard, { marginBottom: spacing.base }]}>
             <View style={st.scoreRing}>
