@@ -3,7 +3,7 @@
 // Tap a request to open its own page; "+" composes a new one.
 import { useCallback, useState, type ReactElement } from "react";
 import { Modal, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
-import { ArrowLeft, HandHeart, MessageCircle, Plus, X, CheckCircle2 } from "lucide-react-native";
+import { ArrowLeft, MessageCircle, Plus, X, CheckCircle2 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -57,47 +57,43 @@ export function PrayerWallScreen(): ReactElement {
 
   return (
     <View style={st.screen}>
-      <View style={st.header}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={st.backBtn}>
-          <ArrowLeft size={20} color={palette.onNavy} />
-        </Pressable>
-        <View style={{ flex: 1 }}>
-          <T variant="micro" tone="gold" style={st.kicker}>PRAY FOR ONE ANOTHER</T>
-          <T serif tone="onNavy" style={{ fontSize: 24, marginTop: 2 }}>Prayer Wall</T>
-        </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="New prayer request" onPress={() => setComposing(true)} style={st.addBtn}>
-          <Plus size={20} color={palette.navyDeep} />
-        </Pressable>
-      </View>
-
-      <View style={st.sortRow}>
-        {(["latest", "prayed"] as const).map((s) => (
-          <Pressable key={s} onPress={() => setSort(s)} style={[st.sortChip, sort === s && st.sortChipOn]}>
-            <T variant="caption" style={{ color: sort === s ? palette.navyDeep : palette.ink600, fontWeight: "700" }}>
-              {s === "latest" ? "Latest" : "Most prayed"}
-            </T>
-          </Pressable>
-        ))}
-      </View>
-
       <ScrollView
-        contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl, gap: spacing.sm }}
+        contentContainerStyle={{ paddingBottom: spacing.xxl }}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
       >
-        {/* Hero image amplifying the wall — shown in full (container adapts to it) */}
-        <FitImage uri={PRAYER_HERO_IMG} radius={radii.card} background={palette.navy} style={{ minHeight: 150 }}>
+        {/* Full-bleed hero (like a reading plan): edge-to-edge image, controls + title overlaid */}
+        <FitImage uri={PRAYER_HERO_IMG} background={palette.navy} style={st.heroFit}>
           <View style={st.heroShade} />
           <View style={st.heroFill}>
+            <View style={st.heroTop}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={st.glassBtn}>
+                <ArrowLeft size={20} color={palette.onNavy} />
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="New prayer request" onPress={() => setComposing(true)} style={st.addBtn}>
+                <Plus size={20} color={palette.navyDeep} />
+              </Pressable>
+            </View>
             <View style={st.heroBody}>
-              <View style={st.heroIcon}><HandHeart size={18} color={palette.navyDeep} /></View>
-              <T serif tone="onNavy" style={{ fontSize: 20, lineHeight: 25, marginTop: spacing.sm }}>Carry one another</T>
-              <T variant="caption" tone="onNavyDim" style={{ marginTop: 3 }} numberOfLines={2}>
+              <T variant="micro" tone="gold" style={st.kicker}>PRAY FOR ONE ANOTHER</T>
+              <T serif tone="onNavy" style={{ fontSize: 24, lineHeight: 30, marginTop: 2 }}>Carry one another</T>
+              <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }} numberOfLines={2}>
                 “Carry each other’s burdens, and in this way you will fulfill the law of Christ.” — Galatians 6:2
               </T>
             </View>
           </View>
         </FitImage>
+
+        <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.base, gap: spacing.sm }}>
+          <View style={st.sortRow}>
+            {(["latest", "prayed"] as const).map((s) => (
+              <Pressable key={s} onPress={() => setSort(s)} style={[st.sortChip, sort === s && st.sortChipOn]}>
+                <T variant="caption" style={{ color: sort === s ? palette.navyDeep : palette.ink600, fontWeight: "700" }}>
+                  {s === "latest" ? "Latest" : "Most prayed"}
+                </T>
+              </Pressable>
+            ))}
+          </View>
 
         {isLoading ? <Loading label="Loading the wall…" /> : null}
         {error ? <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /> : null}
@@ -134,6 +130,7 @@ export function PrayerWallScreen(): ReactElement {
             </View>
           </Pressable>
         ))}
+        </View>
       </ScrollView>
 
       <Modal visible={composing} animationType="slide" transparent onRequestClose={() => setComposing(false)}>
@@ -198,17 +195,17 @@ function ComposeSheet({ onClose, onPosted }: { onClose: () => void; onPosted: ()
 
 const st = {
   screen: { flex: 1, backgroundColor: palette.coolPaper },
-  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: palette.navy, paddingHorizontal: spacing.lg, paddingTop: 54, paddingBottom: spacing.lg },
-  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center" },
   addBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.gold, alignItems: "center", justifyContent: "center" },
+  glassBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center" },
   kicker: { letterSpacing: 1.8, textTransform: "uppercase" },
-  sortRow: { flexDirection: "row", gap: spacing.sm, paddingHorizontal: spacing.screen, paddingTop: spacing.md },
+  sortRow: { flexDirection: "row", gap: spacing.sm },
   sortChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: radii.pill, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border },
   sortChipOn: { backgroundColor: palette.goldChipBg, borderColor: palette.gold },
-  heroFill: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-end" },
+  heroFit: { borderBottomLeftRadius: 28, borderBottomRightRadius: 28, minHeight: 240 },
+  heroFill: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" },
+  heroTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: spacing.lg, paddingTop: 54 },
   heroShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.55)" },
-  heroBody: { padding: spacing.base },
-  heroIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: palette.gold, alignItems: "center", justifyContent: "center" },
+  heroBody: { padding: spacing.lg },
   card: { backgroundColor: palette.white, borderRadius: radii.card, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   answeredChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: palette.successBg, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
   prayBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radii.pill, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
