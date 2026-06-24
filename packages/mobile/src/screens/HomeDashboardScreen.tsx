@@ -4,8 +4,8 @@
 // rhythm with streak, progress snapshot, story card, upcoming events, the
 // verse for today (WEB default per D-M4), encouragement, and announcements —
 // real data wherever the API serves it; spec demo content elsewhere.
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
-import { Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { Pressable, RefreshControl, ScrollView, StatusBar, View, useWindowDimensions, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import {
   BadgeCheck,
   Bell,
@@ -31,7 +31,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
@@ -200,6 +200,23 @@ export function HomeDashboardScreen(): ReactElement {
       setRefreshing(false);
     }
   }, [refetch, refetchMe, refetchAch, refetchNotifs, refetchAnnouncements, refetchWelcomeVideo, refetchFeaturedCell, refetchFeaturedEvent, refetchFeaturedAnnouncement]);
+  // Immersive scroll (Facebook-style): hide the system status bar once the user
+  // scrolls past the header, reveal it again at the top — so the clock/wifi/
+  // battery aren't always floating over the content. Only flip on a real change.
+  const statusHidden = useRef(false);
+  const setStatus = useCallback((hide: boolean) => {
+    if (hide !== statusHidden.current) {
+      statusHidden.current = hide;
+      StatusBar.setHidden(hide, "slide");
+    }
+  }, []);
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => setStatus(e.nativeEvent.contentOffset.y > 24),
+    [setStatus],
+  );
+  // Always restore the status bar when leaving Home.
+  useFocusEffect(useCallback(() => () => setStatus(false), [setStatus]));
+
   const [fromIso, toIso] = useMemo(() => {
     const now = new Date();
     // 30-day window so the "next gathering" fallback can look beyond this week.
@@ -290,58 +307,54 @@ export function HomeDashboardScreen(): ReactElement {
       style={st.screen}
       contentContainerStyle={{ paddingBottom: tabBarSpace }}
       showsVerticalScrollIndicator={false}
+      onScroll={onScroll}
+      scrollEventThrottle={16}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
     >
       {/* ── Navy header ─────────────────────────────────────────────── */}
       <View style={st.header}>
-        <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-          {/* Left — greeting · explanation · level (stacked) */}
-          <View style={{ flex: 1, minWidth: 0, paddingRight: spacing.md }}>
-            <T serif tone="onNavy" style={st.greeting}>
-              {`${greeting()}, ${firstName(me?.profile?.full_name)}.`}
-            </T>
-            <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.sm, lineHeight: 21 }}>
-              {dailyGreeting?.greeting ?? "Grace for today's step."}
-            </T>
-            {active ? (
-              <View style={st.statusChip}>
-                <T variant="caption" style={{ color: palette.goldGlow, fontWeight: "600" }}>
-                  {`Level ${active.level_number} · ${active.completed_modules} of ${active.total_modules} modules · ${streak}d streak`}
+        {/* Top line — date (left) · bell + progress ring (right) */}
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <T variant="micro" tone="gold" style={[st.kicker, { flex: 1 }]}>{todayKicker()}</T>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+            onPress={() => nav.navigate("Notifications")}
+            style={({ pressed }) => [st.bellBtn, pressed && { transform: [{ scale: 0.95 }] }]}
+          >
+            <Bell size={20} color={palette.onNavy} strokeWidth={1.8} />
+            {unread > 0 ? (
+              <View style={st.bellBadge}>
+                <T variant="micro" style={{ color: palette.navy, fontWeight: "700", fontSize: 10 }}>
+                  {unread > 9 ? "9+" : String(unread)}
                 </T>
               </View>
             ) : null}
-          </View>
-
-          {/* Right — date, then bell + progress ring on one line */}
-          <View style={{ alignItems: "flex-end" }}>
-            <T variant="micro" tone="gold" style={[st.kicker, { textAlign: "right" }]}>{todayKicker()}</T>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm }}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Notifications"
-                onPress={() => nav.navigate("Notifications")}
-                style={({ pressed }) => [st.bellBtn, pressed && { transform: [{ scale: 0.95 }] }]}
-              >
-                <Bell size={20} color={palette.onNavy} strokeWidth={1.8} />
-                {unread > 0 ? (
-                  <View style={st.bellBadge}>
-                    <T variant="micro" style={{ color: palette.navy, fontWeight: "700", fontSize: 10 }}>
-                      {unread > 9 ? "9+" : String(unread)}
-                    </T>
-                  </View>
-                ) : null}
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Pathway progress ${overallPct}%`}
-                onPress={() => nav.navigate("Tabs", { screen: "Pathway" })}
-                style={({ pressed }) => [st.ring, pressed && { opacity: 0.85 }]}
-              >
-                <T serif tone="onNavy" style={{ fontSize: 14 }}>{`${overallPct}%`}</T>
-              </Pressable>
-            </View>
-          </View>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Pathway progress ${overallPct}%`}
+            onPress={() => nav.navigate("Tabs", { screen: "Pathway" })}
+            style={({ pressed }) => [st.ring, { marginLeft: spacing.sm }, pressed && { opacity: 0.85 }]}
+          >
+            <T serif tone="onNavy" style={{ fontSize: 14 }}>{`${overallPct}%`}</T>
+          </Pressable>
         </View>
+
+        {/* Greeting · explanation · level — full width beneath the top line */}
+        <T serif tone="onNavy" style={[st.greeting, { marginTop: spacing.xl }]}>
+          {`${greeting()}, ${firstName(me?.profile?.full_name)}.`}
+        </T>
+        <T variant="bodyLg" tone="onNavyDim" style={{ marginTop: spacing.sm, lineHeight: 24 }}>
+          {dailyGreeting?.greeting ?? "Grace for today's step."}
+        </T>
+        {active ? (
+          <View style={st.statusChip}>
+            <T variant="caption" style={{ color: palette.goldGlow, fontWeight: "600" }}>
+              {`Level ${active.level_number} · ${active.completed_modules} of ${active.total_modules} modules · ${streak}d streak`}
+            </T>
+          </View>
+        ) : null}
       </View>
 
       <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.base, gap: spacing.base }}>
