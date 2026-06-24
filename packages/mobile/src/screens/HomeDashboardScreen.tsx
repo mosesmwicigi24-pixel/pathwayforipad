@@ -294,49 +294,54 @@ export function HomeDashboardScreen(): ReactElement {
     >
       {/* ── Navy header ─────────────────────────────────────────────── */}
       <View style={st.header}>
-        {/* Top line — date (left) · bell · progress ring (right, in one line) */}
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <T variant="micro" tone="gold" style={[st.kicker, { flex: 1 }]}>{todayKicker()}</T>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Notifications"
-            onPress={() => nav.navigate("Notifications")}
-            style={({ pressed }) => [st.bellBtn, pressed && { transform: [{ scale: 0.95 }] }]}
-          >
-            <Bell size={20} color={palette.onNavy} strokeWidth={1.8} />
-            {unread > 0 ? (
-              <View style={st.bellBadge}>
-                <T variant="micro" style={{ color: palette.navy, fontWeight: "700", fontSize: 10 }}>
-                  {unread > 9 ? "9+" : String(unread)}
+        <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+          {/* Left — greeting · explanation · level (stacked) */}
+          <View style={{ flex: 1, minWidth: 0, paddingRight: spacing.md }}>
+            <T serif tone="onNavy" style={st.greeting}>
+              {`${greeting()}, ${firstName(me?.profile?.full_name)}.`}
+            </T>
+            <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.sm, lineHeight: 21 }}>
+              {dailyGreeting?.greeting ?? "Grace for today's step."}
+            </T>
+            {active ? (
+              <View style={st.statusChip}>
+                <T variant="caption" style={{ color: palette.goldGlow, fontWeight: "600" }}>
+                  {`Level ${active.level_number} · ${active.completed_modules} of ${active.total_modules} modules · ${streak}d streak`}
                 </T>
               </View>
             ) : null}
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Pathway progress ${overallPct}%`}
-            onPress={() => nav.navigate("Tabs", { screen: "Pathway" })}
-            style={({ pressed }) => [st.ring, { marginLeft: spacing.md }, pressed && { opacity: 0.85 }]}
-          >
-            <T serif tone="onNavy" style={{ fontSize: 14 }}>{`${overallPct}%`}</T>
-          </Pressable>
-        </View>
-
-        {/* Greeting + explanation (full width) */}
-        <T serif tone="onNavy" style={[st.greeting, { marginTop: spacing.lg }]}>
-          {`${greeting()}, ${firstName(me?.profile?.full_name)}.`}
-        </T>
-        <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.sm, lineHeight: 21 }}>
-          {dailyGreeting?.greeting ?? "Grace for today's step."}
-        </T>
-
-        {active ? (
-          <View style={st.statusChip}>
-            <T variant="caption" style={{ color: palette.goldGlow, fontWeight: "600" }}>
-              {`Level ${active.level_number} · ${active.completed_modules} of ${active.total_modules} modules · ${streak}d streak`}
-            </T>
           </View>
-        ) : null}
+
+          {/* Right — date, then bell + progress ring on one line */}
+          <View style={{ alignItems: "flex-end" }}>
+            <T variant="micro" tone="gold" style={[st.kicker, { textAlign: "right" }]}>{todayKicker()}</T>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Notifications"
+                onPress={() => nav.navigate("Notifications")}
+                style={({ pressed }) => [st.bellBtn, pressed && { transform: [{ scale: 0.95 }] }]}
+              >
+                <Bell size={20} color={palette.onNavy} strokeWidth={1.8} />
+                {unread > 0 ? (
+                  <View style={st.bellBadge}>
+                    <T variant="micro" style={{ color: palette.navy, fontWeight: "700", fontSize: 10 }}>
+                      {unread > 9 ? "9+" : String(unread)}
+                    </T>
+                  </View>
+                ) : null}
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Pathway progress ${overallPct}%`}
+                onPress={() => nav.navigate("Tabs", { screen: "Pathway" })}
+                style={({ pressed }) => [st.ring, pressed && { opacity: 0.85 }]}
+              >
+                <T serif tone="onNavy" style={{ fontSize: 14 }}>{`${overallPct}%`}</T>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </View>
 
       <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.base, gap: spacing.base }}>
