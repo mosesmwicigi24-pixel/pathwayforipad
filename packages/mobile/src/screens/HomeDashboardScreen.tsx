@@ -67,6 +67,7 @@ import { VideoPlayer } from "../components/VideoPlayer";
 import { ShareToChatSheet } from "../components/ShareToChatSheet";
 import { DisciplerCarousel } from "../components/DisciplerCarousel";
 import { PrayerWallCarousel } from "../components/PrayerWallCarousel";
+import { FitImage } from "../components/FitImage";
 import { Avatar } from "../components/Avatar";
 
 // Emoji reactions on the home video (❤️ is the dedicated Like; these are extras).
@@ -491,11 +492,7 @@ export function HomeDashboardScreen(): ReactElement {
         {featuredCell ? (
           <View style={st.card}>
             {featuredCell.image_url ? (
-              <Image
-                source={{ uri: featuredCell.image_url }}
-                style={{ width: "100%", height: 150, borderRadius: radii.control, marginBottom: spacing.md }}
-                resizeMode="cover"
-              />
+              <FitImage uri={featuredCell.image_url} radius={radii.control} style={{ marginBottom: spacing.md }} />
             ) : null}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Users size={13} color={palette.goldChipText} />
@@ -578,7 +575,7 @@ export function HomeDashboardScreen(): ReactElement {
             style={({ pressed }) => [st.card, { padding: 0, overflow: "hidden" }, pressed && { opacity: 0.9 }]}
           >
             {featuredEvent.primary_image_url ? (
-              <Image source={{ uri: featuredEvent.primary_image_url }} style={{ width: "100%", height: 150 }} resizeMode="cover" />
+              <FitImage uri={featuredEvent.primary_image_url} />
             ) : null}
             <View style={{ padding: spacing.base }}>
               <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>FEATURED EVENT</T>
@@ -596,7 +593,7 @@ export function HomeDashboardScreen(): ReactElement {
             style={({ pressed }) => [st.card, { padding: 0, overflow: "hidden" }, pressed && { opacity: 0.9 }]}
           >
             {featuredAnnouncement.primary_image_url ? (
-              <Image source={{ uri: featuredAnnouncement.primary_image_url }} style={{ width: "100%", height: 160 }} resizeMode="cover" />
+              <FitImage uri={featuredAnnouncement.primary_image_url} />
             ) : null}
             <View style={{ padding: spacing.base }}>
               <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>FEATURED ANNOUNCEMENT</T>
@@ -826,7 +823,7 @@ export function HomeDashboardScreen(): ReactElement {
             onPress={() => nav.navigate("Tabs", { screen: "Events" })}
             style={({ pressed }) => [st.card, { padding: 0, overflow: "hidden" }, pressed && { opacity: 0.95 }]}
           >
-            <Image source={{ uri: STORY_PHOTO }} style={{ width: "100%", height: 190 }} resizeMode="cover" />
+            <FitImage uri={STORY_PHOTO} />
             <View style={{ padding: spacing.base }}>
               <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>THIS WEEK AT NURU</T>
               <T serif style={{ fontSize: 18, color: palette.ink, marginTop: spacing.sm }}>Cohort C-04's first baptisms</T>
@@ -911,7 +908,7 @@ export function HomeDashboardScreen(): ReactElement {
                 >
                   <View style={st.annCardImgWrap}>
                     {a.primary_image_url ? (
-                      <Image source={{ uri: a.primary_image_url }} style={st.annCardImg} resizeMode="cover" />
+                      <Image source={{ uri: a.primary_image_url }} style={st.annCardImg} resizeMode="contain" />
                     ) : (
                       <View style={[st.annCardImg, { backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" }]}>
                         <Megaphone size={26} color={palette.gold} />
@@ -1072,7 +1069,7 @@ function CalEventMini({ ev, onOpen, label, subtitle }: { ev: CalOcc; onOpen: (e:
   return (
     <Pressable onPress={() => onOpen(ev)} style={st.calEvent}>
       {ev.primary_image_url ? (
-        <Image source={{ uri: ev.primary_image_url }} style={st.calEventThumb} resizeMode="cover" />
+        <FitImage uri={ev.primary_image_url} radius={10} maxHeight={150} style={{ marginBottom: 6 }} />
       ) : null}
       <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700" }}>{label}</T>
       <T variant="caption" style={{ fontWeight: "700", color: palette.ink, marginTop: 1 }} numberOfLines={2}>{ev.title}</T>
@@ -1239,7 +1236,6 @@ const st = {
   calDot: { position: "absolute", bottom: 3, width: 4, height: 4, borderRadius: 2 },
   calEmpty: { backgroundColor: palette.surface, borderRadius: 14, alignItems: "center", justifyContent: "center", paddingVertical: spacing.lg, marginTop: 6 },
   calEvent: { backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
-  calEventThumb: { width: "100%", height: 72, borderRadius: 10, marginBottom: 6, backgroundColor: palette.mutedBg },
   // Your cohort
   cohortAvatar: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: palette.white },
   cohortStat: { width: "48%", flexGrow: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },

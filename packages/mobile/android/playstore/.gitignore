@@ -1,0 +1,5 @@
+# Build outputs live here ready to upload, but are too large / regenerable to commit.
+# Regenerate: cd packages/mobile/android && ./gradlew bundleRelease assembleRelease
+*.aab
+*.apk
+mapping-*.txt

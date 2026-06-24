@@ -18,6 +18,7 @@ import { T } from "../theme/components";
 import { useLevelModules, usePathway, useMentor, useLevelEncouragements } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState, Empty } from "../components/states";
+import { FitImage } from "../components/FitImage";
 import type { LevelModule, LevelEncouragement } from "../api/types";
 
 const NAVY = palette.navy;
@@ -87,26 +88,27 @@ export function LevelScreen(): ReactElement {
   return (
     <View style={st.screen}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
-        {/* Full-bleed hero */}
-        <View style={st.hero}>
-          <Image source={{ uri: hero }} style={st.heroImg} resizeMode="cover" />
+        {/* Full-bleed hero — cover image shown in FULL (container adapts) */}
+        <FitImage uri={hero} background={palette.navy} style={st.heroFit}>
           <View style={st.heroShade} />
           <View style={st.heroTop}>
             <Pressable onPress={() => nav.goBack()} style={({ pressed }) => [st.glassBtn, pressed && st.press]} accessibilityRole="button" accessibilityLabel="Back">
               <ArrowLeft size={20} color={palette.onNavy} />
             </Pressable>
           </View>
-          <View style={st.heroBottom}>
-            <View style={{ flexDirection: "row", gap: 6 }}>
-              <View style={st.lvlBadge}><T variant="micro" style={{ color: NAVY, fontWeight: "700", letterSpacing: 1.2 }}>{`LEVEL ${levelId} OF ${levelsCount}`}</T></View>
-              <View style={[st.statusBadge, { backgroundColor: isComplete ? "#16A34A" : "rgba(255,255,255,0.22)" }]}>
-                <T variant="micro" style={{ color: palette.white, fontWeight: "700", letterSpacing: 1 }}>{isComplete ? "COMPLETE" : "IN PROGRESS"}</T>
+          <View style={st.heroFill}>
+            <View style={st.heroBottom}>
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                <View style={st.lvlBadge}><T variant="micro" style={{ color: NAVY, fontWeight: "700", letterSpacing: 1.2 }}>{`LEVEL ${levelId} OF ${levelsCount}`}</T></View>
+                <View style={[st.statusBadge, { backgroundColor: isComplete ? "#16A34A" : "rgba(255,255,255,0.22)" }]}>
+                  <T variant="micro" style={{ color: palette.white, fontWeight: "700", letterSpacing: 1 }}>{isComplete ? "COMPLETE" : "IN PROGRESS"}</T>
+                </View>
               </View>
+              <T serif tone="onNavy" style={{ fontSize: 26, lineHeight: 30, marginTop: spacing.sm, fontWeight: "600" }}>{meta?.title ?? `Level ${levelId}`}</T>
+              {meta?.theme ? <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }}>{meta.theme}</T> : null}
             </View>
-            <T serif tone="onNavy" style={{ fontSize: 26, lineHeight: 30, marginTop: spacing.sm, fontWeight: "600" }}>{meta?.title ?? `Level ${levelId}`}</T>
-            {meta?.theme ? <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }}>{meta.theme}</T> : null}
           </View>
-        </View>
+        </FitImage>
 
         <View style={{ paddingHorizontal: spacing.screen }}>
           {/* Progress snapshot — overlaps the hero */}
@@ -356,7 +358,8 @@ function TrailEncouragement({ enc }: { enc: LevelEncouragement }): ReactElement 
 const st = {
   screen: { flex: 1, backgroundColor: "#F4F0E8" },
   hero: { height: 240, overflow: "hidden", borderBottomLeftRadius: 28, borderBottomRightRadius: 28, justifyContent: "space-between" },
-  heroImg: { ...({ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 } as const), width: "100%", height: "100%" },
+  heroFit: { borderBottomLeftRadius: 28, borderBottomRightRadius: 28, minHeight: 220 },
+  heroFill: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" },
   heroShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.5)" },
   heroTop: { flexDirection: "row", paddingHorizontal: spacing.screen, paddingTop: 52 },
   glassBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" },

@@ -57,5 +57,16 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Inter-Medium.ttf</string>
+		<string>Fraunces-Medium.ttf</string>
+		<string>Fraunces-Regular.ttf</string>
+		<string>Fraunces-SemiBold.ttf</string>
+		<string>Inter-Bold.ttf</string>
+		<string>Inter-Regular.ttf</string>
+		<string>Fraunces-Bold.ttf</string>
+		<string>Inter-SemiBold.ttf</string>
+	</array>
 </dict>
 </plist>

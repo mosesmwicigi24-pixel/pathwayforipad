@@ -62,7 +62,7 @@ export function AnnouncementToast(): ReactElement | null {
     >
       <Pressable onPress={open} style={({ pressed }) => [styles.card, pressed && { opacity: 0.92 }]}>
         {current.primary_image_url ? (
-          <Image source={{ uri: current.primary_image_url }} style={styles.thumb} resizeMode="cover" />
+          <Image source={{ uri: current.primary_image_url }} style={styles.thumb} resizeMode="contain" />
         ) : (
           <View style={styles.iconChip}>
             <Bell size={18} color={palette.navyDeep} />

@@ -3,7 +3,6 @@
 // hex. Icons are passed in as nodes so the set stays swappable.
 import type { ReactNode } from "react";
 import {
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -113,8 +112,46 @@ const toneColor: Record<TextTone, string> = {
   onNavyFaint: palette.onNavyFaint,
   gold: palette.goldLo,
 };
-// Display serif (new design: Fraunces on web → closest native faces here).
-export const SERIF = Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" });
+// Bundled OFL faces (src/assets/fonts, linked via react-native.config.js). We
+// reference each weight by its exact face name — identical to its PostScript name
+// — so it resolves the same way on Android (asset filename) and iOS (PostScript
+// name), with no system-font fallback. Fraunces = display serif (the design's
+// web face); Inter = body sans. Named faces are required on Android because the
+// platform picks the face by name, not by `fontWeight`; we therefore resolve the
+// face from the *effective* weight (variant default merged with any style
+// override) in T(), so a call-site `fontWeight` still lands on the right face.
+const INTER: Record<number, string> = {
+  400: "Inter-Regular",
+  500: "Inter-Medium",
+  600: "Inter-SemiBold",
+  700: "Inter-Bold",
+};
+const FRAUNCES: Record<number, string> = {
+  400: "Fraunces-Regular",
+  500: "Fraunces-Medium",
+  600: "Fraunces-SemiBold",
+  700: "Fraunces-Bold",
+};
+
+/** Snap any CSS weight (100–900, "bold", "normal") to one of our 4 bundled faces. */
+function snapWeight(w: TextStyle["fontWeight"] | undefined, fallback: number): 400 | 500 | 600 | 700 {
+  const n = w === "bold" ? 700 : w === "normal" ? 400 : typeof w === "string" ? parseInt(w, 10) : typeof w === "number" ? w : NaN;
+  const v = Number.isFinite(n) ? n : fallback;
+  if (v >= 700) return 700;
+  if (v >= 600) return 600;
+  if (v >= 500) return 500;
+  return 400;
+}
+
+/** Resolve the bundled font face for a text element from its effective weight. */
+export function fontFace(serif: boolean, weight: TextStyle["fontWeight"] | undefined, fallback = 400): string {
+  const map = serif ? FRAUNCES : INTER;
+  return map[snapWeight(weight, fallback)] as string;
+}
+
+// Back-compat: some screens import SERIF directly for ad-hoc <Text>. Point it at
+// the SemiBold display face (the most common serif use).
+export const SERIF = FRAUNCES[600];
 
 export function T({
   variant = "body",
@@ -126,16 +163,27 @@ export function T({
 }: {
   variant?: keyof typeof typ;
   tone?: TextTone;
-  /** Display serif for titles/scripture/big numerals (spec: Fraunces). */
+  /** Display serif for titles/scripture/big numerals (Fraunces). */
   serif?: boolean;
   style?: StyleProp<TextStyle>;
   numberOfLines?: number;
   children: ReactNode;
 }): ReactNode {
+  // Effective weight = variant default overridden by anything in `style`.
+  const v = typ[variant] as TextStyle;
+  const flat = (StyleSheet.flatten(style) ?? {}) as TextStyle;
+  const face = fontFace(serif, flat.fontWeight ?? v.fontWeight, serif ? 600 : 400);
+  // Fraunces (serif) has taller ascenders/longer descenders than the system font,
+  // so guarantee enough line height to never clip glyphs — even where a call site
+  // set a tight explicit lineHeight for the old font.
+  const fs = (flat.fontSize ?? v.fontSize ?? 14) as number;
+  const lh = (flat.lineHeight ?? v.lineHeight) as number | undefined;
+  const serifLine = serif ? { lineHeight: Math.max(lh ?? 0, Math.ceil(fs * 1.28)) } : null;
   return (
     <Text
       numberOfLines={numberOfLines}
-      style={[typ[variant], { color: toneColor[tone] }, serif && { fontFamily: SERIF }, style]}
+      // serifLine + fontFamily LAST so they win over anything set upstream in `style`.
+      style={[typ[variant], { color: toneColor[tone] }, style, serifLine, { fontFamily: face }]}
     >
       {children}
     </Text>
@@ -182,7 +230,7 @@ export function PButton({
       ]}
     >
       {leadingIcon ? <View style={s.btnIcon}>{leadingIcon}</View> : null}
-      <Text style={[s.btnLabel, { fontSize: size === "lg" ? 16 : 15, color: disabled ? palette.disabledText : v.fg, fontWeight: v.weight }]}>
+      <Text style={[s.btnLabel, { fontSize: size === "lg" ? 16 : 15, color: disabled ? palette.disabledText : v.fg, fontWeight: v.weight, fontFamily: fontFace(false, v.weight, 600) }]}>
         {children}
       </Text>
       {trailingIcon ? <View style={[s.btnIcon, { marginLeft: "auto" }]}>{trailingIcon}</View> : null}

@@ -4,7 +4,7 @@
 // offline they queue (chat_messages:create) and replay on reconnect (§1.7).
 // Opening the thread marks it read.
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { ActivityIndicator, Alert, Image, Keyboard, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Keyboard, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
 import AudioRecorderPlayer from "react-native-audio-recorder-player";
 import { pick as pickDocument, isCancel } from "react-native-document-picker";
@@ -25,6 +25,7 @@ import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
 import { Loading, ErrorState } from "../components/states";
 import { VideoPlayer } from "../components/VideoPlayer";
+import { FitImage } from "../components/FitImage";
 import {
   formatMillis,
   voiceFileName,
@@ -791,18 +792,13 @@ function Bubble({
   );
 }
 
-/** Renders a chat image from its Cloudinary secure URL (delivered direct, no resolve step). */
+/** Renders a chat image from its Cloudinary secure URL — shown in full (no crop),
+ *  the bubble adapting to the photo's aspect within a fixed width. */
 function AttachmentImage({ url }: { url: string }): ReactElement {
-  const [failed, setFailed] = useState(false);
-  if (failed) return <View style={st.imageBox}><T variant="caption" tone="tertiary">Image unavailable</T></View>;
   return (
-    <Image
-      source={{ uri: url }}
-      style={st.image}
-      resizeMode="cover"
-      accessibilityLabel="Shared photo"
-      onError={() => setFailed(true)}
-    />
+    <View style={st.imageWrap}>
+      <FitImage uri={url} radius={14} maxHeight={320} />
+    </View>
   );
 }
 
@@ -825,8 +821,7 @@ const st = {
   reactBar: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm, backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, paddingHorizontal: spacing.md, paddingVertical: 6, ...shadow.card },
   reactPick: { paddingHorizontal: 4 },
   attachBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: palette.coolPaper, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
-  image: { width: 220, height: 220, borderRadius: 14, marginBottom: 2 },
-  imageBox: { width: 220, height: 220, borderRadius: 14, backgroundColor: "rgba(11,31,51,0.06)", alignItems: "center", justifyContent: "center", marginBottom: 2 },
+  imageWrap: { width: 240, marginBottom: 2 },
   mediaChip: { flexDirection: "row", alignItems: "center", gap: 6, maxWidth: 240 },
   recordRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.sm },
   recDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: palette.error },

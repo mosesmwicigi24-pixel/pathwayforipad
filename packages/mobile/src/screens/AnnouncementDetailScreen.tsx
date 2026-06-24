@@ -2,7 +2,7 @@
 // the upper card — with the title overlaid; video takes priority when present;
 // then a generously formatted Markdown body. Backed by GET /announcements/:id.
 import { type ReactElement } from "react";
-import { Image, Linking, Pressable, ScrollView, View } from "react-native";
+import { Linking, Pressable, ScrollView, View } from "react-native";
 import { ChevronLeft, Megaphone, Play } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -11,6 +11,7 @@ import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { GradientBg, T } from "../theme/components";
 import { Markdown } from "../components/Markdown";
 import { ImageCarousel } from "../components/ImageCarousel";
+import { FitImage } from "../components/FitImage";
 import { useAnnouncement } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -32,25 +33,34 @@ export function AnnouncementDetailScreen(): ReactElement {
   return (
     <View style={st.screen}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
-        {/* Cover image leads — shown in full (contain), title overlaid */}
-        <View style={st.hero}>
-          {cover ? (
-            <Image source={{ uri: cover }} style={st.heroImg} resizeMode="contain" />
+        {/* Cover image leads — shown in FULL, container adapts to it; title overlaid */}
+        {(() => {
+          const overlay = (
+            <>
+              <View style={st.heroShade} />
+              <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={st.glassBtn}>
+                <ChevronLeft size={20} color={palette.onNavy} />
+              </Pressable>
+              <View style={st.heroFill}>
+                <View style={st.heroBottom}>
+                  <View style={st.kickerRow}>
+                    <Megaphone size={12} color={palette.goldGlow} />
+                    <T variant="micro" tone="gold" style={{ fontWeight: "800", letterSpacing: 1.6 }}>ANNOUNCEMENT</T>
+                  </View>
+                  <T serif tone="onNavy" style={st.title} numberOfLines={3}>{heading}</T>
+                </View>
+              </View>
+            </>
+          );
+          return cover ? (
+            <FitImage uri={cover} background={palette.navyDeep} style={st.heroFitRadius}>{overlay}</FitImage>
           ) : (
-            <GradientBg colors={[palette.navy700, palette.navy, palette.navyDeep]} />
-          )}
-          <View style={st.heroShade} />
-          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={st.glassBtn}>
-            <ChevronLeft size={20} color={palette.onNavy} />
-          </Pressable>
-          <View style={st.heroBottom}>
-            <View style={st.kickerRow}>
-              <Megaphone size={12} color={palette.goldGlow} />
-              <T variant="micro" tone="gold" style={{ fontWeight: "800", letterSpacing: 1.6 }}>ANNOUNCEMENT</T>
+            <View style={st.hero}>
+              <GradientBg colors={[palette.navy700, palette.navy, palette.navyDeep]} />
+              {overlay}
             </View>
-            <T serif tone="onNavy" style={st.title} numberOfLines={3}>{heading}</T>
-          </View>
-        </View>
+          );
+        })()}
 
         <View style={{ paddingHorizontal: spacing.screen, marginTop: -20 }}>
           {isLoading && !data ? <Loading label="Loading…" /> : null}
@@ -100,7 +110,8 @@ export function AnnouncementDetailScreen(): ReactElement {
 const st = {
   screen: { flex: 1, backgroundColor: palette.coolPaper },
   hero: { height: 300, overflow: "hidden", borderBottomLeftRadius: 28, borderBottomRightRadius: 28, justifyContent: "flex-end", backgroundColor: palette.navyDeep },
-  heroImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  heroFitRadius: { borderBottomLeftRadius: 28, borderBottomRightRadius: 28, minHeight: 220 },
+  heroFill: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-end" },
   heroShade: { position: "absolute", left: 0, right: 0, bottom: 0, height: 160, backgroundColor: "rgba(0,19,47,0.55)" },
   glassBtn: { position: "absolute", top: 54, left: spacing.lg, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center" },
   heroBottom: { padding: spacing.screen, paddingBottom: spacing.xl },

@@ -5,7 +5,7 @@
 // time/title/location come from the calendar occurrence the caller passed in
 // (projected occurrences are virtual, so the route carries them).
 import { useEffect, useState, type ReactElement } from "react";
-import { Image, Linking, Pressable, ScrollView, View } from "react-native";
+import { Linking, Pressable, ScrollView, View } from "react-native";
 import { Check, ChevronLeft, Clock, ImagePlus, MapPin, Play, Timer, Users } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -13,6 +13,7 @@ import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { GradientBg, T } from "../theme/components";
 import { ImageCarousel } from "../components/ImageCarousel";
+import { FitImage } from "../components/FitImage";
 import { Avatar } from "../components/Avatar";
 import { countdown, timeAgo } from "./eventHelpers";
 import { useEvent, useEventPosts } from "../api/hooks";
@@ -86,44 +87,50 @@ export function EventDetailScreen(): ReactElement {
   return (
     <View style={st.screen}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
-        {/* Full-bleed hero — the cover image fills the top like the module detail,
-            with the back button + title overlaid; gradient fallback when no image. */}
-        <View style={st.hero}>
-          {heroUri ? (
-            <>
-              <Image source={{ uri: heroUri }} style={st.heroImg} resizeMode="cover" />
+        {/* Full-bleed hero — the cover image shows in FULL (container adapts to its
+            aspect, never cropped), with the back button + title overlaid; gradient
+            fallback when no image. */}
+        {(() => {
+          const heroOverlay = (
+            <View style={st.heroFill}>
               <View style={st.heroShade} />
-            </>
-          ) : (
-            <GradientBg colors={[palette.navy700, palette.navy, palette.navyDeep]} />
-          )}
-          <View style={st.heroTop}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Back"
-              onPress={() => nav.goBack()}
-              style={({ pressed }) => [st.glassBtn, pressed && { transform: [{ scale: 0.95 }] }]}
-            >
-              <ChevronLeft size={20} color={palette.onNavy} />
-            </Pressable>
-          </View>
-          <View style={st.heroBottom}>
-            <View style={{ flexDirection: "row", gap: 6 }}>
-              <View style={st.eventBadge}>
-                <T variant="micro" tone="onNavy" style={{ fontWeight: "800", letterSpacing: 1.5 }}>
-                  {(event?.category ?? "EVENT").toUpperCase()}
-                </T>
+              <View style={st.heroTop}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Back"
+                  onPress={() => nav.goBack()}
+                  style={({ pressed }) => [st.glassBtn, pressed && { transform: [{ scale: 0.95 }] }]}
+                >
+                  <ChevronLeft size={20} color={palette.onNavy} />
+                </Pressable>
               </View>
-              {ticker ? (
-                <View style={st.countdownChip}>
-                  <Timer size={11} color={palette.navyDeep} />
-                  <T variant="micro" style={{ color: palette.navyDeep, fontWeight: "800" }}>{`${ticker}!`}</T>
+              <View style={st.heroBottom}>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  <View style={st.eventBadge}>
+                    <T variant="micro" tone="onNavy" style={{ fontWeight: "800", letterSpacing: 1.5 }}>
+                      {(event?.category ?? "EVENT").toUpperCase()}
+                    </T>
+                  </View>
+                  {ticker ? (
+                    <View style={st.countdownChip}>
+                      <Timer size={11} color={palette.navyDeep} />
+                      <T variant="micro" style={{ color: palette.navyDeep, fontWeight: "800" }}>{`${ticker}!`}</T>
+                    </View>
+                  ) : null}
                 </View>
-              ) : null}
+                <T serif tone="onNavy" style={st.title}>{title}</T>
+              </View>
             </View>
-            <T serif tone="onNavy" style={st.title}>{title}</T>
-          </View>
-        </View>
+          );
+          return heroUri ? (
+            <FitImage uri={heroUri} background={palette.navy} style={st.heroFit}>{heroOverlay}</FitImage>
+          ) : (
+            <View style={st.hero}>
+              <GradientBg colors={[palette.navy700, palette.navy, palette.navyDeep]} />
+              {heroOverlay}
+            </View>
+          );
+        })()}
 
         <View style={{ paddingHorizontal: spacing.screen, marginTop: -28 }}>
           {/* Extra gallery images (the cover already shows in the hero) */}
@@ -233,7 +240,7 @@ export function EventDetailScreen(): ReactElement {
                         <View style={st.goingTag}><T variant="micro" style={{ color: palette.successText, fontWeight: "700" }}>Going</T></View>
                       ) : null}
                     </View>
-                    {p.image_url ? <Image source={{ uri: p.image_url }} style={st.postImage} resizeMode="contain" /> : null}
+                    {p.image_url ? <FitImage uri={p.image_url} radius={14} style={{ marginTop: spacing.md }} /> : null}
                     {p.body ? <T variant="body" style={{ color: palette.ink, marginTop: spacing.sm }}>{p.body}</T> : null}
                   </View>
                 ))}
@@ -272,7 +279,8 @@ function MetaTile({ icon, label, value }: { icon: ReactElement; label: string; v
 const st = {
   screen: { flex: 1, backgroundColor: palette.coolPaper },
   hero: { height: 260, overflow: "hidden", borderBottomLeftRadius: 28, borderBottomRightRadius: 28, justifyContent: "space-between", backgroundColor: palette.navy },
-  heroImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  heroFit: { borderBottomLeftRadius: 28, borderBottomRightRadius: 28, minHeight: 240 },
+  heroFill: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" },
   heroShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.5)" },
   heroTop: { flexDirection: "row", paddingHorizontal: spacing.screen, paddingTop: 54 },
   heroBottom: { padding: spacing.screen, paddingBottom: spacing.xl },
@@ -290,7 +298,6 @@ const st = {
   rsvpBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, height: 44, borderRadius: radii.control, borderWidth: 1.5 },
   addPostBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 6 },
   postCard: { backgroundColor: palette.white, borderRadius: radii.card, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
-  postImage: { width: "100%", height: 220, borderRadius: 14, marginTop: spacing.md, backgroundColor: palette.mutedBg },
   goingTag: { backgroundColor: palette.successBg, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 3 },
   emptyWall: { alignItems: "center", justifyContent: "center", padding: spacing.lg, marginTop: spacing.md, borderRadius: radii.card, borderWidth: 1.5, borderColor: palette.border, borderStyle: "dashed", backgroundColor: palette.white },
 } as const;

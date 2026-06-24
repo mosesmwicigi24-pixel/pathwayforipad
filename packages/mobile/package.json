@@ -51,6 +51,7 @@
     "@react-native/typescript-config": "0.86.0",
     "@types/react": "^19.2.0",
     "hermes-compiler": "250829098.0.14",
+    "react-native-asset": "^2.3.0",
     "typescript": "^5.8.3",
     "vitest": "^2.0.4"
   }

@@ -1,32 +1,43 @@
 // A simple, dependency-free image carousel: a paging horizontal ScrollView of
 // full-width image slides with dot indicators. Used by the event + announcement
 // detail screens (cover image + gallery, up to 6 slides). Renders nothing when
-// there are no images.
-import { useState, type ReactElement } from "react";
+// there are no images. Images are never cropped — a single image uses FitImage
+// (container adapts to the image), and the multi-image carousel sizes its slides
+// to the first image's aspect ratio (portrait-friendly cap) and uses "contain".
+import { useEffect, useState, type ReactElement } from "react";
 import { Image, ScrollView, View, useWindowDimensions, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 import { palette, radii, spacing } from "../theme/tokens";
+import { FitImage } from "./FitImage";
 
 export function ImageCarousel({ images, height = 220 }: { images: string[]; height?: number }): ReactElement | null {
   const list = images.filter(Boolean);
-  const { width } = useWindowDimensions();
+  const { width, height: screenH } = useWindowDimensions();
   const slideW = width - spacing.screen * 2;
   const [page, setPage] = useState(0);
+  const [aspect, setAspect] = useState<number | null>(null);
+
+  const first = list[0];
+  useEffect(() => {
+    let alive = true;
+    if (first) Image.getSize(first, (w, h) => { if (alive && w > 0 && h > 0) setAspect(w / h); }, () => {});
+    return () => { alive = false; };
+  }, [first]);
+
   if (list.length === 0) return null;
+
+  // Single image: FitImage adapts the container to the image (never cropped).
+  if (list.length === 1 && first) {
+    return <FitImage uri={first} radius={radii.card} />;
+  }
+
+  // Multi-image: uniform slide height derived from the first image's aspect so the
+  // carousel fits the content, clamped to a portrait-friendly range.
+  const slideH = Math.min(Math.max(slideW / (aspect ?? slideW / height), 140), Math.round(screenH * 0.7));
 
   function onScroll(e: NativeSyntheticEvent<NativeScrollEvent>): void {
     const x = e.nativeEvent.contentOffset.x;
     const next = Math.round(x / slideW);
     if (next !== page) setPage(next);
-  }
-
-  // Single image: no need for a scroll view / dots. Contain (never crop) on a
-  // soft backdrop so the whole image is visible whatever its aspect ratio.
-  if (list.length === 1) {
-    return (
-      <View style={{ width: slideW, height, borderRadius: radii.card, overflow: "hidden", backgroundColor: palette.mutedBg }}>
-        <Image source={{ uri: list[0] }} style={{ width: slideW, height }} resizeMode="contain" />
-      </View>
-    );
   }
 
   return (
@@ -41,8 +52,8 @@ export function ImageCarousel({ images, height = 220 }: { images: string[]; heig
         snapToInterval={slideW}
       >
         {list.map((uri, i) => (
-          <View key={`${uri}-${i}`} style={{ width: slideW, height, borderRadius: radii.card, overflow: "hidden", backgroundColor: palette.mutedBg }}>
-            <Image source={{ uri }} style={{ width: slideW, height }} resizeMode="contain" />
+          <View key={`${uri}-${i}`} style={{ width: slideW, height: slideH, borderRadius: radii.card, overflow: "hidden", backgroundColor: palette.mutedBg }}>
+            <Image source={{ uri }} style={{ width: slideW, height: slideH }} resizeMode="contain" />
           </View>
         ))}
       </ScrollView>

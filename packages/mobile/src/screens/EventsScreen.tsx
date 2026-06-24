@@ -329,7 +329,7 @@ export function EventsScreen(): ReactElement {
                 <Pressable key={a.announcement_id} accessibilityRole="button" onPress={() => openAnnouncement(a)} style={[st.annRow, i < arr.length - 1 && st.divider]}>
                   <View style={st.annThumbWrap}>
                     {a.primary_image_url ? (
-                      <Image source={{ uri: a.primary_image_url }} style={st.annThumb} resizeMode="cover" />
+                      <Image source={{ uri: a.primary_image_url }} style={st.annThumb} resizeMode="contain" />
                     ) : (
                       <View style={st.annIcon}><Sparkles size={16} color={palette.goldLo} /></View>
                     )}

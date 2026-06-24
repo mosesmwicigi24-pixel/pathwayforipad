@@ -3,7 +3,7 @@
 // Talk it Over). Each segment opens the day reader (PlanDayScreen); completion is
 // server-backed (per-segment → rolls up to the day). Church-paced (no calendar).
 import { useEffect, useState, type ReactElement } from "react";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import { ArrowLeft, Check, ChevronRight, BookOpen, Quote, Video as VideoIcon, MessagesSquare } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -14,6 +14,7 @@ import { GradientBg, PButton, T } from "../theme/components";
 import { usePlan } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
+import { FitImage } from "../components/FitImage";
 
 const kindIcon = (kind: PlanSegmentKind, color: string): ReactElement => {
   if (kind === "devotional") return <BookOpen size={15} color={color} />;
@@ -46,27 +47,36 @@ export function PlanDetailScreen(): ReactElement {
         <View style={st.center}><ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /></View>
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false}>
-          {/* Full-bleed hero: cover image + title overlaid (fits, never clipped) */}
-          <View style={st.hero}>
-            {plan.image_url ? (
-              <Image source={{ uri: plan.image_url }} style={st.heroImg} resizeMode="cover" />
+          {/* Full-bleed hero: cover image shown in FULL (container adapts), title overlaid */}
+          {(() => {
+            const overlay = (
+              <>
+                <View style={st.heroShade} />
+                <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={st.backBtn}>
+                  <ArrowLeft size={20} color={palette.onNavy} />
+                </Pressable>
+                <View style={st.heroFill}>
+                  <View style={st.heroBottom}>
+                    <View style={st.heroBadge}>
+                      <T variant="micro" tone="onNavy" style={{ fontWeight: "800", letterSpacing: 1.4 }}>
+                        {(plan.category ?? "Reading plan").toUpperCase()} · {plan.day_count} DAYS
+                      </T>
+                    </View>
+                    <T serif tone="onNavy" style={st.heroTitle} numberOfLines={2}>{plan.title ?? title}</T>
+                    {plan.subtitle ? <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }} numberOfLines={2}>{plan.subtitle}</T> : null}
+                  </View>
+                </View>
+              </>
+            );
+            return plan.image_url ? (
+              <FitImage uri={plan.image_url} background={palette.navy} style={st.heroFit}>{overlay}</FitImage>
             ) : (
-              <GradientBg colors={[palette.navy, palette.navy700, palette.gold]} />
-            )}
-            <View style={st.heroShade} />
-            <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => nav.goBack()} style={st.backBtn}>
-              <ArrowLeft size={20} color={palette.onNavy} />
-            </Pressable>
-            <View style={st.heroBottom}>
-              <View style={st.heroBadge}>
-                <T variant="micro" tone="onNavy" style={{ fontWeight: "800", letterSpacing: 1.4 }}>
-                  {(plan.category ?? "Reading plan").toUpperCase()} · {plan.day_count} DAYS
-                </T>
+              <View style={st.hero}>
+                <GradientBg colors={[palette.navy, palette.navy700, palette.gold]} />
+                {overlay}
               </View>
-              <T serif tone="onNavy" style={st.heroTitle} numberOfLines={2}>{plan.title ?? title}</T>
-              {plan.subtitle ? <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }} numberOfLines={2}>{plan.subtitle}</T> : null}
-            </View>
-          </View>
+            );
+          })()}
 
           <View style={{ paddingHorizontal: spacing.screen, marginTop: -24 }}>
             {/* About this plan — formatted info card */}
@@ -157,7 +167,8 @@ const st = {
   screen: { flex: 1, backgroundColor: palette.coolPaper },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   hero: { height: 244, overflow: "hidden", borderBottomLeftRadius: 28, borderBottomRightRadius: 28, justifyContent: "flex-end", backgroundColor: palette.navy },
-  heroImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  heroFit: { borderBottomLeftRadius: 28, borderBottomRightRadius: 28, minHeight: 210 },
+  heroFill: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-end" },
   heroShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.55)" },
   heroBottom: { padding: spacing.screen, paddingBottom: spacing.xl },
   heroBadge: { alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.22)", borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },

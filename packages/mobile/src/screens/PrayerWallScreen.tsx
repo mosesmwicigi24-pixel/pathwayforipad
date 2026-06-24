@@ -2,7 +2,7 @@
 // under (🙏 + emoji) and comment. Opt-in (separate from the private journal).
 // Tap a request to open its own page; "+" composes a new one.
 import { useCallback, useState, type ReactElement } from "react";
-import { Image, Modal, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
+import { Modal, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import { ArrowLeft, HandHeart, MessageCircle, Plus, X, CheckCircle2 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -12,6 +12,7 @@ import { uuidv4 } from "../util/uuid";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { T } from "../theme/components";
 import { Avatar } from "../components/Avatar";
+import { FitImage } from "../components/FitImage";
 import { usePrayerWall } from "../api/hooks";
 import { invalidateQueries, errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -84,18 +85,19 @@ export function PrayerWallScreen(): ReactElement {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
       >
-        {/* Hero image amplifying the wall */}
-        <View style={st.hero}>
-          <Image source={{ uri: PRAYER_HERO_IMG }} style={st.heroImg} resizeMode="cover" />
+        {/* Hero image amplifying the wall — shown in full (container adapts to it) */}
+        <FitImage uri={PRAYER_HERO_IMG} radius={radii.card} background={palette.navy} style={{ minHeight: 150 }}>
           <View style={st.heroShade} />
-          <View style={st.heroBody}>
-            <View style={st.heroIcon}><HandHeart size={18} color={palette.navyDeep} /></View>
-            <T serif tone="onNavy" style={{ fontSize: 20, lineHeight: 25, marginTop: spacing.sm }}>Carry one another</T>
-            <T variant="caption" tone="onNavyDim" style={{ marginTop: 3 }} numberOfLines={2}>
-              “Carry each other’s burdens, and in this way you will fulfill the law of Christ.” — Galatians 6:2
-            </T>
+          <View style={st.heroFill}>
+            <View style={st.heroBody}>
+              <View style={st.heroIcon}><HandHeart size={18} color={palette.navyDeep} /></View>
+              <T serif tone="onNavy" style={{ fontSize: 20, lineHeight: 25, marginTop: spacing.sm }}>Carry one another</T>
+              <T variant="caption" tone="onNavyDim" style={{ marginTop: 3 }} numberOfLines={2}>
+                “Carry each other’s burdens, and in this way you will fulfill the law of Christ.” — Galatians 6:2
+              </T>
+            </View>
           </View>
-        </View>
+        </FitImage>
 
         {isLoading ? <Loading label="Loading the wall…" /> : null}
         {error ? <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /> : null}
@@ -203,8 +205,7 @@ const st = {
   sortRow: { flexDirection: "row", gap: spacing.sm, paddingHorizontal: spacing.screen, paddingTop: spacing.md },
   sortChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: radii.pill, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border },
   sortChipOn: { backgroundColor: palette.goldChipBg, borderColor: palette.gold },
-  hero: { height: 150, borderRadius: radii.card, overflow: "hidden", justifyContent: "flex-end", backgroundColor: palette.navy },
-  heroImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  heroFill: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-end" },
   heroShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.55)" },
   heroBody: { padding: spacing.base },
   heroIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: palette.gold, alignItems: "center", justifyContent: "center" },
