@@ -5,7 +5,7 @@
 // verse for today (WEB default per D-M4), encouragement, and announcements —
 // real data wherever the API serves it; spec demo content elsewhere.
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Image, Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from "react-native";
 import {
   BadgeCheck,
   Bell,
@@ -139,6 +139,8 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: achievements, refetch: refetchAch } = useAchievements();
   const { data: notifications, refetch: refetchNotifs } = useNotifications();
   const { data: announcements, refetch: refetchAnnouncements } = useMyAnnouncements();
+  const { width: winW } = useWindowDimensions();
+  const annSlideW = winW - spacing.screen * 2; // one full-width announcement card per page
   const { data: verse } = useScripture("Psalm 119:105");
   const { data: welcomeVideo, refetch: refetchWelcomeVideo } = useWelcomeVideo();
   const { data: featuredCell, refetch: refetchFeaturedCell } = useFeaturedCell();
@@ -490,10 +492,11 @@ export function HomeDashboardScreen(): ReactElement {
 
         {/* ── This week at Nuru (real featured cell, PR #125; hidden when none) ── */}
         {featuredCell ? (
-          <View style={st.card}>
+          <View style={[st.card, { padding: 0, overflow: "hidden" }]}>
             {featuredCell.image_url ? (
-              <FitImage uri={featuredCell.image_url} radius={radii.control} style={{ marginBottom: spacing.md }} />
+              <FitImage uri={featuredCell.image_url} />
             ) : null}
+            <View style={{ padding: spacing.base }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Users size={13} color={palette.goldChipText} />
               <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>
@@ -553,6 +556,7 @@ export function HomeDashboardScreen(): ReactElement {
                   {`${featuredCell.members} ${featuredCell.members === 1 ? "member" : "members"}`}
                 </T>
               </View>
+            </View>
             </View>
           </View>
         ) : null}
@@ -892,9 +896,10 @@ export function HomeDashboardScreen(): ReactElement {
             </View>
             <ScrollView
               horizontal
+              pagingEnabled
               showsHorizontalScrollIndicator={false}
               decelerationRate="fast"
-              snapToInterval={304}
+              snapToInterval={annSlideW + spacing.md}
               style={{ marginHorizontal: -spacing.screen }}
               contentContainerStyle={{ paddingHorizontal: spacing.screen, gap: spacing.md }}
             >
@@ -904,7 +909,7 @@ export function HomeDashboardScreen(): ReactElement {
                   accessibilityRole="button"
                   accessibilityLabel={a.title}
                   onPress={() => openAnnouncement(a.announcement_id, a.title)}
-                  style={({ pressed }) => [st.annCard, pressed && { opacity: 0.92 }]}
+                  style={({ pressed }) => [st.annCard, { width: annSlideW }, pressed && { opacity: 0.92 }]}
                 >
                   <View style={st.annCardImgWrap}>
                     {a.primary_image_url ? (
@@ -1290,7 +1295,7 @@ const st = {
   },
   encourageTile: { width: 32, height: 32, borderRadius: 10, backgroundColor: palette.white, alignItems: "center", justifyContent: "center", ...shadow.card },
   annRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.md },
-  annCard: { width: 292, backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
+  annCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
   annCardImgWrap: { height: 140, backgroundColor: palette.mutedBg },
   annCardImg: { width: "100%", height: 140 },
   annPlayBadge: { position: "absolute", top: 10, left: 10, width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
