@@ -294,12 +294,9 @@ export function HomeDashboardScreen(): ReactElement {
     >
       {/* ── Navy header ─────────────────────────────────────────────── */}
       <View style={st.header}>
-        <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <T variant="micro" tone="gold" style={st.kicker}>{todayKicker()}</T>
-            <T serif tone="onNavy" style={st.greeting}>{`${greeting()}, ${firstName(me?.profile?.full_name)}.`}</T>
-            <T variant="body" tone="onNavyDim" style={{ marginTop: 4 }}>{dailyGreeting?.greeting ?? "Grace for today's step."}</T>
-          </View>
+        {/* Row 1 — date · notifications */}
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <T variant="micro" tone="gold" style={[st.kicker, { flex: 1 }]}>{todayKicker()}</T>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Notifications"
@@ -316,6 +313,26 @@ export function HomeDashboardScreen(): ReactElement {
             ) : null}
           </Pressable>
         </View>
+
+        {/* Row 2 — greeting · progress ring */}
+        <View style={{ flexDirection: "row", alignItems: "center", marginTop: spacing.lg }}>
+          <View style={{ flex: 1, minWidth: 0, paddingRight: spacing.base }}>
+            <T serif tone="onNavy" style={st.greeting}>{`${greeting()}, ${firstName(me?.profile?.full_name)}.`}</T>
+            <T variant="body" tone="onNavyDim" style={{ marginTop: spacing.sm, lineHeight: 21 }}>
+              {dailyGreeting?.greeting ?? "Grace for today's step."}
+            </T>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Pathway progress ${overallPct}%`}
+            onPress={() => nav.navigate("Tabs", { screen: "Pathway" })}
+            style={({ pressed }) => [st.ring, pressed && { opacity: 0.85 }]}
+          >
+            <T serif tone="onNavy" style={{ fontSize: 17 }}>{`${overallPct}%`}</T>
+            <T variant="micro" tone="onNavyFaint" style={{ fontSize: 8, letterSpacing: 1.2 }}>DONE</T>
+          </Pressable>
+        </View>
+
         {active ? (
           <View style={st.statusChip}>
             <T variant="caption" style={{ color: palette.goldGlow, fontWeight: "600" }}>
@@ -1102,14 +1119,15 @@ const st = {
   header: {
     backgroundColor: palette.navy,
     paddingHorizontal: spacing.screen,
-    paddingTop: 58,
-    paddingBottom: spacing.lg,
+    paddingTop: 60,
+    paddingBottom: spacing.xl,
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
     overflow: "hidden",
   },
   kicker: { letterSpacing: 2.4, fontWeight: "600" },
-  greeting: { fontSize: 28, lineHeight: 34, marginTop: spacing.sm, fontWeight: "600" },
+  greeting: { fontSize: 28, lineHeight: 36, fontWeight: "600" },
+  ring: { width: 64, height: 64, borderRadius: 32, borderWidth: 5, borderColor: palette.gold, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(201,162,39,0.08)" },
   bellBtn: {
     width: 44,
     height: 44,
@@ -1132,7 +1150,7 @@ const st = {
   },
   statusChip: {
     alignSelf: "flex-start",
-    marginTop: spacing.base,
+    marginTop: spacing.lg,
     borderWidth: 1,
     borderColor: "rgba(201,162,39,0.55)",
     borderRadius: radii.pill,
