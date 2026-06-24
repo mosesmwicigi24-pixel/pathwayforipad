@@ -167,7 +167,7 @@ export function LevelsScreen(): ReactElement {
         </Pressable>
       </View>
 
-      <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.lg, gap: spacing.base }}>
+      <View style={st.body}>
         {/* ── TODAY ──────────────────────────────────────────────────── */}
         <View style={st.sectionHead}>
           <T variant="micro" style={st.sectionLabel}>TODAY</T>
@@ -234,7 +234,7 @@ export function LevelsScreen(): ReactElement {
           <T variant="micro" style={st.sectionLabel}>YOUR JOURNEY</T>
           <T variant="micro" tone="tertiary">{`Level ${pathway.current_level} of ${levels.length}`}</T>
         </View>
-        <View style={{ gap: spacing.sm }}>
+        <View style={{ gap: spacing.base }}>
           {levels.map((lvl) => (
             <Fragment key={lvl.level_number}>
               <LevelCard
@@ -619,6 +619,17 @@ function PathwayAdBanner(): ReactElement {
 
 const st = {
   screen: { flex: 1, backgroundColor: palette.paper },
+  // Card column: bigger breathing room between cards, and a max width so the
+  // layout doesn't over-stretch on large/foldable Android screens (centered).
+  body: {
+    width: "100%",
+    maxWidth: 640,
+    alignSelf: "center",
+    paddingHorizontal: spacing.screen,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
+    gap: spacing.lg,
+  },
   center: { alignItems: "center", justifyContent: "center" },
   header: {
     backgroundColor: palette.navy,

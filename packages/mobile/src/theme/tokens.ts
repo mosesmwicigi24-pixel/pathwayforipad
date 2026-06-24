@@ -98,14 +98,17 @@ export const type = {
   overline: { fontSize: 11, lineHeight: 14, fontWeight: "600" as const, letterSpacing: 1.8 },
 } as const;
 
-// One soft card shadow (never stack heavy shadows).
+// One soft card shadow (never stack heavy shadows). iOS reads the shadow* props
+// (unchanged); Android reads `elevation` only — it was too low (2) so Android
+// cards looked flat and stacked. Raising elevation makes Android cards float and
+// clearly separate, to match the iOS look, without altering the iOS shadow.
 export const shadow = {
   card: {
     shadowColor: "#0A2540",
     shadowOpacity: 0.06,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
+    elevation: 5,
   },
 } as const;
 
