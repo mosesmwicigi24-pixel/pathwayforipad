@@ -3,7 +3,7 @@
 // On a real device, swap the keychain vault in here (setVault(new KeychainTokenVault()))
 // before installAuth — kept in-memory by default so this stays import-safe in tests.
 import { useEffect, useState, type ReactElement } from "react";
-import { AppState, NativeModules, Platform, View } from "react-native";
+import { AppState, NativeModules, Platform, StatusBar, View } from "react-native";
 import { Provider } from "react-redux";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { OfflineBanner } from "./components/OfflineBanner";
@@ -103,13 +103,21 @@ export function App(): ReactElement {
   return (
     <Provider store={store}>
       <SafeAreaProvider>
-        {/* Thin offline bar sits above the navigator (uses the top safe-area inset
-            so it clears the notch) and the navigator fills the rest. */}
-        <SafeAreaView edges={["top"]} style={{ flex: 0 }}>
-          <OfflineBanner />
-        </SafeAreaView>
+        {/* Draw edge-to-edge (the app fills the whole screen, content behind the
+            status bar) while keeping the system bars visible. The navy headers sit
+            behind the status bar, so its icons (clock, wifi, battery) are light. */}
+        <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+        {/* The navigator fills the entire screen from the very top. */}
         <View style={{ flex: 1, backgroundColor: palette.coolPaper }}>
           {bootRoute ? <RootNavigator initialRoute={bootRoute} /> : null}
+        </View>
+        {/* Offline bar floats over the top (absolute, so it never reserves a strip
+            that would push the header down); it clears the notch via the top inset
+            and shows only when offline. */}
+        <View style={{ position: "absolute", top: 0, left: 0, right: 0 }} pointerEvents="box-none">
+          <SafeAreaView edges={["top"]} pointerEvents="box-none">
+            <OfflineBanner />
+          </SafeAreaView>
         </View>
         {/* Heads-up banner for a freshly-arrived announcement (over everything). */}
         <AnnouncementToast />
