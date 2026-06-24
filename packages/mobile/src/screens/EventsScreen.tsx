@@ -8,7 +8,7 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import {
-  Bell, CalendarDays, Check, ChevronRight, Clock, MapPin, Megaphone, Play, QrCode, Search, Sparkles, Users,
+  CalendarDays, Check, ChevronRight, Clock, MapPin, Megaphone, Play, QrCode, Search, Sparkles, Users,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -16,10 +16,11 @@ import type { RootStackParamList } from "../navigation/types";
 import type { CalendarOccurrence, EventSeries, MyAnnouncement } from "../api/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { GradientBg, T } from "../theme/components";
-import { useCalendar, useCellSummary, useEventSeries, useMyAnnouncements, useMyRsvps, useNotifications, queryKeys } from "../api/hooks";
+import { useCalendar, useCellSummary, useEventSeries, useMyAnnouncements, useMyRsvps, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries, refreshQueries } from "../api/query";
 import { Loading } from "../components/states";
+import { NotificationBell } from "../components/NotificationBell";
 import {
   sameDay, isLive, weekStrip, monthLabel, todayLabel, timeOf, timeRange,
   matchesCategory, matchesSearch, categoryColor, timeAgo, EVENT_CATEGORIES,
@@ -45,7 +46,6 @@ export function EventsScreen(): ReactElement {
   const { data: announcements, refetch: refetchAnnouncements } = useMyAnnouncements();
   const { data: series, refetch: refetchSeries } = useEventSeries();
   const { data: cellSummary, refetch: refetchCell } = useCellSummary();
-  const { data: notifications } = useNotifications();
 
   const [segment, setSegment] = useState<Segment>("today");
   const [query, setQuery] = useState("");
@@ -120,7 +120,6 @@ export function EventsScreen(): ReactElement {
     nav.navigate("AnnouncementDetail", { announcementId: a.announcement_id, title: a.title });
   }
 
-  const unread = notifications?.unread ?? 0;
   const strip = weekStrip(all, now);
   const cell = cellSummary?.cell ?? null;
 
@@ -142,10 +141,7 @@ export function EventsScreen(): ReactElement {
               <T serif tone="onNavy" style={{ fontSize: 30, marginTop: 4 }}>Gathered together</T>
               <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }}>Today · {todayLabel(now)} · East Africa Time</T>
             </View>
-            <Pressable accessibilityRole="button" accessibilityLabel="Notifications" onPress={() => nav.navigate("Notifications")} style={st.bellBtn}>
-              <Bell size={20} color={palette.onNavy} strokeWidth={1.8} />
-              {unread > 0 ? <View style={st.bellDot} /> : null}
-            </Pressable>
+            <NotificationBell />
           </View>
 
           {/* LIVE / next hero */}
@@ -440,8 +436,6 @@ const st = {
   gladBody: { padding: spacing.base },
   header: { backgroundColor: palette.navy, paddingHorizontal: spacing.screen, paddingTop: 58, paddingBottom: spacing.lg, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, overflow: "hidden" },
   kicker: { letterSpacing: 2.4, fontWeight: "600" },
-  bellBtn: { width: 44, height: 44, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center" },
-  bellDot: { position: "absolute", top: 10, right: 10, width: 9, height: 9, borderRadius: 5, backgroundColor: palette.gold },
   hero: { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 20, borderWidth: 1, borderColor: "rgba(201,162,39,0.25)", padding: spacing.base, marginTop: spacing.lg },
   liveBadge: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: palette.success, borderRadius: radii.pill, paddingHorizontal: 10, height: 24 },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#fff" },

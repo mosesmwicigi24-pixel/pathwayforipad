@@ -7,7 +7,7 @@
 // an undiscovered space opens its preview first.
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
-import { Bell, CalendarClock, ChevronRight, Hash, MessageCircle, Pencil, Plus, Search, Sparkles, Users } from "lucide-react-native";
+import { CalendarClock, ChevronRight, Hash, MessageCircle, Pencil, Plus, Search, Sparkles, Users } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -19,6 +19,7 @@ import { errorMessage, refreshQueries } from "../api/query";
 import { NuruApi } from "../api/client";
 import { Loading, ErrorState } from "../components/states";
 import { Avatar } from "../components/Avatar";
+import { NotificationBell } from "../components/NotificationBell";
 import {
   groupInbox,
   inboxStats,
@@ -159,15 +160,7 @@ export function ChatScreen(): ReactElement {
               {stats.unread} unread · {stats.spaces} {stats.spaces === 1 ? "space" : "spaces"}
             </T>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Notifications"
-            onPress={() => nav.navigate("Notifications")}
-            style={({ pressed }) => [st.bellBtn, pressed && { transform: [{ scale: 0.95 }] }]}
-          >
-            <Bell size={20} color={palette.onNavy} />
-            <View style={st.bellDot} />
-          </Pressable>
+          <NotificationBell />
         </View>
 
         <View style={st.search}>
@@ -572,8 +565,6 @@ const st = {
   screen: { flex: 1, backgroundColor: palette.paper },
   header: { backgroundColor: palette.navy, paddingHorizontal: spacing.lg, paddingTop: 56, paddingBottom: spacing.base, overflow: "hidden", borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
   kicker: { letterSpacing: 2, textTransform: "uppercase" },
-  bellBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center" },
-  bellDot: { position: "absolute", top: 11, right: 12, width: 8, height: 8, borderRadius: 4, backgroundColor: palette.gold },
   search: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,
     backgroundColor: "rgba(255,255,255,0.08)", borderRadius: radii.pill, paddingHorizontal: spacing.base, height: 48, marginTop: spacing.base,

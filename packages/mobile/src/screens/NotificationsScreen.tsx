@@ -144,6 +144,10 @@ export function NotificationsScreen(): ReactElement {
       n.template.startsWith("badge")
     ) {
       nav.navigate("Tabs", { screen: "Profile" }); // achievements live on Profile
+    } else if (n.template.startsWith("giving")) {
+      nav.navigate("Tabs", { screen: "Give" });
+    } else if (n.template === "reengage") {
+      nav.navigate("Tabs", { screen: "Pathway" }); // pick the journey back up
     }
   }
 
