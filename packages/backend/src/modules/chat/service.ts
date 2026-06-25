@@ -243,6 +243,11 @@ export class ChatService {
               lm.body AS last_body, lm.msg_type AS last_type, lm.created_at AS last_at,
               la.full_name AS last_author,
               0 AS unread,
+              (SELECT count(*)::int FROM chat_messages cm
+                 WHERE cm.conversation_id = cv.conversation_id AND NOT cm.is_hidden) AS message_count,
+              (SELECT count(*)::int FROM chat_reactions cr
+                 JOIN chat_messages rm ON rm.message_id = cr.message_id
+                WHERE rm.conversation_id = cv.conversation_id AND NOT rm.is_hidden) AS reaction_count,
               (SELECT count(*)::int FROM chat_messages fm
                  WHERE fm.conversation_id = cv.conversation_id AND fm.is_flagged AND NOT fm.is_hidden) AS flagged
          FROM chat_conversations cv
@@ -282,7 +287,12 @@ export class ChatService {
               (SELECT count(*)::int FROM chat_messages um
                  WHERE um.conversation_id = cv.conversation_id AND NOT um.is_hidden
                    AND um.author_user_id <> $1
-                   AND (mem.last_read_at IS NULL OR um.created_at > mem.last_read_at)) AS unread
+                   AND (mem.last_read_at IS NULL OR um.created_at > mem.last_read_at)) AS unread,
+              (SELECT count(*)::int FROM chat_messages cm
+                 WHERE cm.conversation_id = cv.conversation_id AND NOT cm.is_hidden) AS message_count,
+              (SELECT count(*)::int FROM chat_reactions cr
+                 JOIN chat_messages rm ON rm.message_id = cr.message_id
+                WHERE rm.conversation_id = cv.conversation_id AND NOT rm.is_hidden) AS reaction_count
          FROM chat_members mem
          JOIN chat_conversations cv ON cv.conversation_id = mem.conversation_id
          LEFT JOIN LATERAL (

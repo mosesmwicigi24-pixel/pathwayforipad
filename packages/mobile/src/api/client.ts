@@ -369,7 +369,10 @@ export const NuruApi = {
 
   // ---- Chat: DMs, cell groups, public spaces (mobile Chat make) ----
   async chatInbox(): Promise<ChatInbox> {
-    const { data } = await api.get<ChatInbox>("/chat/conversations");
+    // Always the member's own inbox (their Spaces/DMs/Groups). scope=mine matters
+    // for staff accounts: without it a moderator gets the oversight inbox (every
+    // conversation, with no DM name/photo) instead of their personal one.
+    const { data } = await api.get<ChatInbox>("/chat/conversations", { params: { scope: "mine" } });
     return data;
   },
   async chatConversation(id: string): Promise<ChatThreadDetail> {

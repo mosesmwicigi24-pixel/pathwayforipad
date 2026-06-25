@@ -7,7 +7,7 @@
 // an undiscovered space opens its preview first.
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
-import { CalendarClock, ChevronRight, Hash, MessageCircle, Pencil, Plus, Search, Sparkles, Users } from "lucide-react-native";
+import { CalendarClock, ChevronRight, Hash, Heart, MessageCircle, Pencil, Plus, Search, Sparkles, Users } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -27,7 +27,6 @@ import {
   matchesConversation,
   matchesDiscover,
   previewText,
-  initials,
   avatarColor,
   inboxTime,
   groupKindLabel,
@@ -422,9 +421,7 @@ function DmsTab({
         </Pressable>
         {dms.map((c) => (
           <Pressable key={c.conversation_id} accessibilityRole="button" accessibilityLabel={c.title ?? "Chat"} onPress={() => onOpen(c)} style={st.story}>
-            <View style={[st.storyAvatar, st.storyRing, { backgroundColor: avatarColor(c.conversation_id) }]}>
-              <T variant="heading" style={{ color: "#fff", fontSize: 15 }}>{initials(c.title)}</T>
-            </View>
+            <Avatar uri={c.avatar_url} name={c.title ?? ""} size={60} ring />
             <T variant="micro" tone="secondary" numberOfLines={1} style={{ maxWidth: 64, textAlign: "center" }}>
               {(c.title ?? "").split(" ")[0] || "Chat"}
             </T>
@@ -439,8 +436,8 @@ function DmsTab({
             onPress={() => void start(p)}
             style={[st.story, busyId === p.user_id && { opacity: 0.5 }]}
           >
-            <View style={[st.storyAvatar, { backgroundColor: avatarColor(p.user_id) }]}>
-              <T variant="heading" style={{ color: "#fff", fontSize: 15 }}>{initials(p.full_name)}</T>
+            <View style={{ width: 60, height: 60 }}>
+              <Avatar uri={p.avatar_url} name={p.full_name} size={60} />
               <View style={st.storyPlus}><Plus size={12} color={palette.navy} /></View>
             </View>
             <T variant="micro" tone="tertiary" numberOfLines={1} style={{ maxWidth: 64, textAlign: "center" }}>
@@ -521,12 +518,28 @@ function ConvoRow({
             {inboxTime(c.last_at)}
           </T>
         </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: 3 }}>
-          <T variant="caption" tone="secondary" style={{ flex: 1 }} numberOfLines={1}>{previewText(c)}</T>
+        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, marginTop: 3 }}>
+          <T variant="caption" tone="secondary" style={{ flex: 1, lineHeight: 18 }} numberOfLines={2}>{previewText(c)}</T>
           {c.unread > 0 ? (
             <View style={st.badge}><T variant="micro" style={{ color: palette.navy, fontWeight: "800" }}>{c.unread}</T></View>
           ) : null}
         </View>
+        {((c.reaction_count ?? 0) > 0 || (c.message_count ?? 0) > 0) && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: 5 }}>
+            {(c.reaction_count ?? 0) > 0 && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Heart size={12} color={palette.gold} fill={palette.gold} />
+                <T variant="micro" tone="tertiary">{c.reaction_count}</T>
+              </View>
+            )}
+            {(c.message_count ?? 0) > 0 && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <MessageCircle size={12} color={palette.ink400} />
+                <T variant="micro" tone="tertiary">{c.message_count}</T>
+              </View>
+            )}
+          </View>
+        )}
       </View>
     </Pressable>
   );

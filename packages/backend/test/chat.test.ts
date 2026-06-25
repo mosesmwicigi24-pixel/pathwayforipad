@@ -375,5 +375,21 @@ describe("portal staff: global directory + cross-congregation DM + scope=mine", 
   });
 });
 
+describe("inbox row counters (message_count + reaction_count)", () => {
+  it("reports total messages and reactions per conversation", async () => {
+    const g = await groupId(aTok);
+    await agent().post(`/v1/chat/conversations/${g}/messages`).set(auth(aTok)).send({ message_id: uuid(80), body: "one" });
+    await agent().post(`/v1/chat/conversations/${g}/messages`).set(auth(a2Tok)).send({ message_id: uuid(81), body: "two" });
+    await agent().post(`/v1/chat/messages/${uuid(80)}/reactions`).set(auth(a2Tok)).send({ emoji: "🙏" });
+    await agent().post(`/v1/chat/messages/${uuid(81)}/reactions`).set(auth(aTok)).send({ emoji: "❤️" });
+
+    const list = await agent().get("/v1/chat/conversations").set(auth(aTok));
+    const row = (list.body.conversations as Array<{ conversation_id: string; message_count: number; reaction_count: number }>)
+      .find((c) => c.conversation_id === g)!;
+    expect(row.message_count).toBe(2);
+    expect(row.reaction_count).toBe(2);
+  });
+});
+
 // keep references used (lint)
 void aId;

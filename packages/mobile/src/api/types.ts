@@ -313,6 +313,8 @@ export interface ChatConversation {
   last_author: string | null;
   unread: number;
   avatar_url?: string | null; // the other member's photo, for DMs
+  message_count?: number; // total messages (the "comment" counter)
+  reaction_count?: number; // total emoji reactions across the conversation
 }
 
 export interface DiscoverSpace {
