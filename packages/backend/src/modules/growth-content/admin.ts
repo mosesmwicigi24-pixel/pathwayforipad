@@ -83,6 +83,7 @@ export class AdminGrowthService {
       verse_text: z.string().min(1),
       version: z.string().max(12).optional(),
       week_number: z.coerce.number().int().min(1).nullable().optional(),
+      release_date: z.string().max(10).nullable().optional(), // YYYY-MM-DD
       sort: z.coerce.number().int().optional(),
       is_active: z.boolean().optional(),
     })
@@ -95,9 +96,9 @@ export class AdminGrowthService {
     return tx(this.pool, async (c) => {
       const row = await one<{ memory_verse_id: string }>(
         c,
-        `INSERT INTO memory_verses (reference, verse_text, version, week_number, sort, is_active)
-         VALUES ($1,$2,COALESCE($3,'WEB'),$4,COALESCE($5,0),COALESCE($6,TRUE)) RETURNING memory_verse_id`,
-        [input.reference, input.verse_text, input.version ?? null, input.week_number ?? null, input.sort ?? null, input.is_active ?? null],
+        `INSERT INTO memory_verses (reference, verse_text, version, week_number, release_date, sort, is_active)
+         VALUES ($1,$2,COALESCE($3,'WEB'),$4,$5,COALESCE($6,0),COALESCE($7,TRUE)) RETURNING memory_verse_id`,
+        [input.reference, input.verse_text, input.version ?? null, input.week_number ?? null, input.release_date ?? null, input.sort ?? null, input.is_active ?? null],
       );
       await audit(c, adminId, "growth.verse_created", "memory_verses", row.memory_verse_id, {});
       return one(c, `SELECT * FROM memory_verses WHERE memory_verse_id = $1`, [row.memory_verse_id]);
@@ -105,7 +106,7 @@ export class AdminGrowthService {
   }
   async updateVerse(adminId: string, id: string, input: Record<string, unknown>): Promise<unknown> {
     return tx(this.pool, async (c) => {
-      const { sql, params } = setClause(input, ["reference", "verse_text", "version", "week_number", "sort", "is_active"]);
+      const { sql, params } = setClause(input, ["reference", "verse_text", "version", "week_number", "release_date", "sort", "is_active"]);
       if (sql) await c.query(`UPDATE memory_verses SET ${sql} WHERE memory_verse_id = $${params.length + 1}`, [...params, id]);
       const row = await maybeOne(c, `SELECT * FROM memory_verses WHERE memory_verse_id = $1`, [id]);
       if (!row) throw new ApiError("NOT_FOUND", "Verse not found");

@@ -251,6 +251,7 @@ function VerseCard({ v, onEdit, onDelete }: { v: VerseRow; onEdit: () => void; o
             <span style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)" }}>{v.reference || "Untitled verse"}</span>
             <Pill bg="rgba(124,58,237,0.1)" color="#7C3AED">{v.version}</Pill>
             {v.week_number ? <Pill bg="var(--secondary)" color="var(--muted-foreground)">Week {v.week_number}</Pill> : null}
+            {v.release_date ? <Pill bg="var(--secondary)" color="var(--muted-foreground)"><CalendarRange size={10} /> {new Date(v.release_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</Pill> : null}
             <StatusPill on={v.is_active} />
           </div>
           {v.verse_text && <p style={{ fontFamily: "var(--font-display)", fontSize: 14.5, color: "var(--nuru-navy)", marginTop: 6, lineHeight: 1.45, fontStyle: "italic" }}>“{v.verse_text}”</p>}
@@ -427,6 +428,7 @@ function EditModal({ tab, level, row, meta, onClose, onDone, onError }: {
       } else if (tab === "verses") {
         const body: Row = { reference: trimmed(draft.reference), version: trimmed(draft.version) ?? "WEB", verse_text: trimmed(draft.verse_text), is_active: !!draft.is_active };
         if (num(draft.week_number) != null) body.week_number = num(draft.week_number);
+        { const rd = trimmed(draft.release_date); if (rd) body.release_date = rd; }
         if (num(draft.sort) != null) body.sort = num(draft.sort);
         if (editing) await GrowthAdminApi.updateVerse(id, body); else await GrowthAdminApi.createVerse(body);
       } else if (tab === "resources") {
@@ -497,7 +499,7 @@ function EditModal({ tab, level, row, meta, onClose, onDone, onError }: {
 function blankFor(tab: TabKey, level: number): Row {
   switch (tab) {
     case "devotionals": return { day_number: 1, title: "", series: "", scripture_ref: "", scripture_text: "", body: "", reflection_prompt: "", audio_url: "", video_url: "", is_published: false };
-    case "verses": return { reference: "", version: "WEB", verse_text: "", week_number: "", sort: "", is_active: true };
+    case "verses": return { reference: "", version: "WEB", verse_text: "", week_number: "", release_date: "", sort: "", is_active: true };
     case "plans": return { code: "", category: "Foundations", title: "", subtitle: "", description: "", image_url: "", sort: "", is_active: true };
     case "resources": return { title: "", author: "", kind: "book", duration_label: "", url: "", sort: "", is_active: true };
     default: return { after_module_sequence: 1, kind: "splash", title: "", body: "", scripture_ref: "", emoji: "", image_url: "", sort_order: 1, is_active: true, level };
@@ -529,6 +531,12 @@ function VerseForm({ v, set }: { v: Row; set: (k: string, x: unknown) => void })
       <Field label="Version"><SelectInput value={String(v.version ?? "WEB")} onChange={(x) => set("version", x)} options={VERSIONS} /></Field>
       <Field label="Verse text" required full><TextArea value={String(v.verse_text ?? "")} onChange={(x) => set("verse_text", x)} rows={3} placeholder="I am the vine…" /></Field>
       <Field label="Week number"><TextInput value={String(v.week_number ?? "")} onChange={(x) => set("week_number", x)} placeholder="1" /></Field>
+      <Field label="Date">
+        <div className="relative">
+          <input type="date" value={String(v.release_date ?? "")} onChange={(e) => set("release_date", e.target.value)} style={{ ...inputStyle, paddingRight: 36 }} />
+          <CalendarRange size={14} style={{ position: "absolute", right: 12, top: 13, color: "var(--muted-foreground)", pointerEvents: "none" }} />
+        </div>
+      </Field>
       <Field label="Sort"><TextInput value={String(v.sort ?? "")} onChange={(x) => set("sort", x)} placeholder="1" /></Field>
       <div className="flex items-end pb-1"><Toggle on={!!v.is_active} onToggle={() => set("is_active", !v.is_active)} label="Active" /></div>
     </div>

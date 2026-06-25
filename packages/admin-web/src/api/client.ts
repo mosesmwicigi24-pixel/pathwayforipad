@@ -571,6 +571,7 @@ export interface VerseRow {
   verse_text: string;
   version: string;
   week_number: number | null;
+  release_date: string | null;
   sort: number;
   is_active: boolean;
 }
