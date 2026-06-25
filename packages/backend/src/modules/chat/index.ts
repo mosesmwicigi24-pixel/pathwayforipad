@@ -31,9 +31,14 @@ export function registerChat(ctx: AppContext): Router {
     res.status(201).json(media.signUpload({ folder }));
   }));
 
+  // `?scope=mine` forces the personal inbox (my Spaces / DMs / Groups) even for a
+  // moderator — the web portal uses it so staff see their OWN conversations, the
+  // same way the mobile app does. Without it, moderators get the oversight inbox.
+  const ConvQuery = z.object({ scope: z.enum(["mine", "all"]).optional() });
   r.get("/chat/conversations", auth, handler(async (req, res) => {
     const p = requirePrincipal(req);
-    res.json(await svc.listConversations(p.userId, p.role));
+    const { scope } = parseBody(ConvQuery, req.query);
+    res.json(await svc.listConversations(p.userId, p.role, scope));
   }));
 
   r.get("/chat/conversations/:id", auth, handler(async (req, res) => {
@@ -82,12 +87,14 @@ export function registerChat(ctx: AppContext): Router {
   const PeopleQuery = z.object({ q: z.string().max(120).optional() });
   r.get("/chat/people", auth, handler(async (req, res) => {
     const { q } = parseBody(PeopleQuery, req.query);
-    res.json(await svc.listPeople(requirePrincipal(req).userId, q));
+    const p = requirePrincipal(req);
+    res.json(await svc.listPeople(p.userId, q, p.role));
   }));
 
   r.post("/chat/dms", auth, handler(async (req, res) => {
     const input = parseBody(ChatService.CreateDm, req.body);
-    res.status(201).json(await svc.createOrGetDm(requirePrincipal(req).userId, input.user_id));
+    const p = requirePrincipal(req);
+    res.status(201).json(await svc.createOrGetDm(p.userId, input.user_id, p.role));
   }));
 
   // Open a cell's group conversation (provisioning it on first use). Scope-checked

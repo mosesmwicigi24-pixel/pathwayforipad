@@ -333,5 +333,47 @@ describe("cell conversation (portal Message cell)", () => {
   });
 });
 
+describe("portal staff: global directory + cross-congregation DM + scope=mine", () => {
+  it("an Admin sees members across congregations in the directory; a Student does not", async () => {
+    const cong2 = await createCongregation();
+    const far = await createUser({ congregationId: cong2, email: "far@dev.local", fullName: "Far Away" });
+
+    const adminView = await agent().get("/v1/chat/people").set(auth(adminTok));
+    expect(adminView.status).toBe(200);
+    const adminIds = (adminView.body.people as Array<{ user_id: string }>).map((p) => p.user_id);
+    expect(adminIds).toContain(far.user_id); // global reach for staff
+
+    const studentView = await agent().get("/v1/chat/people").set(auth(aTok));
+    const studentIds = (studentView.body.people as Array<{ user_id: string }>).map((p) => p.user_id);
+    expect(studentIds).not.toContain(far.user_id); // members stay congregation-scoped
+  });
+
+  it("the directory never includes minors, even for an Admin", async () => {
+    const adminView = await agent().get("/v1/chat/people").set(auth(adminTok));
+    const ids = (adminView.body.people as Array<{ user_id: string }>).map((p) => p.user_id);
+    expect(ids).not.toContain(minorId);
+  });
+
+  it("an Admin can start a DM with a member in another congregation", async () => {
+    const cong2 = await createCongregation();
+    const far = await createUser({ congregationId: cong2, email: "far2@dev.local", fullName: "Far Two" });
+    const dm = await agent().post("/v1/chat/dms").set(auth(adminTok)).send({ user_id: far.user_id });
+    expect(dm.status).toBe(201);
+    expect(dm.body.conversation_id).toBeTruthy();
+  });
+
+  it("scope=mine gives an Admin their personal inbox (joined conversations) not the oversight list", async () => {
+    // Admin starts a DM → that conversation is theirs.
+    const dm = await agent().post("/v1/chat/dms").set(auth(adminTok)).send({ user_id: aId });
+    const mine = await agent().get("/v1/chat/conversations").query({ scope: "mine" }).set(auth(adminTok));
+    expect(mine.status).toBe(200);
+    const ids = (mine.body.conversations as Array<{ conversation_id: string }>).map((c) => c.conversation_id);
+    expect(ids).toContain(dm.body.conversation_id);
+    // Every row in the personal inbox is one the admin actually belongs to.
+    const kinds = (mine.body.conversations as Array<{ kind: string }>).map((c) => c.kind);
+    expect(kinds.every((k) => ["dm", "group", "space"].includes(k))).toBe(true);
+  });
+});
+
 // keep references used (lint)
 void aId;

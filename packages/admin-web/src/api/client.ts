@@ -1373,6 +1373,8 @@ export interface ChatConversationRow {
   is_public: boolean;
   title: string | null;
   topic: string | null;
+  category?: string | null;
+  avatar_url?: string | null; // the other member's photo (DM rows)
   member_count: number;
   last_body: string | null;
   last_type: ChatMsgType | null;
@@ -1380,6 +1382,28 @@ export interface ChatConversationRow {
   last_author: string | null;
   unread: number;
   flagged?: number; // moderation: count of flagged-but-visible messages (admin list)
+}
+
+/** A person in the DM directory (GET /chat/people). */
+export interface ChatPerson {
+  user_id: string;
+  full_name: string;
+  role: string;
+  avatar_url: string | null;
+  congregation?: string | null;
+}
+
+/** Read-receipt detail for one message (GET /chat/messages/:id/readers). */
+export interface ChatReader {
+  user_id: string;
+  full_name: string;
+  avatar_url: string | null;
+  read_at: string | null;
+}
+export interface ChatReaders {
+  recipient_count: number;
+  read_count: number;
+  readers: ChatReader[];
 }
 
 export interface ChatDiscoverSpace {
@@ -1405,6 +1429,9 @@ export interface ChatMessageRow {
   reply_author: string | null;
   mine: boolean;
   reactions: ChatReaction[];
+  author_avatar?: string | null; // sender's profile photo (thumbnail next to name)
+  read_count?: number; // recipients who have read this message (for blue ticks)
+  recipient_count?: number; // total recipients (read_count >= recipient_count → all read)
   // Moderation state — only present in the admin/oversight view (server-authoritative).
   is_flagged?: boolean;
   flag_reason?: string | null;
@@ -1475,7 +1502,21 @@ export async function uploadToCloudinary(
 }
 
 export const ChatApi = {
-  conversations: () => api.get<ChatList>("/chat/conversations").then((r) => r.data),
+  // `scope=mine` → the staff member's OWN Spaces/DMs/Groups (mobile-style inbox).
+  conversations: (scope: "mine" | "all" = "mine") =>
+    api.get<ChatList>("/chat/conversations", { params: { scope } }).then((r) => r.data),
+  // DM directory — for portal staff this returns everyone registered (minor-safe).
+  people: (q?: string) =>
+    api.get<{ people: ChatPerson[] }>("/chat/people", q ? { params: { q } } : undefined).then((r) => r.data.people),
+  // Create-or-open a 1:1 DM with a member (portal staff may DM anyone).
+  createDm: (userId: string) =>
+    api.post<{ conversation_id: string }>("/chat/dms", { user_id: userId }).then((r) => r.data),
+  // Follow/join a public space.
+  joinSpace: (id: string) =>
+    api.post<{ conversation_id: string; joined: boolean }>(`/chat/spaces/${id}/join`, {}).then((r) => r.data),
+  // Who has read a message — the "Seen by" / blue-tick detail (author only).
+  messageReaders: (id: string) =>
+    api.get<ChatReaders>(`/chat/messages/${id}/readers`).then((r) => r.data),
   signAttachment: (body: { content_type: string; kind?: "image" | "voice" | "video" | "file" }) =>
     api.post<CloudinarySignResult>("/chat/attachments/sign", body).then((r) => r.data),
   conversation: (id: string) =>

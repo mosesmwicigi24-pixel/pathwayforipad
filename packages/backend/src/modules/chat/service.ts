@@ -148,11 +148,30 @@ export class ChatService {
    * Minor-safe (D-M6) — a minor caller gets an empty list, and minors never
    * appear for anyone. Excludes self and soft-deleted users. Optional name search.
    */
-  async listPeople(userId: string, q?: string): Promise<{ people: unknown[] }> {
+  async listPeople(userId: string, q?: string, viewerRole?: ViewerRole): Promise<{ people: unknown[] }> {
     const me = await this.me(this.pool, userId);
-    // A caller with no congregation sees nobody (can't be scoped to a directory).
-    if (me.is_minor || !me.congregation_id) return { people: [] };
     const term = (q ?? "").trim();
+    // Portal staff (Admin/SuperAdmin) get the GLOBAL directory — every registered
+    // member is immediately reachable, across congregations — so the web portal
+    // can DM anyone. Minors are still excluded everywhere (D-M6 minor-safety).
+    if (isModerator(viewerRole)) {
+      const people = await many(
+        this.pool,
+        `SELECT u.user_id, u.full_name, u.role, u.avatar_url, c.name AS congregation
+           FROM users u
+           LEFT JOIN congregations c ON c.congregation_id = u.congregation_id
+          WHERE u.user_id <> $1
+            AND u.deleted_at IS NULL
+            AND u.is_minor = FALSE
+            ${term ? "AND u.full_name ILIKE $2" : ""}
+          ORDER BY u.full_name
+          LIMIT 200`,
+        term ? [userId, `%${term}%`] : [userId],
+      );
+      return { people };
+    }
+    // A member with no congregation sees nobody (can't be scoped to a directory).
+    if (me.is_minor || !me.congregation_id) return { people: [] };
     const people = await many(
       this.pool,
       // Only real congregation members appear: a user with a NULL congregation
@@ -241,10 +260,12 @@ export class ChatService {
   }
 
   /** The inbox: my conversations (with unread + preview) + discoverable spaces. */
-  async listConversations(userId: string, viewerRole?: ViewerRole): Promise<{ conversations: unknown[]; discover_spaces: unknown[] }> {
+  async listConversations(userId: string, viewerRole?: ViewerRole, scope?: "mine" | "all"): Promise<{ conversations: unknown[]; discover_spaces: unknown[] }> {
     // Moderators get the oversight inbox (all conversations), but still see
     // public spaces they haven't joined under "discover" so they can follow them.
-    if (isModerator(viewerRole)) {
+    // `scope=mine` opts a moderator into the personal inbox instead (the web
+    // portal uses it so staff see their own Spaces / DMs / Groups like mobile).
+    if (isModerator(viewerRole) && scope !== "mine") {
       const mod = await this.listAllForModeration();
       return { conversations: mod.conversations, discover_spaces: await this.discoverSpaces(userId) };
     }
@@ -472,8 +493,13 @@ export class ChatService {
     return { recipient_count: recipient.n, read_count: readers.length, readers };
   }
 
-  /** Create or return the 1:1 DM with another member (minor-safe, same congregation). */
-  async createOrGetDm(userId: string, otherUserId: string): Promise<{ conversation_id: string }> {
+  /**
+   * Create or return the 1:1 DM with another member. Minor-safe everywhere. A
+   * member may only DM within their own congregation; portal staff (Admin/
+   * SuperAdmin) may DM anyone (cross-congregation) so the portal can reach
+   * everyone registered.
+   */
+  async createOrGetDm(userId: string, otherUserId: string, viewerRole?: ViewerRole): Promise<{ conversation_id: string }> {
     if (otherUserId === userId) throw new ApiError("UNPROCESSABLE", "Cannot DM yourself");
     return tx(this.pool, async (c) => {
       const me = await this.me(c, userId);
@@ -482,7 +508,13 @@ export class ChatService {
       );
       if (!other) throw new ApiError("NOT_FOUND", "Member not found");
       if (me.is_minor || other.is_minor) throw new ApiError("FORBIDDEN_SCOPE", "Direct messages are unavailable for minors");
-      if (!me.congregation_id || me.congregation_id !== other.congregation_id) throw new ApiError("NOT_FOUND", "Member not found");
+      const moderator = isModerator(viewerRole);
+      if (!moderator && (!me.congregation_id || me.congregation_id !== other.congregation_id)) {
+        throw new ApiError("NOT_FOUND", "Member not found");
+      }
+      // The DM is filed under the initiator's congregation (or the other member's,
+      // for a not-yet-onboarded staff account).
+      const dmCongregation = me.congregation_id ?? other.congregation_id;
 
       const existing = await maybeOne<{ conversation_id: string }>(
         c,
@@ -499,7 +531,7 @@ export class ChatService {
         c,
         `INSERT INTO chat_conversations (conversation_id, kind, congregation_id, created_by)
          VALUES (gen_random_uuid(), 'dm', $1, $2) RETURNING conversation_id`,
-        [me.congregation_id, userId],
+        [dmCongregation, userId],
       );
       await c.query(
         `INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2), ($1, $3)`,

@@ -15,14 +15,14 @@ import {
 import {
   ChevronRight, Search, MessagesSquare, Flag, Trash2, Volume2, VolumeX,
   Archive, ArchiveRestore, Send, ShieldAlert, Users, Sparkles, AlertTriangle,
-  CheckCheck, Circle, X, MessageSquare, Activity,
+  CheckCheck, Check, Circle, X, MessageSquare, Activity, Eye,
   WifiOff, Moon, LayoutGrid, Hash, Wand2, Loader2, Image as ImageIcon, Paperclip, FileText,
-  Plus, Mic, Square, Globe,
+  Plus, Mic, Square, Globe, PenSquare, UserPlus,
 } from "lucide-react";
 import {
   ChatApi, AssistantApi, uploadToCloudinary,
   type ChatConversationRow, type ChatMessageRow, type ChatKind, type ChatAiTag,
-  type ChatMsgType, type AssistantTurn,
+  type ChatMsgType, type AssistantTurn, type ChatDiscoverSpace, type ChatPerson, type ChatReaders,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -31,16 +31,16 @@ import { errorMessage } from "../../util/error";
 type ChatType = "direct" | "group" | "support" | "space";
 type ChatHealth = "ongoing" | "silent" | "failed";
 type View = "overview" | "conversations";
-type FilterKey = "all" | ChatType | "flagged";
 type NuruIntent = "reply" | "encourage" | "prayer";
 type NuruTone = "default" | "shorter" | "warmer" | "formal";
 
-const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "space", label: "Spaces" },
-  { key: "group", label: "Groups" },
-  { key: "direct", label: "Direct" },
-  { key: "flagged", label: "Flagged" },
+// Inbox segments — mirror the mobile app's three-segment chat control so the
+// portal feels like the same product: My Space / DM / My Groups.
+type Segment = "space" | "dm" | "group";
+const SEGMENTS: { key: Segment; label: string; kind: ChatKind }[] = [
+  { key: "space", label: "My Space", kind: "space" },
+  { key: "dm", label: "DM", kind: "dm" },
+  { key: "group", label: "My Groups", kind: "group" },
 ];
 
 const typeMeta: Record<ChatType, { label: string; bg: string; color: string }> = {
@@ -75,6 +75,28 @@ function initials(name: string): string {
     .filter(Boolean)
     .slice(0, 2)
     .join("") || "?";
+}
+
+// Deterministic avatar colour (mirrors the mobile app's 7-colour hash) so a name
+// always maps to the same tile colour across portal and app.
+const AVATAR_COLORS = ["#C89B3C", "#6366F1", "#3FA9F5", "#22B07D", "#E07B39", "#EC4899", "#14B8A6"];
+function avatarColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (Math.imul(h, 31) + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]!;
+}
+
+/** Profile-photo thumbnail, falling back to initials on a deterministic colour. */
+function Avatar({ uri, name, size = 40, square, icon }: { uri?: string | null | undefined; name: string; size?: number | undefined; square?: boolean | undefined; icon?: ReactNode | undefined }): ReactElement {
+  const radius = square ? Math.round(size * 0.3) : size / 2;
+  if (uri) {
+    return <img src={uri} alt={name} style={{ width: size, height: size, borderRadius: radius, objectFit: "cover", flexShrink: 0, background: "#E8EEF7", display: "block" }} />;
+  }
+  return (
+    <span className="flex items-center justify-center shrink-0" style={{ width: size, height: size, borderRadius: radius, background: avatarColor(name || "?"), color: "#fff", fontSize: Math.round(size * 0.4), fontWeight: 700 }}>
+      {icon ?? initials(name)}
+    </span>
+  );
 }
 
 const ms = (iso: string | null): number => (iso ? Date.parse(iso) || 0 : 0);
@@ -119,13 +141,20 @@ export function Chat(): ReactElement {
   const paramC = searchParams.get("c");
 
   const [rows, setRows] = useState<ChatConversationRow[]>([]);
+  const [discover, setDiscover] = useState<ChatDiscoverSpace[]>([]);
   const [listError, setListError] = useState<string | null>(null);
   const [listLoading, setListLoading] = useState(true);
 
-  const [filter, setFilter] = useState<FilterKey>("all");
+  const [segment, setSegment] = useState<Segment>("dm");
   const [query, setQuery] = useState("");
   const [activeId, setActiveId] = useState<string>(paramC ?? "");
-  const [view, setView] = useState<View>(paramC ? "conversations" : "overview");
+  const [view, setView] = useState<View>("conversations");
+
+  // New-message (DM directory) + "Seen by" read-receipt popover.
+  const [newMsgOpen, setNewMsgOpen] = useState(false);
+  const [readersFor, setReadersFor] = useState<string | null>(null);
+  const [readers, setReaders] = useState<ChatReaders | null>(null);
+  const [joiningId, setJoiningId] = useState<string | null>(null);
 
   // Open-thread state
   const [messages, setMessages] = useState<ChatMessageRow[]>([]);
@@ -164,9 +193,10 @@ export function Chat(): ReactElement {
 
   const loadList = (): void => {
     setListLoading(true);
-    ChatApi.conversations()
+    ChatApi.conversations("mine")
       .then((r) => {
         setRows(r.conversations);
+        setDiscover(r.discover_spaces ?? []);
         setListError(null);
         if (!activeId && r.conversations[0]) setActiveId(r.conversations[0].conversation_id);
       })
@@ -180,17 +210,24 @@ export function Chat(): ReactElement {
     [rows],
   );
 
+  const segKind = SEGMENTS.find((s) => s.key === segment)!.kind;
   const filtered = useMemo(() => {
     return convos.filter((c) => {
-      if (filter === "flagged") { if (!(c.flagged && c.flagged > 0)) return false; }
-      else if (filter !== "all" && c.type !== filter) return false;
+      if (c.kind !== segKind) return false;
       if (query.trim()) {
         const q = query.toLowerCase();
-        if (!conversationTitle(c).toLowerCase().includes(q)) return false;
+        const hay = `${conversationTitle(c)} ${c.last_body ?? ""} ${c.last_author ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [convos, filter, query]);
+  }, [convos, segKind, query]);
+  // Per-segment counts for the pill chips (mirrors the mobile count chips).
+  const counts = useMemo(() => {
+    const c: Record<Segment, number> = { space: 0, dm: 0, group: 0 };
+    convos.forEach((cv) => { if (cv.kind in c) c[cv.kind as Segment] += 1; });
+    return c;
+  }, [convos]);
 
   const active = filtered.find((c) => c.conversation_id === activeId) ?? filtered[0] ?? convos.find((c) => c.conversation_id === activeId);
   const list = filtered;
@@ -445,6 +482,42 @@ export function Chat(): ReactElement {
     setView("conversations");
   };
 
+  /* ── Start (or open) a DM with any registered member ── */
+  const handleStartDm = async (userId: string): Promise<void> => {
+    const { conversation_id } = await ChatApi.createDm(userId);
+    setNewMsgOpen(false);
+    loadList();
+    setActiveId(conversation_id);
+    setSegment("dm");
+    setView("conversations");
+  };
+
+  /* ── Follow a public space from "Discover" ── */
+  const handleJoinSpace = async (id: string): Promise<void> => {
+    if (joiningId) return;
+    setJoiningId(id);
+    try {
+      await ChatApi.joinSpace(id);
+      loadList();
+      setActiveId(id);
+    } catch (e) {
+      setListError(errorMessage(e, "Could not join the space."));
+    } finally {
+      setJoiningId(null);
+    }
+  };
+
+  /* ── "Seen by" read receipts for one of my messages ── */
+  const showReaders = async (m: ChatMessageRow): Promise<void> => {
+    setReadersFor(m.message_id);
+    setReaders(null);
+    try {
+      setReaders(await ChatApi.messageReaders(m.message_id));
+    } catch {
+      setReaders({ recipient_count: m.recipient_count ?? 0, read_count: m.read_count ?? 0, readers: [] });
+    }
+  };
+
   /* ── Hero stats (derived from the list; flagged from the server per-row count) ── */
   const totalFlagged = rows.reduce((s, c) => s + (c.flagged || 0), 0);
   const msgsToday = rows.reduce((s, c) => s + (c.last_at && Date.now() - ms(c.last_at) < DAY ? 1 : 0), 0);
@@ -512,9 +585,14 @@ export function Chat(): ReactElement {
               );
             })}
           </div>
-          <button onClick={() => setCreateOpen(true)} className="flex items-center gap-2 rounded-lg px-3.5" style={{ height: 38, background: "var(--nuru-gold)", color: "#fff", fontSize: 12.5, fontWeight: 700, border: "none", cursor: "pointer", boxShadow: "0 6px 18px rgba(200,155,60,0.32)" }}>
-            <Plus size={14} /> New space
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setCreateOpen(true)} className="flex items-center gap-2 rounded-lg px-3.5" style={{ height: 38, background: "#fff", color: "var(--nuru-navy)", fontSize: 12.5, fontWeight: 700, border: "1px solid var(--border)", cursor: "pointer" }}>
+              <Hash size={14} /> New space
+            </button>
+            <button onClick={() => setNewMsgOpen(true)} className="flex items-center gap-2 rounded-lg px-3.5" style={{ height: 38, background: "var(--nuru-gold)", color: "#fff", fontSize: 12.5, fontWeight: 700, border: "none", cursor: "pointer", boxShadow: "0 6px 18px rgba(200,155,60,0.32)" }}>
+              <PenSquare size={14} /> New message
+            </button>
+          </div>
         </div>
 
         {view === "overview" && (
@@ -535,18 +613,17 @@ export function Chat(): ReactElement {
                   <Search size={14} style={{ color: "var(--muted-foreground)" }} />
                   <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search conversations…" className="flex-1 bg-transparent outline-none" style={{ fontSize: 13, border: "none" }} />
                 </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {FILTERS.map((f) => {
-                    const activeF = filter === f.key;
-                    const isFlag = f.key === "flagged";
+                <div className="flex items-center rounded-xl" style={{ background: "var(--input-background)", padding: 3, gap: 2 }}>
+                  {SEGMENTS.map((s) => {
+                    const on = segment === s.key;
                     return (
-                      <button key={f.key} onClick={() => setFilter(f.key)} className="rounded-full transition-colors" style={{
-                        padding: "5px 11px", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
-                        border: "1px solid " + (activeF ? (isFlag ? "#DC2626" : "var(--nuru-gold)") : "var(--border)"),
-                        background: activeF ? (isFlag ? "rgba(220,38,38,0.1)" : "rgba(200,155,60,0.12)") : "#fff",
-                        color: activeF ? (isFlag ? "#DC2626" : "var(--nuru-gold)") : "var(--muted-foreground)",
+                      <button key={s.key} onClick={() => setSegment(s.key)} className="flex-1 flex items-center justify-center gap-1.5 rounded-lg transition-colors" style={{
+                        padding: "7px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", border: "none",
+                        background: on ? "var(--nuru-navy)" : "transparent",
+                        color: on ? "#fff" : "var(--muted-foreground)",
                       }}>
-                        {f.label}{isFlag && totalFlagged > 0 ? ` · ${totalFlagged}` : ""}
+                        {s.label}
+                        <span className="inline-flex items-center justify-center rounded-full" style={{ minWidth: 17, height: 17, padding: "0 5px", fontSize: 10, fontWeight: 800, background: on ? "var(--nuru-gold)" : "var(--secondary)", color: on ? "#fff" : "var(--muted-foreground)" }}>{counts[s.key]}</span>
                       </button>
                     );
                   })}
@@ -559,54 +636,73 @@ export function Chat(): ReactElement {
                     <Loader2 size={22} className="animate-spin" style={{ marginBottom: 10 }} />
                     <span style={{ fontSize: 13 }}>Loading conversations…</span>
                   </div>
-                ) : filter === "flagged" ? (
-                  <div className="flex flex-col items-center justify-center text-center" style={{ padding: "48px 20px", color: "var(--muted-foreground)" }}>
-                    <Flag size={24} style={{ opacity: 0.4, marginBottom: 10 }} />
-                    <span style={{ fontSize: 13 }}>Flags are applied per message while moderating a thread.</span>
-                  </div>
-                ) : list.length === 0 ? (
+                ) : list.length === 0 && !(segment === "space" && discover.length > 0) ? (
                   <div className="flex flex-col items-center justify-center text-center" style={{ padding: "48px 20px", color: "var(--muted-foreground)" }}>
                     <MessagesSquare size={24} style={{ opacity: 0.4, marginBottom: 10 }} />
-                    <span style={{ fontSize: 13 }}>No conversations match.</span>
+                    <span style={{ fontSize: 13 }}>
+                      {segment === "dm" ? "No direct messages yet — start one with “New message”." : segment === "space" ? "No spaces yet — follow one below." : "No groups yet."}
+                    </span>
                   </div>
-                ) : list.map((c) => {
-                  const tm = typeMeta[c.type];
-                  const isActive = active?.conversation_id === c.conversation_id;
-                  const title = conversationTitle(c);
-                  return (
-                    <button key={c.conversation_id} onClick={() => setActiveId(c.conversation_id)} className="w-full text-left transition-colors" style={{
-                      padding: "12px 14px", borderBottom: "1px solid var(--border)", cursor: "pointer",
-                      background: isActive ? "rgba(200,155,60,0.08)" : "transparent",
-                      borderLeft: "3px solid " + (isActive ? "var(--nuru-gold)" : "transparent"),
-                    }}>
-                      <div className="flex items-start gap-3">
-                        <span className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: tm.bg, color: tm.color, fontSize: 12.5, fontWeight: 800 }}>
-                          {c.kind === "group" ? <Users size={17} /> : c.kind === "space" ? <Hash size={17} /> : initials(title)}
-                        </span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="flex items-center gap-1.5">
-                            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{title}</span>
-                            {c.last_at && <span style={{ fontSize: 10.5, color: "var(--muted-foreground)", flexShrink: 0 }}>{chatTimeAgo(c.last_at)}</span>}
+                ) : (
+                  <>
+                    {list.map((c) => {
+                      const isActive = active?.conversation_id === c.conversation_id;
+                      const title = conversationTitle(c);
+                      const isDm = c.kind === "dm";
+                      return (
+                        <button key={c.conversation_id} onClick={() => setActiveId(c.conversation_id)} className="w-full text-left transition-colors" style={{
+                          padding: "12px 14px", borderBottom: "1px solid var(--border)", cursor: "pointer",
+                          background: isActive ? "rgba(200,155,60,0.08)" : "transparent",
+                          borderLeft: "3px solid " + (isActive ? "var(--nuru-gold)" : "transparent"),
+                        }}>
+                          <div className="flex items-start gap-3">
+                            <Avatar uri={isDm ? c.avatar_url : null} name={title} size={42} square={!isDm}
+                              icon={c.kind === "group" ? <Users size={18} /> : c.kind === "space" ? <Hash size={18} /> : undefined} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div className="flex items-center gap-1.5">
+                                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{title}</span>
+                                {c.last_at && <span style={{ fontSize: 10.5, color: c.unread > 0 ? "var(--nuru-gold)" : "var(--muted-foreground)", fontWeight: c.unread > 0 ? 700 : 400, flexShrink: 0 }}>{chatTimeAgo(c.last_at)}</span>}
+                              </div>
+                              <p style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {c.last_body ? `${c.last_author ? `${c.last_author}: ` : ""}${c.last_body}` : "No messages yet"}
+                              </p>
+                              <div className="flex items-center gap-1.5 mt-1.5">
+                                {c.category && <span className="rounded-full" style={{ padding: "1px 7px", fontSize: 9.5, fontWeight: 700, background: "rgba(200,155,60,0.12)", color: "var(--nuru-gold)", textTransform: "uppercase", letterSpacing: "0.03em" }}>{c.category}</span>}
+                                {!isDm && <span style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>{c.member_count} {c.member_count === 1 ? "member" : "members"}</span>}
+                                {mutedIds.has(c.conversation_id) && <VolumeX size={11} style={{ color: "var(--muted-foreground)" }} />}
+                                {archivedIds.has(c.conversation_id) && <Archive size={11} style={{ color: "var(--muted-foreground)" }} />}
+                                {c.unread > 0 && (
+                                  <span className="ml-auto inline-flex items-center justify-center rounded-full" style={{ minWidth: 18, height: 18, padding: "0 5px", fontSize: 10, fontWeight: 800, background: "var(--nuru-gold)", color: "#fff" }}>
+                                    {c.unread}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <p style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {c.last_body ? `${c.last_author ? `${c.last_author}: ` : ""}${c.last_body}` : "No messages"}
-                          </p>
-                          <div className="flex items-center gap-1.5 mt-1.5">
-                            <span className="rounded-full" style={{ padding: "1px 7px", fontSize: 9.5, fontWeight: 700, background: tm.bg, color: tm.color, textTransform: "uppercase", letterSpacing: "0.03em" }}>{tm.label}</span>
-                            <span style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>{c.member_count} {c.member_count === 1 ? "member" : "members"}</span>
-                            {mutedIds.has(c.conversation_id) && <VolumeX size={11} style={{ color: "var(--muted-foreground)" }} />}
-                            {archivedIds.has(c.conversation_id) && <Archive size={11} style={{ color: "var(--muted-foreground)" }} />}
-                            {c.unread > 0 && (
-                              <span className="ml-auto inline-flex items-center justify-center rounded-full" style={{ minWidth: 18, height: 18, padding: "0 5px", fontSize: 10, fontWeight: 800, background: "var(--nuru-gold)", color: "#fff" }}>
-                                {c.unread}
-                              </span>
-                            )}
+                        </button>
+                      );
+                    })}
+
+                    {/* Discover public spaces to follow (mobile parity). */}
+                    {segment === "space" && discover.length > 0 && (
+                      <div style={{ padding: "12px 14px 4px" }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 800, color: "var(--muted-foreground)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Discover spaces</div>
+                        {discover.map((s) => (
+                          <div key={s.conversation_id} className="flex items-center gap-3" style={{ padding: "9px 0", borderBottom: "1px solid var(--border)" }}>
+                            <Avatar name={s.title ?? "Space"} size={38} square icon={<Hash size={16} />} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.title ?? "Space"}</div>
+                              <div style={{ fontSize: 11, color: "var(--muted-foreground)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.topic || `${s.member_count} ${s.member_count === 1 ? "member" : "members"}`}</div>
+                            </div>
+                            <button onClick={() => void handleJoinSpace(s.conversation_id)} disabled={joiningId === s.conversation_id} className="rounded-lg px-3 shrink-0" style={{ height: 30, fontSize: 11.5, fontWeight: 700, border: "1px solid var(--nuru-gold)", background: "rgba(200,155,60,0.1)", color: "var(--nuru-gold)", cursor: "pointer" }}>
+                              {joiningId === s.conversation_id ? "Following…" : "Follow"}
+                            </button>
                           </div>
-                        </div>
+                        ))}
                       </div>
-                    </button>
-                  );
-                })}
+                    )}
+                  </>
+                )}
               </div>
             </aside>
 
@@ -623,9 +719,8 @@ export function Chat(): ReactElement {
                   {/* Thread header */}
                   <div className="flex items-center justify-between gap-3 flex-wrap" style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}>
                     <div className="flex items-center gap-3 min-w-0">
-                      <span className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: typeMeta[active.type].bg, color: typeMeta[active.type].color, fontWeight: 800 }}>
-                        {active.kind === "group" ? <Users size={18} /> : active.kind === "space" ? <Hash size={18} /> : initials(conversationTitle(active))}
-                      </span>
+                      <Avatar uri={active.kind === "dm" ? active.avatar_url : null} name={conversationTitle(active)} size={42} square={active.kind !== "dm"}
+                        icon={active.kind === "group" ? <Users size={18} /> : active.kind === "space" ? <Hash size={18} /> : undefined} />
                       <div style={{ minWidth: 0 }}>
                         <div className="flex items-center gap-2">
                           <span style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)" }}>{conversationTitle(active)}</span>
@@ -698,29 +793,42 @@ export function Chat(): ReactElement {
                           const removed = st === "removed";
                           const flagged = st === "flagged";
                           const tag = m.ai_tag;
+                          // Read state for blue ticks (mine only): all-read → blue double-check.
+                          const recip = m.recipient_count ?? 0;
+                          const reads = m.read_count ?? 0;
+                          const allRead = recip > 0 && reads >= recip;
+                          const someRead = reads > 0 && !allRead;
+                          // Navy bubble for my own messages (mobile parity); white text on navy.
+                          const navy = mine && !removed && !flagged;
+                          const txt = navy ? "#fff" : removed ? "var(--muted-foreground)" : "#1F2937";
+                          const subTxt = navy ? "rgba(255,255,255,0.72)" : "var(--muted-foreground)";
                           return (
-                            <div key={m.message_id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                            <div key={m.message_id} className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
+                              {!mine && <Avatar uri={m.author_avatar} name={m.author_name} size={28} />}
                               <div style={{ maxWidth: "78%" }}>
                                 {!mine && (
                                   <div className="flex items-center gap-1.5" style={{ marginBottom: 3, marginLeft: 2 }}>
                                     <span style={{ fontSize: 11, fontWeight: 700, color: "var(--nuru-navy)" }}>{m.author_name}</span>
                                   </div>
                                 )}
-                                <div className="group relative rounded-2xl" style={{
+                                <div className="group relative" style={{
                                   padding: "9px 13px",
-                                  background: removed ? "var(--input-background)" : flagged ? "#FEF2F2" : mine ? "#EDEEF0" : "#F7F8FA",
-                                  border: flagged ? "1px solid #F5C6C2" : "1px solid #E6E8EB",
-                                  color: removed ? "var(--muted-foreground)" : "#1F2937",
+                                  borderRadius: 16,
+                                  borderBottomRightRadius: mine ? 5 : 16,
+                                  borderBottomLeftRadius: mine ? 16 : 5,
+                                  background: removed ? "var(--input-background)" : flagged ? "#FEF2F2" : navy ? "var(--nuru-navy)" : "#fff",
+                                  border: flagged ? "1px solid #F5C6C2" : navy ? "none" : "1px solid #E6E8EB",
+                                  color: txt,
                                 }}>
                                   {!removed && m.reply_body && (
-                                    <div className="rounded-lg" style={{ marginBottom: 6, padding: "5px 8px", background: "rgba(0,0,0,0.04)", borderLeft: "2px solid var(--nuru-gold)" }}>
-                                      <span style={{ display: "block", fontSize: 10, fontWeight: 700, color: "var(--nuru-navy)" }}>{m.reply_author ?? "Reply"}</span>
-                                      <span style={{ display: "block", fontSize: 11, color: "var(--muted-foreground)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{m.reply_body}</span>
+                                    <div className="rounded-lg" style={{ marginBottom: 6, padding: "5px 8px", background: navy ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.04)", borderLeft: "2px solid var(--nuru-gold)" }}>
+                                      <span style={{ display: "block", fontSize: 10, fontWeight: 700, color: navy ? "#fff" : "var(--nuru-navy)" }}>{m.reply_author ?? "Reply"}</span>
+                                      <span style={{ display: "block", fontSize: 11, color: subTxt, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{m.reply_body}</span>
                                     </div>
                                   )}
                                   {!removed && m.attachment_url && <MessageAttachment m={m} />}
                                   {!removed && m.body && (
-                                    <p style={{ fontSize: 13, lineHeight: 1.5, color: "#1F2937", whiteSpace: "pre-wrap", marginTop: m.attachment_url ? 6 : 0 }}>{m.body}</p>
+                                    <p style={{ fontSize: 13, lineHeight: 1.5, color: txt, whiteSpace: "pre-wrap", marginTop: m.attachment_url ? 6 : 0 }}>{m.body}</p>
                                   )}
                                   {removed && (
                                     <p style={{ fontSize: 13, lineHeight: 1.5, fontStyle: "italic", color: "var(--muted-foreground)" }}>This message was removed by a moderator.</p>
@@ -735,8 +843,13 @@ export function Chat(): ReactElement {
                                       <AlertTriangle size={10} /> Flagged for review{m.flag_reason ? ` · ${m.flag_reason}` : ""}
                                     </div>
                                   )}
-                                  <div className="flex items-center gap-1" style={{ marginTop: 4, fontSize: 9.5, color: "var(--muted-foreground)" }}>
-                                    {chatClock(m.created_at)} {mine && <CheckCheck size={11} />}
+                                  <div className="flex items-center justify-end gap-1" style={{ marginTop: 4, fontSize: 9.5, color: subTxt }}>
+                                    <span>{chatClock(m.created_at)}</span>
+                                    {mine && !removed && (
+                                      <button onClick={() => void showReaders(m)} title={allRead ? "Read" : someRead ? `${reads} read` : "Sent"} style={{ border: "none", background: "none", padding: 0, cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+                                        {allRead ? <CheckCheck size={13} color="#3DA8E0" /> : someRead ? <CheckCheck size={13} color={subTxt} /> : <Check size={13} color={subTxt} />}
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
 
@@ -847,6 +960,8 @@ export function Chat(): ReactElement {
       </div>
 
       {createOpen && <CreateSpaceModal onClose={() => setCreateOpen(false)} onCreate={handleCreateSpace} />}
+      {newMsgOpen && <NewMessageModal onClose={() => setNewMsgOpen(false)} onPick={handleStartDm} />}
+      {readersFor && <SeenByPopover data={readers} onClose={() => { setReadersFor(null); setReaders(null); }} />}
     </div>
   );
 }
@@ -908,6 +1023,106 @@ function CreateSpaceModal({ onClose, onCreate }: { onClose: () => void; onCreate
           <button onClick={() => void submit()} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 600, border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Create space
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ────── New message — DM directory (every registered member is reachable) ────── */
+function NewMessageModal({ onClose, onPick }: { onClose: () => void; onPick: (userId: string) => Promise<void> }): ReactElement {
+  const [q, setQ] = useState("");
+  const [people, setPeople] = useState<ChatPerson[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    const t = setTimeout(() => {
+      ChatApi.people(q.trim() || undefined)
+        .then((p) => { if (alive) { setPeople(p); setError(null); } })
+        .catch((e) => { if (alive) setError(errorMessage(e, "Could not load the directory.")); })
+        .finally(() => { if (alive) setLoading(false); });
+    }, 220); // debounce the search
+    return () => { alive = false; clearTimeout(t); };
+  }, [q]);
+
+  const pick = async (id: string): Promise<void> => {
+    setBusyId(id);
+    try { await onPick(id); }
+    catch (e) { setBusyId(null); setError(errorMessage(e, "Could not start the conversation.")); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(11,31,51,0.55)" }} onClick={onClose}>
+      <div className="rounded-2xl overflow-hidden flex flex-col w-full" style={{ background: "#fff", maxWidth: 520, maxHeight: "82vh", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between" style={{ padding: "18px 22px", borderBottom: "1px solid var(--border)" }}>
+          <div className="flex items-center gap-3">
+            <span className="flex items-center justify-center rounded-xl" style={{ width: 40, height: 40, background: "rgba(200,155,60,0.12)", color: "var(--nuru-gold)" }}><UserPlus size={19} /></span>
+            <div>
+              <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: "var(--nuru-navy)", lineHeight: 1.1 }}>New message</h2>
+              <p style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 1 }}>Start a direct message with anyone registered.</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-2" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none", cursor: "pointer" }}><X size={16} /></button>
+        </div>
+
+        <div style={{ padding: "14px 22px 8px" }}>
+          <div className="flex items-center gap-2 rounded-lg" style={{ height: 40, background: "var(--input-background)", padding: "0 12px" }}>
+            <Search size={15} style={{ color: "var(--muted-foreground)" }} />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people by name…" className="flex-1 bg-transparent outline-none" style={{ fontSize: 13, border: "none" }} />
+          </div>
+          {error && <p style={{ fontSize: 11.5, color: "#DC2626", marginTop: 8 }}>{error}</p>}
+        </div>
+
+        <div className="overflow-y-auto" style={{ padding: "4px 12px 16px", scrollbarWidth: "thin" }}>
+          {loading ? (
+            <div className="flex items-center justify-center" style={{ padding: 32, color: "var(--muted-foreground)" }}><Loader2 size={20} className="animate-spin" /></div>
+          ) : people.length === 0 ? (
+            <div className="text-center" style={{ padding: 28, color: "var(--muted-foreground)", fontSize: 13 }}>No one matches “{q}”.</div>
+          ) : people.map((p) => (
+            <button key={p.user_id} onClick={() => void pick(p.user_id)} disabled={busyId != null} className="w-full flex items-center gap-3 rounded-xl transition-colors hover:bg-[var(--secondary)] text-left" style={{ padding: "9px 10px", border: "none", background: "none", cursor: busyId ? "wait" : "pointer" }}>
+              <Avatar uri={p.avatar_url} name={p.full_name} size={38} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.full_name}</div>
+                <div style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{p.role}{p.congregation ? ` · ${p.congregation}` : ""}</div>
+              </div>
+              {busyId === p.user_id ? <Loader2 size={15} className="animate-spin" style={{ color: "var(--nuru-gold)" }} /> : <Send size={14} style={{ color: "var(--muted-foreground)" }} />}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ────── "Seen by" — read receipts for one of my messages ────── */
+function SeenByPopover({ data, onClose }: { data: ChatReaders | null; onClose: () => void }): ReactElement {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(11,31,51,0.5)" }} onClick={onClose}>
+      <div className="rounded-2xl overflow-hidden flex flex-col w-full" style={{ background: "#fff", maxWidth: 380, maxHeight: "70vh", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between" style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}>
+          <span className="flex items-center gap-2" style={{ fontSize: 13.5, fontWeight: 800, color: "var(--nuru-navy)" }}>
+            <Eye size={15} style={{ color: "#3DA8E0" }} /> Seen by{data ? ` · ${data.read_count} of ${data.recipient_count}` : ""}
+          </span>
+          <button onClick={onClose} className="rounded-lg p-1.5" style={{ background: "var(--secondary)", border: "none", cursor: "pointer", color: "var(--foreground)" }}><X size={14} /></button>
+        </div>
+        <div className="overflow-y-auto" style={{ padding: "8px 12px 14px", scrollbarWidth: "thin" }}>
+          {!data ? (
+            <div className="flex items-center justify-center" style={{ padding: 28, color: "var(--muted-foreground)" }}><Loader2 size={18} className="animate-spin" /></div>
+          ) : data.readers.length === 0 ? (
+            <div className="text-center" style={{ padding: 24, color: "var(--muted-foreground)", fontSize: 12.5 }}>No one has read this yet.</div>
+          ) : data.readers.map((r) => (
+            <div key={r.user_id} className="flex items-center gap-3" style={{ padding: "7px 8px" }}>
+              <Avatar uri={r.avatar_url} name={r.full_name} size={32} />
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: "var(--nuru-navy)" }}>{r.full_name}</span>
+              <span className="flex items-center gap-1" style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>
+                {r.read_at ? chatTimeAgo(r.read_at) : ""} <CheckCheck size={13} color="#3DA8E0" />
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
