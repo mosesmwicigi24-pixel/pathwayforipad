@@ -92,7 +92,25 @@ describe("GET /me/home/verse — tailored Verse for today", () => {
     expect(res2.body.reference).toBe(res.body.reference);
   });
 
+  it("serves the dated 'A Year of Verses' plan for today (with text) when present", async () => {
+    const { testPool } = await import("./helpers/db.js");
+    await testPool().query(`DELETE FROM daily_verses`);
+    await testPool().query(
+      `INSERT INTO daily_verses (day_index, day_date, theme, reference, version, verse_text)
+       VALUES (1, (now() AT TIME ZONE 'Africa/Nairobi')::date, 'JOY & HAPPINESS', 'Nehemiah 8:10', 'NIV',
+               'Do not grieve, for the joy of the LORD is your strength.')`,
+    );
+    const res = await agent().get("/v1/me/home/verse").set(auth(meTok));
+    expect(res.status).toBe(200);
+    expect(res.body.reference).toBe("Nehemiah 8:10");
+    expect(res.body.version).toBe("NIV");
+    expect(res.body.text).toContain("joy of the LORD");
+    expect(res.body.reason).toContain("Joy & Happiness");
+  });
+
   it("grounds a brand-new member (no activity) in a foundations verse", async () => {
+    const { testPool } = await import("./helpers/db.js");
+    await testPool().query(`DELETE FROM daily_verses`); // no dated plan → personalized fallback
     // meId has no enrollment and no interaction events → foundations theme
     const res = await agent().get("/v1/me/home/verse").set(auth(meTok));
     expect(res.status).toBe(200);

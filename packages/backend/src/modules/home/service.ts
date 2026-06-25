@@ -46,8 +46,9 @@ interface Ctx {
 export interface TailoredVerse {
   reference: string;
   version: string;
-  theme: VerseTheme;
+  theme: VerseTheme | string;
   reason: string; // a warm "why this verse is for you" line
+  text?: string; // the verse text itself, when we hold it (the dated daily plan)
 }
 
 export class HomeService {
@@ -127,6 +128,24 @@ export class HomeService {
    * /scripture, so doctrine stays safe — we only personalise *which* verse. (§1.1)
    */
   async verseForToday(userId: string): Promise<TailoredVerse> {
+    // 1. The dated "A Year of Verses" plan takes precedence — one set verse per
+    //    calendar day. We hold the text, so the client shows it directly. Once the
+    //    plan runs out, we fall through to the personalized picker below.
+    const plan = await maybeOne<{ reference: string; version: string; theme: string; verse_text: string }>(
+      this.pool,
+      `SELECT reference, version, theme, verse_text FROM daily_verses WHERE day_date = (now() AT TIME ZONE $1)::date`,
+      [TZ],
+    );
+    if (plan) {
+      return {
+        reference: plan.reference,
+        version: plan.version,
+        theme: plan.theme,
+        reason: `Today's verse · ${titleCaseTheme(plan.theme)}`,
+        text: plan.verse_text,
+      };
+    }
+
     const cached = await maybeOne<{ reference: string; version: string; theme: string; reason: string }>(
       this.pool,
       `SELECT reference, version, theme, reason FROM home_verses
@@ -395,6 +414,11 @@ function hashStr(s: string): number {
 function fallbackGreeting(firstName: string, userId: string, dayKey: string): string {
   const i = hashStr(`${userId}|${dayKey}`) % FALLBACK_GREETINGS.length;
   return FALLBACK_GREETINGS[i]!(firstName);
+}
+
+/** "JOY & HAPPINESS" → "Joy & Happiness" for the daily-verse reason line. */
+function titleCaseTheme(t: string): string {
+  return t.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /** The member's lowest of the five disciplines (key + score), or null. */

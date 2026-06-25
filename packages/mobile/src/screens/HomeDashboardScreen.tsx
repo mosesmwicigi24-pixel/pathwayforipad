@@ -143,11 +143,15 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: announcements, refetch: refetchAnnouncements } = useMyAnnouncements();
   const { width: winW } = useWindowDimensions();
   const annSlideW = winW - spacing.screen * 2; // one full-width announcement card per page
-  // Tailored "Verse for today": the server chooses the reference for this member
-  // (their season / weakest discipline); we fetch the real text for that ref.
+  // "Verse for today": the dated daily-verse plan supplies the verse text directly;
+  // otherwise the server picks a reference for this member and we fetch its text.
   const { data: tailoredVerse } = useHomeVerse();
   const verseRef = tailoredVerse?.reference ?? "Psalm 119:105";
-  const { data: verse } = useScripture(verseRef);
+  const { data: scriptureVerse } = useScripture(verseRef);
+  // Prefer the plan's exact text/reference/version when present.
+  const verse = tailoredVerse?.text
+    ? { text: tailoredVerse.text, reference: tailoredVerse.reference, version: tailoredVerse.version }
+    : scriptureVerse;
   const { data: welcomeVideo, refetch: refetchWelcomeVideo } = useWelcomeVideo();
   const { data: featuredCell, refetch: refetchFeaturedCell } = useFeaturedCell();
   const { data: rhythmServer } = useRhythmToday();

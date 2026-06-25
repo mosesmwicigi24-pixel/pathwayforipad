@@ -707,6 +707,7 @@ export interface TailoredVerse {
   version: string;
   theme: string;
   reason: string; // a warm "why this verse is for you" line
+  text?: string | null; // the verse text itself (set by the dated daily plan)
 }
 
 // Prayer Wall — public, congregation-scoped prayer requests (GET /prayer-wall).
