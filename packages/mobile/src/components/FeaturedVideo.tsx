@@ -155,9 +155,11 @@ export function FeaturedVideoInline(): ReactElement {
   const v = useFeaturedVideo();
   const { height: screenH } = useWindowDimensions();
   const cap = Math.round(screenH * 0.7);
-  const frame = v.aspect
-    ? ({ width: "100%", aspectRatio: v.aspect, maxHeight: cap, borderRadius: v.radius, overflow: "hidden", backgroundColor: "#000" } as const)
-    : ({ height: v.fallbackHeight, borderRadius: v.radius, overflow: "hidden", backgroundColor: "#000" } as const);
+  // Always size the frame to the media's aspect ratio (defaulting to 16:9 until
+  // the poster/video is measured) so the card hugs the image/video — never a
+  // fixed-height box that letterboxes or crops.
+  const a = v.aspect && v.aspect > 0.2 ? v.aspect : 16 / 9;
+  const frame = { width: "100%", aspectRatio: a, maxHeight: cap, borderRadius: v.radius, overflow: "hidden", backgroundColor: "#000" } as const;
 
   // When the video is floating, the inline slot holds its place with the poster
   // still (so the page layout doesn't jump) and the real <Video> lives overlay.

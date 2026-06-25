@@ -1024,6 +1024,12 @@ function UpcomingCalendar({ occurrences, onSeeAll, onOpenEvent }: { occurrences:
   const cells: Array<number | null> = [];
   for (let i = 0; i < firstDow; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  // Chunk into Mon-first weeks (pad the trailing week to 7) so each row can flex
+  // to fill the card height.
+  const weeks: Array<Array<number | null>> = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  const last = weeks[weeks.length - 1];
+  if (last) while (last.length < 7) last.push(null);
   const dayEvents = byDay.get(selected) ?? [];
   // The soonest upcoming occurrence (used to fill the TODAY slot when today is empty).
   const nextOcc = useMemo(() => {
@@ -1046,19 +1052,32 @@ function UpcomingCalendar({ occurrences, onSeeAll, onOpenEvent }: { occurrences:
           <View style={st.calRow}>
             {WEEKDAYS.map((d, i) => (<T key={`dow${i}`} variant="micro" tone="tertiary" style={st.calDow}>{d}</T>))}
           </View>
-          <View style={st.calGrid}>
-            {cells.map((d, idx) => {
-              if (d === null) return <View key={`pad${idx}`} style={st.calCell} />;
-              const isToday = d === todayDate;
-              const isSel = d === selected;
-              const hasEvent = byDay.has(d);
-              return (
-                <Pressable key={d} onPress={() => setSelected(d)} style={[st.calCell, isSel && { backgroundColor: palette.navy }, !isSel && isToday && { backgroundColor: palette.goldChipBg }]}>
-                  <T variant="micro" style={{ fontWeight: "600", color: isSel ? palette.white : palette.ink }}>{d}</T>
-                  {hasEvent ? <View style={[st.calDot, { backgroundColor: isSel ? palette.gold : palette.goldLo }]} /> : null}
-                </Pressable>
-              );
-            })}
+          {/* Week rows flex to fill the card's height — when a tall event image
+              expands the card, the calendar grows with it and the active days
+              (a dot under the date) get more room to breathe. */}
+          <View style={st.calWeeks}>
+            {weeks.map((wk, wi) => (
+              <View key={`wk${wi}`} style={st.calWeekRow}>
+                {wk.map((d, di) => {
+                  if (d === null) return <View key={`pad${wi}-${di}`} style={st.calCell} />;
+                  const isToday = d === todayDate;
+                  const isSel = d === selected;
+                  const hasEvent = byDay.has(d);
+                  return (
+                    <Pressable key={d} onPress={() => setSelected(d)} style={st.calCell}>
+                      <View style={[st.calCellInner, isSel && { backgroundColor: palette.navy }, !isSel && isToday && { backgroundColor: palette.goldChipBg }]}>
+                        <T variant="micro" style={{ fontWeight: "600", color: isSel ? palette.white : palette.ink }}>{d}</T>
+                      </View>
+                      {hasEvent ? (
+                        <View style={[st.calDot, { backgroundColor: isSel ? palette.gold : palette.goldLo }]} />
+                      ) : (
+                        <View style={st.calDotSpacer} />
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
           </View>
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
@@ -1275,9 +1294,12 @@ const st = {
   calBox: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: spacing.sm },
   calRow: { flexDirection: "row" },
   calDow: { width: `${100 / 7}%`, textAlign: "center", fontSize: 9 },
-  calGrid: { flexDirection: "row", flexWrap: "wrap" },
-  calCell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: "center", justifyContent: "center", borderRadius: 8 },
-  calDot: { position: "absolute", bottom: 3, width: 4, height: 4, borderRadius: 2 },
+  calWeeks: { flex: 1, marginTop: 2 },
+  calWeekRow: { flexDirection: "row", flex: 1, minHeight: 30 },
+  calCell: { flex: 1, alignItems: "center", justifyContent: "center" },
+  calCellInner: { width: 26, height: 26, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  calDot: { marginTop: 2, width: 5, height: 5, borderRadius: 2.5 },
+  calDotSpacer: { marginTop: 2, height: 5 },
   calEmpty: { backgroundColor: palette.surface, borderRadius: 14, alignItems: "center", justifyContent: "center", paddingVertical: spacing.lg, marginTop: 6 },
   calEvent: { backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
   // Your cohort
