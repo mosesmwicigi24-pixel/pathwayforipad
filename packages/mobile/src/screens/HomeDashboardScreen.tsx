@@ -16,7 +16,6 @@ import {
   ChevronRight,
   Clock,
   Flame,
-  HandCoins,
   HandHeart,
   Heart,
   MapPin,
@@ -69,6 +68,7 @@ import { DisciplerCarousel } from "../components/DisciplerCarousel";
 import { PrayerWallCarousel } from "../components/PrayerWallCarousel";
 import { FitImage } from "../components/FitImage";
 import { GrowthCtaRow } from "../components/GrowthCtaRow";
+import { GiveBanner } from "../components/GiveBanner";
 import { Avatar } from "../components/Avatar";
 
 // Emoji reactions on the home video (❤️ is the dedicated Like; these are extras).
@@ -971,23 +971,8 @@ export function HomeDashboardScreen(): ReactElement {
         {/* Always-available growth disciplines: gifts · memory verse · prayer */}
         <GrowthCtaRow />
 
-        {/* ── Give — lead members to give (M-Pesa-first Give tab) ─────── */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Give"
-          onPress={() => nav.navigate("Tabs", { screen: "Give" })}
-          style={({ pressed }) => [st.giveCard, pressed && { opacity: 0.92 }]}
-        >
-          <View style={st.giveIcon}>
-            <HandCoins size={22} color="#fff" />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700", letterSpacing: 1.4 }}>GIVE</T>
-            <T serif style={{ fontSize: 17, color: palette.ink, marginTop: 2 }}>Sow into the work of God</T>
-            <T variant="caption" tone="secondary" style={{ marginTop: 2 }} numberOfLines={2}>Bring your tithe or offering — M-Pesa, card and more.</T>
-          </View>
-          <ChevronRight size={20} color={palette.ink400} />
-        </Pressable>
+        {/* ── Give — illustrated banner inviting members to support God's work ── */}
+        <GiveBanner />
       </View>
     </ScrollView>
   );
@@ -1252,8 +1237,6 @@ const st = {
   homeMini: { flex: 1, minHeight: 132, backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   homeMiniIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   homeChip: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3 },
-  giveCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: palette.goldChipBg, borderRadius: 20, borderWidth: 1, borderColor: "#F0E0B8", padding: spacing.base, ...shadow.card },
-  giveIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: palette.goldLo, alignItems: "center", justifyContent: "center" },
   heroCard: { flexDirection: "row", gap: spacing.md, backgroundColor: palette.navyDeep, borderRadius: radii.card, padding: spacing.base, ...shadow.card },
   heroAccent: { width: 4, borderRadius: 2, alignSelf: "stretch" },
   heroCta: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", marginTop: spacing.md, backgroundColor: palette.gold, borderRadius: radii.pill, paddingVertical: 7, paddingHorizontal: 14 },
