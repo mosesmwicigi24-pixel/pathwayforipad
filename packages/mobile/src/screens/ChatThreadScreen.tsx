@@ -757,8 +757,8 @@ function Bubble({
   return (
     <View style={{ marginBottom: spacing.md, flexDirection: "row", gap: spacing.xs, justifyContent: m.mine ? "flex-end" : "flex-start" }}>
       {/* Other people's messages show their avatar thumbnail on the left. */}
-      {!m.mine ? <Avatar uri={m.author_avatar} name={m.author_name} size={28} /> : null}
-      <View style={{ alignItems: m.mine ? "flex-end" : "flex-start", maxWidth: "82%", minWidth: 0 }}>
+      {!m.mine ? <Avatar uri={m.author_avatar} name={m.author_name} size={32} /> : null}
+      <View style={{ alignItems: m.mine ? "flex-end" : "flex-start", maxWidth: "88%", flexShrink: 1, minWidth: 0 }}>
       {!m.mine ? <T variant="micro" tone="tertiary" style={{ marginBottom: 2, marginLeft: spacing.sm }}>{m.author_name}</T> : null}
       <Pressable
         accessibilityRole="button"
@@ -905,7 +905,7 @@ const st = {
   quickRow: { gap: spacing.sm, paddingHorizontal: spacing.screen, paddingVertical: spacing.sm },
   quickChip: { backgroundColor: palette.white, borderRadius: radii.pill, borderWidth: 1, borderColor: palette.border, paddingHorizontal: spacing.base, height: 38, alignItems: "center", justifyContent: "center", ...shadow.card },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  bubble: { maxWidth: "82%", borderRadius: 18, paddingHorizontal: spacing.base, paddingVertical: spacing.sm, ...shadow.card },
+  bubble: { alignSelf: "stretch", borderRadius: 18, paddingHorizontal: spacing.base, paddingVertical: spacing.sm, ...shadow.card },
   bubbleMine: { backgroundColor: palette.navy, borderBottomRightRadius: 6 },
   bubbleOther: { backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, borderBottomLeftRadius: 6 },
   reply: { borderLeftWidth: 2, borderLeftColor: palette.gold, paddingLeft: spacing.sm, marginBottom: 4, opacity: 0.85 },
