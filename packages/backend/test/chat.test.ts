@@ -179,6 +179,27 @@ describe("public spaces", () => {
     expect((list.body.discover_spaces as Array<{ conversation_id: string }>).some((s) => s.conversation_id === uuid(9))).toBe(false);
   });
 
+  it("a GLOBAL public space (no congregation) is discoverable + joinable by a member who HAS a congregation", async () => {
+    // Reproduces the prod bug: spaces created with congregation_id = NULL were
+    // invisible to anyone scoped to a congregation. A NULL-congregation public
+    // space must be global (visible to everyone).
+    await testPool().query(
+      `INSERT INTO chat_conversations (conversation_id, kind, title, topic, is_public, congregation_id, created_by)
+       VALUES ($1, 'space', 'Global Praise', 'For everyone', TRUE, NULL, $2)`,
+      [uuid(20), lId],
+    );
+    // `a` is a Student firmly in congregation `cong`.
+    const discover = await agent().get("/v1/chat/conversations").set(auth(aTok));
+    expect((discover.body.discover_spaces as Array<{ conversation_id: string }>).some((s) => s.conversation_id === uuid(20))).toBe(true);
+
+    const joined = await agent().post(`/v1/chat/spaces/${uuid(20)}/join`).set(auth(aTok)).send({});
+    expect(joined.status).toBe(200);
+    expect(joined.body.joined).toBe(true);
+
+    const list = await agent().get("/v1/chat/conversations").set(auth(aTok));
+    expect((list.body.conversations as Array<{ conversation_id: string }>).some((c) => c.conversation_id === uuid(20))).toBe(true);
+  });
+
   it("carries a space category through discover, inbox, and the thread head", async () => {
     await agent().post("/v1/chat/spaces").set(auth(leaderTok))
       .send({ conversation_id: uuid(11), title: "Youth Ablaze", topic: "For the youth", category: "youth" });

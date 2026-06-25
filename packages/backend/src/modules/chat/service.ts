@@ -209,9 +209,10 @@ export class ChatService {
       await c.query(`INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [conversationId, userId]);
       return convo;
     }
-    // A public space is readable by members of its congregation — and by a
-    // not-yet-onboarded member (no congregation), who adopts it when they join.
-    if (convo.kind === "space" && convo.is_public && (me.congregation_id == null || me.congregation_id === convo.congregation_id)) {
+    // A public space is readable by everyone if it's GLOBAL (no congregation),
+    // otherwise by members of its congregation — and by a not-yet-onboarded member
+    // (no congregation), who adopts it when they join.
+    if (convo.kind === "space" && convo.is_public && (convo.congregation_id == null || me.congregation_id == null || me.congregation_id === convo.congregation_id)) {
       return convo; // readable, not yet joined
     }
     throw new ApiError("NOT_FOUND", "Conversation not found"); // no existence leak
@@ -328,7 +329,10 @@ export class ChatService {
          FROM chat_conversations cv
          JOIN users u ON u.user_id = $1
         WHERE cv.kind = 'space' AND cv.is_public = TRUE
-          AND (u.congregation_id IS NULL OR cv.congregation_id = u.congregation_id)
+          -- A public space with no congregation is GLOBAL (visible to everyone);
+          -- otherwise it's scoped to its congregation. A not-yet-onboarded member
+          -- (no congregation) sees all public spaces.
+          AND (cv.congregation_id IS NULL OR u.congregation_id IS NULL OR cv.congregation_id = u.congregation_id)
           AND NOT EXISTS (SELECT 1 FROM chat_members m WHERE m.conversation_id = cv.conversation_id AND m.user_id = $1)
         ORDER BY cv.created_at DESC
         LIMIT 50`,
