@@ -17,7 +17,23 @@ export interface MfaElevation {
   token_type: "Bearer";
   expires_in: number;
   mfa_enabled: boolean;
+  /** One-time recovery codes — present ONLY on the call that first enables 2FA. */
+  recovery_codes?: string[];
 }
+
+/** Begin TOTP enrollment: an otpauth:// URI (for the QR) + the base32 secret. */
+export interface MfaEnroll {
+  otpauth_uri: string;
+  secret: string;
+}
+
+/** Returned by /auth/login when the account has 2FA on. */
+export interface MfaChallenge {
+  mfa_required: true;
+  mfa_token: string;
+}
+
+export type LoginResult = TokenPair | MfaChallenge;
 
 // --- Profile (§3.3 /me) ---
 export interface UserProfile {
@@ -39,6 +55,7 @@ export interface UserProfile {
   country_code?: string | null;
   socials?: Record<string, string>;
   avatar_url?: string | null;
+  mfa_enabled?: boolean;
   row_version: number;
 }
 

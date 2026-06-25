@@ -20,6 +20,7 @@ import { palette, spacing, shadow } from "../theme/tokens";
 import { T, Pill } from "../theme/components";
 import { useFontScale, type FontSize } from "../theme/fontScale";
 import { launchImageLibrary } from "react-native-image-picker";
+import QRCode from "react-native-qrcode-svg";
 import { useMe, useAchievements, useCertificates } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { Avatar } from "../components/Avatar";
@@ -142,6 +143,10 @@ export function ProfileScreen(): ReactElement {
   useEffect(() => {
     if (typeof profileData?.row_version === "number") versionRef.current = profileData.row_version;
   }, [profileData?.row_version]);
+  // Reflect the server's real 2FA state on the toggle (and after enable/disable).
+  useEffect(() => {
+    if (typeof profileData?.mfa_enabled === "boolean") setTwoFA(profileData.mfa_enabled);
+  }, [profileData?.mfa_enabled]);
 
   const seeded = useMemo<Field[]>(() => {
     const p = profileData;
@@ -165,7 +170,7 @@ export function ProfileScreen(): ReactElement {
   const [languages, setLanguages] = useState<string[]>(["English", "Swahili"]);
   const [defaultLanguage, setDefaultLanguage] = useState("English");
   const [languagesOpen, setLanguagesOpen] = useState(false);
-  const [sheet, setSheet] = useState<null | "password" | "twofa" | "appLang" | "support" | "privacy">(null);
+  const [sheet, setSheet] = useState<null | "password" | "twofa" | "disable2fa" | "appLang" | "support" | "privacy">(null);
   const [twoFA, setTwoFA] = useState(false);
   const [appLanguage, setAppLanguage] = useState("English");
   const [pushOn, setPushOn] = useState(true);
@@ -343,7 +348,7 @@ export function ProfileScreen(): ReactElement {
             <ActionRow
               divider Icon={Fingerprint} tint={twoFA ? "#DCFCE7" : "#FEF3C7"} color={twoFA ? GREEN : "#D97706"}
               title="Two-factor authentication" meta={twoFA ? "Active · Authenticator app" : "Not enabled · recommended"}
-              trailing={<Toggle on={twoFA} onToggle={() => (twoFA ? setTwoFA(false) : setSheet("twofa"))} />}
+              trailing={<Toggle on={twoFA} onToggle={() => setSheet(twoFA ? "disable2fa" : "twofa")} />}
             />
             <ActionRow divider Icon={Smartphone} tint="#FCE7F3" color="#DB2777" title="Active sessions" meta="This device" />
           </Section>
@@ -478,7 +483,8 @@ export function ProfileScreen(): ReactElement {
         />
       ) : null}
       {sheet === "password" ? <PasswordSheet onClose={() => setSheet(null)} /> : null}
-      {sheet === "twofa" ? <TwoFASheet onClose={() => setSheet(null)} onEnable={() => { setTwoFA(true); setSheet(null); }} /> : null}
+      {sheet === "twofa" ? <TwoFASheet onClose={() => setSheet(null)} onEnabled={() => { setTwoFA(true); invalidateQueries("me"); void refetchMe(); }} /> : null}
+      {sheet === "disable2fa" ? <Disable2FASheet onClose={() => setSheet(null)} onDisabled={() => { setTwoFA(false); setSheet(null); invalidateQueries("me"); void refetchMe(); }} /> : null}
       {sheet === "appLang" ? <AppLanguageSheet value={appLanguage} onClose={() => setSheet(null)} onSave={(v) => { setAppLanguage(v); setSheet(null); }} /> : null}
       {sheet === "support" ? <InfoSheet title="Help & support" body="Reach the Nuru team at support@nuru.app or talk to your cell leader. FAQs cover pathway progress, reflections, giving and offline use." onClose={() => setSheet(null)} /> : null}
       {sheet === "privacy" ? <InfoSheet title="Privacy policy" body="We collect only what personalises your discipleship journey. Your mentor and cell leader can see pathway progress and reflections; contact details stay private. Data is encrypted in transit and at rest. You can edit or delete your information anytime." onClose={() => setSheet(null)} /> : null}
@@ -761,13 +767,151 @@ function PasswordSheet({ onClose }: { onClose: () => void }): ReactElement {
   );
 }
 
-function TwoFASheet({ onClose, onEnable }: { onClose: () => void; onEnable: () => void }): ReactElement {
+// Full enrollment flow: enroll (secret + otpauth) → scan/enter code to confirm →
+// show one-time recovery codes. Server-authoritative; the factor only turns on
+// once verifyMfa succeeds (§5.3).
+function TwoFASheet({ onClose, onEnabled }: { onClose: () => void; onEnabled: () => void }): ReactElement {
+  const [step, setStep] = useState<"loading" | "scan" | "recovery">("loading");
+  const [enroll, setEnroll] = useState<{ otpauth_uri: string; secret: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [recovery, setRecovery] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    NuruApi.mfaEnroll()
+      .then((e) => { if (alive) { setEnroll(e); setStep("scan"); } })
+      .catch(() => { if (alive) setLoadError(true); });
+    return () => { alive = false; };
+  }, []);
+
+  async function confirm(): Promise<void> {
+    if (!/^\d{6}$/.test(code.trim())) { setError("Enter the 6-digit code from your app."); return; }
+    setBusy(true); setError(null);
+    try {
+      const res = await NuruApi.mfaVerify(code.trim());
+      setRecovery(res.recovery_codes ?? []);
+      onEnabled();
+      setStep("recovery");
+    } catch {
+      setError("That code didn't match. Check your authenticator and try again.");
+    } finally { setBusy(false); }
+  }
+
+  if (loadError) {
+    return (
+      <SheetShell title="Two-factor authentication" onClose={onClose}>
+        <T variant="caption" tone="secondary">Couldn't start setup. Check your connection and try again.</T>
+        <View style={{ marginTop: spacing.base }}><GoldButton label="Close" onPress={onClose} /></View>
+      </SheetShell>
+    );
+  }
+
+  if (step === "recovery") {
+    return (
+      <SheetShell title="Save your recovery codes" onClose={onClose}>
+        <T variant="caption" tone="secondary">
+          2FA is on. Store these codes somewhere safe — each works once if you lose your authenticator. They won&apos;t be shown again.
+        </T>
+        <View style={st.recoveryBox}>
+          {recovery.map((c) => (
+            <T key={c} variant="body" style={st.recoveryCode}>{c}</T>
+          ))}
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => { Clipboard.setString(recovery.join("\n")); Alert.alert("Copied", "Recovery codes copied to the clipboard."); }}
+          style={({ pressed }) => [st.copyRow, pressed && { opacity: 0.85 }]}
+        >
+          <Copy size={15} color={GOLD_TEXT} />
+          <T variant="caption" style={{ color: GOLD_TEXT, fontWeight: "700" }}>Copy all codes</T>
+        </Pressable>
+        <View style={{ marginTop: spacing.base }}><GoldButton label="Done" onPress={onClose} /></View>
+      </SheetShell>
+    );
+  }
+
   return (
-    <SheetShell title="Two-factor authentication" onClose={onClose}>
-      <T variant="caption" tone="secondary">Add a second step at sign-in with an authenticator app (Google Authenticator, Authy, 1Password).</T>
-      <View style={st.qrBox}><Fingerprint size={56} color={palette.navy} /></View>
-      <T variant="micro" tone="secondary" style={{ textAlign: "center", marginTop: spacing.sm }}>Scan in your authenticator, then confirm.</T>
-      <View style={{ marginTop: spacing.base }}><GoldButton label="Enable 2FA" onPress={onEnable} /></View>
+    <SheetShell title="Set up two-factor authentication" onClose={onClose}>
+      <T variant="caption" tone="secondary">
+        Scan this QR with an authenticator app (Google Authenticator, Authy, 1Password), then enter the 6-digit code it shows.
+      </T>
+      <View style={st.qrBox}>
+        {step === "loading" || !enroll ? (
+          <ActivityIndicator color={palette.navy} />
+        ) : (
+          <QRCode value={enroll.otpauth_uri} size={172} backgroundColor="transparent" color={palette.navy} />
+        )}
+      </View>
+      {enroll ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => { Clipboard.setString(enroll.secret); Alert.alert("Copied", "Setup key copied — paste it into your authenticator."); }}
+          style={({ pressed }) => [st.secretRow, pressed && { opacity: 0.85 }]}
+        >
+          <View style={{ flex: 1 }}>
+            <T variant="micro" tone="tertiary" style={st.fieldLabel}>CAN&apos;T SCAN? ENTER THIS KEY</T>
+            <T variant="caption" style={{ color: palette.ink, fontWeight: "600", letterSpacing: 1 }} numberOfLines={1}>{enroll.secret}</T>
+          </View>
+          <Copy size={16} color={palette.ink600} />
+        </Pressable>
+      ) : null}
+      <TextInput
+        value={code}
+        onChangeText={setCode}
+        placeholder="123456"
+        placeholderTextColor={palette.ink400}
+        keyboardType="number-pad"
+        maxLength={6}
+        style={[st.input, { marginTop: spacing.sm, textAlign: "center", letterSpacing: 6, fontSize: 20 }]}
+      />
+      {error ? <T variant="micro" style={{ color: palette.error, marginTop: spacing.sm }}>{error}</T> : null}
+      <View style={{ marginTop: spacing.base }}>
+        <GoldButton label={busy ? "Verifying…" : "Verify & enable"} disabled={busy || !enroll} onPress={() => void confirm()} />
+      </View>
+    </SheetShell>
+  );
+}
+
+// Turning 2FA off requires a current code (TOTP or a recovery code) — the same
+// proof the server demands, so a stolen unlocked phone can't silently disable it.
+function Disable2FASheet({ onClose, onDisabled }: { onClose: () => void; onDisabled: () => void }): ReactElement {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(): Promise<void> {
+    if (!code.trim()) { setError("Enter a code to confirm."); return; }
+    setBusy(true); setError(null);
+    try {
+      await NuruApi.mfaDisable(code.trim());
+      Alert.alert("2FA turned off", "Two-factor authentication is no longer required to sign in.");
+      onDisabled();
+    } catch {
+      setError("That code didn't match. Use a current code from your app or a recovery code.");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <SheetShell title="Turn off two-factor authentication" onClose={onClose}>
+      <T variant="caption" tone="secondary">
+        Enter a current 6-digit code from your authenticator (or a recovery code) to confirm. Your account will be less protected.
+      </T>
+      <TextInput
+        value={code}
+        onChangeText={setCode}
+        placeholder="123456 or recovery code"
+        placeholderTextColor={palette.ink400}
+        autoCapitalize="none"
+        autoCorrect={false}
+        style={[st.input, { marginTop: spacing.md }]}
+      />
+      {error ? <T variant="micro" style={{ color: palette.error, marginTop: spacing.sm }}>{error}</T> : null}
+      <View style={{ marginTop: spacing.base }}>
+        <GoldButton label={busy ? "Turning off…" : "Turn off 2FA"} disabled={busy} onPress={() => void submit()} />
+      </View>
     </SheetShell>
   );
 }
@@ -932,6 +1076,10 @@ const st = {
   sizeOptOn: { backgroundColor: palette.goldChipBg, borderColor: palette.gold },
   selectOptOn: { backgroundColor: "rgba(201,162,39,0.10)", borderColor: palette.gold },
   soonPill: { backgroundColor: "rgba(201,162,39,0.12)", borderWidth: 1, borderColor: "rgba(201,162,39,0.4)", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
+  secretRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 14, padding: spacing.md, marginTop: spacing.md },
+  recoveryBox: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: spacing.md, marginTop: spacing.md, rowGap: spacing.sm },
+  recoveryCode: { width: "48%", color: palette.ink, fontWeight: "700", letterSpacing: 1, ...(Platform.OS === "ios" ? { fontFamily: "Menlo" } : { fontFamily: "monospace" }) },
+  copyRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: spacing.md },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: palette.border, backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
   defaultPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "rgba(201,162,39,0.4)" },
   goldBtn: { backgroundColor: palette.gold, borderRadius: 16, paddingVertical: 14, alignItems: "center" },

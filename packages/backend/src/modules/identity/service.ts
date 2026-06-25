@@ -12,6 +12,8 @@ import {
   issueRefreshToken,
   rotateRefreshToken,
   revokeFamily,
+  signMfaChallenge,
+  verifyMfaChallenge,
   type AccessClaims,
 } from "./tokens.js";
 import type { OAuthProfile } from "./oauth.js";
@@ -26,6 +28,38 @@ export interface SessionTokens {
   refresh_token: string;
   token_type: "Bearer";
   expires_in: number;
+}
+
+/** Returned by password login when the account has 2FA on: the caller must
+ *  exchange this short-lived token + a TOTP/recovery code for a real session. */
+export interface MfaChallenge {
+  mfa_required: true;
+  mfa_token: string;
+}
+
+export type LoginResult = SessionTokens | MfaChallenge;
+
+const RECOVERY_CODE_COUNT = 10;
+// Crockford-ish base32 minus ambiguous chars (no i/l/o/0/1), shown as xxxxx-xxxxx.
+const RECOVERY_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+
+function generateRecoveryCodes(): string[] {
+  const codes: string[] = [];
+  for (let i = 0; i < RECOVERY_CODE_COUNT; i += 1) {
+    const bytes = randomBytes(10);
+    let s = "";
+    for (let j = 0; j < 10; j += 1) s += RECOVERY_ALPHABET[bytes[j]! % RECOVERY_ALPHABET.length];
+    codes.push(`${s.slice(0, 5)}-${s.slice(5)}`);
+  }
+  return codes;
+}
+
+function normalizeRecovery(code: string): string {
+  return code.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function hashRecovery(code: string): string {
+  return createHash("sha256").update(normalizeRecovery(code)).digest("hex");
 }
 
 interface UserAuthRow {
@@ -137,17 +171,18 @@ export class IdentityService {
   static readonly MAX_FAILED_LOGINS = 5;
   static readonly LOCKOUT_MINUTES = 15;
 
-  async loginWithPassword(input: z.infer<typeof IdentityService.LoginSchema>): Promise<SessionTokens> {
+  async loginWithPassword(input: z.infer<typeof IdentityService.LoginSchema>): Promise<LoginResult> {
     const row = await maybeOne<
       UserAuthRow & {
         password_hash: string | null;
         account_status: string;
         failed_login_count: number;
         locked_until: Date | null;
+        mfa_enabled: boolean;
       }
     >(
       this.pool,
-      `SELECT user_id, role, congregation_id, password_hash, account_status, failed_login_count, locked_until
+      `SELECT user_id, role, congregation_id, password_hash, account_status, failed_login_count, locked_until, mfa_enabled
          FROM users WHERE email = $1 AND deleted_at IS NULL`,
       [input.email],
     );
@@ -190,7 +225,84 @@ export class IdentityService {
         /* keep the existing hash; the user is still authenticated */
       }
     }
+    // 2FA gate: with a second factor enrolled, the password alone is not enough.
+    // Hand back a short-lived challenge instead of a session; the client must
+    // complete it via loginCompleteMfa with a TOTP or recovery code (§5.3).
+    if (row.mfa_enabled) {
+      await audit(this.pool, row.user_id, "user.login_mfa_challenge", "users", row.user_id, {});
+      return { mfa_required: true, mfa_token: signMfaChallenge(this.env, row.user_id) };
+    }
+
     return this.issueSession({ user_id: row.user_id, role: row.role, congregation_id: row.congregation_id });
+  }
+
+  /**
+   * Second step of a 2FA login: exchange the challenge token + a TOTP (or
+   * one-time recovery) code for a real session. The challenge proves the
+   * password step already succeeded; the code proves possession of the factor.
+   */
+  async loginCompleteMfa(mfaToken: string, code: string): Promise<SessionTokens> {
+    const userId = verifyMfaChallenge(this.env, mfaToken);
+    const row = await maybeOne<UserAuthRow & { mfa_enabled: boolean; account_status: string }>(
+      this.pool,
+      `SELECT user_id, role, congregation_id, mfa_enabled, account_status
+         FROM users WHERE user_id = $1 AND deleted_at IS NULL`,
+      [userId],
+    );
+    if (!row || !row.mfa_enabled) throw new ApiError("AUTH_REQUIRED", "Invalid or expired MFA challenge");
+    if (row.account_status === "suspended") throw new ApiError("FORBIDDEN_SCOPE", "This account is suspended");
+    if (!(await this.verifySecondFactor(userId, code))) throw new ApiError("AUTH_REQUIRED", "Invalid code");
+    return this.issueSession({ user_id: row.user_id, role: row.role, congregation_id: row.congregation_id });
+  }
+
+  /**
+   * Verify a presented second factor against the stored secret: a live TOTP
+   * code, or a one-time recovery code (which is then consumed). Shared by the
+   * login-completion and disable flows.
+   */
+  private async verifySecondFactor(userId: string, code: string): Promise<boolean> {
+    const row = await maybeOne<{ mfa_secret: string | null; mfa_recovery_codes: string[] | null }>(
+      this.pool,
+      `SELECT mfa_secret, mfa_recovery_codes FROM users WHERE user_id = $1 AND deleted_at IS NULL`,
+      [userId],
+    );
+    if (!row?.mfa_secret) return false;
+    const trimmed = code.trim();
+    const secret = openSecret(row.mfa_secret, this.env.JWT_SIGNING_KEY);
+    if (/^\d{6,10}$/.test(trimmed) && verifyTotp(secret, trimmed)) return true;
+    // Recovery-code path: hash-compare, then consume the used code.
+    const target = hashRecovery(trimmed);
+    if ((row.mfa_recovery_codes ?? []).includes(target)) {
+      await this.pool.query(
+        `UPDATE users SET mfa_recovery_codes = array_remove(mfa_recovery_codes, $2) WHERE user_id = $1`,
+        [userId, target],
+      );
+      await audit(this.pool, userId, "mfa.recovery_used", "users", userId, {});
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Turn 2FA off. Requires a fresh TOTP or recovery code (proving the person
+   * disabling it still controls the factor), then clears the secret, the
+   * enabled flag and any remaining recovery codes. Idempotent when already off.
+   */
+  async disableMfa(userId: string, code: string): Promise<{ mfa_enabled: false }> {
+    const row = await one<{ mfa_enabled: boolean }>(
+      this.pool,
+      `SELECT mfa_enabled FROM users WHERE user_id = $1 AND deleted_at IS NULL`,
+      [userId],
+    );
+    if (!row.mfa_enabled) return { mfa_enabled: false };
+    if (!(await this.verifySecondFactor(userId, code))) throw new ApiError("AUTH_REQUIRED", "Invalid code");
+    await this.pool.query(
+      `UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL, mfa_enrolled_at = NULL, mfa_recovery_codes = '{}'
+         WHERE user_id = $1`,
+      [userId],
+    );
+    await audit(this.pool, userId, "mfa.disabled", "users", userId, {});
+    return { mfa_enabled: false };
   }
 
   static readonly RegisterSchema = z
@@ -368,7 +480,13 @@ export class IdentityService {
   async verifyMfa(
     userId: string,
     code: string,
-  ): Promise<{ access_token: string; token_type: "Bearer"; expires_in: number; mfa_enabled: boolean }> {
+  ): Promise<{
+    access_token: string;
+    token_type: "Bearer";
+    expires_in: number;
+    mfa_enabled: boolean;
+    recovery_codes?: string[];
+  }> {
     const row = await one<{
       role: AccessClaims["role"];
       congregation_id: string | null;
@@ -384,10 +502,16 @@ export class IdentityService {
     const secret = openSecret(row.mfa_secret, this.env.JWT_SIGNING_KEY);
     if (!verifyTotp(secret, code)) throw new ApiError("AUTH_REQUIRED", "Invalid MFA code");
 
+    // First successful verify activates the factor and mints one-time recovery
+    // codes — returned ONCE here (only their hashes are stored) so the member can
+    // save them before they vanish. Re-verifying an already-enabled factor (admin
+    // step-up) issues no new codes.
+    let recoveryCodes: string[] | undefined;
     if (!row.mfa_enabled) {
+      recoveryCodes = generateRecoveryCodes();
       await this.pool.query(
-        `UPDATE users SET mfa_enabled = TRUE, mfa_enrolled_at = now() WHERE user_id = $1`,
-        [userId],
+        `UPDATE users SET mfa_enabled = TRUE, mfa_enrolled_at = now(), mfa_recovery_codes = $2 WHERE user_id = $1`,
+        [userId, recoveryCodes.map(hashRecovery)],
       );
       await audit(this.pool, userId, "mfa.enabled", "users", userId, {});
     }
@@ -399,7 +523,13 @@ export class IdentityService {
       mfa: true,
       mfa_at: Math.floor(Date.now() / 1000),
     });
-    return { access_token: access, token_type: "Bearer", expires_in: this.env.JWT_ACCESS_TTL, mfa_enabled: true };
+    return {
+      access_token: access,
+      token_type: "Bearer",
+      expires_in: this.env.JWT_ACCESS_TTL,
+      mfa_enabled: true,
+      ...(recoveryCodes ? { recovery_codes: recoveryCodes } : {}),
+    };
   }
 
   async getMe(userId: string): Promise<unknown> {
@@ -407,7 +537,7 @@ export class IdentityService {
       this.pool,
       `SELECT u.user_id, u.email, u.full_name, u.phone_number, u.date_of_birth, u.year_of_salvation,
               u.is_baptized, u.cell_group_id, u.congregation_id, u.role, u.timezone, u.locale, u.is_minor,
-              u.gender, u.city, u.country_code, u.socials, u.avatar_url, u.row_version, u.created_at, u.account_status, u.require_2fa,
+              u.gender, u.city, u.country_code, u.socials, u.avatar_url, u.row_version, u.created_at, u.account_status, u.require_2fa, u.mfa_enabled,
               COALESCE(array_agg(ur.role_key) FILTER (WHERE ur.role_key IS NOT NULL), '{}') AS role_keys
          FROM users u
          LEFT JOIN rbac_user_roles ur ON ur.user_id = u.user_id

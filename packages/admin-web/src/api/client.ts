@@ -64,6 +64,14 @@ export interface DevSession {
   refresh_token: string;
 }
 
+/** Returned by /auth/login when the account has 2FA on. */
+export interface MfaChallenge {
+  mfa_required: true;
+  mfa_token: string;
+}
+
+export type LoginResult = DevSession | MfaChallenge;
+
 export interface ReviewItem {
   review_id: string;
   user_id: string;
@@ -74,9 +82,15 @@ export interface ReviewItem {
 }
 
 export const PortalApi = {
-  /** Email + password sign-in (argon2 verified server-side). */
-  async login(email: string, password: string): Promise<DevSession> {
-    const { data } = await api.post<DevSession>("/auth/login", { email, password });
+  /** Email + password sign-in (argon2 verified server-side). Returns a session,
+   *  OR a 2FA challenge when the account has a second factor on. */
+  async login(email: string, password: string): Promise<LoginResult> {
+    const { data } = await api.post<LoginResult>("/auth/login", { email, password });
+    return data;
+  },
+  /** Complete a 2FA login: exchange the challenge token + a TOTP/recovery code. */
+  async loginCompleteMfa(mfaToken: string, code: string): Promise<DevSession> {
+    const { data } = await api.post<DevSession>("/auth/login/mfa", { mfa_token: mfaToken, code });
     return data;
   },
   /** DEV ONLY: mint a session by email (no OAuth). 404s in production. */

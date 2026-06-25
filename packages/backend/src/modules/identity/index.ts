@@ -51,6 +51,19 @@ export function registerIdentity(ctx: AppContext): Router {
     }),
   );
 
+  // Second step of a 2FA login: exchange the challenge token + a TOTP/recovery
+  // code for a session. Public (the challenge token is the proof of step one).
+  r.post(
+    "/auth/login/mfa",
+    handler(async (req, res) => {
+      const { mfa_token, code } = parseBody(
+        z.object({ mfa_token: z.string().min(10), code: z.string().min(6).max(20) }),
+        req.body,
+      );
+      res.status(200).json(await svc.loginCompleteMfa(mfa_token, code));
+    }),
+  );
+
   r.post(
     "/auth/register",
     handler(async (req, res) => {
@@ -122,6 +135,16 @@ export function registerIdentity(ctx: AppContext): Router {
     handler(async (req, res) => {
       const { code } = parseBody(z.object({ code: z.string().regex(/^\d{6,10}$/) }), req.body);
       res.json(await svc.verifyMfa(requirePrincipal(req).userId, code));
+    }),
+  );
+
+  // Turn 2FA off — requires a current TOTP or recovery code as confirmation.
+  r.post(
+    "/auth/mfa/disable",
+    auth,
+    handler(async (req, res) => {
+      const { code } = parseBody(z.object({ code: z.string().min(6).max(20) }), req.body);
+      res.json(await svc.disableMfa(requirePrincipal(req).userId, code));
     }),
   );
 

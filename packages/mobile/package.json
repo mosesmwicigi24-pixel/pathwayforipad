@@ -11,12 +11,10 @@
     "lint": "eslint src",
     "test": "vitest run --passWithNoTests",
     "assets:link": "react-native-asset",
-
     "ios": "react-native run-ios",
     "ios:pods": "cd ios && RCT_NEW_ARCH_ENABLED=1 bundle exec pod install",
     "ios:build": "cd ios && xcodebuild -workspace NuruPlace.xcworkspace -scheme NuruPlace -configuration Release -destination 'generic/platform=iOS' -derivedDataPath /tmp/nuru-dd -allowProvisioningUpdates build",
     "ios:clean": "cd ios && xcodebuild -workspace NuruPlace.xcworkspace -scheme NuruPlace clean && rm -rf /tmp/nuru-dd",
-
     "android": "react-native run-android",
     "android:apk": "cd android && ./gradlew assembleRelease",
     "android:bundle": "cd android && ./gradlew bundleRelease",
@@ -40,6 +38,7 @@
     "react-native-image-picker": "^8.2.1",
     "react-native-keychain": "^10.0.0",
     "react-native-nitro-modules": "^0.35.9",
+    "react-native-qrcode-svg": "^6.3.21",
     "react-native-safe-area-context": "^5.8.0",
     "react-native-screens": "^4.25.2",
     "react-native-svg": "^15.15.5",

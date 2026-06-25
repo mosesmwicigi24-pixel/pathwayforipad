@@ -25,6 +25,32 @@ export function signAccessToken(env: Env, claims: AccessClaims): string {
   });
 }
 
+/**
+ * Short-lived (5 min) login-MFA challenge token. Issued after the password step
+ * when 2FA is on; the holder must present a valid TOTP / recovery code to
+ * exchange it for a real session. It carries no role/scope and grants no access
+ * on its own — purpose-tagged so it can't be replayed as an access token.
+ */
+export function signMfaChallenge(env: Env, userId: string): string {
+  return jwt.sign({ sub: userId, purpose: "mfa_login" }, env.JWT_SIGNING_KEY, {
+    algorithm: "HS256",
+    expiresIn: 300,
+  });
+}
+
+export function verifyMfaChallenge(env: Env, token: string): string {
+  try {
+    const decoded = jwt.verify(token, env.JWT_SIGNING_KEY, { algorithms: ["HS256"] }) as {
+      sub?: string;
+      purpose?: string;
+    };
+    if (decoded.purpose !== "mfa_login" || !decoded.sub) throw new Error("bad challenge");
+    return decoded.sub;
+  } catch {
+    throw new ApiError("AUTH_REQUIRED", "Invalid or expired MFA challenge");
+  }
+}
+
 export function verifyAccessToken(env: Env, token: string): AccessClaims {
   try {
     const decoded = jwt.verify(token, env.JWT_SIGNING_KEY, { algorithms: ["HS256"] });

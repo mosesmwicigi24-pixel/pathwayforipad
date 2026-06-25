@@ -7,7 +7,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Sparkles, Loader2 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
-import { devLogin, login } from "../../store/authSlice";
+import { devLogin, login, completeMfa, cancelMfa } from "../../store/authSlice";
 import { PortalApi } from "../../api/client";
 
 type Mode = "signin" | "register" | "forgot";
@@ -17,9 +17,10 @@ const labelStyle = { display: "block", fontSize: 10.5, fontWeight: 700, color: "
 export function Login(): ReactElement {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const { accessToken, status, error } = useAppSelector((s) => s.auth);
+  const { accessToken, status, error, mfaToken } = useAppSelector((s) => s.auth);
 
   const [mode, setMode] = useState<Mode>("signin");
+  const [code, setCode] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("admin@dev.local");
@@ -66,8 +67,14 @@ export function Login(): ReactElement {
   };
 
   const shownError = localError || (mode !== "forgot" ? error : "") || "";
-  const heading = mode === "signin" ? "Welcome back" : mode === "register" ? "Create your account" : "Reset your password";
-  const subtitle = mode === "signin" ? "Sign in to the admin dashboard" : mode === "register" ? "Request access to the Nuru Pathway portal" : "Enter your email and we'll send a reset link";
+  const heading = mfaToken ? "Two-factor code" : mode === "signin" ? "Welcome back" : mode === "register" ? "Create your account" : "Reset your password";
+  const subtitle = mfaToken ? "Enter the 6-digit code from your authenticator app (or a recovery code)" : mode === "signin" ? "Sign in to the admin dashboard" : mode === "register" ? "Request access to the Nuru Pathway portal" : "Enter your email and we'll send a reset link";
+
+  const submitMfa = (): void => {
+    setLocalError("");
+    if (!code.trim()) { setLocalError("Enter your verification code."); return; }
+    if (mfaToken) void dispatch(completeMfa({ mfaToken, email: email.trim(), code: code.trim() }));
+  };
   const submitLabel = mode === "signin" ? (busy ? "Signing in…" : "Sign in") : mode === "register" ? (busy ? "Creating account…" : "Create account") : (busy ? "Sending link…" : "Send reset link");
 
   return (
@@ -86,7 +93,35 @@ export function Login(): ReactElement {
               <p style={{ fontSize: 12.5, color: "var(--muted-foreground)" }}>{subtitle}</p>
             </div>
 
-            {mode !== "forgot" && (
+            {/* 2FA challenge — shown after a correct password when the account has 2FA on */}
+            {mfaToken && (
+              <>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={labelStyle}>Verification code</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoFocus
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") submitMfa(); }}
+                    placeholder="123456 or recovery code"
+                    className="w-full rounded-lg outline-none"
+                    style={{ height: 42, padding: "0 12px", background: "var(--input-background)", border: "1.5px solid var(--border)", fontSize: 16, letterSpacing: "0.18em", textAlign: "center", color: "var(--foreground)" }}
+                  />
+                </div>
+                {shownError && <div className="rounded-md mb-3" style={{ background: "#FDECEC", color: "#A8281F", fontSize: 12, padding: "8px 10px", border: "1px solid #F5C6C2" }}>{shownError}</div>}
+                <button onClick={submitMfa} disabled={busy || !code.trim()} className="w-full flex items-center justify-center gap-2 rounded-lg transition-all hover:brightness-105" style={{ height: 42, background: code.trim() && !busy ? "var(--nuru-gold)" : "rgba(200,155,60,0.45)", color: "#fff", fontSize: 13.5, fontWeight: 700, boxShadow: "0 8px 22px rgba(200,155,60,0.32)", cursor: busy ? "not-allowed" : "pointer", border: "none" }}>
+                  {busy && <Loader2 size={14} className="animate-spin" />}
+                  {busy ? "Verifying…" : "Verify & sign in"}
+                </button>
+                <p style={{ fontSize: 12, color: "var(--muted-foreground)", textAlign: "center", marginTop: 12 }}>
+                  <button type="button" onClick={() => { setCode(""); dispatch(cancelMfa()); }} style={{ color: "var(--nuru-gold)", fontWeight: 700, background: "none", border: "none", cursor: "pointer" }}>Back to sign in</button>
+                </p>
+              </>
+            )}
+
+            {!mfaToken && mode !== "forgot" && (
               <div className="grid grid-cols-2 rounded-lg p-1 mb-4" style={{ background: "var(--input-background)", border: "1px solid var(--border)" }}>
                 {(["signin", "register"] as Mode[]).map((m) => (
                   <button key={m} type="button" onClick={() => switchMode(m)} className="rounded-md transition-all" style={{ height: 32, fontSize: 12, fontWeight: 700, letterSpacing: "0.02em", background: mode === m ? "#fff" : "transparent", color: mode === m ? "var(--nuru-navy)" : "var(--muted-foreground)", boxShadow: mode === m ? "0 1px 3px rgba(11,31,51,0.08)" : "none", border: "none" }}>
@@ -97,7 +132,7 @@ export function Login(): ReactElement {
             )}
 
             {/* Success: "Check your inbox" (forgot + sent) */}
-            {formHidden && (
+            {!mfaToken && formHidden && (
               <>
                 <div className="rounded-lg" style={{ background: "#E8F6EE", border: "1px solid #BBE5C9", padding: 14, marginBottom: 14 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#0F6B33", marginBottom: 3 }}>Check your inbox</div>
@@ -112,7 +147,7 @@ export function Login(): ReactElement {
               </>
             )}
 
-            {!formHidden && (
+            {!mfaToken && !formHidden && (
               <>
                 {mode === "register" && (
                   <div style={{ marginBottom: 12 }}>

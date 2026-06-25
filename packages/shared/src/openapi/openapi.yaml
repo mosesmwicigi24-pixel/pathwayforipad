@@ -90,14 +90,32 @@ paths:
                 password: { type: string }
       responses:
         "200":
+          description: A token pair, OR a 2FA challenge when the account has a second factor enabled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResult" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "429": { description: Account temporarily locked after too many failed attempts }
+  /auth/login/mfa:
+    post:
+      tags: [auth]
+      summary: Complete a 2FA login — exchange the challenge token + a TOTP/recovery code for a session.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MfaLoginComplete" }
+      responses:
+        "200":
           description: Access + refresh pair
           content:
             application/json:
               schema: { $ref: "#/components/schemas/TokenPair" }
         "400": { description: Validation failed }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/ForbiddenScope" }
-        "429": { description: Account temporarily locked after too many failed attempts }
   /auth/register:
     post:
       tags: [auth]
@@ -246,10 +264,29 @@ paths:
             schema: { $ref: "#/components/schemas/MfaVerify" }
       responses:
         "200":
-          description: MFA-elevated access token
+          description: MFA-elevated access token (plus one-time recovery codes on first enable)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MfaElevation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /auth/mfa/disable:
+    post:
+      tags: [auth]
+      summary: Turn 2FA off — requires a current TOTP or recovery code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MfaDisable" }
+      responses:
+        "200":
+          description: 2FA disabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mfa_enabled: { type: boolean, enum: [false] }
         "401": { $ref: "#/components/responses/Unauthorized" }
   /me:
     get:
@@ -3196,6 +3233,7 @@ components:
             timezone: { type: string }
             locale: { type: string }
             is_minor: { type: boolean }
+            mfa_enabled: { type: boolean, description: Whether the member has 2FA turned on }
             row_version: { type: integer }
         enrollment:
           type: [object, "null"]
@@ -3256,6 +3294,32 @@ components:
         token_type: { type: string, enum: [Bearer] }
         expires_in: { type: integer }
         mfa_enabled: { type: boolean }
+        recovery_codes:
+          type: array
+          items: { type: string }
+          description: One-time recovery codes, returned ONCE on the call that first enables 2FA.
+    MfaChallenge:
+      type: object
+      required: [mfa_required, mfa_token]
+      description: Returned by /auth/login when the account has 2FA on — exchange via /auth/login/mfa.
+      properties:
+        mfa_required: { type: boolean, enum: [true] }
+        mfa_token: { type: string, description: Short-lived (5-min) challenge token }
+    LoginResult:
+      oneOf:
+        - $ref: "#/components/schemas/TokenPair"
+        - $ref: "#/components/schemas/MfaChallenge"
+    MfaLoginComplete:
+      type: object
+      required: [mfa_token, code]
+      properties:
+        mfa_token: { type: string }
+        code: { type: string, description: A 6–10 digit TOTP code or a recovery code }
+    MfaDisable:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, description: A current TOTP code or a recovery code }
 
     GivingIntentRequest:
       type: object

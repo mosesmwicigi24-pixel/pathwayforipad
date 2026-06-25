@@ -21,7 +21,7 @@ import { useKeyboardInset } from "../components/useKeyboardInset";
 const DEV_EMAIL = "student1@dev.local";
 const DEV_PASSWORD = "pathway123";
 
-type Mode = "login" | "register" | "forgot" | "reset";
+type Mode = "login" | "register" | "forgot" | "reset" | "mfa";
 const INPUT_PLACEHOLDER = "rgba(255,255,255,0.40)";
 const REMEMBER_KEY = "auth:rememberEmail";
 const CONNECT_ERROR = "Can't reach the server. Check your connection and try again.";
@@ -51,6 +51,8 @@ export function LoginScreen(): ReactElement {
   const [confirm, setConfirm] = useState("");
   const [token, setToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [mfaToken, setMfaToken] = useState(""); // short-lived challenge from step one
+  const [mfaCode, setMfaCode] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [remember, setRemember] = useState(true);
 
@@ -79,15 +81,32 @@ export function LoginScreen(): ReactElement {
     if (!email.trim() || !password) { setError("Enter your email and password."); return; }
     setBusy(true); setError(null);
     try {
-      const tokens = await NuruApi.login(email.trim(), password);
+      const res = await NuruApi.login(email.trim(), password);
       // Remember me: keep the email for next launch, or forget it.
       if (remember) await AsyncStorage.setItem(REMEMBER_KEY, email.trim());
       else await AsyncStorage.removeItem(REMEMBER_KEY);
-      await enter(tokens);
+      // 2FA on: the password step yields a challenge — collect the code next.
+      if ("mfa_required" in res) {
+        setMfaToken(res.mfa_token);
+        setMfaCode("");
+        setMode("mfa");
+        return;
+      }
+      await enter(res);
     } catch (e) {
       // A failed connection (no HTTP response) is not a credential problem —
       // surfacing it as one is what made physical-device sign-in baffling.
       setError(networkError(e) ? CONNECT_ERROR : "Invalid email or password.");
+    } finally { setBusy(false); }
+  }
+
+  async function submitMfaLogin(): Promise<void> {
+    if (!mfaCode.trim()) { setError("Enter your 6-digit code."); return; }
+    setBusy(true); setError(null);
+    try {
+      await enter(await NuruApi.loginCompleteMfa(mfaToken, mfaCode.trim()));
+    } catch (e) {
+      setError(networkError(e) ? CONNECT_ERROR : "That code didn't match. Try again or use a recovery code.");
     } finally { setBusy(false); }
   }
 
@@ -150,10 +169,11 @@ export function LoginScreen(): ReactElement {
   const kbInset = useKeyboardInset();
   const androidKbPad = Platform.OS === "android" ? kbInset : 0;
 
-  const heading = mode === "register" ? "Create account" : mode === "forgot" ? "Reset password" : mode === "reset" ? "Set a new password" : null;
+  const heading = mode === "register" ? "Create account" : mode === "forgot" ? "Reset password" : mode === "reset" ? "Set a new password" : mode === "mfa" ? "Two-factor code" : null;
   const subhead = mode === "register" ? "Begin your discipleship journey on Pathway."
     : mode === "forgot" ? "Enter your account email and we'll send you a reset link."
     : mode === "reset" ? "Choose a new password for your account."
+    : mode === "mfa" ? "Enter the 6-digit code from your authenticator app, or a recovery code."
     : null;
 
   return (
@@ -207,6 +227,10 @@ export function LoginScreen(): ReactElement {
           {mode === "reset" ? (
             <Field label="RESET TOKEN" icon={<Lock size={18} color={INPUT_PLACEHOLDER} />}>
               <TextInput value={token} onChangeText={setToken} placeholder="Paste the token from your email" placeholderTextColor={INPUT_PLACEHOLDER} autoCapitalize="none" autoCorrect={false} style={st.input} />
+            </Field>
+          ) : mode === "mfa" ? (
+            <Field label="VERIFICATION CODE" icon={<Lock size={18} color={INPUT_PLACEHOLDER} />}>
+              <TextInput value={mfaCode} onChangeText={setMfaCode} placeholder="123456" placeholderTextColor={INPUT_PLACEHOLDER} keyboardType="number-pad" autoCapitalize="none" autoCorrect={false} autoFocus style={st.input} />
             </Field>
           ) : (
             <Field label="EMAIL ADDRESS" icon={<Mail size={18} color={INPUT_PLACEHOLDER} />}>
@@ -270,6 +294,8 @@ export function LoginScreen(): ReactElement {
             <PButton variant="gold" onPress={() => void submitRegister()} disabled={busy}>{busy ? "Creating…" : "Create account"}</PButton>
           ) : mode === "forgot" ? (
             <PButton variant="gold" onPress={() => void submitForgot()} disabled={busy}>{busy ? "Sending…" : "Send reset link"}</PButton>
+          ) : mode === "mfa" ? (
+            <PButton variant="gold" onPress={() => void submitMfaLogin()} disabled={busy}>{busy ? "Verifying…" : "Verify & sign in"}</PButton>
           ) : (
             <PButton variant="gold" onPress={() => void submitReset()} disabled={busy}>{busy ? "Saving…" : "Reset password"}</PButton>
           )}

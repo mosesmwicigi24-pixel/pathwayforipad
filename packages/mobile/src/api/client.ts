@@ -4,7 +4,7 @@
 // Tokens come from a TokenVault (secure enclave); on 401 we rotate once and retry.
 import axios, { type AxiosInstance } from "axios";
 import type { AxiosError, InternalAxiosRequestConfig } from "axios";
-import type { MeResponse, PendingMutation, SyncPullResponse, SyncPushResponse, TokenPair } from "@nuru/shared";
+import type { LoginResult, MeResponse, MfaElevation, MfaEnroll, PendingMutation, SyncPullResponse, SyncPushResponse, TokenPair } from "@nuru/shared";
 import type { TokenVault } from "../auth/tokenVault";
 import { navigationRef } from "../navigation/navigationRef";
 import { apiBaseUrl } from "../config";
@@ -133,9 +133,30 @@ export const NuruApi = {
     const { data } = await api.post<TokenPair>("/auth/dev-login", { email });
     return data;
   },
-  /** Email + password sign-in. */
-  async login(email: string, password: string): Promise<TokenPair> {
-    const { data } = await api.post<TokenPair>("/auth/login", { email, password });
+  /** Email + password sign-in. Returns a token pair, OR a 2FA challenge when the
+   *  account has a second factor on — complete it via loginCompleteMfa. */
+  async login(email: string, password: string): Promise<LoginResult> {
+    const { data } = await api.post<LoginResult>("/auth/login", { email, password });
+    return data;
+  },
+  /** Second step of a 2FA login: exchange the challenge token + code for a session. */
+  async loginCompleteMfa(mfaToken: string, code: string): Promise<TokenPair> {
+    const { data } = await api.post<TokenPair>("/auth/login/mfa", { mfa_token: mfaToken, code });
+    return data;
+  },
+  /** Begin TOTP enrollment — returns an otpauth:// URI (QR) + the base32 secret. */
+  async mfaEnroll(): Promise<MfaEnroll> {
+    const { data } = await api.post<MfaEnroll>("/auth/mfa/enroll", {});
+    return data;
+  },
+  /** Confirm enrollment with the first code; on first enable returns recovery codes. */
+  async mfaVerify(code: string): Promise<MfaElevation> {
+    const { data } = await api.post<MfaElevation>("/auth/mfa/verify", { code });
+    return data;
+  },
+  /** Turn 2FA off (requires a current TOTP or recovery code). */
+  async mfaDisable(code: string): Promise<{ mfa_enabled: boolean }> {
+    const { data } = await api.post<{ mfa_enabled: boolean }>("/auth/mfa/disable", { code });
     return data;
   },
   /** Self-service sign-up; returns a session (auto sign-in). */
