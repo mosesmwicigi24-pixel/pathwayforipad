@@ -97,8 +97,13 @@ export function installAuth(vault: TokenVault): void {
         const refreshToken = await vault.getRefresh();
         if (refreshToken) {
           try {
-            const pair = await NuruApi.refresh(refreshToken);
-            await vault.setTokens(pair.access_token, pair.refresh_token);
+            // SINGLE-FLIGHT refresh. The Home screen fires ~20 requests at once, so
+            // an expired access token produces a burst of simultaneous 401s. Refresh
+            // tokens are one-time-use + rotated, and reusing a burned token trips the
+            // backend's reuse-detection and revokes the WHOLE family (logging the user
+            // out). So every concurrent 401 must share ONE refresh — the first 401
+            // spends the token, the rest await the same result. (§5.3)
+            const pair = await refreshSession(vault, refreshToken);
             original.headers.Authorization = `Bearer ${pair.access_token}`;
             return api(original);
           } catch (refreshErr) {
@@ -115,6 +120,26 @@ export function installAuth(vault: TokenVault): void {
       return Promise.reject(error);
     },
   );
+}
+
+// A single in-flight refresh shared across all concurrent 401s, so the one-time-use
+// refresh token is spent exactly once per expiry (preventing the reuse-detection
+// logout). The gate resets once the refresh settles so the next genuine expiry can
+// refresh again.
+let refreshInFlight: Promise<TokenPair> | null = null;
+function refreshSession(vault: TokenVault, refreshToken: string): Promise<TokenPair> {
+  if (!refreshInFlight) {
+    refreshInFlight = NuruApi.refresh(refreshToken).then(async (pair) => {
+      await vault.setTokens(pair.access_token, pair.refresh_token);
+      return pair;
+    });
+    // Clear the gate after it settles (either way) without swallowing the result.
+    void refreshInFlight.then(
+      () => { refreshInFlight = null; },
+      () => { refreshInFlight = null; },
+    );
+  }
+  return refreshInFlight;
 }
 
 // Cloudinary signed-upload params from POST /chat/attachments/sign. The upload is a
