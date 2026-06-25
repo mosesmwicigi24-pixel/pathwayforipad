@@ -4,7 +4,7 @@
 import type { Pool, PoolClient } from "pg";
 import { maybeOne, one, tx, recordChange, enqueueOutbox, recordActivityEvent } from "../../db/db.js";
 import { ApiError } from "../../http/errors.js";
-import { loadEnrollment, loadModule, isModuleUnlocked, type EnrollmentRef } from "./gating.js";
+import { loadEnrollment, ensureEnrollment, loadModule, isModuleUnlocked, type EnrollmentRef } from "./gating.js";
 
 export interface CompleteResult {
   progress_id: string;
@@ -43,8 +43,9 @@ export class ProgressService {
         }
       }
 
-      const enrollment = await loadEnrollment(c, userId);
-      if (!enrollment) throw new ApiError("UNPROCESSABLE", "No active enrollment");
+      // Universal entry point: auto-enroll at L1 if the member has no enrollment
+      // yet (self-registered / elevated accounts), so completing a lesson works.
+      const enrollment = await ensureEnrollment(c, userId);
       const module = await loadModule(c, moduleId);
       if (!module) throw new ApiError("NOT_FOUND", "Module not found");
       if (!(await isModuleUnlocked(c, enrollment, module))) {

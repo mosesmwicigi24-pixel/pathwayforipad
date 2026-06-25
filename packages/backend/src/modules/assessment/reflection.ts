@@ -10,7 +10,7 @@ import { many, maybeOne, one, tx, recordChange, audit, enqueueOutbox } from "../
 import { ApiError } from "../../http/errors.js";
 import { assertCellInScope } from "../../http/auth.js";
 import type { Principal } from "../../http/http.js";
-import { loadEnrollment, entryFloorSeq } from "../progress/gating.js";
+import { ensureEnrollment, entryFloorSeq } from "../progress/gating.js";
 
 const MAX_LEVEL = 5;
 
@@ -34,8 +34,7 @@ export class ReflectionService {
    */
   async submit(userId: string, levelNumber: number, text: string): Promise<unknown> {
     return tx(this.pool, async (c) => {
-      const enrollment = await loadEnrollment(c, userId);
-      if (!enrollment) throw new ApiError("UNPROCESSABLE", "No active enrollment");
+      const enrollment = await ensureEnrollment(c, userId);
       if (levelNumber !== enrollment.current_level) {
         throw new ApiError("GATE_LOCKED", "You can only reflect on your current level", {
           current_level: enrollment.current_level,

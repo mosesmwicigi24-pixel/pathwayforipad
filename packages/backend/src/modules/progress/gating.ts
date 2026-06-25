@@ -9,7 +9,7 @@
 // Plus the HARD-LOCK INVARIANT: no content above the member's current_level is
 // ever unlocked, regardless of client claims.
 import type { Queryable } from "../../db/db.js";
-import { maybeOne } from "../../db/db.js";
+import { maybeOne, one } from "../../db/db.js";
 
 export interface EnrollmentRef {
   enrollment_id: string;
@@ -52,6 +52,24 @@ export async function loadEnrollment(c: Queryable, userId: string): Promise<Enro
        FROM enrollments WHERE user_id = $1`,
     [userId],
   );
+}
+
+/**
+ * Universal entry point (§1.1): every member who reaches a lesson is enrolled.
+ * Returns the existing enrollment, or creates a Level 1 · active one on first
+ * interaction — so members who self-registered (or were elevated to staff) without
+ * going through onboarding can still complete lessons instead of hitting
+ * "No active enrollment". Caller runs this inside its transaction.
+ */
+export async function ensureEnrollment(c: Queryable, userId: string): Promise<EnrollmentRef> {
+  const existing = await loadEnrollment(c, userId);
+  if (existing) return existing;
+  await one(
+    c,
+    `INSERT INTO enrollments (user_id, current_level, state) VALUES ($1, 1, 'active') RETURNING enrollment_id`,
+    [userId],
+  );
+  return (await loadEnrollment(c, userId))!;
 }
 
 export async function loadModule(c: Queryable, moduleId: string): Promise<ModuleRow | null> {

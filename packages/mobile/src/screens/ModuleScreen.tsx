@@ -3,7 +3,7 @@
 // (for reflection-gated modules), and a sticky "Mark complete". Completion posts to
 // the server (the authority for gating, §1.1) and then invalidates the pathway and
 // module-list caches so the next module unlocks immediately.
-import { useCallback, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { Pressable, ScrollView, TextInput, View, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 import { Check, ChevronLeft, ChevronRight, Headphones, Pause, PenLine, Play, Video } from "lucide-react-native";
 import { useFocusEffect, useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
@@ -64,7 +64,32 @@ export function ModuleScreen(): ReactElement {
   // the server stays authoritative for actual gating (§1.1).
   const [proof, setProof] = useState({ read: false, listen: false, watch: false });
   const [readPct, setReadPct] = useState(0); // scroll-through progress (Figma gold bar)
+  const [scrolledEnd, setScrolledEnd] = useState(false);
+  const [contentH, setContentH] = useState(0);
+  const [viewH, setViewH] = useState(0);
+  const [dwellSecs, setDwellSecs] = useState(0); // seconds spent on the lesson
   const kbInset = useKeyboardInset();
+  // Content that fits on screen (no scrolling possible) counts as "reached the end".
+  const contentFits = contentH > 0 && viewH > 0 && contentH <= viewH + 24;
+  const reachedEnd = scrolledEnd || contentFits;
+
+  // Read-vs-scroll balance: completing the Read step needs BOTH reaching the end
+  // AND a fair minimum dwell time — so a fast scroll-and-skip can't complete a
+  // lesson. The floor scales with the lesson's estimated minutes (≈35%), clamped
+  // 15–90s so genuine readers aren't blocked and skimmers can't race through.
+  const minDwell = useMemo(() => {
+    const est = module?.estimated_minutes ?? 3;
+    return Math.min(90, Math.max(15, Math.round(est * 60 * 0.35)));
+  }, [module?.estimated_minutes]);
+  // Tick the dwell timer once per second while the lesson is open.
+  useEffect(() => {
+    const id = setInterval(() => setDwellSecs((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const readReady = reachedEnd && dwellSecs >= minDwell;
+  useEffect(() => {
+    if (readReady && !proof.read) setProof((p) => ({ ...p, read: true }));
+  }, [readReady, proof.read]);
   const reflectDone = !needsReflection || (!!myReflection && !showComposer);
   const proofSteps = [
     { key: "read", label: "Read", Icon: Check, done: proof.read },
@@ -77,8 +102,8 @@ export function ModuleScreen(): ReactElement {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     const max = Math.max(1, contentSize.height - layoutMeasurement.height);
     setReadPct(Math.min(1, Math.max(0, contentOffset.y / max)));
-    if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 80 && !proof.read) {
-      setProof((p) => ({ ...p, read: true }));
+    if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 80 && !scrolledEnd) {
+      setScrolledEnd(true);
     }
   }
 
@@ -167,6 +192,8 @@ export function ModuleScreen(): ReactElement {
             showsVerticalScrollIndicator={false}
             onScroll={onScroll}
             scrollEventThrottle={64}
+            onContentSizeChange={(_w, h) => setContentH(h)}
+            onLayout={(e) => setViewH(e.nativeEvent.layout.height)}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
           >
@@ -289,14 +316,24 @@ export function ModuleScreen(): ReactElement {
             ) : null}
           </ScrollView>
 
-          {/* Sticky CTA */}
+          {/* Sticky CTA — gated so the lesson is actually read, not skimmed */}
           <View style={[st.footer, { marginBottom: kbInset }]}>
+            {!readReady ? (
+              <View style={st.readGate}>
+                <View style={st.readGateTrack}>
+                  <View style={{ width: `${Math.round(Math.min(1, readPct * 0.5 + Math.min(dwellSecs / minDwell, 1) * 0.5) * 100)}%`, height: "100%", borderRadius: 3, backgroundColor: palette.gold }} />
+                </View>
+                <T variant="micro" tone="tertiary" style={{ marginTop: 6 }}>
+                  {!reachedEnd ? "Read to the end to continue" : `Take a moment to reflect — ${Math.max(0, minDwell - dwellSecs)}s`}
+                </T>
+              </View>
+            ) : null}
             <PButton
               variant="primary"
-              disabled={!canComplete || complete.isLoading}
+              disabled={!canComplete || !readReady || complete.isLoading}
               onPress={() => void onComplete()}
             >
-              {complete.isLoading ? "Saving…" : "Mark complete & continue"}
+              {complete.isLoading ? "Saving…" : !readReady ? "Keep reading…" : "Mark complete & continue"}
             </PButton>
           </View>
         </>
@@ -309,6 +346,8 @@ const st = {
   header: { backgroundColor: palette.navy, paddingHorizontal: spacing.base, paddingTop: 52, paddingBottom: spacing.base },
   iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center" },
   minutesPill: { backgroundColor: "rgba(255,255,255,0.08)", borderRadius: radii.pill, paddingHorizontal: spacing.md, paddingVertical: 6 },
+  readGate: { marginBottom: spacing.sm, alignItems: "center" },
+  readGateTrack: { width: "100%", height: 5, borderRadius: 3, backgroundColor: palette.track, overflow: "hidden" },
   summary: {
     borderRadius: radii.card,
     borderWidth: 1,
