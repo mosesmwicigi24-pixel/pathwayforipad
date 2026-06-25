@@ -9,6 +9,7 @@ import type { Pool } from "pg";
 import { one, maybeOne } from "../../db/db.js";
 import { ScoresService, type ScoreBreakdown } from "../scores/service.js";
 import type { AiProvider } from "../assistant/provider.js";
+import { pickVerse, THEME_REASON, type VerseTheme } from "./verses.js";
 
 const TZ = "Africa/Nairobi";
 
@@ -42,6 +43,13 @@ interface Ctx {
   any_today: boolean;
 }
 
+export interface TailoredVerse {
+  reference: string;
+  version: string;
+  theme: VerseTheme;
+  reason: string; // a warm "why this verse is for you" line
+}
+
 export class HomeService {
   constructor(
     private readonly pool: Pool,
@@ -65,9 +73,11 @@ export class HomeService {
 
     const u = await maybeOne<{ full_name: string }>(this.pool, `SELECT full_name FROM users WHERE user_id = $1`, [userId]);
     const firstName = (u?.full_name ?? "friend").trim().split(/\s+/)[0] || "friend";
-    const fallback = `Grace and peace, ${firstName} — God is with you in today's step.`;
+    const day = await one<{ d: string }>(this.pool, `SELECT (now() AT TIME ZONE $1)::date::text AS d`, [TZ]);
+    const fallback = fallbackGreeting(firstName, userId, day.d);
 
-    // No live model (dev / tests): a gentle deterministic line, cached for the day.
+    // No live model (dev / tests): a warm line that rotates by member & day so it
+    // still feels personal and fresh, cached for the day.
     if (!this.provider || this.provider.name === "fake") {
       await this.cacheGreeting(userId, fallback);
       return { greeting: fallback };
@@ -76,11 +86,17 @@ export class HomeService {
     try {
       const scores = await this.scores.all(userId);
       const weak = lowestLabel(scores);
+      const streak = await maybeOne<{ n: number }>(
+        this.pool,
+        `SELECT current_streak_days AS n FROM user_streaks WHERE user_id = $1`,
+        [userId],
+      );
       const system =
         "You are Nuru, a warm discipleship companion in a church app. Write ONE short, " +
         "encouraging greeting (max 20 words) for this member today. Be specific and hopeful; " +
         "you may reference Scripture lightly. No preamble, no quotes, no lists, plain sentence.";
-      const ctx = `Member's first name: ${firstName}. Overall growth: ${scores.overall.band}. Area to gently nurture: ${weak}.`;
+      const streakLine = streak && streak.n >= 2 ? ` They are on a ${streak.n}-day rhythm streak.` : "";
+      const ctx = `Member's first name: ${firstName}. Overall growth: ${scores.overall.band}. Area to gently nurture: ${weak}.${streakLine}`;
       const raw = (await this.provider.complete({ system, messages: [{ role: "user", text: ctx }] })).trim();
       const text = raw.replace(/^["']|["']$/g, "").slice(0, 240);
       if (text) {
@@ -100,6 +116,84 @@ export class HomeService {
        ON CONFLICT (user_id, day_date) DO NOTHING`,
       [userId, TZ, text],
     );
+  }
+
+  /**
+   * The member's "Verse for today" — a vetted Scripture *reference* chosen from a
+   * curated, theme-tagged pool to match the discipline they're leaning into (or
+   * the season they're in: brand-new, returning, thriving). Deterministic per EAT
+   * day, cached so it's stable through the day, and it avoids verses the member
+   * has seen in the last few weeks. The client fetches the actual text from
+   * /scripture, so doctrine stays safe — we only personalise *which* verse. (§1.1)
+   */
+  async verseForToday(userId: string): Promise<TailoredVerse> {
+    const cached = await maybeOne<{ reference: string; version: string; theme: string; reason: string }>(
+      this.pool,
+      `SELECT reference, version, theme, reason FROM home_verses
+        WHERE user_id = $1 AND day_date = (now() AT TIME ZONE $2)::date`,
+      [userId, TZ],
+    );
+    if (cached) return { reference: cached.reference, version: cached.version, theme: cached.theme as VerseTheme, reason: cached.reason };
+
+    const day = await one<{ d: string }>(this.pool, `SELECT (now() AT TIME ZONE $1)::date::text AS d`, [TZ]);
+    const theme = await this.verseTheme(userId);
+    const recent = (
+      await this.pool.query<{ reference: string }>(
+        `SELECT reference FROM home_verses WHERE user_id = $1 ORDER BY day_date DESC LIMIT 20`,
+        [userId],
+      )
+    ).rows.map((r) => r.reference);
+
+    const reference = pickVerse(theme, userId, day.d, recent);
+    const reason = THEME_REASON[theme];
+    await this.pool.query(
+      `INSERT INTO home_verses (user_id, day_date, reference, theme, reason, version)
+       VALUES ($1, (now() AT TIME ZONE $2)::date, $3, $4, $5, 'WEB')
+       ON CONFLICT (user_id, day_date) DO NOTHING`,
+      [userId, TZ, reference, theme, reason],
+    );
+    return { reference, version: "WEB", theme, reason };
+  }
+
+  /**
+   * Decide the pastoral THEME for this member right now from their real signals:
+   * a brand-new member gets a foundation; a returning member gets grace; otherwise
+   * we lean into the discipline they most need to grow (their weakest score), and
+   * a member who is thriving everywhere gets an uplifting word.
+   */
+  async verseTheme(userId: string): Promise<VerseTheme> {
+    const scores = await this.scores.all(userId);
+    const sig = await one<{ last_active_date: string | null; ever_active: boolean }>(
+      this.pool,
+      `SELECT (SELECT last_active_date FROM user_streaks WHERE user_id = $1) AS last_active_date,
+              EXISTS (SELECT 1 FROM interaction_events WHERE user_id = $1) AS ever_active`,
+      [userId],
+    );
+    const modulesCompleted = Number((scores.curriculum as ScoreBreakdown).detail.modules_completed ?? 0);
+
+    // Brand-new: nothing done yet — ground them in identity and new life.
+    if (modulesCompleted === 0 && !sig.ever_active) return "foundations";
+
+    // Returning after a real lapse — welcome them back with grace.
+    const lapsed = daysSince(sig.last_active_date);
+    if (lapsed != null && lapsed >= 7) return "return";
+
+    // Otherwise lean into the discipline they most need to grow.
+    const weak = weakestKey(scores);
+    if (weak) {
+      const map: Record<string, VerseTheme> = {
+        prayer: "prayer",
+        word: "word",
+        habits: "habits",
+        curriculum: "growth",
+        attendance: "fellowship",
+      };
+      const theme = map[weak.key];
+      if (theme && weak.score < 80) return theme;
+    }
+
+    // Thriving across the board — a word of blessing over their life.
+    return "uplift";
   }
 
   /** The single most valuable next step for this member right now (or null). */
@@ -275,6 +369,43 @@ function lowestLabel(scores: { [k: string]: unknown }): string {
     if (!best || s < best.score) best = { key, score: s };
   }
   return best ? labels[best.key]! : "daily rhythm";
+}
+
+// Warm fallback greetings (no live model). Rotated per (member, day) so the line
+// feels personal and changes daily instead of one static sentence for everyone.
+const FALLBACK_GREETINGS = [
+  (n: string) => `Grace and peace, ${n} — God is with you in today's step.`,
+  (n: string) => `Good to see you, ${n}. His mercies are new this morning.`,
+  (n: string) => `${n}, may you walk closely with Him today.`,
+  (n: string) => `Welcome back, ${n} — take one faithful step today.`,
+  (n: string) => `${n}, the Lord goes before you today. Be encouraged.`,
+  (n: string) => `Peace to you, ${n}. God is doing a good work in you.`,
+  (n: string) => `${n}, draw near to Him today and He will draw near to you.`,
+];
+
+function hashStr(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+function fallbackGreeting(firstName: string, userId: string, dayKey: string): string {
+  const i = hashStr(`${userId}|${dayKey}`) % FALLBACK_GREETINGS.length;
+  return FALLBACK_GREETINGS[i]!(firstName);
+}
+
+/** The member's lowest of the five disciplines (key + score), or null. */
+function weakestKey(scores: { [k: string]: unknown }): { key: string; score: number } | null {
+  let best: { key: string; score: number } | null = null;
+  for (const key of ["prayer", "word", "habits", "curriculum", "attendance"]) {
+    const s = (scores[key] as { score?: number } | undefined)?.score;
+    if (typeof s !== "number") continue;
+    if (!best || s < best.score) best = { key, score: s };
+  }
+  return best;
 }
 
 function daysSince(date: string | null): number | null {

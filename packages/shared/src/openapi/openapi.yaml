@@ -2589,6 +2589,13 @@ paths:
       responses:
         "200": { description: Greeting }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/home/verse:
+    get:
+      tags: [progress]
+      summary: My tailored "Verse for today" — a vetted reference chosen for where I am spiritually (cached daily).
+      responses:
+        "200": { description: "Tailored verse: { reference, version, theme, reason }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /me/scores:
     get:
       tags: [progress]

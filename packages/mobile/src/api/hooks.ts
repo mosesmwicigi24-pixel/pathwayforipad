@@ -30,6 +30,7 @@ import type {
   GrowthScore,
   ScoresSummary,
   NextAction,
+  TailoredVerse,
   PrayerWallPost,
   PrayerWallDetail,
   NotificationRow,
@@ -102,6 +103,7 @@ export const queryKeys = {
   scores: "scores",
   nextAction: "nextAction",
   greeting: "greeting",
+  homeVerse: "homeVerse",
   prayerWall: (sort: string) => `prayerWall:${sort}`,
   prayerWallHome: "prayerWallHome",
   prayerWallPost: (id: string) => `prayerWallPost:${id}`,
@@ -321,6 +323,11 @@ export function useScores(): QueryResult<ScoresSummary> {
 export function useNextAction(): QueryResult<{ action: NextAction | null }> {
   return useQuery(queryKeys.nextAction, () => NuruApi.nextAction(), { staleMs: 60_000 });
 }
+/** Tailored "Verse for today" — server chooses the reference for this member (cached/day). */
+export function useHomeVerse(): QueryResult<TailoredVerse> {
+  return useQuery(queryKeys.homeVerse, () => NuruApi.homeVerse(), { staleMs: 6 * 60 * 60 * 1000 });
+}
+
 /** Nuru's personal one-line greeting (cached per day server-side). */
 export function useDailyGreeting(): QueryResult<{ greeting: string }> {
   return useQuery(queryKeys.greeting, () => NuruApi.dailyGreeting(), { staleMs: 6 * 60 * 60 * 1000 });

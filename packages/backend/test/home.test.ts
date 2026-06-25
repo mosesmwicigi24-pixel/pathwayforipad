@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { agent, bearer } from "./helpers/app.js";
 import { resetDb, closeTestPool } from "./helpers/db.js";
 import { createCongregation, createCellGroup, createUser, createEnrollment, createModule } from "./helpers/factories.js";
+import { pickVerse, VERSE_POOL } from "../src/modules/home/verses.js";
 
 let cong: string, cell: string, meId: string, meTok: string;
 const auth = (t: string) => ({ Authorization: t });
@@ -71,5 +72,51 @@ describe("GET /me/home/next-action", () => {
     expect(res.status).toBe(200);
     expect(res.body.action.route).toBe("module");
     expect(res.body.action.params.moduleId).toBe(m2);
+  });
+});
+
+describe("GET /me/home/verse — tailored Verse for today", () => {
+  it("returns a vetted reference with a theme + reason, and caches it for the day", async () => {
+    const res = await agent().get("/v1/me/home/verse").set(auth(meTok));
+    expect(res.status).toBe(200);
+    expect(typeof res.body.reference).toBe("string");
+    expect(res.body.reference.length).toBeGreaterThan(0);
+    expect(res.body.version).toBe("WEB");
+    expect(typeof res.body.theme).toBe("string");
+    expect(typeof res.body.reason).toBe("string");
+    // every served reference is from the curated pool (never AI-invented)
+    const all = Object.values(VERSE_POOL).flat();
+    expect(all).toContain(res.body.reference);
+    // stable through the day (cached)
+    const res2 = await agent().get("/v1/me/home/verse").set(auth(meTok));
+    expect(res2.body.reference).toBe(res.body.reference);
+  });
+
+  it("grounds a brand-new member (no activity) in a foundations verse", async () => {
+    // meId has no enrollment and no interaction events → foundations theme
+    const res = await agent().get("/v1/me/home/verse").set(auth(meTok));
+    expect(res.status).toBe(200);
+    expect(res.body.theme).toBe("foundations");
+    expect(VERSE_POOL.foundations).toContain(res.body.reference);
+  });
+});
+
+describe("pickVerse — deterministic, repeat-avoiding picker (unit)", () => {
+  it("is deterministic for the same (theme, user, day)", () => {
+    const a = pickVerse("prayer", "user-1", "2026-06-25");
+    const b = pickVerse("prayer", "user-1", "2026-06-25");
+    expect(a).toBe(b);
+    expect(VERSE_POOL.prayer).toContain(a);
+  });
+
+  it("avoids references the member has seen recently", () => {
+    const recent = VERSE_POOL.word.slice(0, VERSE_POOL.word.length - 1);
+    const picked = pickVerse("word", "user-2", "2026-06-25", recent);
+    expect(picked).toBe(VERSE_POOL.word[VERSE_POOL.word.length - 1]);
+  });
+
+  it("falls back to a deterministic pick when everything is recent", () => {
+    const picked = pickVerse("prayer", "user-3", "2026-06-25", VERSE_POOL.prayer);
+    expect(VERSE_POOL.prayer).toContain(picked);
   });
 });

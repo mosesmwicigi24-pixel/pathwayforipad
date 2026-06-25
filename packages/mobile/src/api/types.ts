@@ -699,6 +699,14 @@ export interface NextAction {
   priority: number;
 }
 
+/** Tailored "Verse for today" — server picks a vetted reference for this member. */
+export interface TailoredVerse {
+  reference: string;
+  version: string;
+  theme: string;
+  reason: string; // a warm "why this verse is for you" line
+}
+
 // Prayer Wall — public, congregation-scoped prayer requests (GET /prayer-wall).
 export interface PrayerReaction {
   emoji: string;

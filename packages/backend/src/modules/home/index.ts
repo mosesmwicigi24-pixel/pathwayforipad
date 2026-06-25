@@ -24,5 +24,11 @@ export function registerHome(ctx: AppContext): Router {
     res.json(await svc.dailyGreeting(requirePrincipal(req).userId));
   }));
 
+  // The member's tailored "Verse for today" — a vetted reference chosen from a
+  // curated, theme-tagged pool to match where they are spiritually (cached/day).
+  r.get("/me/home/verse", auth, handler(async (req, res) => {
+    res.json(await svc.verseForToday(requirePrincipal(req).userId));
+  }));
+
   return r;
 }

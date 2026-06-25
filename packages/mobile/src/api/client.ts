@@ -45,6 +45,7 @@ import type {
   GrowthScore,
   ScoresSummary,
   NextAction,
+  TailoredVerse,
   PrayerWallPost,
   PrayerWallDetail,
   MyReflection,
@@ -628,6 +629,11 @@ export const NuruApi = {
   },
   async dailyGreeting(): Promise<{ greeting: string }> {
     const { data } = await api.get<{ greeting: string }>("/me/home/greeting");
+    return data;
+  },
+  // Tailored "Verse for today" — server chooses the reference for this member.
+  async homeVerse(): Promise<TailoredVerse> {
+    const { data } = await api.get<TailoredVerse>("/me/home/verse");
     return data;
   },
   // ---- Prayer Wall (public, opt-in; GET/POST /prayer-wall) ----

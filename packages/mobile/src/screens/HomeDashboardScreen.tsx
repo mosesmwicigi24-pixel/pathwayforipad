@@ -56,6 +56,7 @@ import {
   useNotifications,
   usePathway,
   useScripture,
+  useHomeVerse,
   useWelcomeVideo,
 } from "../api/hooks";
 import type { ContentReaction, WelcomeVideo, NextAction } from "../api/types";
@@ -142,7 +143,11 @@ export function HomeDashboardScreen(): ReactElement {
   const { data: announcements, refetch: refetchAnnouncements } = useMyAnnouncements();
   const { width: winW } = useWindowDimensions();
   const annSlideW = winW - spacing.screen * 2; // one full-width announcement card per page
-  const { data: verse } = useScripture("Psalm 119:105");
+  // Tailored "Verse for today": the server chooses the reference for this member
+  // (their season / weakest discipline); we fetch the real text for that ref.
+  const { data: tailoredVerse } = useHomeVerse();
+  const verseRef = tailoredVerse?.reference ?? "Psalm 119:105";
+  const { data: verse } = useScripture(verseRef);
   const { data: welcomeVideo, refetch: refetchWelcomeVideo } = useWelcomeVideo();
   const { data: featuredCell, refetch: refetchFeaturedCell } = useFeaturedCell();
   const { data: rhythmServer } = useRhythmToday();
@@ -455,8 +460,16 @@ export function HomeDashboardScreen(): ReactElement {
             {verse?.text ?? "“Your word is a lamp to my feet, and a light for my path.”"}
           </T>
           <T variant="caption" tone="secondary" style={{ marginTop: spacing.sm, fontWeight: "500" }}>
-            {`${verse?.reference ?? "Psalm 119:105"} · ${verse?.version ?? "WEB"}`}
+            {`${verse?.reference ?? verseRef} · ${verse?.version ?? "WEB"}`}
           </T>
+          {tailoredVerse?.reason ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 }}>
+              <Sparkles size={12} color={palette.goldChipText} />
+              <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "600" }}>
+                {`Chosen for you · ${tailoredVerse.reason}`}
+              </T>
+            </View>
+          ) : null}
           <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
             <Pressable onPress={() => nav.navigate("VerseLibrary")} style={st.versePillBtn}>
               <Heart size={13} color={palette.ink600} />
