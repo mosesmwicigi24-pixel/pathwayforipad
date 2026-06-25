@@ -92,8 +92,8 @@ android {
         applicationId "com.nuruplace"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "1.3.0"
+        versionCode 6
+        versionName "1.3.1"
         // Limit packaged native locales to what the app ships (smaller APK/AAB).
         resourceConfigurations += ["en"]
     }
