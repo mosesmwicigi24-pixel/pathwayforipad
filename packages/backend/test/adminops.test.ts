@@ -293,6 +293,18 @@ describe("cells administration", () => {
     expect(row?.focus).toBe("New believers");
   });
 
+  it("provisions a group chat room for the new cell so members have a place to talk", async () => {
+    const res = await agent().post("/v1/admin/cells").set(auth(adminTok)).send({ name: "Riverside Cell" });
+    expect(res.status).toBe(201);
+    const room = await testPool().query(
+      `SELECT title, kind, is_public FROM chat_conversations WHERE cell_group_id = $1 AND kind = 'group'`,
+      [res.body.cell_group_id],
+    );
+    expect(room.rows).toHaveLength(1);
+    expect(room.rows[0].title).toBe("Riverside Cell cell");
+    expect(room.rows[0].is_public).toBe(false);
+  });
+
   it("rejects a duplicate cell name (409) and non-admin callers (403)", async () => {
     await agent().post("/v1/admin/cells").set(auth(adminTok)).send({ name: "Unique Cell" });
     const dup = await agent().post("/v1/admin/cells").set(auth(adminTok)).send({ name: "unique cell" });

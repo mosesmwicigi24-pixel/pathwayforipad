@@ -126,6 +126,18 @@ export class AdminOpsService {
           input.image_url ?? null,
         ],
       );
+      // Provision the cell's group chat room immediately, so members have a
+      // place to talk the moment they're added to the cell (otherwise the room
+      // is created lazily only when someone first opens Chat). Members auto-join
+      // on their first chat open (chat ensureCellGroup). Idempotent via the
+      // partial unique index on (cell_group_id) WHERE kind = 'group'.
+      await c.query(
+        `INSERT INTO chat_conversations (conversation_id, kind, title, cell_group_id, congregation_id, is_public)
+         VALUES (gen_random_uuid(), 'group', $1, $2, $3, FALSE)
+         ON CONFLICT (cell_group_id) WHERE kind = 'group' DO NOTHING`,
+        [`${input.name} cell`, row.cell_group_id, cong.congregation_id],
+      );
+
       await audit(c, adminId, "cell.created", "cell_groups", row.cell_group_id, { name: input.name });
       return one(
         c,
