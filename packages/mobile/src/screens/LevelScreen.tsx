@@ -64,7 +64,7 @@ export function LevelScreen(): ReactElement {
   // Real, CMS-managed trail content. The first "note" with a reference becomes the
   // Word-of-God card; the rest interleave between modules by trail position.
   const encs = encouragements ?? [];
-  const verseEnc = encs.find((e) => e.kind === "note" && (e.scripture_ref || e.body)) ?? null;
+  const verseEnc = encs.find((e) => (e.kind === "note" || e.kind === "verse") && (e.scripture_ref || e.body)) ?? null;
   const trailEncs = encs.filter((e) => e !== verseEnc);
   const preTrail = trailEncs.filter((e) => e.after_module_sequence <= 0);
   const encsAfter = (seq: number): LevelEncouragement[] => trailEncs.filter((e) => e.after_module_sequence === seq);

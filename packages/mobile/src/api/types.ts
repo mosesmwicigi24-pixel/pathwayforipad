@@ -665,7 +665,7 @@ export interface LevelEncouragement {
   encouragement_id: string;
   level_number: number;
   after_module_sequence: number;
-  kind: "splash" | "cheer" | "sticker" | "note";
+  kind: "splash" | "cheer" | "sticker" | "note" | "celebration" | "nudge" | "verse";
   title: string | null;
   body: string | null;
   image_url: string | null;

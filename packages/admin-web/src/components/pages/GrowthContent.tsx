@@ -30,7 +30,7 @@ const TABS: Array<{ key: TabKey; label: string; singular: string; icon: LucideIc
 const VERSIONS = ["WEB", "NIV", "ESV", "KJV", "NLT", "MSG"];
 const PLAN_CATEGORIES = ["Foundations", "Growth", "Prayer", "Devotion", "Topical"];
 const RESOURCE_KINDS = ["book", "audio", "video", "article"];
-const ENCOURAGEMENT_KINDS = ["splash", "cheer", "sticker", "note"];
+const ENCOURAGEMENT_KINDS = ["splash", "note", "celebration", "nudge", "verse"];
 const LEVELS = [1, 2, 3, 4, 5, 6];
 
 const RESOURCE_ICON: Record<string, LucideIcon> = { book: BookOpen, audio: Music, video: VideoIcon, article: FileText };
@@ -437,11 +437,13 @@ function EditModal({ tab, level, row, meta, onClose, onDone, onError }: {
         if (num(draft.sort) != null) body.sort = num(draft.sort);
         if (editing) await GrowthAdminApi.updateResource(id, body); else await GrowthAdminApi.createResource(body);
       } else if (tab === "encouragements") {
+        const lvl = num(draft.level_number) ?? level;
         const body: Row = { kind: trimmed(draft.kind) ?? "splash", is_active: !!draft.is_active };
         if (num(draft.after_module_sequence) != null) body.after_module_sequence = num(draft.after_module_sequence);
         if (num(draft.sort_order) != null) body.sort_order = num(draft.sort_order);
         for (const k of ["title", "body", "scripture_ref", "emoji", "image_url"]) { const t = trimmed(draft[k]); if (t) body[k] = t; }
-        if (editing) await EncouragementsAdminApi.update(id, body); else await EncouragementsAdminApi.create(level, body);
+        if (editing) { body.level_number = lvl; await EncouragementsAdminApi.update(id, body); }
+        else await EncouragementsAdminApi.create(lvl, body);
       } else {
         const body: Row = { code: trimmed(draft.code), title: trimmed(draft.title), is_active: !!draft.is_active };
         for (const k of ["category", "subtitle", "description", "image_url"]) { const t = trimmed(draft[k]); if (t) body[k] = t; }
@@ -502,7 +504,7 @@ function blankFor(tab: TabKey, level: number): Row {
     case "verses": return { reference: "", version: "WEB", verse_text: "", week_number: "", release_date: "", sort: "", is_active: true };
     case "plans": return { code: "", category: "Foundations", title: "", subtitle: "", description: "", image_url: "", sort: "", is_active: true };
     case "resources": return { title: "", author: "", kind: "book", duration_label: "", url: "", sort: "", is_active: true };
-    default: return { after_module_sequence: 1, kind: "splash", title: "", body: "", scripture_ref: "", emoji: "", image_url: "", sort_order: 1, is_active: true, level };
+    default: return { after_module_sequence: 1, kind: "splash", title: "", body: "", scripture_ref: "", emoji: "", image_url: "", sort_order: 1, is_active: true, level_number: level };
   }
 }
 
@@ -560,14 +562,15 @@ function ResourceForm({ r, set }: { r: Row; set: (k: string, v: unknown) => void
 function EncouragementForm({ e, set }: { e: Row; set: (k: string, v: unknown) => void }): ReactElement {
   return (
     <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(2, minmax(0,1fr))" }}>
+      <Field label="Level"><SelectInput value={String(e.level_number ?? 1)} onChange={(v) => set("level_number", v)} options={LEVELS.map(String)} /></Field>
       <Field label="After module #"><TextInput value={String(e.after_module_sequence ?? "")} onChange={(v) => set("after_module_sequence", v)} placeholder="1" /></Field>
       <Field label="Kind" required><SelectInput value={String(e.kind ?? "splash")} onChange={(v) => set("kind", v)} options={ENCOURAGEMENT_KINDS} /></Field>
       <Field label="Emoji(s)"><TextInput value={String(e.emoji ?? "")} onChange={(v) => set("emoji", v)} placeholder="🎉🙌" /></Field>
-      <Field label="Sort order"><TextInput value={String(e.sort_order ?? "")} onChange={(v) => set("sort_order", v)} /></Field>
       <Field label="Title" full><TextInput value={String(e.title ?? "")} onChange={(v) => set("title", v)} placeholder="You've begun the journey!" /></Field>
       <Field label="Body" full><TextArea value={String(e.body ?? "")} onChange={(v) => set("body", v)} rows={4} /></Field>
       <Field label="Scripture ref (for note)"><TextInput value={String(e.scripture_ref ?? "")} onChange={(v) => set("scripture_ref", v)} placeholder="Philippians 1:6" /></Field>
-      <Field label="Image URL (splash)"><TextInput value={String(e.image_url ?? "")} onChange={(v) => set("image_url", v)} mono placeholder="https://" /></Field>
+      <Field label="Sort order"><TextInput value={String(e.sort_order ?? "")} onChange={(v) => set("sort_order", v)} /></Field>
+      <Field label="Image URL (splash)" full><TextInput value={String(e.image_url ?? "")} onChange={(v) => set("image_url", v)} mono placeholder="https://" /></Field>
       <div style={{ gridColumn: "1 / -1", marginTop: 2 }}><Toggle on={!!e.is_active} onToggle={() => set("is_active", !e.is_active)} label="Active" /></div>
     </div>
   );

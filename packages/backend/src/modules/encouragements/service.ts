@@ -14,8 +14,12 @@ export class EncouragementsService {
 
   static readonly Input = z
     .object({
+      level_number: z.coerce.number().int().min(1).max(6).optional(), // editable level (move between levels)
       after_module_sequence: z.coerce.number().int().min(0).optional(),
-      kind: z.enum(["splash", "cheer", "sticker", "note"]).optional(),
+      // Presentation hint (Content Studio make). Superset: legacy splash/cheer/
+      // sticker/note + celebration/nudge/verse. The mobile renders splash + note
+      // specially and any other kind as a standard card.
+      kind: z.enum(["splash", "cheer", "sticker", "note", "celebration", "nudge", "verse"]).optional(),
       title: z.string().max(200).optional(),
       body: z.string().max(2000).optional(),
       image_url: z.string().max(512).optional(),
@@ -68,7 +72,7 @@ export class EncouragementsService {
 
   async update(adminId: string, id: string, input: Record<string, unknown>): Promise<unknown> {
     return tx(this.pool, async (c) => {
-      const cols = ["after_module_sequence", "kind", "title", "body", "image_url", "scripture_ref", "emoji", "is_active", "sort_order"];
+      const cols = ["level_number", "after_module_sequence", "kind", "title", "body", "image_url", "scripture_ref", "emoji", "is_active", "sort_order"];
       const sets: string[] = [];
       const params: unknown[] = [];
       for (const col of cols) {
