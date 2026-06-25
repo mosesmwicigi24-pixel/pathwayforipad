@@ -235,8 +235,8 @@ function PermissionsDrawer({ role, onClose, onSaved, onError }: { role: SystemRo
           </div>
           {locked && <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5" style={{ background: "rgba(245,199,126,0.14)", color: "#F5C77E", fontSize: 11.5, fontWeight: 600 }}><Lock size={12} /> Super Admin always has full access and cannot be restricted.</div>}
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          <table className="w-full border-collapse">
+        <div className="flex-1 overflow-auto px-5 py-4">
+          <table className="w-full border-collapse" style={{ minWidth: 520 }}>
             <thead><tr>
               <th style={{ textAlign: "left", padding: "6px 8px", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--muted-foreground)" }}>Module</th>
               {CAPABILITIES.map((c) => <th key={c.key} style={{ padding: "6px 4px", width: 72 }}><button onClick={() => toggleColumn(c.key)} disabled={locked} style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, color: "var(--nuru-navy)", cursor: locked ? "default" : "pointer", background: "none", border: "none" }}>{c.label}</button></th>)}

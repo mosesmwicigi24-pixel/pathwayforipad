@@ -230,9 +230,9 @@ export function LevelDetail(): ReactElement {
         </div>
       </div>
 
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      <div className="r-split" style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* LEFT — tree */}
-        <div style={{ width: 272, flexShrink: 0, background: "var(--card)", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div className="r-split-rail" style={{ width: 272, flexShrink: 0, background: "var(--card)", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
             <p style={{ fontSize: 11, color: "var(--muted-foreground)", fontWeight: 600 }}>{levels.length} levels · {allModulesCount} loaded</p>
           </div>

@@ -405,7 +405,7 @@ export function CmsCurriculum(): ReactElement {
 
       {/* Detail drawer */}
       {selected ? (
-        <div className="flex flex-col overflow-hidden" style={{ width: 380, background: "var(--card)", borderLeft: "1px solid var(--border)", flexShrink: 0 }}>
+        <div className="flex flex-col overflow-hidden w-full md:w-[380px]" style={{ background: "var(--card)", borderLeft: "1px solid var(--border)", flexShrink: 0 }}>
           <div style={{ borderBottom: "1px solid var(--border)", padding: "20px 24px" }}>
             <div className="flex items-center justify-between mb-3"><span className="nuru-eyebrow" style={{ color: selected.color }}>Level {selected.number} · {selected.status}</span><MoreHorizontal size={14} style={{ color: "var(--muted-foreground)" }} /></div>
             <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--nuru-navy)", lineHeight: 1.15, letterSpacing: "-0.01em" }}>{selected.title}</h2>

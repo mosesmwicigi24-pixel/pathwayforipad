@@ -213,3 +213,54 @@
   .no-scrollbar { scrollbar-width: none; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
 }
+
+/* ════════════ Responsive safety nets — phones → tablets/iPads → laptops ════════════
+   The shell (sidebar → mobile drawer, collapsible) is handled in Layout.tsx. These
+   top-level rules (unlayered → they win over Tailwind utilities and inline styles)
+   make page CONTENT adapt: media never overflows, fixed multi-column grids collapse,
+   full-page split layouts stack, and tables scroll instead of blowing out the page. */
+
+img, svg, video, canvas { max-width: 100%; }
+
+/* Base (un-prefixed) Tailwind grids collapse on small screens; md:/lg: variants
+   keep their own breakpoints and are untouched. */
+@media (max-width: 768px) {
+  .grid-cols-3, .grid-cols-4, .grid-cols-5, .grid-cols-6 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 520px) {
+  .grid-cols-2, .grid-cols-3, .grid-cols-4, .grid-cols-5, .grid-cols-6 { grid-template-columns: 1fr !important; }
+}
+
+/* Inline CSS-grid layouts (style="grid-template-columns: …") collapse too. Only
+   fixed track counts / 2-ups — auto-fill/auto-fit minmax grids are already fluid. */
+@media (max-width: 640px) {
+  [style*="grid-template-columns: repeat(2"],
+  [style*="grid-template-columns: repeat(3"],
+  [style*="grid-template-columns: 1fr 1fr"],
+  [style*="grid-template-columns: 1.4fr"],
+  [style*="grid-template-columns: 1.3fr"],
+  [style*="grid-template-columns: 1.2fr"],
+  [style*="grid-template-columns: 200px 1fr"],
+  [style*="grid-template-columns: 1fr 360px"],
+  [style*="grid-template-columns: minmax(360px"],
+  [style*="grid-template-columns: 1.3fr 0.7fr"],
+  [style*="grid-template-columns: 1fr 1fr 110px"],
+  [style*="grid-template-columns: 80px 1fr 120px"],
+  [style*="1fr) 300px"] { grid-template-columns: 1fr !important; }
+  [style*="grid-template-columns: repeat(4"],
+  [style*="grid-template-columns: repeat(5"] { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 460px) {
+  [style*="grid-template-columns: repeat(4"],
+  [style*="grid-template-columns: repeat(5"] { grid-template-columns: 1fr !important; }
+}
+
+/* Full-page split layouts (content + a fixed side rail) stack on tablet/phone; the
+   rail goes full-width with a capped height so it never dominates the screen. */
+@media (max-width: 900px) {
+  .r-split { flex-direction: column !important; }
+  .r-split-rail { width: 100% !important; flex-shrink: 1 !important; max-height: 42vh; border-right: none !important; border-left: none !important; border-bottom: 1px solid var(--border); }
+}
+
+/* Tables stay inside the viewport — scroll horizontally instead of overflowing. */
+.r-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }

@@ -1133,8 +1133,8 @@ function TxDrawer({
 
       <div style={{ marginTop: 22 }}>
         <div style={{ fontFamily: DISPLAY, fontSize: 16, color: NAVY, marginBottom: 10 }}>Ledger postings</div>
-        <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, overflow: "hidden" }}>
-          <table className="w-full" style={{ borderCollapse: "collapse" }}>
+        <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, overflow: "hidden", overflowX: "auto" }}>
+          <table className="w-full" style={{ borderCollapse: "collapse", minWidth: 560 }}>
             <thead>
               <tr style={{ background: "var(--secondary)" }}>
                 {["Account", "Side", "Amount"].map((h) => (
