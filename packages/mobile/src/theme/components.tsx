@@ -192,6 +192,10 @@ export function T({
   return (
     <Text
       numberOfLines={numberOfLines}
+      // The app already scales type itself (rf() by screen + the in-app Small/
+      // Default/Large control), so cap OS font scaling to avoid double-inflation
+      // breaking layouts under One UI "Large/Huge" fonts (e.g. Galaxy S24 Ultra).
+      maxFontSizeMultiplier={1.15}
       // scaled + serifLine + fontFamily LAST so they win over anything in `style`.
       style={[typ[variant], { color: toneColor[tone] }, style, scaled, serifLine, { fontFamily: face }]}
     >

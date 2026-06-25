@@ -28,6 +28,7 @@ import { apiBaseUrl } from "../config";
 import type { Achievements, CertificateRow } from "../api/types";
 import { clearQueryCache, invalidateQueries, errorMessage } from "../api/query";
 import { resetAnnouncementAlerts } from "../notifications/announcementAlerts";
+import { requestNotifPermission, ensureChannels, scheduleDailyReminder, cancelDailyReminder, openNotificationSettings } from "../notifications/localNotify";
 import { getVault } from "../auth/vault";
 
 const CREAM = "#F6F4EE";
@@ -394,9 +395,22 @@ export function ProfileScreen(): ReactElement {
           </Section>
 
           <Section title="NOTIFICATIONS" Icon={Bell}>
-            <PreferenceRow Icon={Bell} title="Push notifications" meta="Devotionals, events, reminders" on={pushOn} onToggle={() => setPushOn(!pushOn)} />
+            <PreferenceRow Icon={Bell} title="Push notifications" meta="Devotionals, events, reminders" on={pushOn} onToggle={() => {
+              const next = !pushOn;
+              setPushOn(next);
+              void (async () => {
+                if (next) {
+                  await requestNotifPermission();
+                  await ensureChannels();
+                  await scheduleDailyReminder(7, 0);
+                } else {
+                  await cancelDailyReminder();
+                }
+              })();
+            }} />
             <PreferenceRow divider Icon={Mail} title="Email" meta="Weekly summary & receipts" on={emailOn} onToggle={() => setEmailOn(!emailOn)} />
             <PreferenceRow divider Icon={Phone} title="SMS" meta="Critical updates only" on={smsOn} onToggle={() => setSmsOn(!smsOn)} />
+            <ActionRow divider Icon={Bell} tint="#FEF3C7" color="#B45309" title="Notification settings" meta="Manage sounds & toggles in phone settings" onPress={() => void openNotificationSettings()} />
           </Section>
 
           <Section title="ACHIEVEMENTS" Icon={Sparkles}>

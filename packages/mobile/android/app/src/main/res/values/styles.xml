@@ -1,9 +1,33 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Base application theme. -->
+    <!-- Base application theme. Tuned for modern large-screen devices (e.g. Galaxy
+         S24 Ultra / One UI on Android 14+): true edge-to-edge, draw into the
+         punch-hole cutout, transparent system bars, and a branded launch colour so
+         there's no white flash before React Native renders. -->
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+
+        <!-- Branded launch background — navy so the light status-bar icons stay
+             visible and it flows straight into the app's navy headers (no white
+             flash on the S24's bright/large display). -->
+        <item name="android:windowBackground">@color/nuru_navy</item>
+
+        <!-- Edge-to-edge: the app draws behind the system bars (insets handled in JS
+             via react-native-safe-area-context). Transparent bars so the navy header
+             and the navy tab bar bleed under the status + gesture-nav bars. -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- Light (white) status-bar icons over the navy header. -->
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+
+        <!-- Fill the display cutout so the navy header extends to the very top around
+             the punch-hole instead of letterboxing. API 27+. -->
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="o_mr1">shortEdges</item>
+
+        <!-- True transparent bars (no system-added scrim/contrast). API 29+. -->
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
     </style>
 
 </resources>

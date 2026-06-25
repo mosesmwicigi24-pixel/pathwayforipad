@@ -26,6 +26,8 @@ import { getConnectivity, setConnectivity } from "./net/connectivity";
 import { NetInfoConnectivity, onReconnect } from "./net/netInfoConnectivity";
 import { startSyncLifecycle } from "./sync/syncLifecycle";
 import { startAnnouncementAlerts } from "./notifications/announcementAlerts";
+import { startNotificationAlerts } from "./notifications/notificationAlerts";
+import { ensureChannels, requestNotifPermission, initNotificationTaps, scheduleDailyReminder } from "./notifications/localNotify";
 import { AnnouncementToast } from "./components/AnnouncementToast";
 import { palette } from "./theme/tokens";
 
@@ -65,9 +67,19 @@ export function App(): ReactElement {
     let cancelled = false;
     let stopSync = (): void => {};
     let stopReconnect = (): void => {};
-    // Announcement alerts: poll the feed while the app is alive and chime + buzz +
-    // banner on anything new (no APNs needed under the current signing).
+    // Local OS notifications (Notifee): create the Android channels, ask permission,
+    // schedule the daily verse reminder, and route taps. Then poll the announcement
+    // + notification feeds while the app is alive and raise REAL phone notifications
+    // (tray + vibrate + sound, toggleable in phone settings) on anything new. No
+    // Firebase/APNs needed for any of this under the current signing.
+    void (async () => {
+      await ensureChannels();
+      await requestNotifPermission();
+      await scheduleDailyReminder(7, 0);
+    })();
+    const stopTaps = initNotificationTaps();
     const stopAlerts = startAnnouncementAlerts(AppState);
+    const stopNotifAlerts = startNotificationAlerts(AppState);
 
     // Encryption-at-rest (§5.7): seal the offline store under an AES-256 key in the
     // keychain. The cipher loads async, so the store + sync are wired only once it's
@@ -98,6 +110,8 @@ export function App(): ReactElement {
       stopSync();
       stopReconnect();
       stopAlerts();
+      stopNotifAlerts();
+      stopTaps();
     };
   }, []);
 

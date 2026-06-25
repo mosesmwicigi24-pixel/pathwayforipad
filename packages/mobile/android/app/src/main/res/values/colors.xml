@@ -1,0 +1,5 @@
+<resources>
+    <!-- Brand colours used by the launch theme (match theme/tokens.ts). -->
+    <color name="nuru_navy">#0B1F33</color>
+    <color name="nuru_paper">#F6F4EE</color>
+</resources>

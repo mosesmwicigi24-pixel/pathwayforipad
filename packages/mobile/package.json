@@ -21,6 +21,7 @@
     "android:clean": "cd android && ./gradlew clean"
   },
   "dependencies": {
+    "@notifee/react-native": "^9.1.8",
     "@nuru/shared": "workspace:*",
     "@react-native-async-storage/async-storage": "^3.1.1",
     "@react-native-community/netinfo": "^12.0.1",

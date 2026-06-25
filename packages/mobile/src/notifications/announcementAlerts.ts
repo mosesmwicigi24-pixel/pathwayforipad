@@ -5,12 +5,11 @@
 // ids, and for each genuinely new one fire a sound + vibration + an in-app heads-up
 // banner. No new native dependency — vibration is RN core, the chime plays through
 // the audio module the app already ships (react-native-audio-recorder-player).
-import { Vibration, Image, type AppStateStatic } from "react-native";
+import { type AppStateStatic } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import AudioRecorderPlayer from "react-native-audio-recorder-player";
 import { NuruApi } from "../api/client";
 import type { MyAnnouncement } from "../api/types";
-import notifyChime from "../assets/notify.wav";
+import { displayLocal } from "./localNotify";
 
 const SEEN_KEY = "ann:seenIds:v1";
 const MAX_SEEN = 300; // keep the persisted set bounded
@@ -48,28 +47,6 @@ async function saveSeen(): Promise<void> {
   }
 }
 
-// Singleton player (v4 exports a ready instance, no `new`). Best-effort: any
-// failure (asset missing, audio session busy) is swallowed so the vibration +
-// banner still fire.
-const player = AudioRecorderPlayer;
-function playChime(): void {
-  try {
-    const src = Image.resolveAssetSource(notifyChime);
-    if (src?.uri) void player.startPlayer(src.uri).catch(() => undefined);
-  } catch {
-    /* no sound — vibration + banner still alert */
-  }
-}
-
-function buzz(): void {
-  try {
-    // pattern: wait, buzz, pause, buzz (ms). iOS ignores the durations and gives
-    // a fixed double-tap, which is exactly the "you have a notification" feel.
-    Vibration.vibrate([0, 400, 160, 400]);
-  } catch {
-    /* device without a vibrator */
-  }
-}
 
 /**
  * Pull the announcement feed and alert on anything new. The first successful pull
@@ -98,10 +75,18 @@ export async function checkAnnouncementsForAlerts(): Promise<void> {
   fresh.forEach((a) => seen.add(a.announcement_id));
   await saveSeen();
 
-  // One sound + buzz for the batch; a banner per new announcement (cap the burst).
-  buzz();
-  playChime();
-  fresh.slice(0, 3).forEach((a) => listeners.forEach((fn) => fn(a)));
+  // A real OS notification per new announcement (tray + vibrate + sound, toggleable
+  // in phone settings) PLUS the in-app heads-up banner when the app is open. The OS
+  // notification supplies the buzz/chime, so we no longer fire the raw RN vibration.
+  fresh.slice(0, 3).forEach((a) => {
+    void displayLocal({
+      title: a.title || "New announcement",
+      ...(a.body ? { body: a.body } : {}),
+      channel: "general",
+      data: { template: "announcement", announcement_id: a.announcement_id, ...(a.title ? { title: a.title } : {}) },
+    });
+    listeners.forEach((fn) => fn(a));
+  });
 }
 
 /**
