@@ -773,18 +773,34 @@ function TwoFASheet({ onClose, onEnable }: { onClose: () => void; onEnable: () =
 }
 
 function AppLanguageSheet({ value, onClose, onSave }: { value: string; onClose: () => void; onSave: (v: string) => void }): ReactElement {
-  const [picked, setPicked] = useState(value);
-  const options = [{ name: "English", note: "Available", disabled: false }, { name: "Swahili", note: "Available", disabled: false }, { name: "French", note: "Coming soon", disabled: true }];
+  // Only English ships today; Swahili & French are previewed as "Coming soon"
+  // and aren't selectable (disabled pressable + a clear pill).
+  const [picked, setPicked] = useState(value === "English" ? value : "English");
+  const options = [
+    { name: "English", note: "Available", disabled: false },
+    { name: "Swahili", note: "Translation in progress", disabled: true },
+    { name: "French", note: "Translation in progress", disabled: true },
+  ];
   return (
     <SheetShell title="App language" onClose={onClose}>
       <View style={{ gap: spacing.sm }}>
         {options.map((o) => (
-          <Pressable key={o.name} disabled={o.disabled} onPress={() => setPicked(o.name)} style={[st.selectOpt, picked === o.name && st.selectOptOn, o.disabled && { opacity: 0.5 }]}>
-            <View>
+          <Pressable
+            key={o.name}
+            disabled={o.disabled}
+            accessibilityState={{ disabled: o.disabled, selected: picked === o.name }}
+            onPress={() => !o.disabled && setPicked(o.name)}
+            style={[st.selectOpt, picked === o.name && st.selectOptOn, o.disabled && { opacity: 0.55 }]}
+          >
+            <View style={{ flex: 1 }}>
               <T variant="body" style={{ color: palette.navy }}>{o.name}</T>
               <T variant="micro" tone="secondary">{o.note}</T>
             </View>
-            {picked === o.name ? <Check size={16} color={palette.gold} strokeWidth={3} /> : null}
+            {o.disabled ? (
+              <View style={st.soonPill}><T variant="micro" style={{ color: GOLD_TEXT, fontWeight: "700", letterSpacing: 0.4 }}>Coming soon</T></View>
+            ) : picked === o.name ? (
+              <Check size={16} color={palette.gold} strokeWidth={3} />
+            ) : null}
           </Pressable>
         ))}
       </View>
@@ -915,6 +931,7 @@ const st = {
   sizeOpt: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 52, backgroundColor: SURFACE, borderWidth: 1, borderColor: palette.border, borderRadius: 14 },
   sizeOptOn: { backgroundColor: palette.goldChipBg, borderColor: palette.gold },
   selectOptOn: { backgroundColor: "rgba(201,162,39,0.10)", borderColor: palette.gold },
+  soonPill: { backgroundColor: "rgba(201,162,39,0.12)", borderWidth: 1, borderColor: "rgba(201,162,39,0.4)", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: palette.border, backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
   defaultPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "rgba(201,162,39,0.4)" },
   goldBtn: { backgroundColor: palette.gold, borderRadius: 16, paddingVertical: 14, alignItems: "center" },
