@@ -5,7 +5,7 @@
 // verse for today (WEB default per D-M4), encouragement, and announcements —
 // real data wherever the API serves it; spec demo content elsewhere.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { Modal, Pressable, RefreshControl, ScrollView, StatusBar, View, useWindowDimensions, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StatusBar, View, useWindowDimensions, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import {
   BadgeCheck,
   Bell,
@@ -65,6 +65,7 @@ import { errorMessage, invalidateQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
 import { FeaturedVideoProvider, FeaturedVideoInline, FeaturedVideoOverlay } from "../components/FeaturedVideo";
 import { ShareToChatSheet } from "../components/ShareToChatSheet";
+import { uuidv4 } from "../util/uuid";
 import { DisciplerCarousel } from "../components/DisciplerCarousel";
 import { PrayerWallCarousel } from "../components/PrayerWallCarousel";
 import { FitImage } from "../components/FitImage";
@@ -116,9 +117,6 @@ function welcomeVideoUrl(v: WelcomeVideo): string | null {
 
 // "Grow your faith" quick-access grid → the growth screens (D5/B9). Matches the
 // Figma HomeTab tools row (6 tiles + discipler).
-// Bible translations offered by the "Verse for today" version picker.
-const VERSE_VERSIONS = ["WEB", "NIV", "ESV", "KJV", "NLT", "MSG"] as const;
-
 const GROW: Array<{ label: string; sub: string; route: "Devotional" | "ReadingPlans" | "PrayerJournal" | "PrayerWall" | "MemoryVerses" | "Gifts" | "Resources"; Icon: LucideIcon; tint: string; fg: string }> = [
   { label: "Devotional", sub: "Today's devotional", route: "Devotional", Icon: Sun, tint: "#FFF4DA", fg: palette.goldLo },
   { label: "Reading plan", sub: "Continue your plan", route: "ReadingPlans", Icon: BookMarked, tint: "#EEF2FF", fg: "#6366F1" },
@@ -147,24 +145,18 @@ export function HomeDashboardScreen(): ReactElement {
   const { width: winW } = useWindowDimensions();
   const annSlideW = winW - spacing.screen * 2; // one full-width announcement card per page
   // "Verse for today": the dated daily-verse plan supplies the verse text + its
-  // real translation (NIV/ESV/KJV/NLT) directly; otherwise the server picks a
-  // reference and we fetch its text. The version pill is a live picker — tap it to
-  // read the same verse in another translation.
+  // real translation (NIV/ESV/KJV/NLT) straight from the database; otherwise the
+  // server picks a reference and we fetch its text. The version label just shows
+  // that translation — it is not interactive, and neither the verse nor the
+  // reference is tappable.
   const { data: tailoredVerse } = useHomeVerse();
   const verseRef = tailoredVerse?.reference ?? "Psalm 119:105";
-  const defaultVersion = tailoredVerse?.version ?? "WEB";
-  const [pickedVersion, setPickedVersion] = useState<string | null>(null);
-  const [versionMenuOpen, setVersionMenuOpen] = useState(false);
-  const activeVersion = pickedVersion ?? defaultVersion;
-  const { data: scriptureVerse } = useScripture(verseRef, activeVersion);
-  // Default → the verse's own text + version (the plan holds it). If the member
-  // picks a different translation, show that one fetched live from /scripture.
-  const verse =
-    pickedVersion && pickedVersion !== defaultVersion
-      ? scriptureVerse
-      : tailoredVerse?.text
-        ? { text: tailoredVerse.text, reference: tailoredVerse.reference, version: tailoredVerse.version }
-        : scriptureVerse;
+  const { data: scriptureVerse } = useScripture(verseRef);
+  const verse = tailoredVerse?.text
+    ? { text: tailoredVerse.text, reference: tailoredVerse.reference, version: tailoredVerse.version }
+    : scriptureVerse;
+  const [verseShareOpen, setVerseShareOpen] = useState(false);
+  const [verseSaved, setVerseSaved] = useState(false);
   const { data: welcomeVideo, refetch: refetchWelcomeVideo } = useWelcomeVideo();
   const { data: featuredCell, refetch: refetchFeaturedCell } = useFeaturedCell();
   const { data: rhythmServer } = useRhythmToday();
@@ -469,9 +461,9 @@ export function HomeDashboardScreen(): ReactElement {
               VERSE FOR TODAY
             </T>
             <View style={{ flex: 1 }} />
-            <Pressable onPress={() => setVersionMenuOpen(true)} style={st.versionPill} accessibilityRole="button" accessibilityLabel="Choose Bible translation">
-              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>{verse?.version ?? activeVersion} ▾</T>
-            </Pressable>
+            <View style={st.versionPill}>
+              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>{verse?.version ?? "WEB"}</T>
+            </View>
           </View>
           <T serif style={{ fontSize: 18, lineHeight: 27, color: palette.ink, marginTop: spacing.md }}>
             {verse?.text ?? "“Your word is a lamp to my feet, and a light for my path.”"}
@@ -488,39 +480,38 @@ export function HomeDashboardScreen(): ReactElement {
             </View>
           ) : null}
           <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
-            <Pressable onPress={() => nav.navigate("VerseLibrary")} style={st.versePillBtn}>
-              <Heart size={13} color={palette.ink600} />
-              <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>Save</T>
+            <Pressable
+              onPress={() => {
+                if (verseSaved || !verse?.reference) return;
+                setVerseSaved(true); // optimistic — the verse is now in the library
+                void NuruApi.saveVerse({
+                  saved_verse_id: uuidv4(),
+                  reference: verse.reference,
+                  ...(verse.version ? { version: verse.version } : {}),
+                  ...(verse.text ? { verse_text: verse.text } : {}),
+                  client_mutation_id: uuidv4(),
+                }).catch(() => setVerseSaved(false));
+              }}
+              style={st.versePillBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Save verse to your library"
+            >
+              <Heart size={13} color={verseSaved ? palette.gold : palette.ink600} fill={verseSaved ? palette.gold : "none"} />
+              <T variant="micro" style={{ fontWeight: "600", color: verseSaved ? palette.gold : palette.ink600 }}>{verseSaved ? "Saved" : "Save"}</T>
             </Pressable>
-            <View style={st.versePillBtn}>
+            <Pressable onPress={() => setVerseShareOpen(true)} style={st.versePillBtn} accessibilityRole="button" accessibilityLabel="Share verse to a chat">
               <Share2 size={13} color={palette.ink600} />
               <T variant="micro" style={{ fontWeight: "600", color: palette.ink600 }}>Share</T>
-            </View>
+            </Pressable>
           </View>
         </View>
 
-        {/* Bible-version picker for the verse card. */}
-        <Modal visible={versionMenuOpen} transparent animationType="fade" onRequestClose={() => setVersionMenuOpen(false)}>
-          <Pressable style={{ flex: 1, backgroundColor: "rgba(11,31,51,0.45)", justifyContent: "flex-end" }} onPress={() => setVersionMenuOpen(false)}>
-            <Pressable style={{ backgroundColor: palette.white, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingTop: spacing.base, paddingBottom: spacing.xl, paddingHorizontal: spacing.screen }} onPress={() => undefined}>
-              <T variant="heading" style={{ fontSize: 16, marginBottom: spacing.sm }}>Bible translation</T>
-              <T variant="caption" tone="secondary" style={{ marginBottom: spacing.base }}>Read today's verse in another version.</T>
-              {VERSE_VERSIONS.map((v) => {
-                const on = (verse?.version ?? activeVersion) === v;
-                return (
-                  <Pressable
-                    key={v}
-                    onPress={() => { setPickedVersion(v); setVersionMenuOpen(false); }}
-                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: palette.border }}
-                  >
-                    <T variant="body" style={{ fontWeight: on ? "700" : "500", color: on ? palette.navy : palette.ink }}>{v}{v === defaultVersion ? "  ·  default" : ""}</T>
-                    {on ? <Check size={18} color={palette.gold} /> : null}
-                  </Pressable>
-                );
-              })}
-            </Pressable>
-          </Pressable>
-        </Modal>
+        {verseShareOpen && verse?.text ? (
+          <ShareToChatSheet
+            text={`"${verse.text}"\n— ${verse.reference ?? verseRef}${verse.version ? ` (${verse.version})` : ""}`}
+            onClose={() => setVerseShareOpen(false)}
+          />
+        ) : null}
 
         {/* ── Prayer Wall (public requests, auto-advancing) ──────────── */}
         {wallPosts && wallPosts.length > 0 ? (

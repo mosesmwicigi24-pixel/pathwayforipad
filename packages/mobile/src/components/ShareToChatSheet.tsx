@@ -19,10 +19,12 @@ import type { ChatConversation, ChatPerson } from "../api/types";
 export function ShareToChatSheet({
   videoUrl,
   caption,
+  text,
   onClose,
 }: {
-  videoUrl: string;
+  videoUrl?: string; // share a video attachment …
   caption?: string | null;
+  text?: string; // … or plain text (e.g. the verse of the day)
   onClose: () => void;
 }): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -58,14 +60,22 @@ export function ShareToChatSheet({
 
   async function post(conversationId: string, title?: string | null): Promise<void> {
     if (!(await getConnectivity().isOnline())) { setErr("You're offline — sharing needs a connection."); return; }
-    await NuruApi.sendChatMessage(conversationId, {
-      message_id: uuidv4(),
-      body: caption?.trim() || "📺 Shared a video",
-      msg_type: "video",
-      attachment_url: videoUrl,
-      attachment_meta: { kind: "welcome_video" },
-      client_mutation_id: uuidv4(),
-    });
+    const message = videoUrl
+      ? {
+          message_id: uuidv4(),
+          body: caption?.trim() || "📺 Shared a video",
+          msg_type: "video" as const,
+          attachment_url: videoUrl,
+          attachment_meta: { kind: "welcome_video" },
+          client_mutation_id: uuidv4(),
+        }
+      : {
+          message_id: uuidv4(),
+          body: (text ?? caption ?? "").trim() || "Shared a verse",
+          msg_type: "text" as const,
+          client_mutation_id: uuidv4(),
+        };
+    await NuruApi.sendChatMessage(conversationId, message);
     refreshQueries(queryKeys.chatInbox);
     refreshQueries(queryKeys.chatConvo(conversationId));
     onClose();
