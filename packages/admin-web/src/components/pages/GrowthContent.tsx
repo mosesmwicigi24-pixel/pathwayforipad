@@ -7,21 +7,22 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import {
   ChevronRight, ChevronDown, Plus, Pencil, Trash2, X, Search, Check,
-  BookOpen, Quote, CalendarRange, Library, Sparkles, Heart,
+  BookOpen, Quote, CalendarRange, CalendarDays, Library, Sparkles, Heart,
   FileText, Music, Video as VideoIcon, Link2, Clock, type LucideIcon,
 } from "lucide-react";
 import {
   GrowthAdminApi, EncouragementsAdminApi,
-  type DevotionalRow, type VerseRow, type PlanRow, type PlanDayRow, type PlanSegmentRow, type ResourceAdminRow, type EncouragementRow,
+  type DevotionalRow, type VerseRow, type DailyVerseRow, type PlanRow, type PlanDayRow, type PlanSegmentRow, type ResourceAdminRow, type EncouragementRow,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
-type TabKey = "devotionals" | "verses" | "plans" | "resources" | "encouragements";
+type TabKey = "devotionals" | "verses" | "dailyverses" | "plans" | "resources" | "encouragements";
 type Row = Record<string, unknown>;
 
 const TABS: Array<{ key: TabKey; label: string; singular: string; icon: LucideIcon; accent: string }> = [
   { key: "devotionals", label: "Devotionals", singular: "devotional", icon: BookOpen, accent: "#0B84E8" },
   { key: "verses", label: "Memory Verses", singular: "memory verse", icon: Quote, accent: "#7C3AED" },
+  { key: "dailyverses", label: "Daily Verses", singular: "daily verse", icon: CalendarDays, accent: "#0EA5A0" },
   { key: "plans", label: "Reading Plans", singular: "reading plan", icon: CalendarRange, accent: "#16A34A" },
   { key: "resources", label: "Resources", singular: "resource", icon: Library, accent: "#C89B3C" },
   { key: "encouragements", label: "Encouragements", singular: "encouragement", icon: Sparkles, accent: "#DB2777" },
@@ -35,7 +36,7 @@ const LEVELS = [1, 2, 3, 4, 5, 6];
 
 const RESOURCE_ICON: Record<string, LucideIcon> = { book: BookOpen, audio: Music, video: VideoIcon, article: FileText };
 const ID_KEY: Record<TabKey, string> = {
-  devotionals: "devotional_id", verses: "memory_verse_id", plans: "plan_id", resources: "resource_id", encouragements: "encouragement_id",
+  devotionals: "devotional_id", verses: "memory_verse_id", dailyverses: "day_index", plans: "plan_id", resources: "resource_id", encouragements: "encouragement_id",
 };
 
 /* ═════════════════════════ Page ═════════════════════════ */
@@ -43,7 +44,7 @@ export function GrowthContent(): ReactElement {
   const [tab, setTab] = useState<TabKey>("devotionals");
   const [level, setLevel] = useState(1);
   const [query, setQuery] = useState("");
-  const [lists, setLists] = useState<Record<TabKey, Row[]>>({ devotionals: [], verses: [], plans: [], resources: [], encouragements: [] });
+  const [lists, setLists] = useState<Record<TabKey, Row[]>>({ devotionals: [], verses: [], dailyverses: [], plans: [], resources: [], encouragements: [] });
   const [editing, setEditing] = useState<{ row: Row | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -51,6 +52,7 @@ export function GrowthContent(): ReactElement {
   const fetchTab = useCallback(async (t: TabKey, lvl: number): Promise<Row[]> => {
     if (t === "devotionals") return (await GrowthAdminApi.devotionals()) as unknown as Row[];
     if (t === "verses") return (await GrowthAdminApi.verses()) as unknown as Row[];
+    if (t === "dailyverses") return (await GrowthAdminApi.dailyVerses()) as unknown as Row[];
     if (t === "plans") return (await GrowthAdminApi.plans()) as unknown as Row[];
     if (t === "resources") return (await GrowthAdminApi.resources()) as unknown as Row[];
     return (await EncouragementsAdminApi.list(lvl)) as unknown as Row[];
@@ -59,11 +61,11 @@ export function GrowthContent(): ReactElement {
   const loadAll = useCallback(async () => {
     setError(null);
     try {
-      const [d, v, p, r, e] = await Promise.all([
-        fetchTab("devotionals", level), fetchTab("verses", level), fetchTab("plans", level),
+      const [d, v, dv, p, r, e] = await Promise.all([
+        fetchTab("devotionals", level), fetchTab("verses", level), fetchTab("dailyverses", level), fetchTab("plans", level),
         fetchTab("resources", level), fetchTab("encouragements", level),
       ]);
-      setLists({ devotionals: d, verses: v, plans: p, resources: r, encouragements: e });
+      setLists({ devotionals: d, verses: v, dailyverses: dv, plans: p, resources: r, encouragements: e });
     } catch (err) { setError(errorMessage(err, "Could not load content.")); }
   }, [fetchTab, level]);
 
@@ -77,7 +79,7 @@ export function GrowthContent(): ReactElement {
   useEffect(() => { void loadAll(); }, [loadAll]);
 
   const counts = useMemo(() => ({
-    devotionals: lists.devotionals.length, verses: lists.verses.length, plans: lists.plans.length,
+    devotionals: lists.devotionals.length, verses: lists.verses.length, dailyverses: lists.dailyverses.length, plans: lists.plans.length,
     resources: lists.resources.length, encouragements: lists.encouragements.length,
   }), [lists]);
 
@@ -89,12 +91,14 @@ export function GrowthContent(): ReactElement {
     const rows = lists[tab];
     if (tab === "devotionals") return (rows as unknown as DevotionalRow[]).filter((d) => m(`${d.title} ${d.series ?? ""} ${d.scripture_ref ?? ""}`));
     if (tab === "verses") return (rows as unknown as VerseRow[]).filter((v) => m(`${v.reference} ${v.verse_text}`));
+    if (tab === "dailyverses") return (rows as unknown as DailyVerseRow[]).filter((d) => m(`${d.reference} ${d.theme} ${d.verse_text} ${d.day_date} day ${d.day_index}`));
     if (tab === "plans") return (rows as unknown as PlanRow[]).filter((p) => m(`${p.title} ${p.subtitle ?? ""} ${p.code} ${p.category ?? ""}`));
     if (tab === "resources") return (rows as unknown as ResourceAdminRow[]).filter((r) => m(`${r.title} ${r.author ?? ""} ${r.kind}`));
     return (rows as unknown as EncouragementRow[]).filter((e) => m(`${e.title ?? ""} ${e.body ?? ""} ${e.kind}`));
   }, [tab, query, lists]);
 
   async function remove(r: Row): Promise<void> {
+    if (tab === "dailyverses") return; // the year plan is fixed — verses are edited, not deleted
     const id = String(r[ID_KEY[tab]]);
     if (!window.confirm("Delete this item? This cannot be undone.")) return;
     try {
@@ -124,9 +128,11 @@ export function GrowthContent(): ReactElement {
                 </select>
               </div>
             )}
-            <button onClick={() => setEditing({ row: null })} className="flex items-center gap-2 rounded-lg px-3.5" style={{ height: 34, background: "var(--nuru-gold)", color: "#fff", fontSize: 12.5, fontWeight: 700, border: "none", boxShadow: "0 6px 18px rgba(200,155,60,0.32)" }}>
-              <Plus size={14} /> New {meta.singular}
-            </button>
+            {tab !== "dailyverses" && (
+              <button onClick={() => setEditing({ row: null })} className="flex items-center gap-2 rounded-lg px-3.5" style={{ height: 34, background: "var(--nuru-gold)", color: "#fff", fontSize: 12.5, fontWeight: 700, border: "none", boxShadow: "0 6px 18px rgba(200,155,60,0.32)" }}>
+                <Plus size={14} /> New {meta.singular}
+              </button>
+            )}
           </div>
         </div>
 
@@ -174,6 +180,7 @@ export function GrowthContent(): ReactElement {
           <div className="flex flex-col gap-3">
             {tab === "devotionals" && (filtered as unknown as DevotionalRow[]).map((d) => <DevotionalCard key={d.devotional_id} d={d} onEdit={() => setEditing({ row: d as unknown as Row })} onDelete={() => void remove(d as unknown as Row)} />)}
             {tab === "verses" && (filtered as unknown as VerseRow[]).map((v) => <VerseCard key={v.memory_verse_id} v={v} onEdit={() => setEditing({ row: v as unknown as Row })} onDelete={() => void remove(v as unknown as Row)} />)}
+            {tab === "dailyverses" && (filtered as unknown as DailyVerseRow[]).map((d) => <DailyVerseCard key={d.day_index} d={d} onEdit={() => setEditing({ row: d as unknown as Row })} />)}
             {tab === "plans" && (filtered as unknown as PlanRow[]).map((p) => <PlanCard key={p.plan_id} p={p} onEdit={() => setEditing({ row: p as unknown as Row })} onDelete={() => void remove(p as unknown as Row)} />)}
             {tab === "resources" && (filtered as unknown as ResourceAdminRow[]).map((r) => <ResourceCard key={r.resource_id} r={r} onEdit={() => setEditing({ row: r as unknown as Row })} onDelete={() => void remove(r as unknown as Row)} />)}
             {tab === "encouragements" && (filtered as unknown as EncouragementRow[]).map((e) => <EncouragementCard key={e.encouragement_id} e={e} onEdit={() => setEditing({ row: e as unknown as Row })} onDelete={() => void remove(e as unknown as Row)} />)}
@@ -193,7 +200,7 @@ export function GrowthContent(): ReactElement {
 }
 
 /* ═════════════════════════ Cards ═════════════════════════ */
-function RowShell({ accent, children, onEdit, onDelete }: { accent: string; children: ReactNode; onEdit: () => void; onDelete: () => void }): ReactElement {
+function RowShell({ accent, children, onEdit, onDelete }: { accent: string; children: ReactNode; onEdit: () => void; onDelete?: (() => void) | undefined }): ReactElement {
   return (
     <div className="flex items-stretch rounded-2xl overflow-hidden transition-shadow hover:shadow-md" style={{ background: "#fff", border: "1px solid var(--border)" }}>
       <div style={{ width: 4, background: accent, flexShrink: 0 }} />
@@ -201,10 +208,33 @@ function RowShell({ accent, children, onEdit, onDelete }: { accent: string; chil
         <div className="flex-1 min-w-0">{children}</div>
         <div className="flex items-center gap-1.5 shrink-0">
           <button onClick={onEdit} title="Edit" className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, border: "1px solid var(--border)", color: "var(--nuru-navy)", background: "none" }}><Pencil size={14} /></button>
-          <button onClick={onDelete} title="Delete" className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, border: "1px solid var(--border)", color: "#DC2626", background: "none" }}><Trash2 size={14} /></button>
+          {onDelete ? <button onClick={onDelete} title="Delete" className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, border: "1px solid var(--border)", color: "#DC2626", background: "none" }}><Trash2 size={14} /></button> : null}
         </div>
       </div>
     </div>
+  );
+}
+
+function DailyVerseCard({ d, onEdit }: { d: DailyVerseRow; onEdit: () => void }): ReactElement {
+  const dateLabel = new Date(d.day_date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  return (
+    <RowShell accent="#0EA5A0" onEdit={onEdit}>
+      <div className="flex items-start gap-3.5">
+        <div className="flex flex-col items-center justify-center rounded-xl shrink-0" style={{ width: 44, height: 44, background: "rgba(14,165,160,0.1)", color: "#0E7C77" }}>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", lineHeight: 1 }}>DAY</span>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 16, lineHeight: 1 }}>{d.day_index}</span>
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)" }}>{d.reference}</span>
+            <Pill bg="rgba(14,165,160,0.1)" color="#0E7C77">{d.version}</Pill>
+            {d.theme ? <Pill bg="var(--secondary)" color="var(--muted-foreground)">{d.theme}</Pill> : null}
+            <Pill bg="var(--secondary)" color="var(--muted-foreground)"><CalendarDays size={10} /> {dateLabel}</Pill>
+          </div>
+          {d.verse_text && <p style={{ fontFamily: "var(--font-display)", fontSize: 14.5, color: "var(--nuru-navy)", marginTop: 6, lineHeight: 1.45, fontStyle: "italic" }}>“{d.verse_text}”</p>}
+        </div>
+      </div>
+    </RowShell>
   );
 }
 
@@ -408,6 +438,7 @@ function EditModal({ tab, level, row, meta, onClose, onDone, onError }: {
     switch (tab) {
       case "devotionals": return !!trimmed(draft.title) && !!trimmed(draft.body) && !!num(draft.day_number);
       case "verses": return !!trimmed(draft.reference) && !!trimmed(draft.verse_text);
+      case "dailyverses": return !!trimmed(draft.reference) && !!trimmed(draft.verse_text) && !!trimmed(draft.version);
       case "plans": return !!trimmed(draft.code) && !!trimmed(draft.title);
       case "resources": return !!trimmed(draft.title);
       default: return true;
@@ -431,6 +462,10 @@ function EditModal({ tab, level, row, meta, onClose, onDone, onError }: {
         { const rd = trimmed(draft.release_date); if (rd) body.release_date = rd; }
         if (num(draft.sort) != null) body.sort = num(draft.sort);
         if (editing) await GrowthAdminApi.updateVerse(id, body); else await GrowthAdminApi.createVerse(body);
+      } else if (tab === "dailyverses") {
+        const body: Row = {};
+        for (const k of ["theme", "reference", "version", "verse_text", "day_date"]) { const t = trimmed(draft[k]); if (t) body[k] = t; }
+        await GrowthAdminApi.updateDailyVerse(Number(draft.day_index), body);
       } else if (tab === "resources") {
         const body: Row = { title: trimmed(draft.title), kind: trimmed(draft.kind) ?? "book", is_active: !!draft.is_active };
         for (const k of ["author", "duration_label", "url"]) { const t = trimmed(draft[k]); if (t) body[k] = t; }
@@ -482,6 +517,7 @@ function EditModal({ tab, level, row, meta, onClose, onDone, onError }: {
         <div className="overflow-y-auto" style={{ padding: "20px 24px" }}>
           {tab === "devotionals" && <DevotionalForm d={draft} set={set} />}
           {tab === "verses" && <VerseForm v={draft} set={set} />}
+          {tab === "dailyverses" && <DailyVerseForm d={draft} set={set} />}
           {tab === "plans" && <PlanForm p={draft} set={set} days={days} setDays={setDays} />}
           {tab === "resources" && <ResourceForm r={draft} set={set} />}
           {tab === "encouragements" && <EncouragementForm e={draft} set={set} />}
@@ -541,6 +577,24 @@ function VerseForm({ v, set }: { v: Row; set: (k: string, x: unknown) => void })
       </Field>
       <Field label="Sort"><TextInput value={String(v.sort ?? "")} onChange={(x) => set("sort", x)} placeholder="1" /></Field>
       <div className="flex items-end pb-1"><Toggle on={!!v.is_active} onToggle={() => set("is_active", !v.is_active)} label="Active" /></div>
+    </div>
+  );
+}
+
+function DailyVerseForm({ d, set }: { d: Row; set: (k: string, x: unknown) => void }): ReactElement {
+  const dayLabel = d.day_date ? new Date(String(d.day_date)).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "";
+  return (
+    <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(2, minmax(0,1fr))" }}>
+      <Field label="Day" full>
+        <div className="flex items-center gap-2 rounded-lg" style={{ padding: "9px 12px", background: "var(--secondary)", border: "1px solid var(--border)" }}>
+          <span className="inline-flex items-center justify-center rounded-md" style={{ width: 26, height: 26, background: "rgba(14,165,160,0.12)", color: "#0E7C77", fontWeight: 800, fontSize: 12 }}>{String(d.day_index ?? "")}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--nuru-navy)" }}>Day {String(d.day_index ?? "")}{dayLabel ? ` · ${dayLabel}` : ""}</span>
+        </div>
+      </Field>
+      <Field label="Theme"><TextInput value={String(d.theme ?? "")} onChange={(x) => set("theme", x)} placeholder="JOY & HAPPINESS" /></Field>
+      <Field label="Version" required><SelectInput value={String(d.version ?? "WEB")} onChange={(x) => set("version", x)} options={VERSIONS} /></Field>
+      <Field label="Reference" required full><TextInput value={String(d.reference ?? "")} onChange={(x) => set("reference", x)} placeholder="Nehemiah 8:10" /></Field>
+      <Field label="Verse text" required full><TextArea value={String(d.verse_text ?? "")} onChange={(x) => set("verse_text", x)} rows={4} placeholder="Do not grieve, for the joy of the LORD is your strength." /></Field>
     </div>
   );
 }

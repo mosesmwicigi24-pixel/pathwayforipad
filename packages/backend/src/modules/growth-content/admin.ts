@@ -261,6 +261,31 @@ export class AdminGrowthService {
       return { deleted: (r.rowCount ?? 0) > 0 };
     });
   }
+
+  // ── Daily verses (the "A Year of Verses" 365-day plan; drives Verse for today) ──
+  static readonly DailyVerse = z
+    .object({
+      day_date: z.string().max(10).optional(), // YYYY-MM-DD
+      theme: z.string().min(1).max(120).optional(),
+      reference: z.string().min(1).max(120).optional(),
+      version: z.string().min(1).max(24).optional(),
+      verse_text: z.string().min(1).optional(),
+    })
+    .strict();
+
+  listDailyVerses(): Promise<unknown[]> {
+    return many(this.pool, `SELECT day_index, day_date, theme, reference, version, verse_text FROM daily_verses ORDER BY day_index`);
+  }
+  async updateDailyVerse(adminId: string, dayIndex: number, input: Record<string, unknown>): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const { sql, params } = setClause(input, ["day_date", "theme", "reference", "version", "verse_text"]);
+      if (sql) await c.query(`UPDATE daily_verses SET ${sql} WHERE day_index = $${params.length + 1}`, [...params, dayIndex]);
+      const row = await maybeOne(c, `SELECT day_index, day_date, theme, reference, version, verse_text FROM daily_verses WHERE day_index = $1`, [dayIndex]);
+      if (!row) throw new ApiError("NOT_FOUND", "Daily verse not found");
+      await audit(c, adminId, "growth.daily_verse_updated", "daily_verses", String(dayIndex), {});
+      return row;
+    });
+  }
 }
 
 /** Build a partial `col = $n` SET clause from the provided keys only. */

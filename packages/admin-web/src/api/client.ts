@@ -575,6 +575,14 @@ export interface VerseRow {
   sort: number;
   is_active: boolean;
 }
+export interface DailyVerseRow {
+  day_index: number;
+  day_date: string; // YYYY-MM-DD
+  theme: string;
+  reference: string;
+  version: string;
+  verse_text: string;
+}
 export interface PlanRow {
   plan_id: string;
   code: string;
@@ -653,6 +661,10 @@ export const GrowthAdminApi = {
   createResource: (b: Record<string, unknown>) => api.post(`${G}/resources`, b).then((r) => r.data),
   updateResource: (id: string, b: Record<string, unknown>) => api.put(`${G}/resources/${id}`, b).then((r) => r.data),
   deleteResource: (id: string) => api.delete(`${G}/resources/${id}`).then((r) => r.data),
+
+  // Daily verses — the 365-day "A Year of Verses" plan (edit-only; fixed schedule).
+  dailyVerses: () => unwrap(api.get<{ data: DailyVerseRow[] }>(`${G}/daily-verses`)),
+  updateDailyVerse: (dayIndex: number, b: Record<string, unknown>) => api.put(`${G}/daily-verses/${dayIndex}`, b).then((r) => r.data),
 };
 
 // Pathway trail encouragements (level-scoped). Admin CRUD over the new

@@ -101,5 +101,13 @@ export function registerGrowthContent(ctx: AppContext): Router {
   r.put("/admin/growth/resources/:id", ...adminOnly, handler(async (req, res) => res.json(await adminSvc.updateResource(requirePrincipal(req).userId, idOf(req), parseBody(AdminGrowthService.Resource.partial(), req.body)))));
   r.delete("/admin/growth/resources/:id", ...adminOnly, handler(async (req, res) => res.json(await adminSvc.deleteResource(requirePrincipal(req).userId, idOf(req)))));
 
+  // Daily verses — the 365-day "A Year of Verses" plan (Content Studio › Daily Verses).
+  const DayIndexParam = z.object({ d: z.coerce.number().int().min(1).max(366) });
+  r.get("/admin/growth/daily-verses", ...adminOnly, handler(async (_req, res) => res.json({ data: await adminSvc.listDailyVerses() })));
+  r.put("/admin/growth/daily-verses/:d", ...adminOnly, handler(async (req, res) => {
+    const { d } = parseBody(DayIndexParam, req.params);
+    res.json(await adminSvc.updateDailyVerse(requirePrincipal(req).userId, d, parseBody(AdminGrowthService.DailyVerse, req.body)));
+  }));
+
   return r;
 }

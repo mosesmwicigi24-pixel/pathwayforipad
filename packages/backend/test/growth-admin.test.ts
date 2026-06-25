@@ -93,4 +93,18 @@ describe("growth-content admin authoring (Admin+)", () => {
     const res = (await member().resources()) as { data: Array<{ title: string; kind: string }> };
     expect(res.data.find((r) => r.title === "Knowing God")?.kind).toBe("book");
   });
+
+  it("lists and edits the daily-verse plan (Content Studio › Daily Verses)", async () => {
+    await testPool().query(
+      `INSERT INTO daily_verses (day_index, day_date, theme, reference, version, verse_text)
+       VALUES (1, '2026-06-25', 'JOY', 'Nehemiah 8:10', 'NIV', 'The joy of the LORD is your strength.')
+       ON CONFLICT (day_index) DO NOTHING`,
+    );
+    const list = (await admin().listDailyVerses()) as Array<{ day_index: number; reference: string }>;
+    expect(list.find((d) => d.day_index === 1)?.reference).toBe("Nehemiah 8:10");
+
+    const updated = (await admin().updateDailyVerse(adminId, 1, { reference: "Psalm 16:11", version: "ESV", verse_text: "In your presence there is fullness of joy." })) as { reference: string; version: string };
+    expect(updated.reference).toBe("Psalm 16:11");
+    expect(updated.version).toBe("ESV");
+  });
 });

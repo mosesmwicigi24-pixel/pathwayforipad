@@ -2725,6 +2725,17 @@ paths:
       summary: Admin. Delete a resource. Audited.
       parameters: [{ $ref: "#/components/parameters/IdPath" }]
       responses: { "200": { description: Deleted }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+  /admin/growth/daily-verses:
+    get:
+      tags: [portal]
+      summary: Admin. List the 365-day "A Year of Verses" plan (Content Studio › Daily Verses).
+      responses: { "200": { description: Daily verses }, "403": { $ref: "#/components/responses/ForbiddenScope" } }
+  /admin/growth/daily-verses/{d}:
+    put:
+      tags: [portal]
+      summary: Admin. Update a day's verse (theme/reference/version/text/date). Audited.
+      parameters: [{ name: d, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Updated }, "403": { $ref: "#/components/responses/ForbiddenScope" }, "404": { $ref: "#/components/responses/NotFound" } }
 
   # --- Pathway trail encouragements (level-scoped motivational content) ---
   /levels/{n}/encouragements:
