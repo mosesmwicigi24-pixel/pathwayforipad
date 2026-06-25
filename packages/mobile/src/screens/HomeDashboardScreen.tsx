@@ -63,7 +63,7 @@ import type { ContentReaction, WelcomeVideo, NextAction } from "../api/types";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
-import { VideoPlayer } from "../components/VideoPlayer";
+import { FeaturedVideoProvider, FeaturedVideoInline, FeaturedVideoOverlay } from "../components/FeaturedVideo";
 import { ShareToChatSheet } from "../components/ShareToChatSheet";
 import { DisciplerCarousel } from "../components/DisciplerCarousel";
 import { PrayerWallCarousel } from "../components/PrayerWallCarousel";
@@ -303,7 +303,7 @@ export function HomeDashboardScreen(): ReactElement {
     nav.navigate("AnnouncementDetail", { announcementId: id, ...(title ? { title } : {}) });
   };
 
-  return (
+  const scroll = (
     <ScrollView
       style={st.screen}
       contentContainerStyle={{ paddingBottom: tabBarSpace }}
@@ -392,8 +392,8 @@ export function HomeDashboardScreen(): ReactElement {
               <View style={{ flex: 1 }} />
               <T variant="micro" tone="tertiary" style={{ letterSpacing: 1.2 }}>FEATURED</T>
             </View>
-            {/* Inline playback (react-native-video); poster = thumbnail when set. */}
-            <VideoPlayer uri={welcomeUrl} poster={welcomeVideo.thumbnail_url ?? null} height={200} radius={16} />
+            {/* Inline playback; minimizes to a floating mini-player on scroll-away. */}
+            <FeaturedVideoInline />
             <T variant="heading" style={{ marginTop: spacing.md, fontSize: 17 }}>Welcome to the Pathway</T>
             {welcomeVideo.caption ? (
               <T variant="caption" tone="secondary" style={{ marginTop: 2 }}>{welcomeVideo.caption}</T>
@@ -991,6 +991,25 @@ export function HomeDashboardScreen(): ReactElement {
       </View>
     </ScrollView>
   );
+
+  // The welcome video can minimize into a screen-fixed floating mini-player as
+  // the user scrolls past it. That overlay must be a sibling of the ScrollView
+  // (not a child), and shares play-state with the inline slot via the provider.
+  if (welcomeVideo && welcomeUrl) {
+    return (
+      <FeaturedVideoProvider
+        uri={welcomeUrl}
+        poster={welcomeVideo.thumbnail_url ?? null}
+        title="Welcome to the Pathway"
+      >
+        <View style={st.screen}>
+          {scroll}
+          <FeaturedVideoOverlay />
+        </View>
+      </FeaturedVideoProvider>
+    );
+  }
+  return scroll;
 }
 
 // Upcoming — Figma month-grid + per-day events, over the real calendar.
