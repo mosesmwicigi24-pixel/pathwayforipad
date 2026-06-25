@@ -304,7 +304,7 @@ function SpacesTab({
     <>
       <SectionLabel icon="#" text="YOUR SPACES" />
       {spaces.length === 0 ? (
-        <EmptyHint text="No spaces yet — discover one below to join the conversation." />
+        <EmptyHint text="No spaces yet — follow one below to join the conversation." />
       ) : (
         <View style={st.group}>
           {spaces.map((c, i) => (
@@ -360,13 +360,13 @@ function SpacesTab({
                   <T variant="caption" tone="tertiary" style={{ fontWeight: "600" }}>{spaceStatus(s.category)}</T>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`Join ${s.title ?? "space"}`}
+                    accessibilityLabel={`Follow and join ${s.title ?? "space"}`}
                     disabled={joiningId === s.conversation_id}
                     onPress={() => onJoin(s)}
                     style={({ pressed }) => [st.joinBtn, pressed && { transform: [{ scale: 0.96 }] }]}
                   >
                     <Plus size={16} color="#fff" />
-                    <T variant="label" style={{ color: "#fff" }}>{joiningId === s.conversation_id ? "Joining…" : "Join"}</T>
+                    <T variant="label" style={{ color: "#fff" }}>{joiningId === s.conversation_id ? "Following…" : "Follow"}</T>
                   </Pressable>
                 </View>
               </View>

@@ -192,6 +192,26 @@ describe("public spaces", () => {
     expect(head.body.category).toBe("youth");
     expect(head.body.member_count).toBeGreaterThanOrEqual(1);
   });
+
+  it("a not-yet-onboarded member (no congregation) discovers a public space, follows it, and adopts the congregation", async () => {
+    await agent().post("/v1/chat/spaces").set(auth(leaderTok))
+      .send({ conversation_id: uuid(13), title: "Welcome Space", topic: "Start here" });
+
+    // A fresh self-signup with no congregation yet.
+    const orphan = await createUser({ congregationId: cong, email: "newbie@dev.local", fullName: "New Bie" });
+    await testPool().query("UPDATE users SET congregation_id = NULL WHERE user_id = $1", [orphan.user_id]);
+    const orphanTok = bearer({ sub: orphan.user_id, role: "Student", cong: "" });
+
+    // They still see the public space to follow.
+    const discover = await agent().get("/v1/chat/conversations").set(auth(orphanTok));
+    expect((discover.body.discover_spaces as Array<{ conversation_id: string }>).some((s) => s.conversation_id === uuid(13))).toBe(true);
+
+    // Following (joining) it adopts the space's congregation as their home.
+    const joined = await agent().post(`/v1/chat/spaces/${uuid(13)}/join`).set(auth(orphanTok)).send({});
+    expect(joined.body.joined).toBe(true);
+    const row = await testPool().query("SELECT congregation_id FROM users WHERE user_id = $1", [orphan.user_id]);
+    expect(row.rows[0].congregation_id).toBe(cong);
+  });
 });
 
 describe("moderation (Admin/SuperAdmin)", () => {

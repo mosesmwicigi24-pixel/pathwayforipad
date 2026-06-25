@@ -190,7 +190,9 @@ export class ChatService {
       await c.query(`INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [conversationId, userId]);
       return convo;
     }
-    if (convo.kind === "space" && convo.is_public && me.congregation_id && me.congregation_id === convo.congregation_id) {
+    // A public space is readable by members of its congregation — and by a
+    // not-yet-onboarded member (no congregation), who adopts it when they join.
+    if (convo.kind === "space" && convo.is_public && (me.congregation_id == null || me.congregation_id === convo.congregation_id)) {
       return convo; // readable, not yet joined
     }
     throw new ApiError("NOT_FOUND", "Conversation not found"); // no existence leak
@@ -240,7 +242,12 @@ export class ChatService {
 
   /** The inbox: my conversations (with unread + preview) + discoverable spaces. */
   async listConversations(userId: string, viewerRole?: ViewerRole): Promise<{ conversations: unknown[]; discover_spaces: unknown[] }> {
-    if (isModerator(viewerRole)) return this.listAllForModeration();
+    // Moderators get the oversight inbox (all conversations), but still see
+    // public spaces they haven't joined under "discover" so they can follow them.
+    if (isModerator(viewerRole)) {
+      const mod = await this.listAllForModeration();
+      return { conversations: mod.conversations, discover_spaces: await this.discoverSpaces(userId) };
+    }
     await tx(this.pool, async (c) => this.ensureCellGroup(c, userId));
     const conversations = await many(
       this.pool,
@@ -273,20 +280,29 @@ export class ChatService {
         LIMIT 200`,
       [userId],
     );
-    const discover = await many(
+    return { conversations, discover_spaces: await this.discoverSpaces(userId) };
+  }
+
+  /**
+   * Public spaces the member can follow (kind='space', is_public, not yet joined).
+   * Scoped to the member's congregation — but a brand-new member who hasn't been
+   * onboarded into one yet (congregation_id IS NULL) sees ALL public spaces, so
+   * the Chat tab is never empty for them; joining a space adopts its congregation.
+   */
+  private async discoverSpaces(userId: string): Promise<unknown[]> {
+    return many(
       this.pool,
       `SELECT cv.conversation_id, cv.title, cv.topic, cv.category,
               (SELECT count(*)::int FROM chat_members m2 WHERE m2.conversation_id = cv.conversation_id) AS member_count
          FROM chat_conversations cv
          JOIN users u ON u.user_id = $1
         WHERE cv.kind = 'space' AND cv.is_public = TRUE
-          AND cv.congregation_id = u.congregation_id
+          AND (u.congregation_id IS NULL OR cv.congregation_id = u.congregation_id)
           AND NOT EXISTS (SELECT 1 FROM chat_members m WHERE m.conversation_id = cv.conversation_id AND m.user_id = $1)
         ORDER BY cv.created_at DESC
         LIMIT 50`,
       [userId],
     );
-    return { conversations, discover_spaces: discover };
   }
 
   /**
@@ -499,6 +515,14 @@ export class ChatService {
       const convo = await this.access(c, userId, conversationId);
       if (convo.kind !== "space") throw new ApiError("UNPROCESSABLE", "Not a space");
       await c.query(`INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [conversationId, userId]);
+      // New self-registered members (no congregation yet) adopt the space's
+      // congregation on join, so it becomes their home community.
+      if (convo.congregation_id) {
+        await c.query(
+          `UPDATE users SET congregation_id = $2 WHERE user_id = $1 AND congregation_id IS NULL`,
+          [userId, convo.congregation_id],
+        );
+      }
       return { conversation_id: conversationId, joined: true };
     });
   }
