@@ -36,7 +36,6 @@ import {
   FileText,
   Forward,
   Hash,
-  Headphones,
   ImagePlus,
   Info,
   Mic,
@@ -74,7 +73,7 @@ import { Loading, ErrorState } from "../components/states";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { FitImage } from "../components/FitImage";
 import { Avatar } from "../components/Avatar";
-import { CHAT, ReadTicks, LiveDot, TypingDots, Waveform, DateDivider, senderColor } from "../components/ChatKit";
+import { CHAT, ReadTicks, Waveform, DateDivider, senderColor } from "../components/ChatKit";
 import { formatMillis, voiceFileName, voiceAttachmentMeta, fileAttachmentMeta, voiceLabel, fileLabel, formatBytes } from "./chatMediaHelpers";
 
 // Tap-to-fill suggested replies above the composer.
@@ -1113,11 +1112,6 @@ function AttachmentImage({ url }: { url: string }): ReactElement {
   );
 }
 
-// Reserved presence affordances (LiveDot/TypingDots/Headphones) — wired in once the
-// API exposes live presence/typing/huddle (see report). Referenced to satisfy lint.
-void LiveDot;
-void TypingDots;
-void Headphones;
 
 const st = {
   screen: { flex: 1, backgroundColor: CHAT.canvas },

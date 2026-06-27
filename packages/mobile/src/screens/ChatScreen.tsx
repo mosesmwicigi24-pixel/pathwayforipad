@@ -14,11 +14,9 @@ import {
   ChevronRight,
   Compass,
   Hash,
-  Headphones,
   MessageCircle,
   Mic,
   Pencil,
-  Pin,
   Plus,
   Quote,
   Search,
@@ -642,11 +640,6 @@ function EmptyHint({ text }: { text: string }): ReactElement {
     </View>
   );
 }
-
-// Mark unused imports as referenced (Pin/Headphones reserved for future presence
-// affordances are intentionally not imported); see report for live-presence gap.
-void Pin;
-void Headphones;
 
 const st = {
   screen: { flex: 1, backgroundColor: palette.paper },

@@ -1,12 +1,12 @@
 // Shared visual primitives for the redesigned Chat screens ("Aurora" presentation
 // from the Figma make). These are presentation-only: they hold no API wiring, so
 // ChatScreen (inbox) and ChatThreadScreen (thread) stay readable while sharing the
-// premium look — gold story-rings, presence dots, typing dots, reaction pills,
-// per-sender color coding, read ticks, and date dividers. All colors come from the
+// premium look — gold story-rings, per-sender color coding, read ticks, voice
+// waveform, and date dividers. All colors come from the
 // design tokens (palette/spacing/radii); the few chat-only accents (warm canvas,
 // soft bubble fills) are defined once here so they read consistently.
-import { useEffect, useMemo, useRef, type ReactElement, type ReactNode } from "react";
-import { Animated, Easing, StyleSheet, View } from "react-native";
+import { type ReactElement, type ReactNode } from "react";
+import { StyleSheet, View } from "react-native";
 import { Check, CheckCheck } from "lucide-react-native";
 import { palette, spacing } from "../theme/tokens";
 import { T } from "../theme/components";
@@ -21,7 +21,6 @@ export const CHAT = {
   meta: palette.ink400, // timestamps
   bubbleBorder: "rgba(11,31,51,0.07)",
   quoteBg: "rgba(11,31,51,0.05)",
-  presence: "#16A34A", // M-Pesa green presence
   goldRing: palette.gold,
 } as const;
 
@@ -51,66 +50,6 @@ export function ReadTicks({ state }: { state: "sent" | "delivered" | "read" }): 
   if (state === "read") return <CheckCheck size={14} color="#53BDEB" />;
   if (state === "delivered") return <CheckCheck size={14} color="rgba(255,255,255,0.6)" />;
   return <Check size={14} color="rgba(255,255,255,0.6)" />;
-}
-
-// A live, gently pulsing presence dot (Animated, kept subtle — no framer-motion).
-export function LiveDot({ size = 10, color = CHAT.presence, ring }: { size?: number; color?: string; ring?: string }): ReactElement {
-  const pulse = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(pulse, { toValue: 1, duration: 1700, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse]);
-  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] });
-  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
-  return (
-    <View style={{ width: size, height: size }}>
-      <Animated.View
-        style={{ position: "absolute", width: size, height: size, borderRadius: size / 2, backgroundColor: color, transform: [{ scale }], opacity }}
-      />
-      <View
-        style={{
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: color,
-          ...(ring ? { borderWidth: 2, borderColor: ring } : null),
-        }}
-      />
-    </View>
-  );
-}
-
-// Three gently bouncing dots — the typing indicator.
-export function TypingDots({ color = CHAT.presence, size = 5 }: { color?: string; size?: number }): ReactElement {
-  const d0 = useRef(new Animated.Value(0)).current;
-  const d1 = useRef(new Animated.Value(0)).current;
-  const d2 = useRef(new Animated.Value(0)).current;
-  const dots = useMemo(() => [d0, d1, d2], [d0, d1, d2]);
-  useEffect(() => {
-    const loops = dots.map((d, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 150),
-          Animated.timing(d, { toValue: 1, duration: 450, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.timing(d, { toValue: 0, duration: 450, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        ]),
-      ),
-    );
-    loops.forEach((l) => l.start());
-    return () => loops.forEach((l) => l.stop());
-  }, [dots]);
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-      {dots.map((d, i) => {
-        const translateY = d.interpolate({ inputRange: [0, 1], outputRange: [0, -3] });
-        const opacity = d.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
-        return <Animated.View key={i} style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, opacity, transform: [{ translateY }] }} />;
-      })}
-    </View>
-  );
 }
 
 // A static decorative voice waveform (we don't persist real amplitude data). The
