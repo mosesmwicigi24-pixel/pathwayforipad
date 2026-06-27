@@ -1,11 +1,60 @@
 // Axios client for the portal. Injects the gateway-issued JWT (§1.3). Base URL is
 // the versioned API surface (§3.1). The portal is online-only (§1.3).
 import axios from "axios";
-import type { AxiosError, InternalAxiosRequestConfig } from "axios";
+import type { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from "axios";
 
-let accessToken: string | null = null;
+// Tokens persist in localStorage so the session SURVIVES a reload / reopened tab,
+// and the access token is silently refreshed via the long-lived refresh token
+// (the portal used to keep the access token in memory only and never refresh, so
+// it "signed off" on every reload and again after the 15-min access-token TTL).
+const AT_KEY = "nuru.portal.at";
+const RT_KEY = "nuru.portal.rt";
+function lsGet(k: string): string | null {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+}
+function lsSet(k: string, v: string | null): void {
+  try {
+    if (v) localStorage.setItem(k, v);
+    else localStorage.removeItem(k);
+  } catch {
+    /* storage unavailable (private mode) — fall back to in-memory only */
+  }
+}
+
+let accessToken: string | null = lsGet(AT_KEY);
+let refreshToken: string | null = lsGet(RT_KEY);
+
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+/** Persist the session pair (call after any login). Pass refresh to rotate it. */
+export function setSession(access: string | null, refresh?: string | null): void {
+  accessToken = access;
+  lsSet(AT_KEY, access);
+  if (refresh !== undefined) {
+    refreshToken = refresh;
+    lsSet(RT_KEY, refresh);
+  }
+}
+/** Back-compat: set just the access token (also mirrors to storage). */
 export function setAccessToken(token: string | null): void {
-  accessToken = token;
+  setSession(token);
+}
+/** Clear the whole session (sign-out / dead refresh token). */
+export function clearSession(): void {
+  setSession(null, null);
+}
+
+// Called when the refresh token itself is dead (revoked/expired) — the app wires
+// this to dispatch(logout) so the UI returns to /login. A one-off 401 never
+// triggers it; only a genuinely failed refresh does.
+let onSessionExpired: (() => void) | null = null;
+export function setOnSessionExpired(fn: (() => void) | null): void {
+  onSessionExpired = fn;
 }
 
 let refreshHandler: (() => Promise<string | null>) | null = null;
@@ -96,6 +145,16 @@ export const PortalApi = {
   /** DEV ONLY: mint a session by email (no OAuth). 404s in production. */
   async devLogin(email: string): Promise<DevSession> {
     const { data } = await api.post<DevSession>("/auth/dev-login", { email });
+    return data;
+  },
+  /** Exchange the rotating refresh token for a fresh session (one-time-use). The
+   *  `_retry` flag stops a 401 here from re-entering the refresh interceptor. */
+  async refresh(refreshTokenValue: string): Promise<DevSession> {
+    const { data } = await api.post<DevSession>(
+      "/auth/token/refresh",
+      { refresh_token: refreshTokenValue },
+      { _retry: true } as unknown as AxiosRequestConfig,
+    );
     return data;
   },
   /** Request a password-reset email (always succeeds — no account enumeration). */
@@ -1574,3 +1633,33 @@ export const AssistantApi = {
   chat: (body: { messages: AssistantTurn[]; conversation_id?: string }) =>
     api.post<{ reply: string }>("/assistant/chat", body).then((r) => r.data),
 };
+
+// --- Default single-flight token refresh -----------------------------------
+// Wire the 401 interceptor (above) to refresh the access token using the stored
+// refresh token. SINGLE-FLIGHT: a page fires many requests at once, so a burst of
+// 401s must share ONE refresh — otherwise each would spend the one-time-use
+// rotating token and trip the backend's reuse-detection, revoking the whole family
+// and forcing a real logout (the mobile app hit exactly this). Only a genuinely
+// dead refresh token clears the session and signals expiry.
+let refreshInFlight: Promise<string | null> | null = null;
+async function defaultRefresh(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  if (!refreshToken) return null;
+  refreshInFlight = (async () => {
+    try {
+      const next = await PortalApi.refresh(refreshToken as string);
+      setSession(next.access_token, next.refresh_token);
+      return next.access_token;
+    } catch {
+      clearSession();
+      onSessionExpired?.();
+      return null;
+    }
+  })();
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
+}
+setRefreshHandler(defaultRefresh);

@@ -1,8 +1,8 @@
-// Auth state for the portal. The access token lives in Redux memory only (never
-// localStorage) and is mirrored into the axios client. DEV login only — production
-// uses the gateway-issued session.
+// Auth state for the portal. The session (access + refresh tokens) is persisted in
+// localStorage by the api client and mirrored into Redux, so a reload restores the
+// session and the access token is silently refreshed — no more surprise sign-offs.
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import { PortalApi, setAccessToken } from "../api/client";
+import { PortalApi, setSession, clearSession, getAccessToken } from "../api/client";
 import { errorMessage } from "../util/error";
 import { decodeRole } from "../util/jwt";
 
@@ -13,7 +13,7 @@ export const devLogin = createAsyncThunk<
 >("auth/devLogin", async (email, { rejectWithValue }) => {
   try {
     const session = await PortalApi.devLogin(email);
-    setAccessToken(session.access_token); // axios sends it on every call
+    setSession(session.access_token, session.refresh_token); // persisted; auto-refreshes
     return { accessToken: session.access_token, email, role: decodeRole(session.access_token) };
   } catch (e) {
     return rejectWithValue(errorMessage(e, "Login failed — check the email is seeded (pnpm db:seed:dev)."));
@@ -30,7 +30,7 @@ export const login = createAsyncThunk<
   try {
     const res = await PortalApi.login(email, password);
     if ("mfa_required" in res) return { mfaToken: res.mfa_token, email };
-    setAccessToken(res.access_token);
+    setSession(res.access_token, res.refresh_token);
     return { accessToken: res.access_token, email, role: decodeRole(res.access_token) };
   } catch (e) {
     return rejectWithValue(errorMessage(e, "Invalid email or password."));
@@ -44,7 +44,7 @@ export const completeMfa = createAsyncThunk<
 >("auth/completeMfa", async ({ mfaToken, email, code }, { rejectWithValue }) => {
   try {
     const session = await PortalApi.loginCompleteMfa(mfaToken, code);
-    setAccessToken(session.access_token);
+    setSession(session.access_token, session.refresh_token);
     return { accessToken: session.access_token, email, role: decodeRole(session.access_token) };
   } catch (e) {
     return rejectWithValue(errorMessage(e, "That code didn't match. Try again or use a recovery code."));
@@ -61,7 +61,18 @@ export interface AuthState {
   mfaToken: string | null;
 }
 
-const initialState: AuthState = { accessToken: null, email: null, role: null, status: "idle", error: null, mfaToken: null };
+// Restore the session from the persisted access token on reload, so a refresh
+// doesn't bounce to /login. An expired access token is fine — the first request
+// silently refreshes it via the stored refresh token.
+const bootAccess = getAccessToken();
+const initialState: AuthState = {
+  accessToken: bootAccess,
+  email: null,
+  role: bootAccess ? decodeRole(bootAccess) : null,
+  status: "idle",
+  error: null,
+  mfaToken: null,
+};
 
 const authSlice = createSlice({
   name: "auth",
@@ -72,7 +83,7 @@ const authSlice = createSlice({
       state.email = null;
       state.role = null;
       state.mfaToken = null;
-      setAccessToken(null);
+      clearSession();
     },
     cancelMfa(state) {
       state.mfaToken = null;
