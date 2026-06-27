@@ -15,6 +15,7 @@ import {
   type NativeScrollEvent,
 } from "react-native";
 import { palette, radii, spacing, type, shadow } from "../theme/tokens";
+import { cdnImage } from "../util/cdnImage";
 import type { Discipler } from "../api/types";
 
 const ADVANCE_MS = 5000;
@@ -77,7 +78,7 @@ export function DisciplerCarousel({ disciplers }: { disciplers: Discipler[] }): 
         {list.map((d) => (
           <View key={d.user_id} style={[st.slide, { width: slideW }]}>
             {d.avatar_url ? (
-              <Image source={{ uri: d.avatar_url }} style={st.avatar} resizeMode="cover" />
+              <Image source={{ uri: cdnImage(d.avatar_url, { width: 72, height: 72 }) }} style={st.avatar} resizeMode="cover" />
             ) : (
               <View style={[st.avatar, st.avatarFallback]}>
                 <Text style={st.avatarInitials}>{initialsOf(d.full_name)}</Text>

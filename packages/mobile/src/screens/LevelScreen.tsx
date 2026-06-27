@@ -14,6 +14,7 @@ import { useNavigation, useRoute, type RouteProp } from "@react-navigation/nativ
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
+import { cdnImage } from "../util/cdnImage";
 import { T } from "../theme/components";
 import { useLevelModules, usePathway, useMentor, useLevelEncouragements } from "../api/hooks";
 import { errorMessage } from "../api/query";
@@ -305,7 +306,7 @@ function TrailEncouragement({ enc }: { enc: LevelEncouragement }): ReactElement 
   if (enc.kind === "splash") {
     return (
       <View style={st.splash}>
-        {enc.image_url ? <Image source={{ uri: enc.image_url }} style={st.splashImg} resizeMode="cover" /> : null}
+        {enc.image_url ? <Image source={{ uri: cdnImage(enc.image_url, { width: 600 }) }} style={st.splashImg} resizeMode="cover" /> : null}
         <View style={st.splashShade} />
         <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
           {enc.emoji ? <T style={{ fontSize: 30 }}>{enc.emoji}</T> : null}

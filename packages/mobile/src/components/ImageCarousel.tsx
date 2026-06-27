@@ -8,6 +8,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { Image, ScrollView, View, useWindowDimensions, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 import { palette, radii, spacing } from "../theme/tokens";
 import { FitImage } from "./FitImage";
+import { cdnImage } from "../util/cdnImage";
 
 export function ImageCarousel({ images, height = 220 }: { images: string[]; height?: number }): ReactElement | null {
   const list = images.filter(Boolean);
@@ -19,7 +20,8 @@ export function ImageCarousel({ images, height = 220 }: { images: string[]; heig
   const first = list[0];
   useEffect(() => {
     let alive = true;
-    if (first) Image.getSize(first, (w, h) => { if (alive && w > 0 && h > 0) setAspect(w / h); }, () => {});
+    const m = cdnImage(first, { width: slideW });
+    if (m) Image.getSize(m, (w, h) => { if (alive && w > 0 && h > 0) setAspect(w / h); }, () => {});
     return () => { alive = false; };
   }, [first]);
 
@@ -53,7 +55,7 @@ export function ImageCarousel({ images, height = 220 }: { images: string[]; heig
       >
         {list.map((uri, i) => (
           <View key={`${uri}-${i}`} style={{ width: slideW, height: slideH, borderRadius: radii.card, overflow: "hidden", backgroundColor: palette.mutedBg }}>
-            <Image source={{ uri }} style={{ width: slideW, height: slideH }} resizeMode="contain" />
+            <Image source={{ uri: cdnImage(uri, { width: slideW }) }} style={{ width: slideW, height: slideH }} resizeMode="contain" />
           </View>
         ))}
       </ScrollView>

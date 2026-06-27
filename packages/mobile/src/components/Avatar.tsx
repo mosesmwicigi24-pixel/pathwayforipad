@@ -5,6 +5,7 @@ import { type ReactElement } from "react";
 import { Image, Text, View } from "react-native";
 import { palette } from "../theme/tokens";
 import { initials, avatarColor } from "../screens/chatInbox";
+import { cdnImage } from "../util/cdnImage";
 
 export function Avatar({
   uri,
@@ -20,7 +21,7 @@ export function Avatar({
   const radius = size / 2;
   const border = ring ? { borderWidth: 2, borderColor: palette.gold } : null;
   if (uri) {
-    return <Image source={{ uri }} style={[{ width: size, height: size, borderRadius: radius, backgroundColor: palette.tintBlue }, border]} resizeMode="cover" />;
+    return <Image source={{ uri: cdnImage(uri, { width: size, height: size }) }} style={[{ width: size, height: size, borderRadius: radius, backgroundColor: palette.tintBlue }, border]} resizeMode="cover" />;
   }
   return (
     <View style={[{ width: size, height: size, borderRadius: radius, backgroundColor: avatarColor(name ?? "?"), alignItems: "center", justifyContent: "center" }, border]}>

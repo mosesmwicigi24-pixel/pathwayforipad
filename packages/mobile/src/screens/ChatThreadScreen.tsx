@@ -16,6 +16,7 @@ import type { ChatMessage, ChatThreadDetail } from "../api/types";
 import { avatarColor, initials } from "./chatInbox";
 import { NuruApi } from "../api/client";
 import { uuidv4 } from "../util/uuid";
+import { cdnImage } from "../util/cdnImage";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { T } from "../theme/components";
 import { useChatConversation, useMe, queryKeys } from "../api/hooks";
@@ -886,7 +887,7 @@ function AttachmentImage({ url }: { url: string }): ReactElement {
       </Pressable>
       <Modal visible={open} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setOpen(false)}>
         <Pressable style={st.viewerRoot} accessibilityRole="button" accessibilityLabel="Close photo" onPress={() => setOpen(false)}>
-          <Image source={{ uri: url }} style={st.viewerImg} resizeMode="contain" />
+          <Image source={{ uri: cdnImage(url) }} style={st.viewerImg} resizeMode="contain" />
           <View style={st.viewerClose}><X size={24} color="#fff" /></View>
         </Pressable>
       </Modal>

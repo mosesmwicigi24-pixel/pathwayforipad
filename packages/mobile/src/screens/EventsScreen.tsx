@@ -15,6 +15,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import type { CalendarOccurrence, EventSeries, MyAnnouncement } from "../api/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
+import { cdnImage } from "../util/cdnImage";
 import { GradientBg, T } from "../theme/components";
 import { useCalendar, useCellSummary, useEventSeries, useMyAnnouncements, useMyRsvps, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
@@ -329,7 +330,7 @@ export function EventsScreen(): ReactElement {
                 <Pressable key={a.announcement_id} accessibilityRole="button" onPress={() => openAnnouncement(a)} style={[st.annRow, i < arr.length - 1 && st.divider]}>
                   <View style={st.annThumbWrap}>
                     {a.primary_image_url ? (
-                      <Image source={{ uri: a.primary_image_url }} style={st.annThumb} resizeMode="contain" />
+                      <Image source={{ uri: cdnImage(a.primary_image_url, { width: 96 }) }} style={st.annThumb} resizeMode="contain" />
                     ) : (
                       <View style={st.annIcon}><Sparkles size={16} color={palette.goldLo} /></View>
                     )}

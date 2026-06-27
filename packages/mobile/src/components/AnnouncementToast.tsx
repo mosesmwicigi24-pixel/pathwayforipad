@@ -7,6 +7,7 @@ import { Animated, Image, Pressable, StyleSheet, Text, View } from "react-native
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Bell } from "lucide-react-native";
 import { palette, radii, spacing, type, shadow } from "../theme/tokens";
+import { cdnImage } from "../util/cdnImage";
 import { onAnnouncementAlert } from "../notifications/announcementAlerts";
 import { navigate } from "../navigation/navigationRef";
 import type { MyAnnouncement } from "../api/types";
@@ -62,7 +63,7 @@ export function AnnouncementToast(): ReactElement | null {
     >
       <Pressable onPress={open} style={({ pressed }) => [styles.card, pressed && { opacity: 0.92 }]}>
         {current.primary_image_url ? (
-          <Image source={{ uri: current.primary_image_url }} style={styles.thumb} resizeMode="contain" />
+          <Image source={{ uri: cdnImage(current.primary_image_url, { width: 120 }) }} style={styles.thumb} resizeMode="contain" />
         ) : (
           <View style={styles.iconChip}>
             <Bell size={18} color={palette.navyDeep} />

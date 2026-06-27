@@ -8,6 +8,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, spacing, shadow } from "../theme/tokens";
+import { cdnImage } from "../util/cdnImage";
 import { T } from "../theme/components";
 import { usePlans } from "../api/hooks";
 import { errorMessage } from "../api/query";
@@ -45,7 +46,7 @@ export function ReadingPlansScreen(): ReactElement {
               return (
                 <Pressable key={p.plan_id} onPress={() => nav.navigate("PlanDetail", { planId: p.plan_id, title: p.title })} style={({ pressed }) => [st.card, { marginBottom: spacing.sm }, pressed && { opacity: 0.9 }]}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-                    {p.image_url ? <Image source={{ uri: p.image_url }} style={st.thumb} resizeMode="contain" /> : <View style={st.tile}><BookMarked size={18} color={palette.goldLo} /></View>}
+                    {p.image_url ? <Image source={{ uri: cdnImage(p.image_url, { width: 96 }) }} style={st.thumb} resizeMode="contain" /> : <View style={st.tile}><BookMarked size={18} color={palette.goldLo} /></View>}
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <T variant="heading" style={{ fontSize: 15 }} numberOfLines={1}>{p.title}</T>
                       <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>{`Day ${Math.min(p.current_day ?? 1, p.day_count)} of ${p.day_count}`}</T>
@@ -65,7 +66,7 @@ export function ReadingPlansScreen(): ReactElement {
             <T variant="overline" tone="secondary" style={{ marginTop: active.length ? spacing.lg : 0, marginBottom: spacing.sm }}>BROWSE PLANS</T>
             {browse.map((p) => (
               <Pressable key={p.plan_id} onPress={() => nav.navigate("PlanDetail", { planId: p.plan_id, title: p.title })} style={({ pressed }) => [st.card, { marginBottom: spacing.sm, flexDirection: "row", gap: spacing.md, alignItems: "center" }, pressed && { opacity: 0.9 }]}>
-                {p.image_url ? <Image source={{ uri: p.image_url }} style={st.thumb} resizeMode="contain" /> : <View style={st.tile}><BookMarked size={18} color={palette.goldLo} /></View>}
+                {p.image_url ? <Image source={{ uri: cdnImage(p.image_url, { width: 96 }) }} style={st.thumb} resizeMode="contain" /> : <View style={st.tile}><BookMarked size={18} color={palette.goldLo} /></View>}
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <T variant="micro" tone="tertiary" style={{ fontWeight: "700" }}>{`${p.day_count} DAYS`}</T>
                   <T variant="heading" style={{ fontSize: 15, marginTop: 1 }} numberOfLines={2}>{p.title}</T>

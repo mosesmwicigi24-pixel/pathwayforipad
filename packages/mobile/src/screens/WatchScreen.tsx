@@ -14,6 +14,7 @@ import { refreshQueries } from "../api/query";
 import { queryKeys } from "../api/hooks";
 import { GradientBg, T } from "../theme/components";
 import { palette, radii, spacing } from "../theme/tokens";
+import { cdnImage } from "../util/cdnImage";
 
 export function WatchScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -54,7 +55,7 @@ export function WatchScreen(): ReactElement {
       ) : (
         <>
           {poster ? (
-            <Image source={{ uri: poster }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            <Image source={{ uri: cdnImage(poster) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
           ) : (
             <GradientBg colors={[palette.navy, palette.navy700, palette.navyDeep]} />
           )}

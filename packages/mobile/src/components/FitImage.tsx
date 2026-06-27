@@ -10,6 +10,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Image, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
 import { palette } from "../theme/tokens";
+import { cdnImage } from "../util/cdnImage";
 
 export function FitImage({
   uri,
@@ -35,18 +36,20 @@ export function FitImage({
   minAspect?: number;
   background?: string;
 }): ReactNode {
-  const { height: screenH } = useWindowDimensions();
+  const { height: screenH, width: screenW } = useWindowDimensions();
   const cap = maxHeight ?? Math.round(screenH * 0.78);
   const [aspect, setAspect] = useState<number | null>(null);
+  // Device-sized, auto-format copy off the CDN (no-op for non-Cloudinary URLs).
+  const src = cdnImage(uri, { width: screenW });
 
   useEffect(() => {
     let alive = true;
-    if (!uri) {
+    if (!src) {
       setAspect(null);
       return;
     }
     Image.getSize(
-      uri,
+      src,
       (w, h) => {
         if (alive && w > 0 && h > 0) setAspect(w / h);
       },
@@ -57,7 +60,7 @@ export function FitImage({
     return () => {
       alive = false;
     };
-  }, [uri]);
+  }, [src]);
 
   const aspectRatio = Math.max(aspect ?? fallbackAspect, minAspect);
 
@@ -68,7 +71,7 @@ export function FitImage({
         style,
       ]}
     >
-      {uri ? <Image source={{ uri }} style={{ width: "100%", height: "100%" }} resizeMode="contain" /> : null}
+      {src ? <Image source={{ uri: src }} style={{ width: "100%", height: "100%" }} resizeMode="contain" /> : null}
       {children}
     </View>
   );
