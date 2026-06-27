@@ -48,7 +48,8 @@ export interface TailoredVerse {
   version: string;
   theme: VerseTheme | string;
   reason: string; // a warm "why this verse is for you" line
-  text?: string; // the verse text itself, when we hold it (the dated daily plan)
+  mood?: string; // the season Nuru sensed (title-cased library theme), when mood-driven
+  text?: string; // the verse text itself, when we hold it (the mood library)
 }
 
 export class HomeService {
@@ -138,49 +139,66 @@ export class HomeService {
   }
 
   /**
-   * The member's "Verse for today" — a vetted Scripture *reference* chosen from a
-   * curated, theme-tagged pool to match the discipline they're leaning into (or
-   * the season they're in: brand-new, returning, thriving). Deterministic per EAT
-   * day, cached so it's stable through the day, and it avoids verses the member
-   * has seen in the last few weeks. The client fetches the actual text from
-   * /scripture, so doctrine stays safe — we only personalise *which* verse. (§1.1)
+   * The member's "Verse for today" — chosen to meet them where they are. The dated
+   * "A Year of Verses" table is really a MOOD library (37 seasons × ~10 verses, e.g.
+   * "Fear & Anxiety", "Gratitude", "Hope", "Grief"). We read the member's own recent
+   * signals — the heart of their prayers, the verses they've been reacting to, how
+   * they've been reading and showing up — let Nuru name the season, then hand them a
+   * verse from that season (deterministic per EAT day, avoiding ones seen recently)
+   * with a warm one-line encouragement. Falls back to the curated VERSE_POOL picker
+   * when no mood library is present (dev/tests). Cached so it's stable through the
+   * day. The verse text itself is vetted Scripture — we only personalise *which*
+   * verse and *why it's for them*, never the words (§1.1).
    */
   async verseForToday(userId: string): Promise<TailoredVerse> {
-    // 1. The dated "A Year of Verses" plan takes precedence — one set verse per
-    //    calendar day. We hold the text, so the client shows it directly. Once the
-    //    plan runs out, we fall through to the personalized picker below.
-    const plan = await maybeOne<{ reference: string; version: string; theme: string; verse_text: string }>(
+    const cached = await maybeOne<{ reference: string; version: string; theme: string; reason: string; verse_text: string | null; mood: string | null }>(
       this.pool,
-      `SELECT reference, version, theme, verse_text FROM daily_verses WHERE day_date = (now() AT TIME ZONE $1)::date`,
-      [TZ],
-    );
-    if (plan) {
-      return {
-        reference: plan.reference,
-        version: plan.version,
-        theme: plan.theme,
-        reason: `Today's verse · ${titleCaseTheme(plan.theme)}`,
-        text: plan.verse_text,
-      };
-    }
-
-    const cached = await maybeOne<{ reference: string; version: string; theme: string; reason: string }>(
-      this.pool,
-      `SELECT reference, version, theme, reason FROM home_verses
+      `SELECT reference, version, theme, reason, verse_text, mood FROM home_verses
         WHERE user_id = $1 AND day_date = (now() AT TIME ZONE $2)::date`,
       [userId, TZ],
     );
-    if (cached) return { reference: cached.reference, version: cached.version, theme: cached.theme as VerseTheme, reason: cached.reason };
+    if (cached) {
+      return {
+        reference: cached.reference,
+        version: cached.version,
+        theme: cached.theme,
+        reason: cached.reason,
+        ...(cached.mood ? { mood: cached.mood } : {}),
+        ...(cached.verse_text ? { text: cached.verse_text } : {}),
+      };
+    }
 
     const day = await one<{ d: string }>(this.pool, `SELECT (now() AT TIME ZONE $1)::date::text AS d`, [TZ]);
-    const theme = await this.verseTheme(userId);
+    const u = await maybeOne<{ full_name: string }>(this.pool, `SELECT full_name FROM users WHERE user_id = $1`, [userId]);
+    const firstName = (u?.full_name ?? "friend").trim().split(/\s+/)[0] || "friend";
     const recent = (
       await this.pool.query<{ reference: string }>(
-        `SELECT reference FROM home_verses WHERE user_id = $1 ORDER BY day_date DESC LIMIT 20`,
+        `SELECT reference FROM home_verses WHERE user_id = $1 ORDER BY day_date DESC LIMIT 30`,
         [userId],
       )
     ).rows.map((r) => r.reference);
 
+    // 1. Mood-driven: pick from the dated library by the member's current season.
+    const themes = (await this.pool.query<{ theme: string }>(`SELECT DISTINCT theme FROM daily_verses WHERE theme IS NOT NULL`)).rows
+      .map((r) => r.theme)
+      .filter(Boolean);
+    if (themes.length > 0) {
+      const mood = await this.moodForToday(userId, themes);
+      const pick = await this.pickDailyVerse(mood.theme, userId, day.d, recent);
+      if (pick) {
+        const reason = await this.verseEncouragement(firstName, mood.label);
+        await this.pool.query(
+          `INSERT INTO home_verses (user_id, day_date, reference, theme, reason, version, verse_text, mood)
+           VALUES ($1, (now() AT TIME ZONE $2)::date, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (user_id, day_date) DO NOTHING`,
+          [userId, TZ, pick.reference, mood.theme, reason, pick.version, pick.verse_text, mood.label],
+        );
+        return { reference: pick.reference, version: pick.version, theme: mood.theme, reason, mood: mood.label, text: pick.verse_text };
+      }
+    }
+
+    // 2. Fallback: the curated VERSE_POOL picker (no dated mood library present).
+    const theme = await this.verseTheme(userId);
     const reference = pickVerse(theme, userId, day.d, recent);
     const reason = THEME_REASON[theme];
     await this.pool.query(
@@ -190,6 +208,148 @@ export class HomeService {
       [userId, TZ, reference, theme, reason],
     );
     return { reference, version: "WEB", theme, reason };
+  }
+
+  /**
+   * Name the member's MOOD / SEASON today as one of the library's mood themes. Nuru
+   * reads their OWN recent signals (their prayers' heart, the verses they react to,
+   * how they read & show up) and classifies the season; we always resolve to a theme
+   * the library actually carries. Privacy-safe: it's the member's own data, used to
+   * serve them, never exposed to anyone else (§5.4). Deterministic fallback (and the
+   * whole path) when there's no live model (dev/tests).
+   */
+  private async moodForToday(userId: string, themes: string[]): Promise<{ theme: string; label: string }> {
+    const fallback = await this.fallbackMood(userId, themes);
+    if (!this.provider || this.provider.name === "fake") return fallback;
+
+    try {
+      // The member's own words + reactions + rhythm over the last two weeks.
+      const prayers = (
+        await this.pool.query<{ body: string }>(
+          `SELECT body FROM (
+             SELECT body, created_at FROM prayer_entries WHERE user_id = $1
+             UNION ALL
+             SELECT body, created_at FROM prayer_wall_posts WHERE author_user_id = $1 AND is_hidden = FALSE
+           ) p
+           WHERE created_at > now() - interval '21 days'
+           ORDER BY created_at DESC LIMIT 6`,
+          [userId],
+        )
+      ).rows.map((r) => r.body.replace(/\s+/g, " ").slice(0, 240));
+      const reactions = (
+        await this.pool.query<{ emoji: string }>(
+          `SELECT emoji FROM verse_reactions WHERE user_id = $1 ORDER BY day_date DESC LIMIT 7`,
+          [userId],
+        )
+      ).rows.map((r) => r.emoji);
+      const act = await one<{ active_days: number; reflections: number; streak: number }>(
+        this.pool,
+        `SELECT (SELECT count(DISTINCT (occurred_at AT TIME ZONE $2)::date)::int FROM interaction_events
+                   WHERE user_id = $1 AND occurred_at > now() - interval '7 days') AS active_days,
+                (SELECT count(*)::int FROM devotional_reflections WHERE user_id = $1 AND created_at > now() - interval '14 days') AS reflections,
+                COALESCE((SELECT current_streak_days FROM user_streaks WHERE user_id = $1), 0) AS streak`,
+        [userId, TZ],
+      );
+
+      const system =
+        "You are Nuru, a discerning, pastoral companion. From the member's own recent signals, name the ONE " +
+        "emotional/spiritual season they are in RIGHT NOW so we can hand them a fitting verse. You MUST answer " +
+        "with EXACTLY ONE label copied verbatim from the provided list — no other words, no punctuation.";
+      const ctx =
+        `Choose one of these season labels: ${themes.join("; ")}.\n` +
+        `Their recent prayers (their own words): ${prayers.length ? prayers.join(" || ") : "none shared"}.\n` +
+        `Verses they reacted to lately: ${reactions.length ? reactions.join(" ") : "none"}.\n` +
+        `Active ${act.active_days}/7 days, ${act.reflections} reflections in 2 weeks, ${act.streak}-day streak.`;
+      const raw = (await this.provider.complete({ system, messages: [{ role: "user", text: ctx }] }))
+        .trim()
+        .replace(/^["'.\s]+|["'.\s]+$/g, "")
+        .toUpperCase();
+      const match =
+        themes.find((t) => t.toUpperCase() === raw) ??
+        themes.find((t) => raw.includes(t.toUpperCase()) || t.toUpperCase().includes(raw));
+      if (match) return { theme: match, label: titleCaseTheme(match) };
+    } catch {
+      /* model failed — use the deterministic season */
+    }
+    return fallback;
+  }
+
+  /** A deterministic season from the member's scores/rhythm, mapped to a library theme. */
+  private async fallbackMood(userId: string, themes: string[]): Promise<{ theme: string; label: string }> {
+    const has = (want: string) => themes.find((t) => t.toUpperCase() === want);
+    const first = (...wants: string[]) => {
+      for (const w of wants) { const m = has(w); if (m) return m; }
+      return undefined;
+    };
+    const scores = await this.scores.all(userId);
+    const sig = await one<{ last_active_date: string | null; ever_active: boolean }>(
+      this.pool,
+      `SELECT (SELECT last_active_date FROM user_streaks WHERE user_id = $1) AS last_active_date,
+              EXISTS (SELECT 1 FROM interaction_events WHERE user_id = $1) AS ever_active`,
+      [userId],
+    );
+    const modulesCompleted = Number((scores.curriculum as ScoreBreakdown).detail.modules_completed ?? 0);
+    const lapsed = daysSince(sig.last_active_date);
+    const weak = weakestKey(scores);
+
+    let theme: string | undefined;
+    if (modulesCompleted === 0 && !sig.ever_active) theme = first("NEW BEGINNINGS", "CONFIDENCE & IDENTITY", "HOPE");
+    else if (lapsed != null && lapsed >= 7) theme = first("HOPE", "NEW BEGINNINGS", "COMFORT IN SUFFERING");
+    else if (weak && weak.score < 80) {
+      const map: Record<string, string[]> = {
+        prayer: ["PRAYER", "TRUST IN GOD"],
+        word: ["WISDOM & DECISIONS", "TRUST IN GOD"],
+        habits: ["PERSEVERANCE", "PATIENCE", "COURAGE & STRENGTH"],
+        curriculum: ["COURAGE & STRENGTH", "PERSEVERANCE"],
+        attendance: ["FRIENDSHIP", "FAMILY & PARENTING"],
+      };
+      theme = first(...(map[weak.key] ?? []));
+    }
+    if (!theme) theme = first("GRATITUDE & THANKFULNESS", "PRAISE & WORSHIP", "JOY & HAPPINESS", "HOPE");
+    const dayKey = await one<{ d: string }>(this.pool, `SELECT (now() AT TIME ZONE $1)::date::text AS d`, [TZ]);
+    if (!theme) theme = themes[hashStr(`${userId}|${dayKey.d}`) % themes.length];
+    return { theme: theme!, label: titleCaseTheme(theme!) };
+  }
+
+  /** Pick one verse from a mood theme — deterministic per member/day, avoiding repeats. */
+  private async pickDailyVerse(
+    theme: string,
+    userId: string,
+    dayKey: string,
+    recent: string[],
+  ): Promise<{ reference: string; version: string; verse_text: string } | null> {
+    const rows = (
+      await this.pool.query<{ reference: string; version: string; verse_text: string }>(
+        `SELECT reference, version, verse_text FROM daily_verses WHERE theme = $1 ORDER BY day_index`,
+        [theme],
+      )
+    ).rows;
+    if (rows.length === 0) return null;
+    const fresh = rows.filter((r) => !recent.includes(r.reference));
+    const pool = fresh.length > 0 ? fresh : rows;
+    return pool[hashStr(`${userId}|${dayKey}|${theme}`) % pool.length]!;
+  }
+
+  /**
+   * A short, warm "why this verse is for you" line tied to the member's season — the
+   * gold line under the verse. Nuru-written when a model is present, else a gentle
+   * template. Never longer than a phrase; the verse itself carries the weight.
+   */
+  private async verseEncouragement(firstName: string, moodLabel: string): Promise<string> {
+    if (!this.provider || this.provider.name === "fake") return moodLabel;
+    try {
+      const system =
+        "You are Nuru. In at most 9 words, write a tender reason this verse meets the member in their season — " +
+        "a phrase, not a sentence, no name, no quotes, no period. e.g. 'peace for an anxious heart'.";
+      const raw = (await this.provider.complete({ system, messages: [{ role: "user", text: `Their season: ${moodLabel}.` }] }))
+        .trim()
+        .replace(/^["'.\s]+|["'.\s]+$/g, "")
+        .slice(0, 80);
+      if (raw) return raw.charAt(0).toUpperCase() + raw.slice(1);
+    } catch {
+      /* fall back to the plain season label */
+    }
+    return moodLabel;
   }
 
   /**

@@ -75,24 +75,46 @@ describe("GET /me/home/next-action", () => {
   });
 });
 
-describe("GET /me/home/verse — tailored Verse for today", () => {
-  it("returns a vetted reference with a theme + reason, and caches it for the day", async () => {
+describe("GET /me/home/verse — mood-driven Verse for today", () => {
+  it("serves a verse from the mood library (real text + version) and caches it for the day", async () => {
+    const { testPool } = await import("./helpers/db.js");
+    // seed a small mood library (resetDb truncates the migration seed between tests)
+    await testPool().query(
+      `INSERT INTO daily_verses (day_index, day_date, theme, reference, version, verse_text) VALUES
+         (1, '2026-01-01', 'GRATITUDE & THANKFULNESS', '1 Thessalonians 5:18', 'NIV', 'Give thanks in all circumstances.'),
+         (2, '2026-01-02', 'GRATITUDE & THANKFULNESS', 'Psalm 100:4',          'NIV', 'Enter his gates with thanksgiving.'),
+         (3, '2026-01-03', 'HOPE',                      'Romans 15:13',         'NIV', 'May the God of hope fill you with joy.')`,
+    );
     const res = await agent().get("/v1/me/home/verse").set(auth(meTok));
     expect(res.status).toBe(200);
     expect(typeof res.body.reference).toBe("string");
     expect(res.body.reference.length).toBeGreaterThan(0);
-    expect(res.body.version).toBe("WEB");
+    expect(typeof res.body.version).toBe("string");
     expect(typeof res.body.theme).toBe("string");
     expect(typeof res.body.reason).toBe("string");
-    // every served reference is from the curated pool (never AI-invented)
-    const all = Object.values(VERSE_POOL).flat();
-    expect(all).toContain(res.body.reference);
+    expect(typeof res.body.text).toBe("string"); // we hold the verse text now
+    const lib = await testPool().query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM daily_verses WHERE reference = $1 AND theme = $2`,
+      [res.body.reference, res.body.theme],
+    );
+    expect(lib.rows[0]!.n).toBeGreaterThan(0); // the verse genuinely came from the library
     // stable through the day (cached)
     const res2 = await agent().get("/v1/me/home/verse").set(auth(meTok));
     expect(res2.body.reference).toBe(res.body.reference);
+    expect(res2.body.text).toBe(res.body.text);
   });
 
-  it("serves the dated 'A Year of Verses' plan for today (with text) when present", async () => {
+  it("falls back to the curated VERSE_POOL when no mood library is present", async () => {
+    const { testPool } = await import("./helpers/db.js");
+    await testPool().query(`DELETE FROM daily_verses`); // no library → personalized picker
+    const res = await agent().get("/v1/me/home/verse").set(auth(meTok));
+    expect(res.status).toBe(200);
+    expect(res.body.version).toBe("WEB");
+    const all = Object.values(VERSE_POOL).flat();
+    expect(all).toContain(res.body.reference); // vetted reference, never AI-invented
+  });
+
+  it("picks the verse by mood theme — meets a member in their season", async () => {
     const { testPool } = await import("./helpers/db.js");
     await testPool().query(`DELETE FROM daily_verses`);
     await testPool().query(
@@ -105,7 +127,8 @@ describe("GET /me/home/verse — tailored Verse for today", () => {
     expect(res.body.reference).toBe("Nehemiah 8:10");
     expect(res.body.version).toBe("NIV");
     expect(res.body.text).toContain("joy of the LORD");
-    expect(res.body.reason).toContain("Joy & Happiness");
+    expect(res.body.theme).toBe("JOY & HAPPINESS");
+    expect(res.body.mood).toBe("Joy & Happiness");
   });
 
   it("grounds a brand-new member (no activity) in a foundations verse", async () => {

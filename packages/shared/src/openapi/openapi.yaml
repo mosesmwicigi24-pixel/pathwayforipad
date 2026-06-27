@@ -2592,9 +2592,9 @@ paths:
   /me/home/verse:
     get:
       tags: [progress]
-      summary: My tailored "Verse for today" — a vetted reference chosen for where I am spiritually (cached daily).
+      summary: My "Verse for today" — chosen from the mood library to meet the season I'm in (cached daily).
       responses:
-        "200": { description: "Tailored verse: { reference, version, theme, reason }" }
+        "200": { description: "Tailored verse: { reference, version, theme, reason, mood?, text? }" }
         "401": { $ref: "#/components/responses/Unauthorized" }
   /me/home/verse/reactions:
     get:
