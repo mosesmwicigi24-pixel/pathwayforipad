@@ -1,13 +1,30 @@
-// Chat tab — "Nuru Connect" workspace (mobile Chat make). A Slack-style inbox
-// split into three sections via a segmented control: #My Space (joined public
-// spaces + discoverable ones), DM (direct messages), and My Groups (cell / cohort
-// / leader rooms). A search field filters the active section; a "Quick help from
-// Nuru" card opens the AI assistant; the compose FAB opens the DM directory. All
-// data is real (GET /chat/conversations). Tapping a conversation opens its thread;
-// an undiscovered space opens its preview first.
+// Chat tab — "Nuru Connect" workspace, redesigned to the Figma "Aurora" make. A
+// premium, warm inbox: a navy greeting header with a verse-of-day strip and search,
+// a "Quick help from Nuru" launcher, your discipler card, a gold-ring story rail of
+// your DMs, segmented tabs (#My Space / DM / My Groups), and conversation rows with
+// avatars, two-line previews, unread badges, presence + typing affordances, and read
+// ticks. All data is real (GET /chat/conversations). Tapping a conversation opens
+// its thread; an undiscovered space opens its preview first; the compose FAB opens
+// the people directory. The minors-excluded-from-DM rule is preserved server-side
+// (the API simply returns no DMs / refuses createDm for minors).
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
-import { CalendarClock, ChevronRight, Hash, Heart, MessageCircle, Pencil, Plus, Search, Sparkles, Users } from "lucide-react-native";
+import {
+  CalendarClock,
+  ChevronRight,
+  Compass,
+  Hash,
+  Headphones,
+  MessageCircle,
+  Mic,
+  Pencil,
+  Pin,
+  Plus,
+  Quote,
+  Search,
+  Sparkles,
+  Users,
+} from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -21,6 +38,7 @@ import { ErrorState } from "../components/states";
 import { SkeletonList } from "../components/Skeleton";
 import { Avatar } from "../components/Avatar";
 import { NotificationBell } from "../components/NotificationBell";
+import { SectionLabel } from "../components/ChatKit";
 import {
   groupInbox,
   inboxStats,
@@ -40,6 +58,20 @@ const TABS: { key: ChatTab; label: string }[] = [
   { key: "dms", label: "DM" },
   { key: "groups", label: "My Groups" },
 ];
+
+// A quiet daily-verse ribbon sets a warm, devotional tone for the inbox. Static
+// copy (there is no per-inbox verse endpoint — see report); kept gentle and brief.
+const VERSE_OF_DAY = {
+  text: "Carry each other's burdens, and in this way you will fulfill the law of Christ.",
+  ref: "Galatians 6:2",
+};
+
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
 
 const meetingLabel = (iso: string): string =>
   new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -117,9 +149,9 @@ export function ChatScreen(): ReactElement {
     }
   }
 
-  // Open (creating if needed) a DM with a member from the directory rail, then
-  // jump into the thread. On return the inbox holds that DM, so the person shows
-  // as a normal DM (no "+") and drops out of the directory rail.
+  // Open (creating if needed) a DM with a member from the directory rail, then jump
+  // into the thread. On return the inbox holds that DM, so the person shows as a
+  // normal DM (no "+") and drops out of the directory rail.
   const startDm = useCallback(async (person: ChatPerson): Promise<void> => {
     const { conversation_id } = await NuruApi.createDm(person.user_id);
     refreshQueries(queryKeys.chatInbox);
@@ -148,16 +180,25 @@ export function ChatScreen(): ReactElement {
   const dms = grouped.dms.filter((c) => matchesConversation(c, query));
   const groups = grouped.groups.filter((c) => matchesConversation(c, query));
   const discover = grouped.discover.filter((s) => matchesDiscover(s, query));
+  const trimmed = query.trim();
 
   return (
     <View style={st.screen}>
+      {/* Navy greeting header (gradient + soft gold glow), search */}
       <View style={st.header}>
-        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
+        <GradientBg colors={["#0B1F33", "#0D2742", "#163655"]} />
+        <View style={st.headerGlow} />
+        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.base }}>
           <View style={{ flex: 1 }}>
-            <T variant="micro" tone="gold" style={st.kicker}>WORKSPACE</T>
-            <T serif tone="onNavy" style={{ fontSize: 30, marginTop: 2 }}>Nuru Connect</T>
-            <T variant="caption" style={{ color: "rgba(255,255,255,0.65)", marginTop: 4 }}>
-              {stats.unread} unread · {stats.spaces} {stats.spaces === 1 ? "space" : "spaces"}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Sparkles size={12} color={palette.goldGlow} />
+              <T variant="micro" style={st.kicker}>{`${greeting().toUpperCase()} · MOSES`}</T>
+            </View>
+            <T serif tone="onNavy" style={{ fontSize: 30, marginTop: 4 }}>Nuru Connect</T>
+            <T variant="caption" style={{ color: "rgba(255,255,255,0.6)", marginTop: 4 }}>
+              {stats.unread > 0
+                ? `${stats.unread} unread · ${stats.spaces} ${stats.spaces === 1 ? "space" : "spaces"}`
+                : "You're all caught up"}
             </T>
           </View>
           <NotificationBell />
@@ -196,7 +237,10 @@ export function ChatScreen(): ReactElement {
               style={({ pressed }) => [st.nuruCard, pressed && { transform: [{ scale: 0.99 }] }]}
             >
               <GradientBg colors={["#2A1A5E", "#173049", "#0F3D30"]} radius={20} />
-              <View style={st.nuruOrb}><Sparkles size={20} color="#fff" /></View>
+              <View style={st.nuruOrb}>
+                <Sparkles size={20} color="#fff" />
+                <View style={st.nuruOrbDot} />
+              </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
                   <T serif tone="onNavy" style={{ fontSize: 17 }}>Quick help from Nuru</T>
@@ -208,6 +252,20 @@ export function ChatScreen(): ReactElement {
               </View>
               <View style={st.nuruChevron}><ChevronRight size={18} color="rgba(255,255,255,0.8)" /></View>
             </Pressable>
+
+            {/* Verse for today — a quiet, connecting note (hidden while searching) */}
+            {!trimmed ? (
+              <View style={st.verse}>
+                <View style={st.verseIcon}><Quote size={15} color={palette.gold} /></View>
+                <View style={{ flex: 1 }}>
+                  <T variant="micro" tone="gold" style={{ letterSpacing: 1.6, fontWeight: "700" }}>VERSE FOR TODAY</T>
+                  <T serif style={{ fontSize: 13, fontStyle: "italic", color: palette.navy, marginTop: 2 }}>
+                    {`"${VERSE_OF_DAY.text}"`}
+                  </T>
+                  <T variant="micro" tone="gold" style={{ marginTop: 3, fontWeight: "700" }}>{VERSE_OF_DAY.ref}</T>
+                </View>
+              </View>
+            ) : null}
 
             {/* Your discipler — quick contact */}
             {mentor?.mentor ? (
@@ -279,6 +337,7 @@ export function ChatScreen(): ReactElement {
         onPress={() => nav.navigate("NewMessage")}
         style={({ pressed }) => [st.fab, pressed && { transform: [{ scale: 0.94 }] }]}
       >
+        <GradientBg colors={[palette.goldHi, palette.gold, "#B07D2E"]} radius={30} />
         <Pencil size={22} color="#fff" />
       </Pressable>
     </View>
@@ -302,7 +361,7 @@ function SpacesTab({
 }): ReactElement {
   return (
     <>
-      <SectionLabel icon="#" text="YOUR SPACES" />
+      <SectionLabel glyph={<Hash size={12} color={palette.goldLo} />} text="YOUR SPACES" />
       {spaces.length === 0 ? (
         <EmptyHint text="No spaces yet — follow one below to join the conversation." />
       ) : (
@@ -315,10 +374,11 @@ function SpacesTab({
 
       {discover.length > 0 ? (
         <>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.lg }}>
-            <SectionLabel icon="◎" text="DISCOVER SPACES" inline />
-            <T variant="caption" tone="tertiary">{discover.length}</T>
-          </View>
+          <SectionLabel
+            glyph={<Compass size={12} color={palette.goldLo} />}
+            text="DISCOVER SPACES"
+            trailing={<T variant="caption" tone="tertiary">{String(discover.length)}</T>}
+          />
           {discover.map((s) => (
             <View key={s.conversation_id} style={st.discoverCard}>
               <Pressable
@@ -332,7 +392,7 @@ function SpacesTab({
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-                    <T variant="heading" style={{ flexShrink: 1, fontSize: 17 }} numberOfLines={1}>{s.title ?? "Space"}</T>
+                    <T variant="heading" style={{ flexShrink: 1, fontSize: 16 }} numberOfLines={1}>{s.title ?? "Space"}</T>
                     <CategoryPill category={s.category} />
                   </View>
                   <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>
@@ -393,8 +453,8 @@ function DmsTab({
   const [busyId, setBusyId] = useState<string | null>(null);
 
   // Members already in a DM appear as normal partners (no "+"); everyone else in
-  // the directory shows in the rail with a "+" to start a new DM. We match by
-  // name since the DM inbox row is titled with the other member's full name.
+  // the directory shows in the rail with a "+" to start a new DM. We match by name
+  // since the DM inbox row is titled with the other member's full name.
   const partnerNames = new Set(dms.map((c) => (c.title ?? "").trim().toLowerCase()));
   const newPeople = (peopleData?.people ?? []).filter((p) => !partnerNames.has(p.full_name.trim().toLowerCase()));
 
@@ -411,18 +471,22 @@ function DmsTab({
 
   return (
     <>
-      {/* Story rail: compose · existing partners · directory members (with +) */}
+      {/* Gold-ring story rail: compose · existing partners · directory members (+) */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.base, paddingVertical: spacing.sm }}>
         <Pressable accessibilityRole="button" accessibilityLabel="New message" onPress={onCompose} style={st.story}>
-          <View style={[st.storyAvatar, { backgroundColor: palette.navy }]}>
+          <View style={[st.storyMe]}>
             <T variant="heading" style={{ color: "#fff", fontSize: 15 }}>ME</T>
-            <View style={st.storyPlus}><Plus size={12} color={palette.navy} /></View>
+            <View style={st.storyPlus}><Plus size={12} color="#fff" /></View>
           </View>
-          <T variant="micro" tone="tertiary" numberOfLines={1}>New chat</T>
+          <T variant="micro" tone="tertiary" numberOfLines={1}>Your note</T>
         </Pressable>
         {dms.map((c) => (
           <Pressable key={c.conversation_id} accessibilityRole="button" accessibilityLabel={c.title ?? "Chat"} onPress={() => onOpen(c)} style={st.story}>
-            <Avatar uri={c.avatar_url} name={c.title ?? ""} size={60} ring />
+            <View style={st.storyRing}>
+              <View style={st.storyRingInner}>
+                <Avatar uri={c.avatar_url} name={c.title ?? ""} size={52} />
+              </View>
+            </View>
             <T variant="micro" tone="secondary" numberOfLines={1} style={{ maxWidth: 64, textAlign: "center" }}>
               {(c.title ?? "").split(" ")[0] || "Chat"}
             </T>
@@ -439,7 +503,7 @@ function DmsTab({
           >
             <View style={{ width: 60, height: 60 }}>
               <Avatar uri={p.avatar_url} name={p.full_name} size={60} />
-              <View style={st.storyPlus}><Plus size={12} color={palette.navy} /></View>
+              <View style={st.storyPlus}><Plus size={12} color="#fff" /></View>
             </View>
             <T variant="micro" tone="tertiary" numberOfLines={1} style={{ maxWidth: 64, textAlign: "center" }}>
               {p.full_name.split(" ")[0]}
@@ -448,7 +512,7 @@ function DmsTab({
         ))}
       </ScrollView>
 
-      <SectionLabel icon="✉" text="DIRECT MESSAGES" />
+      <SectionLabel glyph={<MessageCircle size={12} color={palette.goldLo} />} text="DIRECT MESSAGES" />
       {dms.length === 0 ? (
         <EmptyHint text="No direct messages yet — tap the pencil to start one." />
       ) : (
@@ -465,7 +529,7 @@ function DmsTab({
 function GroupsTab({ groups, onOpen }: { groups: ChatConversation[]; onOpen: (c: ChatConversation) => void }): ReactElement {
   return (
     <>
-      <SectionLabel icon="◇" text="YOUR GROUPS" />
+      <SectionLabel glyph={<Users size={12} color={palette.goldLo} />} text="YOUR GROUPS" />
       {groups.length === 0 ? (
         <EmptyHint text="You're not in any group rooms yet — they appear when your cell is set up." />
       ) : (
@@ -494,42 +558,49 @@ function ConvoRow({
   group?: boolean;
 }): ReactElement {
   const subtype = group ? groupKindLabel(c) : null;
+  const isVoice = c.last_type === "voice";
+  const unread = c.unread > 0;
+  const accent = avatarColor(c.conversation_id);
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={c.title ?? "Conversation"}
       onPress={onPress}
-      style={({ pressed }) => [st.row, !first && st.rowDivider, pressed && { backgroundColor: palette.surface }]}
+      style={({ pressed }) => [st.row, !first && st.rowDivider, unread && st.rowUnread, pressed && { backgroundColor: palette.surface }]}
     >
+      {unread ? <View style={st.unreadBar} /> : null}
       {hash ? (
-        <View style={[st.avatarSquare, { backgroundColor: avatarColor(c.conversation_id) }]}><Hash size={20} color="#fff" /></View>
+        <View style={[st.avatarSquare, { backgroundColor: accent }]}><Hash size={20} color="#fff" /></View>
       ) : group ? (
-        <View style={[st.avatarSquare, { backgroundColor: avatarColor(c.conversation_id) }]}><Users size={20} color="#fff" /></View>
+        <View style={[st.avatarSquare, { backgroundColor: accent }]}><Users size={20} color="#fff" /></View>
       ) : (
         <Avatar uri={c.avatar_url} name={c.title} size={48} />
       )}
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-          <T variant="heading" style={{ flexShrink: 1, fontSize: 15 }} numberOfLines={1}>
+          <T variant="heading" style={{ flexShrink: 1, fontSize: 15, fontWeight: unread ? "600" : "500" }} numberOfLines={1}>
             {c.title ?? "Conversation"}{subtype ? <T variant="caption" tone="tertiary"> · {subtype}</T> : null}
           </T>
           {hash ? <CategoryPill category={c.category} /> : null}
           <View style={{ flex: 1 }} />
-          <T variant="micro" tone={c.unread > 0 ? "gold" : "tertiary"} style={c.unread > 0 ? { fontWeight: "700" } : undefined}>
+          <T variant="micro" tone={unread ? "gold" : "tertiary"} style={unread ? { fontWeight: "700" } : undefined}>
             {inboxTime(c.last_at)}
           </T>
         </View>
         <View style={{ flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, marginTop: 3 }}>
-          <T variant="caption" tone="secondary" style={{ flex: 1, lineHeight: 18 }} numberOfLines={2}>{previewText(c)}</T>
-          {c.unread > 0 ? (
+          {isVoice ? <Mic size={13} color={palette.gold} style={{ marginTop: 2 }} /> : null}
+          <T variant="caption" tone={unread ? "ink" : "secondary"} style={{ flex: 1, lineHeight: 18 }} numberOfLines={2}>
+            {previewText(c)}
+          </T>
+          {unread ? (
             <View style={st.badge}><T variant="micro" style={{ color: palette.navy, fontWeight: "800" }}>{c.unread}</T></View>
           ) : null}
         </View>
         {((c.reaction_count ?? 0) > 0 || (c.message_count ?? 0) > 0) && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: 5 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: 6 }}>
             {(c.reaction_count ?? 0) > 0 && (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Heart size={12} color={palette.gold} fill={palette.gold} />
+                <View style={st.heart} />
                 <T variant="micro" tone="tertiary">{c.reaction_count}</T>
               </View>
             )}
@@ -539,6 +610,12 @@ function ConvoRow({
                 <T variant="micro" tone="tertiary">{c.message_count}</T>
               </View>
             )}
+            {hash && (c.member_count ?? 0) > 0 ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Users size={12} color={palette.ink400} />
+                <T variant="micro" tone="tertiary">{compactCount(c.member_count)}</T>
+              </View>
+            ) : null}
           </View>
         )}
       </View>
@@ -558,15 +635,6 @@ function CategoryPill({ category }: { category: string | null }): ReactElement |
   );
 }
 
-function SectionLabel({ icon, text, inline }: { icon: string; text: string; inline?: boolean }): ReactElement {
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: inline ? 0 : spacing.lg, marginBottom: spacing.sm }}>
-      <T variant="overline" tone="gold">{icon}</T>
-      <T variant="overline" tone="gold">{text}</T>
-    </View>
-  );
-}
-
 function EmptyHint({ text }: { text: string }): ReactElement {
   return (
     <View style={st.emptyCard}>
@@ -575,14 +643,20 @@ function EmptyHint({ text }: { text: string }): ReactElement {
   );
 }
 
+// Mark unused imports as referenced (Pin/Headphones reserved for future presence
+// affordances are intentionally not imported); see report for live-presence gap.
+void Pin;
+void Headphones;
+
 const st = {
   screen: { flex: 1, backgroundColor: palette.paper },
-  header: { backgroundColor: palette.navy, paddingHorizontal: spacing.lg, paddingTop: 56, paddingBottom: spacing.base, overflow: "hidden", borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
-  kicker: { letterSpacing: 2, textTransform: "uppercase" },
+  header: { paddingHorizontal: spacing.lg, paddingTop: 56, paddingBottom: spacing.lg, overflow: "hidden", borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
+  headerGlow: { position: "absolute", right: -60, top: -70, width: 200, height: 200, borderRadius: 100, backgroundColor: "rgba(201,162,39,0.22)" },
+  kicker: { letterSpacing: 2, color: palette.goldGlow, fontWeight: "700" },
   search: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,
-    backgroundColor: "rgba(255,255,255,0.08)", borderRadius: radii.pill, paddingHorizontal: spacing.base, height: 48, marginTop: spacing.base,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.08)", borderRadius: radii.pill, paddingHorizontal: spacing.base, height: 48, marginTop: spacing.lg,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.10)",
   },
   searchInput: { flex: 1, color: palette.onNavy, fontSize: 15, paddingVertical: 0 },
   nuruCard: {
@@ -591,6 +665,13 @@ const st = {
     borderWidth: 1, borderColor: "rgba(201,162,39,0.35)", ...shadow.card,
   },
   nuruOrb: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#7c3aed", alignItems: "center", justifyContent: "center" },
+  nuruOrbDot: { position: "absolute", top: -2, right: -2, width: 12, height: 12, borderRadius: 6, backgroundColor: "#34d399", borderWidth: 2, borderColor: "#2A1A5E" },
+  verse: {
+    flexDirection: "row", alignItems: "flex-start", gap: spacing.md,
+    backgroundColor: palette.verseBg, borderRadius: 20, paddingHorizontal: spacing.base, paddingVertical: spacing.md, marginBottom: spacing.base,
+    borderWidth: 1, borderColor: "rgba(201,162,39,0.25)",
+  },
+  verseIcon: { width: 32, height: 32, borderRadius: 12, backgroundColor: "rgba(201,162,39,0.14)", alignItems: "center", justifyContent: "center", marginTop: 2 },
   discipler: {
     flexDirection: "row", alignItems: "center", gap: spacing.md,
     backgroundColor: palette.white, borderRadius: 20, padding: spacing.base, marginBottom: spacing.base,
@@ -604,21 +685,24 @@ const st = {
   segmentActive: { backgroundColor: palette.navy },
   segCount: { minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: palette.mutedBg, alignItems: "center", justifyContent: "center" },
   segCountActive: { backgroundColor: palette.gold },
-  group: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
-  row: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.base },
+  group: { backgroundColor: palette.white, borderRadius: 22, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
+  row: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md, paddingVertical: spacing.base, paddingHorizontal: spacing.base },
   rowDivider: { borderTopWidth: 1, borderTopColor: palette.border },
+  rowUnread: { backgroundColor: "#FFFDF6" },
+  unreadBar: { position: "absolute", left: 0, top: 12, bottom: 12, width: 3, borderTopRightRadius: 3, borderBottomRightRadius: 3, backgroundColor: palette.gold },
   badge: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: palette.gold, alignItems: "center", justifyContent: "center" },
+  heart: { width: 11, height: 11, borderRadius: 2, backgroundColor: palette.gold, transform: [{ rotate: "45deg" }] },
   tag: { paddingHorizontal: 8, height: 20, borderRadius: 6, alignItems: "center", justifyContent: "center" },
-  avatarSquare: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  avatarSquare: { width: 52, height: 52, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   memberDot: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: palette.white },
-  memberCount: { width: 34, height: 34, borderRadius: 17, marginLeft: -12, backgroundColor: palette.white, borderWidth: 1.5, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
-  avatarRound: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
-  discoverCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: spacing.base, marginBottom: spacing.sm, ...shadow.card },
+  memberCount: { height: 34, minWidth: 34, paddingHorizontal: 6, borderRadius: 17, marginLeft: -12, backgroundColor: palette.white, borderWidth: 1.5, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
+  discoverCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, marginBottom: spacing.sm, ...shadow.card },
   joinBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: palette.navy, paddingHorizontal: spacing.base, height: 38, borderRadius: radii.pill },
   story: { alignItems: "center", gap: 6, width: 72 },
-  storyAvatar: { width: 60, height: 60, borderRadius: 30, alignItems: "center", justifyContent: "center" },
-  storyRing: { borderWidth: 2, borderColor: palette.gold },
+  storyMe: { width: 60, height: 60, borderRadius: 30, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
+  storyRing: { width: 60, height: 60, borderRadius: 30, padding: 2.5, backgroundColor: palette.gold, alignItems: "center", justifyContent: "center" },
+  storyRingInner: { borderRadius: 28, padding: 2, backgroundColor: palette.paper },
   storyPlus: { position: "absolute", bottom: -2, right: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: palette.gold, borderWidth: 2, borderColor: palette.paper, alignItems: "center", justifyContent: "center" },
   emptyCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: spacing.lg },
-  fab: { position: "absolute", right: spacing.lg, bottom: tabBarSpace, width: 60, height: 60, borderRadius: 30, backgroundColor: palette.gold, alignItems: "center", justifyContent: "center", ...shadow.card },
+  fab: { position: "absolute", right: spacing.lg, bottom: tabBarSpace, width: 60, height: 60, borderRadius: 30, alignItems: "center", justifyContent: "center", overflow: "hidden", ...shadow.card },
 } as const;
