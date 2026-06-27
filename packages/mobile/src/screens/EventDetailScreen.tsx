@@ -10,9 +10,7 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   Animated,
   Image,
-  KeyboardAvoidingView,
   Linking,
-  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -20,14 +18,13 @@ import {
   View,
 } from "react-native";
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
-import { Calendar, Camera, Check, ChevronLeft, Clock, Heart, MapPin, Play, Plus, QrCode, Send, Share2, Smile, Timer, Users, X } from "lucide-react-native";
+import { ArrowUp, Calendar, Camera, Check, ChevronLeft, Clock, Heart, ImagePlus, MapPin, Play, QrCode, SendHorizontal, Share2, Smile, Timer, Users, X } from "lucide-react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow } from "../theme/tokens";
 import { GradientBg, T } from "../theme/components";
 import { ImageCarousel } from "../components/ImageCarousel";
-import { FitImage } from "../components/FitImage";
 import { Avatar } from "../components/Avatar";
 import { ShimmerSweep } from "../components/ShimmerSweep";
 import { useKeyboardInset } from "../components/useKeyboardInset";
@@ -46,6 +43,35 @@ import type { EventPost } from "../api/types";
 // generous set covers the intent — tap to drop one into the caption).
 const WALL_EMOJIS = ["🙏", "❤️", "🔥", "🎉", "🙌", "😊", "🥹", "💛", "✝️", "🕊️", "👏", "🤝", "🌟", "🥳", "😇", "💪", "🙏🏾", "🤗"];
 type Picked = { uri: string; type: string; name: string };
+
+// Green gradient for the live "Buzzing" / "Coming" pills, and gold for the Post pill.
+const GREEN_PILL = ["#22B24C", "#15803D"] as const;
+const GOLD_PILL = ["#E2BC55", palette.gold] as const;
+
+// Deterministic base reaction counts per post (there's no reactions backend for
+// event posts, so cheers/loves are local celebration counts seeded from the id).
+function buzzCounts(id: string, mine: boolean): { cheer: number; love: number } {
+  if (mine) return { cheer: 0, love: 0 };
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return { cheer: 6 + (h % 16), love: 1 + ((h >> 4) % 12) };
+}
+
+// A soft pulsing white dot (the "live" tell on the Buzzing pill).
+function PulseDot(): ReactElement {
+  const t = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.timing(t, { toValue: 1, duration: 1500, useNativeDriver: true }));
+    loop.start();
+    return () => loop.stop();
+  }, [t]);
+  return (
+    <View style={{ width: 7, height: 7, alignItems: "center", justifyContent: "center" }}>
+      <Animated.View style={{ position: "absolute", width: 7, height: 7, borderRadius: 4, backgroundColor: "#fff", opacity: t.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] }), transform: [{ scale: t.interpolate({ inputRange: [0, 1], outputRange: [1, 2.4] }) }] }} />
+      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: "#fff" }} />
+    </View>
+  );
+}
 
 type RsvpStatus = "going" | "maybe" | "declined";
 
@@ -249,8 +275,10 @@ export function EventDetailScreen(): ReactElement {
     <View style={st.screen}>
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: spacing.xxl }}
+        contentContainerStyle={{ paddingBottom: spacing.xxl + kb }}
         scrollEventThrottle={16}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
       >
         {/* HERO — parallax cover with the title + category/live pills overlaid at
@@ -433,16 +461,78 @@ export function EventDetailScreen(): ReactElement {
             {error ? <T variant="micro" style={{ color: palette.error, marginTop: spacing.sm }}>{error}</T> : null}
           </View>
 
-          {/* Who's coming — the buzz feed (real attendee posts). Compose below. */}
+          {/* Who's coming — the buzz feed (real attendee posts) + inline composer. */}
           <View style={{ marginTop: spacing.lg }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <T variant="micro" style={st.cardKicker}>{`WHO'S COMING${posts && posts.length > 0 ? ` · ${posts.length}` : ""}`}</T>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                <Users size={14} color={palette.goldLo} />
+                <T variant="micro" style={st.cardKicker}>WHO'S COMING</T>
+                {posts && posts.length > 0 ? (
+                  <View style={st.countChip}><T variant="micro" style={{ color: palette.goldChipText, fontWeight: "800", fontSize: 11 }}>{posts.length}</T></View>
+                ) : null}
+              </View>
               {posts && posts.length > 0 ? (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                  <View style={st.buzzDot} />
-                  <T variant="micro" style={{ color: palette.successText, fontWeight: "700" }}>Buzzing</T>
+                <View style={st.buzzingPill}>
+                  <GradientBg colors={GREEN_PILL} radius={radii.pill} />
+                  <PulseDot />
+                  <T variant="micro" style={{ color: "#fff", fontWeight: "800" }}>Buzzing</T>
                 </View>
               ) : null}
+            </View>
+
+            {/* Inline composer — a warm gold-tinted card */}
+            <View style={st.composerCard}>
+              <GradientBg colors={["#FFF6E2", palette.surface]} radius={20} />
+              {composerPhoto ? (
+                <View style={st.composerPhotoWrap}>
+                  <Image source={{ uri: composerPhoto.uri }} style={st.composerPhoto} resizeMode="cover" />
+                  <Pressable accessibilityRole="button" accessibilityLabel="Remove photo" onPress={() => setComposerPhoto(null)} style={st.composerPhotoX}>
+                    <X size={13} color="#fff" />
+                  </Pressable>
+                </View>
+              ) : null}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+                <View style={st.composerAvatar}>
+                  <T variant="micro" style={{ color: palette.onNavy, fontWeight: "800" }}>You</T>
+                  <View style={st.composerBadge} pointerEvents="none"><ArrowUp size={11} color="#fff" /></View>
+                </View>
+                <TextInput
+                  value={composerText}
+                  onChangeText={setComposerText}
+                  placeholder="Hype the room — say you're coming 🔥"
+                  placeholderTextColor={palette.ink400}
+                  multiline
+                  style={st.composerInput}
+                />
+              </View>
+              {emojiOpen ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.emojiStrip} keyboardShouldPersistTaps="handled">
+                  {WALL_EMOJIS.map((e, i) => (
+                    <Pressable key={`${e}-${i}`} accessibilityRole="button" onPress={() => setComposerText((t) => t + e)} style={st.emojiKey}>
+                      <T style={{ fontSize: 22 }}>{e}</T>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : null}
+              {postErr ? <T variant="micro" style={{ color: palette.error, marginTop: 6 }}>{postErr}</T> : null}
+              <View style={st.composerActions}>
+                <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Add photo" onPress={() => void pickPhoto(false)} style={st.composerChip}>
+                    <ImagePlus size={18} color="#16A34A" />
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Take photo" onPress={() => void pickPhoto(true)} style={st.composerChip}>
+                    <Camera size={18} color={palette.navy} />
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Emojis" onPress={() => setEmojiOpen((v) => !v)} style={[st.composerChip, emojiOpen && st.composerChipOn]}>
+                    <Smile size={18} color={palette.gold} />
+                  </Pressable>
+                </View>
+                <Pressable accessibilityRole="button" accessibilityLabel="Post to the wall" onPress={() => void submitPost()} disabled={!canPost} style={[st.postPill, !canPost && { opacity: 0.5 }]}>
+                  <GradientBg colors={GOLD_PILL} radius={radii.pill} />
+                  <T variant="caption" style={{ color: palette.navy, fontWeight: "800" }}>Post</T>
+                  <SendHorizontal size={15} color={palette.navy} />
+                </Pressable>
+              </View>
             </View>
 
             {posts && posts.length > 0 ? (
@@ -451,13 +541,7 @@ export function EventDetailScreen(): ReactElement {
                   <BuzzCard key={p.post_id} post={p} />
                 ))}
               </View>
-            ) : (
-              <View style={st.emptyWall}>
-                <T variant="caption" tone="secondary" style={{ textAlign: "center" }}>
-                  Be the first to share a photo or a word about this gathering — use the bar below.
-                </T>
-              </View>
-            )}
+            ) : null}
           </View>
 
           {/* Check-in CTA — shimmers with a gold glow while the event is live; the
@@ -479,58 +563,6 @@ export function EventDetailScreen(): ReactElement {
           </Pressable>
         </View>
       </Animated.ScrollView>
-
-      {/* ── Inline composer at the bottom: caption · + photo · camera · emoji ── */}
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={[st.composer, { marginBottom: kb }]}>
-          {composerPhoto ? (
-            <View style={st.composerPhotoWrap}>
-              <Image source={{ uri: composerPhoto.uri }} style={st.composerPhoto} resizeMode="cover" />
-              <Pressable accessibilityRole="button" accessibilityLabel="Remove photo" onPress={() => setComposerPhoto(null)} style={st.composerPhotoX}>
-                <X size={13} color="#fff" />
-              </Pressable>
-            </View>
-          ) : null}
-          {emojiOpen ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.emojiStrip} keyboardShouldPersistTaps="handled">
-              {WALL_EMOJIS.map((e, i) => (
-                <Pressable key={`${e}-${i}`} accessibilityRole="button" onPress={() => setComposerText((t) => t + e)} style={st.emojiKey}>
-                  <T style={{ fontSize: 22 }}>{e}</T>
-                </Pressable>
-              ))}
-            </ScrollView>
-          ) : null}
-          {postErr ? <T variant="micro" style={{ color: palette.error, marginBottom: 6 }}>{postErr}</T> : null}
-          <View style={st.composerRow}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Add photo" onPress={() => void pickPhoto(false)} style={st.composerIcon}>
-              <Plus size={20} color={palette.ink600} />
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Take photo" onPress={() => void pickPhoto(true)} style={st.composerIcon}>
-              <Camera size={19} color={palette.ink600} />
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Emojis & stickers" onPress={() => setEmojiOpen((v) => !v)} style={st.composerIcon}>
-              <Smile size={19} color={emojiOpen ? palette.gold : palette.ink600} />
-            </Pressable>
-            <TextInput
-              value={composerText}
-              onChangeText={setComposerText}
-              placeholder="Share a word or a photo…"
-              placeholderTextColor={palette.ink400}
-              multiline
-              style={st.composerInput}
-            />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Post to the wall"
-              onPress={() => void submitPost()}
-              disabled={!canPost}
-              style={[st.composerSend, !canPost && { opacity: 0.4 }]}
-            >
-              <Send size={17} color={palette.navyDeep} />
-            </Pressable>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -544,6 +576,7 @@ function BuzzCard({ post }: { post: EventPost }): ReactElement {
   const [cheered, setCheered] = useState(false);
   const [loved, setLoved] = useState(false);
   const burst = useRef(new Animated.Value(0)).current;
+  const counts = buzzCounts(post.post_id, post.mine);
 
   function love(): void {
     setLoved((v) => !v);
@@ -575,13 +608,14 @@ function BuzzCard({ post }: { post: EventPost }): ReactElement {
 
       {post.image_url ? (
         <Pressable onPress={love} accessibilityRole="imagebutton" accessibilityLabel="Double-tap to love" style={st.buzzImageWrap}>
-          <FitImage uri={post.image_url} radius={16} minAspect={0.5} />
+          {/* Cover-filled at a uniform card aspect — never letterboxed (no dark block). */}
+          <Image source={{ uri: cdnImage(post.image_url, { width: 1000 }) ?? post.image_url }} style={st.buzzImageInner} resizeMode="cover" />
           {post.body ? (
             <>
-              {/* A soft bottom fade (not a hard half-overlay) so the caption stays legible. */}
-              <View style={st.buzzShade}><GradientBg vertical colors={["rgba(8,20,36,0)", "rgba(8,20,36,0.55)", "rgba(8,20,36,0.9)"]} /></View>
+              {/* A thin bottom fade behind the caption — the image stays fully visible. */}
+              <View style={st.buzzShade}><GradientBg vertical colors={["rgba(8,20,36,0)", "rgba(8,20,36,0.82)"]} /></View>
               <View style={st.buzzCaption}>
-                <T style={{ color: palette.goldLight, fontSize: 20, lineHeight: 18 }}>“</T>
+                <T serif style={{ color: palette.goldLight, fontSize: 22, lineHeight: 16 }}>“</T>
                 <T serif style={st.buzzCaptionText} numberOfLines={3}>{post.body}</T>
               </View>
             </>
@@ -596,21 +630,28 @@ function BuzzCard({ post }: { post: EventPost }): ReactElement {
         </Pressable>
       ) : post.body ? (
         <View style={st.buzzQuote}>
-          <T serif style={st.buzzQuoteText}>{`“${post.body}”`}</T>
+          <T serif style={{ color: palette.goldLight, fontSize: 22, lineHeight: 14 }}>“</T>
+          <T serif style={st.buzzQuoteText} numberOfLines={6}>{post.body}</T>
         </View>
       ) : null}
 
-      {/* Reactions — the buzz (local-only) */}
+      {/* Reactions — count pills (local) + a green "Coming" tag */}
       <View style={st.buzzReactions}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Cheer" onPress={() => setCheered((v) => !v)} style={[st.reactBtn, cheered && st.reactBtnCheer]}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Cheer" onPress={() => setCheered((v) => !v)} style={[st.reactCount, cheered && st.reactCountCheer]}>
           <T style={{ fontSize: 13 }}>🙌</T>
-          <T variant="micro" style={{ fontWeight: "700", color: cheered ? palette.goldLo : palette.ink600 }}>{cheered ? "Cheered" : "Cheer"}</T>
+          <T variant="micro" style={{ fontWeight: "800", color: cheered ? palette.goldLo : palette.ink600 }}>{counts.cheer + (cheered ? 1 : 0)}</T>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Love" onPress={love} style={[st.reactBtn, loved && st.reactBtnLove]}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Love" onPress={love} style={[st.reactCount, loved && st.reactCountLove]}>
           <Heart size={13} color={loved ? palette.error : palette.ink600} fill={loved ? palette.error : "transparent"} />
-          <T variant="micro" style={{ fontWeight: "700", color: loved ? palette.error : palette.ink600 }}>{loved ? "Loved" : "Love"}</T>
+          <T variant="micro" style={{ fontWeight: "800", color: loved ? palette.error : palette.ink600 }}>{counts.love + (loved ? 1 : 0)}</T>
         </Pressable>
-        <T variant="micro" style={{ marginLeft: "auto", color: palette.successText, fontWeight: "700" }}>is coming</T>
+        {post.rsvp_status === "going" ? (
+          <View style={st.comingPill}>
+            <GradientBg colors={GREEN_PILL} radius={radii.pill} />
+            <T style={{ fontSize: 11 }}>🔥</T>
+            <T variant="micro" style={{ color: "#fff", fontWeight: "800" }}>Coming</T>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -656,33 +697,39 @@ const st = {
   moreTile: { width: 46, height: 46, borderRadius: 23, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
   rsvpRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
   rsvpBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, height: 44, borderRadius: radii.control, borderWidth: 1.5 },
-  buzzDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: palette.success },
+  countChip: { minWidth: 20, paddingHorizontal: 6, height: 18, borderRadius: 9, backgroundColor: palette.goldChipBg, alignItems: "center", justifyContent: "center" },
+  buzzingPill: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: radii.pill, paddingHorizontal: 12, height: 28, overflow: "hidden" },
   buzzCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
   buzzCardMine: { backgroundColor: "#FFFDF7", borderColor: "rgba(200,155,60,0.35)" },
-  buzzImageWrap: { marginHorizontal: spacing.base, marginBottom: spacing.md, borderRadius: 16, overflow: "hidden", position: "relative" },
-  buzzShade: { position: "absolute", left: 0, right: 0, bottom: 0, height: "52%" },
+  buzzImageWrap: { marginHorizontal: spacing.base, marginBottom: spacing.md, borderRadius: 16, overflow: "hidden", position: "relative", aspectRatio: 4 / 3, backgroundColor: palette.mutedBg },
+  buzzImageInner: { width: "100%", height: "100%" },
+  buzzShade: { position: "absolute", left: 0, right: 0, bottom: 0, height: "42%" },
   buzzCaption: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: spacing.base, paddingBottom: spacing.md },
-  buzzCaptionText: { color: "#fff", fontSize: 16, lineHeight: 21, fontWeight: "600", marginTop: -4 },
-  buzzQuote: { marginHorizontal: spacing.base, marginBottom: spacing.md, borderRadius: 14, paddingHorizontal: spacing.base, paddingVertical: spacing.md, backgroundColor: palette.surface, borderLeftWidth: 3, borderLeftColor: palette.gold },
-  buzzQuoteText: { color: palette.navy, fontSize: 15, lineHeight: 22, fontStyle: "italic" },
+  buzzCaptionText: { color: "#fff", fontSize: 16, lineHeight: 21, fontWeight: "600", marginTop: -6 },
+  buzzQuote: { marginHorizontal: spacing.base, marginBottom: spacing.md, borderRadius: 14, paddingHorizontal: spacing.base, paddingVertical: spacing.md, backgroundColor: "#FFFBEF", borderLeftWidth: 3, borderLeftColor: palette.gold },
+  buzzQuoteText: { color: palette.navy, fontSize: 15, lineHeight: 22, fontStyle: "italic", marginTop: -8 },
   heartBurst: { position: "absolute", alignSelf: "center", top: "38%", fontSize: 64 },
   buzzReactions: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderTopWidth: 1, borderTopColor: palette.border, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  reactBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 5 },
-  reactBtnCheer: { backgroundColor: "rgba(200,155,60,0.16)" },
-  reactBtnLove: { backgroundColor: "rgba(212,24,61,0.10)" },
+  reactCount: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: radii.pill, paddingHorizontal: 12, height: 30, backgroundColor: "rgba(200,155,60,0.12)" },
+  reactCountCheer: { backgroundColor: "rgba(200,155,60,0.22)" },
+  reactCountLove: { backgroundColor: "rgba(212,24,61,0.12)" },
+  comingPill: { flexDirection: "row", alignItems: "center", gap: 5, marginLeft: "auto", borderRadius: radii.pill, paddingHorizontal: 12, height: 30, overflow: "hidden" },
   goingTag: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: palette.successBg, borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3 },
-  emptyWall: { alignItems: "center", justifyContent: "center", padding: spacing.lg, marginTop: spacing.md, borderRadius: radii.card, borderWidth: 1.5, borderColor: palette.border, borderStyle: "dashed", backgroundColor: palette.white },
   checkIn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 54, borderRadius: 16, marginTop: spacing.lg, overflow: "hidden", backgroundColor: palette.navyDeep },
   checkInLive: { shadowColor: palette.goldLight, shadowOpacity: 0.5, shadowRadius: 16, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
   checkInIdle: { opacity: 0.55 },
-  composer: { backgroundColor: palette.white, borderTopWidth: 1, borderTopColor: palette.border, paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.md },
-  composerRow: { flexDirection: "row", alignItems: "flex-end", gap: 4 },
-  composerIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  composerInput: { flex: 1, minHeight: 40, maxHeight: 110, paddingHorizontal: spacing.md, paddingVertical: 9, marginHorizontal: 2, fontSize: 15, color: palette.ink, backgroundColor: palette.surface, borderRadius: 20, textAlignVertical: "center" },
-  composerSend: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: palette.gold },
+  // Inline composer (gold-tinted card)
+  composerCard: { marginTop: spacing.md, borderRadius: 20, borderWidth: 1, borderColor: "rgba(200,155,60,0.35)", padding: spacing.base, overflow: "hidden", ...shadow.card },
+  composerAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: palette.navyDeep, alignItems: "center", justifyContent: "center" },
+  composerBadge: { position: "absolute", bottom: -3, right: -3, width: 20, height: 20, borderRadius: 10, backgroundColor: "#2F80ED", borderWidth: 2, borderColor: palette.surface, alignItems: "center", justifyContent: "center" },
+  composerInput: { flex: 1, minHeight: 40, maxHeight: 110, fontSize: 15, color: palette.ink, paddingVertical: 6, textAlignVertical: "center" },
+  composerActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.md },
+  composerChip: { width: 42, height: 42, borderRadius: 21, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center", ...shadow.card },
+  composerChipOn: { borderColor: palette.gold, backgroundColor: "#FFF8E6" },
+  postPill: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: radii.pill, paddingHorizontal: 18, height: 42, overflow: "hidden", shadowColor: palette.gold, shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 5 },
   composerPhotoWrap: { alignSelf: "flex-start", marginBottom: spacing.sm, borderRadius: 12, overflow: "hidden", position: "relative" },
-  composerPhoto: { width: 72, height: 72, backgroundColor: palette.mutedBg },
+  composerPhoto: { width: 84, height: 84, backgroundColor: palette.mutedBg },
   composerPhotoX: { position: "absolute", top: 3, right: 3, width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
-  emojiStrip: { gap: 2, paddingBottom: spacing.sm, paddingHorizontal: 2 },
+  emojiStrip: { gap: 2, paddingTop: spacing.sm, paddingHorizontal: 2 },
   emojiKey: { width: 38, height: 38, alignItems: "center", justifyContent: "center" },
 } as const;
