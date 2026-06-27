@@ -927,6 +927,14 @@ export interface RsvpRoster {
 
 // Series row returned by pause/resume (calendar service, PR #127). Only the fields
 // the Events page reads are typed; the row carries more.
+export interface MomentRow {
+  moment_id: string;
+  image_url: string;
+  caption: string | null;
+  tag: string | null;
+  created_at: string;
+}
+
 export interface EventSeriesRow {
   series_id: string;
   title: string;
@@ -1023,9 +1031,14 @@ export const OpsApi = {
     api.post(`/admin/events/${eventId}/guests`, body).then((r) => r.data),
   // Signed image upload for events/announcements. Bytes go direct to Cloudinary
   // (see uploadToCloudinary), never our server.
-  signAdminImage: (folder: "events" | "announcements" | "disciplers") =>
+  signAdminImage: (folder: "events" | "announcements" | "disciplers" | "moments") =>
     api.post<CloudinarySignResult>("/admin/media/images/sign", { folder }).then((r) => r.data),
   createSeries: (body: Record<string, unknown>) => api.post("/admin/events/series", body).then((r) => r.data),
+  // Community "Moments" — the curated photo gallery surfaced on the mobile Events tab.
+  moments: () => api.get<{ data: MomentRow[] }>("/moments").then((r) => r.data.data),
+  createMoment: (body: { image_url: string; caption?: string; tag?: string }) =>
+    api.post<MomentRow>("/admin/moments", body).then((r) => r.data),
+  deleteMoment: (momentId: string) => api.delete(`/admin/moments/${momentId}`).then((r) => r.data),
   updateSeries: (seriesId: string, body: Record<string, unknown>) =>
     api.put(`/admin/events/series/${seriesId}`, body).then((r) => r.data),
   deleteSeries: (seriesId: string) =>

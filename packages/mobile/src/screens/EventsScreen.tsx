@@ -10,24 +10,25 @@
 // the tab for a cleaner feel. Decorative make elements with no data source (Moments
 // gallery, "We missed you") are omitted.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { Animated, Easing, Image, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
+import { Animated, Easing, Image, Modal, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import {
-  CalendarDays, Check, ChevronRight, Clock, Heart, MapPin, Megaphone, Play, Plus, QrCode, Search, Sparkles, Users,
+  CalendarDays, Check, ChevronRight, Clock, Heart, MapPin, Megaphone, Play, Plus, QrCode, Search, Sparkles, Users, X,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
-import type { CalendarOccurrence, EventSeries, MyAnnouncement } from "../api/types";
+import type { CalendarOccurrence, EventSeries, Moment, MyAnnouncement } from "../api/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { cdnImage } from "../util/cdnImage";
 import { GradientBg, T } from "../theme/components";
-import { useCalendar, useCellSummary, useEventSeries, useFeaturedEvent, useMyAnnouncements, useMyRsvps, queryKeys } from "../api/hooks";
+import { useCalendar, useCellSummary, useEventSeries, useFeaturedEvent, useMoments, useMyAnnouncements, useMyRsvps, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries, refreshQueries } from "../api/query";
 import { Loading } from "../components/states";
 import { NotificationBell } from "../components/NotificationBell";
 import { Avatar } from "../components/Avatar";
 import { ShimmerSweep } from "../components/ShimmerSweep";
+import { FitImage } from "../components/FitImage";
 import {
   sameDay, isLive, weekStrip, monthLabel, todayLabel, timeRange, countdown,
   matchesCategory, matchesSearch, categoryColor, timeAgo, EVENT_CATEGORIES,
@@ -80,6 +81,9 @@ export function EventsScreen(): ReactElement {
   // The admin-featured event (set from the web portal). It anchors the top hero —
   // shown whether or not it's live; a live featured event still gets the LIVE badge.
   const { data: featured, refetch: refetchFeatured } = useFeaturedEvent();
+  // Community "Moments" — a curated photo gallery the pastoral team posts from the
+  // web portal (the Figma Moments carousel).
+  const { data: moments, refetch: refetchMoments } = useMoments();
 
   const [segment, setSegment] = useState<Segment>("today");
   const [selectedDay, setSelectedDay] = useState<number>(() => startOfDay(now));
@@ -90,15 +94,16 @@ export function EventsScreen(): ReactElement {
   // Save ♥ is local-only UI state: there is no save/bookmark-event API on NuruApi
   // (only saveVerse). Kept optimistic in-memory so the heart toggles per session.
   const [saved, setSaved] = useState<Record<string, boolean>>({});
+  const [viewMoment, setViewMoment] = useState<Moment | null>(null);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refetch(), refetchRsvps(), refetchAnnouncements(), refetchSeries(), refetchCell(), refetchFeatured()]);
+      await Promise.all([refetch(), refetchRsvps(), refetchAnnouncements(), refetchSeries(), refetchCell(), refetchFeatured(), refetchMoments()]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetch, refetchRsvps, refetchAnnouncements, refetchSeries, refetchCell, refetchFeatured]);
+  }, [refetch, refetchRsvps, refetchAnnouncements, refetchSeries, refetchCell, refetchFeatured, refetchMoments]);
 
   const all = occurrences ?? [];
   const today = new Date(now);
@@ -531,8 +536,56 @@ export function EventsScreen(): ReactElement {
               </Pressable>
             </View>
           ) : null}
+
+          {/* Moments — a curated photo gallery posted from the web portal */}
+          {(moments ?? []).length > 0 ? (
+            <View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 2, marginBottom: spacing.sm }}>
+                <Sparkles size={13} color={palette.goldLo} />
+                <T variant="overline" tone="gold" style={{ fontSize: 10 }}>MOMENTS</T>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.md, paddingHorizontal: 2 }}>
+                {(moments ?? []).map((m) => (
+                  <Pressable
+                    key={m.moment_id}
+                    accessibilityRole="imagebutton"
+                    accessibilityLabel={m.caption ?? "Moment"}
+                    onPress={() => setViewMoment(m)}
+                    style={({ pressed }) => [st.momentCard, pressed && { transform: [{ scale: 0.98 }] }]}
+                  >
+                    <Image source={{ uri: cdnImage(m.image_url, { width: 400 }) }} style={st.momentImg} resizeMode="cover" />
+                    <View style={st.momentShade}><GradientBg vertical colors={["rgba(11,31,51,0)", "rgba(11,31,51,0.82)"]} /></View>
+                    <View style={st.momentCaption}>
+                      {m.tag ? <T variant="micro" style={{ color: "rgba(255,255,255,0.85)", fontWeight: "700", letterSpacing: 1, fontSize: 8 }} numberOfLines={1}>{m.tag.toUpperCase()}</T> : null}
+                      {m.caption ? <T variant="caption" style={{ color: "#fff", fontWeight: "600", fontSize: 11, marginTop: 1 }} numberOfLines={2}>{m.caption}</T> : null}
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
         </View>
       </ScrollView>
+
+      {/* Moment viewer — full image (grows to fit, never cropped) + caption */}
+      <Modal visible={!!viewMoment} transparent animationType="fade" onRequestClose={() => setViewMoment(null)}>
+        <Pressable style={st.viewerBackdrop} onPress={() => setViewMoment(null)}>
+          {viewMoment ? (
+            <View style={st.viewerBody}>
+              <FitImage uri={viewMoment.image_url} radius={20} maxHeight={520} minAspect={0.4} background="transparent" />
+              {viewMoment.tag || viewMoment.caption ? (
+                <View style={{ marginTop: spacing.md, alignItems: "center" }}>
+                  {viewMoment.tag ? <T variant="overline" tone="gold" style={{ fontSize: 10 }}>{viewMoment.tag.toUpperCase()}</T> : null}
+                  {viewMoment.caption ? <T serif tone="onNavy" style={{ fontSize: 16, textAlign: "center", marginTop: 4 }}>{viewMoment.caption}</T> : null}
+                </View>
+              ) : null}
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setViewMoment(null)} style={st.viewerClose}>
+                <X size={18} color="#fff" />
+              </Pressable>
+            </View>
+          ) : null}
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -667,6 +720,14 @@ const st = {
   weekCard: { backgroundColor: palette.white, borderRadius: 22, borderWidth: 1, borderColor: palette.border, padding: spacing.md, ...shadow.card },
   dayTile: { width: 44, paddingVertical: 8, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   dayDot: { width: 5, height: 5, borderRadius: 3, marginTop: 5 },
+  // Moments
+  momentCard: { width: 168, aspectRatio: 4 / 5, borderRadius: 18, overflow: "hidden", backgroundColor: palette.navy, borderWidth: 1, borderColor: palette.border },
+  momentImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  momentShade: { position: "absolute", left: 0, right: 0, bottom: 0, height: "55%", backgroundColor: "rgba(11,31,51,0.55)" },
+  momentCaption: { position: "absolute", left: 0, right: 0, bottom: 0, padding: 10 },
+  viewerBackdrop: { flex: 1, backgroundColor: "rgba(8,20,36,0.92)", alignItems: "center", justifyContent: "center", padding: spacing.lg },
+  viewerBody: { width: "100%", maxWidth: 480, alignItems: "center" },
+  viewerClose: { marginTop: spacing.lg, width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.14)", alignItems: "center", justifyContent: "center" },
   // Calendar card
   calCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderRadius: 22, overflow: "hidden", padding: spacing.base, backgroundColor: palette.navy, ...shadow.card },
   calGlow: { position: "absolute", top: -48, right: -40, width: 144, height: 144, borderRadius: 72, backgroundColor: "rgba(201,162,39,0.20)" },

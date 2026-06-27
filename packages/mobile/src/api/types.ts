@@ -541,6 +541,16 @@ export interface AnnouncementDetail {
 }
 
 // Homepage-featured items for the mobile Home screen (null when none).
+// A community "Moment" — a curated event photo (Figma Moments carousel), posted by
+// leaders from the web portal.
+export interface Moment {
+  moment_id: string;
+  image_url: string;
+  caption: string | null;
+  tag: string | null;
+  created_at: string;
+}
+
 export interface FeaturedEvent {
   series_id: string;
   title: string;

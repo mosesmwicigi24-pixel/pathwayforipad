@@ -1950,6 +1950,31 @@ paths:
       responses:
         "200": { description: Featured event or null }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /moments:
+    get:
+      tags: [calendar]
+      summary: Member. The congregation's community "Moments" — a curated photo gallery (newest first).
+      responses:
+        "200": { description: Moments list }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/moments:
+    post:
+      tags: [calendar]
+      summary: Leader+. Post a community Moment (image_url + optional caption/tag).
+      responses:
+        "201": { description: Created }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/moments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    delete:
+      tags: [calendar]
+      summary: Leader+. Remove a community Moment (soft delete; congregation-scoped).
+      responses:
+        "200": { description: Deleted }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/announcements/{id}/homepage:
     parameters:
       - $ref: "#/components/parameters/IdPath"

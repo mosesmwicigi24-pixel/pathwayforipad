@@ -41,6 +41,7 @@ import type {
   RhythmToday,
   AnnouncementDetail,
   FeaturedEvent,
+  Moment,
   FeaturedAnnouncement,
   LevelModule,
   LevelEncouragement,
@@ -98,6 +99,7 @@ export const queryKeys = {
   featuredCell: "featuredCell",
   rhythmToday: "rhythmToday",
   featuredEvent: "featuredEvent",
+  moments: "moments",
   featuredAnnouncement: "featuredAnnouncement",
   disciplers: "disciplers",
   wordScore: "wordScore",
@@ -305,6 +307,9 @@ export function usePlan(planId: string | null): QueryResult<ReadingPlanDetail> {
 }
 export function useResources(): QueryResult<ResourceRow[]> {
   return useQuery(queryKeys.resources, () => NuruApi.resources(), { staleMs: 5 * 60_000 });
+}
+export function useMoments(): QueryResult<Moment[]> {
+  return useQuery(queryKeys.moments, () => NuruApi.moments(), { staleMs: 5 * 60_000 });
 }
 export function useMentor(): QueryResult<MentorInfo> {
   return useQuery(queryKeys.mentor, () => NuruApi.mentor(), { staleMs: 60_000 });

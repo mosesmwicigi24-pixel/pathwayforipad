@@ -152,7 +152,7 @@ export function registerMedia(ctx: AppContext): Router {
     auth, requireRole("Instructor"),
     handler(async (req, res) => {
       const { folder } = parseBody(
-        z.object({ folder: z.enum(["events", "announcements", "videos", "disciplers"]).default("events") }),
+        z.object({ folder: z.enum(["events", "announcements", "videos", "disciplers", "moments"]).default("events") }),
         req.body ?? {},
       );
       res.status(201).json(media.signUpload({ folder: `nuru/${folder}` }));

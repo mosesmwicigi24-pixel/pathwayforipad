@@ -40,6 +40,7 @@ import type {
   ReadingPlanDetail,
   SegmentCompleteResult,
   ResourceRow,
+  Moment,
   MentorInfo,
   Discipler,
   GrowthScore,
@@ -635,6 +636,10 @@ export const NuruApi = {
   },
   async resources(): Promise<ResourceRow[]> {
     const { data } = await api.get<{ data: ResourceRow[] }>("/growth/resources");
+    return data.data;
+  },
+  async moments(): Promise<Moment[]> {
+    const { data } = await api.get<{ data: Moment[] }>("/moments");
     return data.data;
   },
   async mentor(): Promise<MentorInfo> {

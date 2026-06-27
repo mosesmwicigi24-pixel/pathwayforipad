@@ -907,6 +907,57 @@ export class CalendarService {
     );
   }
 
+  // ---------------- Event Moments (community photo gallery) ----------------
+
+  /** Recent community moments for a congregation (the mobile Events "Moments"
+   *  carousel + the portal gallery). Newest first, soft-deletes excluded. */
+  async listMoments(congregationId: string): Promise<unknown[]> {
+    return many(
+      this.pool,
+      `SELECT moment_id, image_url, caption, tag, created_at
+         FROM event_moments
+        WHERE congregation_id = $1 AND deleted_at IS NULL
+        ORDER BY created_at DESC
+        LIMIT 30`,
+      [congregationId],
+    );
+  }
+
+  /** Post a moment (image + caption + optional tag). Leader+ (Instructor+), scoped
+   *  to the principal's congregation. */
+  async createMoment(principal: Principal, input: { image_url: string; caption?: string | null | undefined; tag?: string | null | undefined }): Promise<unknown> {
+    return tx(this.pool, async (c) => {
+      const row = await one<{ moment_id: string; image_url: string; caption: string | null; tag: string | null; created_at: string }>(
+        c,
+        `INSERT INTO event_moments (congregation_id, image_url, caption, tag, created_by)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING moment_id, image_url, caption, tag, created_at`,
+        [principal.congregationId, input.image_url, input.caption ?? null, input.tag ?? null, principal.userId],
+      );
+      await audit(c, principal.userId, "events.moment_created", "event_moments", row.moment_id, { tag: input.tag ?? null });
+      return row;
+    });
+  }
+
+  /** Soft-delete a moment. Leader+; an Instructor may only delete moments in their
+   *  own congregation (SuperAdmin is unrestricted). */
+  async deleteMoment(principal: Principal, momentId: string): Promise<{ deleted: boolean }> {
+    return tx(this.pool, async (c) => {
+      const m = await maybeOne<{ congregation_id: string }>(
+        c,
+        `SELECT congregation_id FROM event_moments WHERE moment_id = $1 AND deleted_at IS NULL`,
+        [momentId],
+      );
+      if (!m) throw new ApiError("NOT_FOUND", "Moment not found");
+      if (m.congregation_id !== principal.congregationId && principal.role !== "SuperAdmin") {
+        throw new ApiError("FORBIDDEN_SCOPE", "Moment outside your congregation");
+      }
+      await c.query(`UPDATE event_moments SET deleted_at = now() WHERE moment_id = $1`, [momentId]);
+      await audit(c, principal.userId, "events.moment_deleted", "event_moments", momentId, {});
+      return { deleted: true };
+    });
+  }
+
   // ---------------- Leader: RSVP roster (Events page) ----------------
 
   /**

@@ -203,6 +203,38 @@ export function registerCalendar(ctx: AppContext): Router {
     }),
   );
 
+  // ---- Event Moments (community photo gallery) ----
+  // Members read the congregation's moments; leaders (Instructor+) post / remove.
+  r.get(
+    "/moments",
+    auth,
+    handler(async (req, res) => {
+      res.json({ data: await svc.listMoments(requirePrincipal(req).congregationId) });
+    }),
+  );
+  r.post(
+    "/admin/moments",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      const input = parseBody(
+        z.object({
+          image_url: z.string().url().max(2048),
+          caption: z.string().trim().max(280).optional(),
+          tag: z.string().trim().max(60).optional(),
+        }),
+        req.body ?? {},
+      );
+      res.status(201).json(await svc.createMoment(requirePrincipal(req), input));
+    }),
+  );
+  r.delete(
+    "/admin/moments/:id",
+    ...leaderPlus,
+    handler(async (req, res) => {
+      res.json(await svc.deleteMoment(requirePrincipal(req), req.params.id ?? ""));
+    }),
+  );
+
   // Pause / resume a series — paused series stop projecting future occurrences.
   r.post(
     "/admin/events/series/:id/pause",

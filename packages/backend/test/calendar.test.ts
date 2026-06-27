@@ -565,3 +565,38 @@ describe("event images + homepage feature (migration 52)", () => {
     expect(row.rows[0].gallery_image_urls).toHaveLength(1);
   });
 });
+
+describe("Event Moments (community photo gallery)", () => {
+  let cong: string, cong2: string, leader: string, leader2: string;
+  beforeEach(async () => {
+    await resetDb();
+    cong = await createCongregation();
+    cong2 = await createCongregation();
+    leader = (await createUser({ congregationId: cong, role: "Instructor", email: "lead@dev.local" })).user_id;
+    leader2 = (await createUser({ congregationId: cong2, role: "Instructor", email: "lead2@dev.local" })).user_id;
+  });
+
+  it("a leader posts a moment; members of the same congregation see it newest-first", async () => {
+    await svc().createMoment(principal(leader, "Instructor", cong), { image_url: "https://res.cloudinary.com/x/a.jpg", caption: "First baptisms", tag: "Baptism Sunday" });
+    await svc().createMoment(principal(leader, "Instructor", cong), { image_url: "https://res.cloudinary.com/x/b.jpg" });
+
+    const list = (await svc().listMoments(cong)) as Array<{ image_url: string; caption: string | null; tag: string | null }>;
+    expect(list).toHaveLength(2);
+    expect(list[0]!.image_url).toContain("b.jpg"); // newest first
+    expect(list[1]!.caption).toBe("First baptisms");
+    expect(list[1]!.tag).toBe("Baptism Sunday");
+
+    // Scoped: another congregation sees none of these.
+    expect(await svc().listMoments(cong2)).toHaveLength(0);
+  });
+
+  it("soft-delete removes a moment from the feed; cross-congregation delete is 403", async () => {
+    const m = (await svc().createMoment(principal(leader, "Instructor", cong), { image_url: "https://res.cloudinary.com/x/c.jpg" })) as { moment_id: string };
+
+    // A leader from another congregation cannot delete it.
+    await expect(svc().deleteMoment(principal(leader2, "Instructor", cong2), m.moment_id)).rejects.toThrow(/congregation/i);
+
+    await svc().deleteMoment(principal(leader, "Instructor", cong), m.moment_id);
+    expect(await svc().listMoments(cong)).toHaveLength(0);
+  });
+});
