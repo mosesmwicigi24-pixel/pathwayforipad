@@ -2485,8 +2485,8 @@ function CreateEventModal({ onClose, onCreated, onError, editing }: { onClose: (
         <SectionDivider label="Images" />
         <ImagesField folder="events" primary={primaryImage} gallery={gallery} onPrimary={setPrimaryImage} onGallery={setGallery} />
 
-        <SectionDivider label="Homepage" />
-        <Toggle on={featured} onChange={setFeatured} label="Feature this event on the mobile homepage" icon={<Star size={13} />} />
+        <SectionDivider label="Featured" />
+        <Toggle on={featured} onChange={setFeatured} label="Feature on mobile — Home banner + the Events tab hero" icon={<Star size={13} />} />
       </div>
 
       {err ? (

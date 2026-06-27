@@ -21,7 +21,7 @@ import type { CalendarOccurrence, EventSeries, MyAnnouncement } from "../api/typ
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { cdnImage } from "../util/cdnImage";
 import { GradientBg, T } from "../theme/components";
-import { useCalendar, useCellSummary, useEventSeries, useMyAnnouncements, useMyRsvps, queryKeys } from "../api/hooks";
+import { useCalendar, useCellSummary, useEventSeries, useFeaturedEvent, useMyAnnouncements, useMyRsvps, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries, refreshQueries } from "../api/query";
 import { Loading } from "../components/states";
@@ -34,6 +34,12 @@ import {
 } from "./eventHelpers";
 
 type Segment = "today" | "upcoming" | "rsvps";
+
+const startOfDay = (ts: number): number => {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
 
 // A soft pulsing ring (a ring that scales out + fades) for the live-now dots — the
 // make's motion.span pulse, in RN Animated.
@@ -71,8 +77,12 @@ export function EventsScreen(): ReactElement {
   const { data: announcements, refetch: refetchAnnouncements } = useMyAnnouncements();
   const { data: series, refetch: refetchSeries } = useEventSeries();
   const { data: cellSummary, refetch: refetchCell } = useCellSummary();
+  // The admin-featured event (set from the web portal). It anchors the top hero —
+  // shown whether or not it's live; a live featured event still gets the LIVE badge.
+  const { data: featured, refetch: refetchFeatured } = useFeaturedEvent();
 
   const [segment, setSegment] = useState<Segment>("today");
+  const [selectedDay, setSelectedDay] = useState<number>(() => startOfDay(now));
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
   const [refreshing, setRefreshing] = useState(false);
@@ -84,20 +94,36 @@ export function EventsScreen(): ReactElement {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refetch(), refetchRsvps(), refetchAnnouncements(), refetchSeries(), refetchCell()]);
+      await Promise.all([refetch(), refetchRsvps(), refetchAnnouncements(), refetchSeries(), refetchCell(), refetchFeatured()]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetch, refetchRsvps, refetchAnnouncements, refetchSeries, refetchCell]);
+  }, [refetch, refetchRsvps, refetchAnnouncements, refetchSeries, refetchCell, refetchFeatured]);
 
   const all = occurrences ?? [];
   const today = new Date(now);
   const rsvpByEvent = useMemo(() => new Map((rsvps ?? []).map((r) => [r.event_id, r.status])), [rsvps]);
 
-  // The immersive hero only appears when a gathering is actually live.
-  const live = all.find((o) => isLive(o, now));
+  // Top hero — the admin-featured event (set from the web portal), resolved to its
+  // live or nearest-upcoming occurrence so the card is a real, tappable event with
+  // cover, going count, and faces. Falls back to any live gathering when nothing is
+  // featured. A live featured event still gets the LIVE badge; otherwise FEATURED.
+  const live = all.find((o) => isLive(o, now)) ?? null;
+  const featuredOcc = (() => {
+    if (!featured) return null;
+    const mine = all.filter((o) => o.series_id === featured.series_id);
+    return (
+      mine.find((o) => isLive(o, now)) ??
+      mine.filter((o) => new Date(o.start_at).getTime() >= now).sort((a, b) => a.start_at.localeCompare(b.start_at))[0] ??
+      null
+    );
+  })();
+  const heroOcc = featuredOcc ?? live;
+  const heroLive = heroOcc ? isLive(heroOcc, now) : false;
 
-  const todayEvents = all.filter((o) => sameDay(new Date(o.start_at), today));
+  // The horizontal date picker drives the "Today" segment list.
+  const selDate = new Date(selectedDay);
+  const todayEvents = all.filter((o) => sameDay(new Date(o.start_at), selDate));
   const upcoming = all.filter((o) => new Date(o.start_at).getTime() > now && !sameDay(new Date(o.start_at), today));
   const rsvpEvents = all.filter((o) => { const s = rsvpByEvent.get(o.occurrence_id); return s === "going" || s === "maybe"; });
 
@@ -108,6 +134,12 @@ export function EventsScreen(): ReactElement {
   const thisWeekCount = all.filter((o) => { const t = new Date(o.start_at).getTime(); return t >= now && t <= weekEnd; }).length;
   const goingCount = (rsvps ?? []).filter((r) => r.status === "going").length;
   const upcomingCount = all.filter((o) => new Date(o.start_at).getTime() >= now).length;
+
+  // 14-day strip (today-2 … today+11), each day flagged if it has gatherings.
+  const strip = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(startOfDay(now) + (i - 2) * 86_400_000);
+    return { ts: d.getTime(), date: d, isToday: sameDay(d, today), isSelected: sameDay(d, selDate), hasEvent: all.some((o) => sameDay(new Date(o.start_at), d)) };
+  });
 
   const counts = { today: todayEvents.length, upcoming: upcoming.length, rsvps: rsvpEvents.length };
   const SEGMENTS: Array<{ key: Segment; label: string }> = [
@@ -121,7 +153,14 @@ export function EventsScreen(): ReactElement {
   const list = baseList
     .filter((o) => matchesCategory(o, category) && matchesSearch(o, query))
     .sort((a, b) => a.start_at.localeCompare(b.start_at));
-  const sectionTitle = segment === "today" ? "Today's gatherings" : segment === "upcoming" ? "Coming up" : "Your RSVPs";
+  const sectionTitle =
+    segment === "today"
+      ? sameDay(selDate, today)
+        ? "Today's gatherings"
+        : `Events on ${selDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+      : segment === "upcoming"
+        ? "Coming up"
+        : "Your RSVPs";
 
   const openEvent = (o: CalendarOccurrence): void =>
     nav.navigate("EventDetail", { eventId: o.occurrence_id, title: o.title, startAt: o.start_at, endAt: o.end_at, location: o.location });
@@ -202,77 +241,93 @@ export function EventsScreen(): ReactElement {
         </View>
 
         <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.base, gap: spacing.base }}>
-          {/* LIVE NOW — immersive, image-backed hero */}
-          {live ? (
+          {/* Featured / Live — immersive, image-backed hero (admin-featured first) */}
+          {heroOcc ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Live now: ${live.title}. Check in`}
-              onPress={() => openEvent(live)}
+              accessibilityLabel={`${heroLive ? "Live now" : "Featured"}: ${heroOcc.title}`}
+              onPress={() => openEvent(heroOcc)}
               style={({ pressed }) => [st.liveHero, pressed && { transform: [{ scale: 0.99 }] }]}
             >
-              {live.primary_image_url ? (
-                <Image source={{ uri: cdnImage(live.primary_image_url, { width: 1000 }) }} style={st.heroImg} resizeMode="cover" />
+              {heroOcc.primary_image_url ? (
+                <Image source={{ uri: cdnImage(heroOcc.primary_image_url, { width: 1000 }) }} style={st.heroImg} resizeMode="cover" />
               ) : (
-                <GradientBg colors={[palette.navy700, palette.navy, categoryColor(live.category)]} radius={0} />
+                <GradientBg colors={[palette.navy700, palette.navy, categoryColor(heroOcc.category)]} radius={0} />
               )}
               <View style={st.heroVeil} />
               <View style={st.heroGlow} />
               <View>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-                    <View style={st.liveBadge}>
-                      <PulseRing size={6} color="#fff" />
-                      <T variant="micro" style={{ color: "#fff", fontWeight: "800", letterSpacing: 1, fontSize: 9 }}>LIVE NOW</T>
-                    </View>
-                    {live.category ? <T variant="micro" style={{ color: palette.goldLight, fontWeight: "700", letterSpacing: 1, fontSize: 9 }}>{live.category.toUpperCase()}</T> : null}
+                    {heroLive ? (
+                      <View style={st.liveBadge}>
+                        <PulseRing size={6} color="#fff" />
+                        <T variant="micro" style={{ color: "#fff", fontWeight: "800", letterSpacing: 1, fontSize: 9 }}>LIVE NOW</T>
+                      </View>
+                    ) : (
+                      <View style={st.featBadge}>
+                        <Sparkles size={10} color={palette.navy} />
+                        <T variant="micro" style={{ color: palette.navy, fontWeight: "800", letterSpacing: 1, fontSize: 9 }}>FEATURED</T>
+                      </View>
+                    )}
+                    {heroOcc.category ? <T variant="micro" style={{ color: palette.goldLight, fontWeight: "700", letterSpacing: 1, fontSize: 9 }}>{heroOcc.category.toUpperCase()}</T> : null}
                   </View>
                   <View style={st.qrChip}><QrCode size={17} color="#fff" /></View>
                 </View>
-                <T serif tone="onNavy" style={{ fontSize: 21, marginTop: spacing.xl }}>{live.title}</T>
+                <T serif tone="onNavy" style={{ fontSize: 21, marginTop: spacing.xl }}>{heroOcc.title}</T>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: spacing.sm, flexWrap: "wrap" }}>
-                  <View style={st.heroMeta}><Clock size={13} color={palette.goldLight} /><T variant="caption" tone="onNavyDim" style={{ fontSize: 10 }}>{timeRange(live.start_at, live.end_at)}</T></View>
-                  {live.location ? <View style={st.heroMeta}><MapPin size={13} color={palette.goldLight} /><T variant="caption" tone="onNavyDim" numberOfLines={1} style={{ fontSize: 10 }}>{live.location}</T></View> : null}
+                  <View style={st.heroMeta}><Clock size={13} color={palette.goldLight} /><T variant="caption" tone="onNavyDim" style={{ fontSize: 10 }}>{timeRange(heroOcc.start_at, heroOcc.end_at)}</T></View>
+                  {heroOcc.location ? <View style={st.heroMeta}><MapPin size={13} color={palette.goldLight} /><T variant="caption" tone="onNavyDim" numberOfLines={1} style={{ fontSize: 10 }}>{heroOcc.location}</T></View> : null}
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.base }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-                    {live.attendees && live.attendees.length > 0 ? (
+                    {heroOcc.attendees && heroOcc.attendees.length > 0 ? (
                       <View style={{ flexDirection: "row" }}>
-                        {live.attendees.slice(0, 4).map((a, i) => (
+                        {heroOcc.attendees.slice(0, 4).map((a, i) => (
                           <View key={a.user_id} style={{ marginLeft: i === 0 ? 0 : -7, borderRadius: 13, borderWidth: 2, borderColor: "#081C36" }}>
                             <Avatar uri={a.avatar_url} name={a.full_name} size={22} />
                           </View>
                         ))}
                       </View>
                     ) : null}
-                    <T variant="micro" style={{ color: "rgba(255,255,255,0.85)", fontWeight: "700", fontSize: 10 }}>{live.going > 0 ? `${live.going} worshipping` : "Join the gathering"}</T>
+                    <T variant="micro" style={{ color: "rgba(255,255,255,0.85)", fontWeight: "700", fontSize: 10 }}>{heroOcc.going > 0 ? `${heroOcc.going} ${heroLive ? "worshipping" : "going"}` : "Join the gathering"}</T>
                   </View>
                   <View style={st.checkInBtn}>
                     <ShimmerSweep active color="rgba(255,255,255,0.55)" durationMs={2400} />
                     <QrCode size={15} color={palette.navy} />
-                    <T variant="micro" style={{ color: palette.navy, fontWeight: "800", letterSpacing: 1, fontSize: 10 }}>CHECK IN</T>
+                    <T variant="micro" style={{ color: palette.navy, fontWeight: "800", letterSpacing: 1, fontSize: 10 }}>{heroLive ? "CHECK IN" : "DETAILS"}</T>
                   </View>
                 </View>
               </View>
             </Pressable>
           ) : null}
 
-          {/* Week strip */}
+          {/* Date picker — a selectable, scrollable 14-day strip that drives the list */}
           <View style={st.weekCard}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm, paddingHorizontal: 2 }}>
               <T variant="overline" tone="gold" style={{ fontSize: 10 }}>{monthLabel(now)}</T>
-              <T variant="micro" tone="secondary" style={{ fontWeight: "700", fontSize: 10 }}>TODAY</T>
+              <Pressable accessibilityRole="button" accessibilityLabel="Jump to today" onPress={() => { setSelectedDay(startOfDay(now)); setSegment("today"); }}>
+                <T variant="micro" style={{ color: palette.navy, fontWeight: "700", fontSize: 10, letterSpacing: 1 }}>TODAY</T>
+              </Pressable>
             </View>
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              {weekAhead.map((d) => (
-                <View key={d.iso} style={st.dayCol}>
-                  <T variant="micro" tone="tertiary" style={{ fontSize: 10 }}>{d.dow}</T>
-                  <View style={[st.dayPill, d.isToday && { backgroundColor: palette.navy }]}>
-                    <T serif style={{ fontSize: 16, color: d.isToday ? palette.onNavy : palette.ink }}>{d.day}</T>
-                  </View>
-                  <View style={[st.dayDot, d.hasEvent ? { backgroundColor: palette.gold } : { backgroundColor: "transparent" }]} />
-                </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 2 }}>
+              {strip.map((d) => (
+                <Pressable
+                  key={d.ts}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: d.isSelected }}
+                  accessibilityLabel={d.date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                  onPress={() => { setSelectedDay(d.ts); setSegment("today"); }}
+                  style={[st.dayTile, d.isSelected ? { backgroundColor: palette.navy } : d.isToday ? { backgroundColor: palette.goldTint } : null]}
+                >
+                  <T variant="micro" style={{ fontSize: 8, letterSpacing: 0.5, fontWeight: "700", color: d.isSelected ? "rgba(255,255,255,0.65)" : palette.ink400 }}>
+                    {d.date.toLocaleDateString("en-US", { weekday: "narrow" })}
+                  </T>
+                  <T serif style={{ fontSize: 16, marginTop: 1, color: d.isSelected ? palette.onNavy : palette.navy }}>{d.date.getDate()}</T>
+                  <View style={[st.dayDot, { backgroundColor: d.hasEvent ? palette.gold : "transparent" }]} />
+                </Pressable>
               ))}
-            </View>
+            </ScrollView>
           </View>
 
           {/* Prominent — open the full calendar */}
@@ -604,14 +659,14 @@ const st = {
   heroVeil: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,20,36,0.66)" },
   heroGlow: { position: "absolute", top: -48, right: -40, width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(230,192,104,0.22)" },
   liveBadge: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: palette.success, borderRadius: radii.pill, paddingHorizontal: 10, height: 24 },
+  featBadge: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: palette.goldLight, borderRadius: radii.pill, paddingHorizontal: 10, height: 24 },
   qrChip: { width: 36, height: 36, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center" },
   heroMeta: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
   checkInBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginLeft: "auto", backgroundColor: palette.gold, borderRadius: 16, height: 40, paddingHorizontal: 16, overflow: "hidden" },
-  // Week strip
-  weekCard: { backgroundColor: palette.white, borderRadius: 22, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
-  dayCol: { alignItems: "center", gap: 6, width: 38 },
-  dayPill: { width: 38, height: 46, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  dayDot: { width: 5, height: 5, borderRadius: 3 },
+  // Date picker strip
+  weekCard: { backgroundColor: palette.white, borderRadius: 22, borderWidth: 1, borderColor: palette.border, padding: spacing.md, ...shadow.card },
+  dayTile: { width: 44, paddingVertical: 8, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  dayDot: { width: 5, height: 5, borderRadius: 3, marginTop: 5 },
   // Calendar card
   calCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderRadius: 22, overflow: "hidden", padding: spacing.base, backgroundColor: palette.navy, ...shadow.card },
   calGlow: { position: "absolute", top: -48, right: -40, width: 144, height: 144, borderRadius: 72, backgroundColor: "rgba(201,162,39,0.20)" },
