@@ -16,6 +16,7 @@ import { useQuiz, useModule } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import type { AnswerOptions, QuestionChoice, QuestionScale, QuizQuestion, QuizResult } from "../api/types";
 import { errorMessage, invalidateQueries, useMutation } from "../api/query";
+import { levelJustCompleted } from "./levelCelebration";
 import { uuidv4 } from "../util/uuid";
 
 const TF_OPTIONS: QuestionChoice[] = [
@@ -87,6 +88,8 @@ export function QuizScreen(): ReactElement {
   const kbInset = useKeyboardInset();
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<QuizResult | null>(null);
+  // Did passing this quiz finish the whole level? (server-authoritative)
+  const [levelDone, setLevelDone] = useState(false);
   const mutationId = useMemo(() => uuidv4(), [quiz]); // one idempotency key per assembled quiz
 
   const questions = quiz?.questions ?? [];
@@ -125,6 +128,7 @@ export function QuizScreen(): ReactElement {
         if (module) invalidateQueries(`levelModules:${module.level_number}`);
         invalidateQueries(`module:${moduleId}`);
         invalidateQueries("achievements");
+        if (module && (await levelJustCompleted(module.level_number))) setLevelDone(true);
       }
     } catch {
       // surfaced via submit.error
@@ -174,12 +178,14 @@ export function QuizScreen(): ReactElement {
             <PButton
               variant="gold"
               onPress={() =>
-                result.unlocked_next_module_id
-                  ? nav.navigate("Module", { moduleId: result.unlocked_next_module_id })
-                  : nav.navigate("Tabs", { screen: "Home" })
+                levelDone
+                  ? nav.navigate("LevelComplete")
+                  : result.unlocked_next_module_id
+                    ? nav.navigate("Module", { moduleId: result.unlocked_next_module_id })
+                    : nav.navigate("Tabs", { screen: "Home" })
               }
             >
-              {result.unlocked_next_module_id ? "Next module" : "Continue pathway"}
+              {levelDone ? "See your certificate" : result.unlocked_next_module_id ? "Next module" : "Continue pathway"}
             </PButton>
           </View>
         </View>

@@ -16,6 +16,7 @@ import { Loading, ErrorState } from "../components/states";
 import { useModule, useMyReflection, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries, useMutation } from "../api/query";
+import { levelJustCompleted } from "./levelCelebration";
 import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
@@ -128,6 +129,9 @@ export function ModuleScreen(): ReactElement {
       const res = out.result;
       if (module.evaluation_kind === "quiz") {
         nav.navigate("Quiz", { moduleId });
+      } else if (res && res.is_completed && !res.duplicate && (await levelJustCompleted(module.level_number))) {
+        // Finishing the last module of a level → the certificate celebration.
+        nav.navigate("LevelComplete");
       } else if (res && (res.next_module_unlocked || res.is_completed)) {
         nav.goBack();
       }

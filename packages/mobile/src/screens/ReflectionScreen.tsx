@@ -15,6 +15,7 @@ import { palette, spacing, shadow } from "../theme/tokens";
 import { T } from "../theme/components";
 import { Loading, ErrorState } from "../components/states";
 import { Confetti } from "../components/Confetti";
+import { levelJustCompleted } from "./levelCelebration";
 import { useKeyboardInset } from "../components/useKeyboardInset";
 import { useModule, useMyReflection, useScripture, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
@@ -83,7 +84,15 @@ export function ReflectionScreen(): ReactElement {
       setRevising(false);
       setCelebrate(true);
       // Let the confetti play before leaving when the write was queued offline.
-      if (out.queued) setTimeout(() => nav.goBack(), 1500);
+      if (out.queued) {
+        setTimeout(() => nav.goBack(), 1500);
+        return;
+      }
+      // If this reflection finished the whole level (server-authoritative), follow
+      // the confetti into the certificate celebration.
+      if (module && (await levelJustCompleted(module.level_number))) {
+        setTimeout(() => nav.navigate("LevelComplete"), 1400);
+      }
     } catch {
       // surfaced via submit.error
     }
