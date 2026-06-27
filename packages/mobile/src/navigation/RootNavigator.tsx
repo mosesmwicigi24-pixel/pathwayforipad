@@ -6,6 +6,7 @@
 import { type ReactElement } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { navigationRef } from "./navigationRef.js";
+import { notifyFocus } from "../api/query.js";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import type { RootStackParamList, TabParamList } from "./types.js";
@@ -71,7 +72,7 @@ function Tabs(): ReactElement {
 
 export function RootNavigator({ initialRoute = "Login" }: { initialRoute?: "Login" | "Tabs" }): ReactElement {
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer ref={navigationRef} onStateChange={notifyFocus}>
       <Stack.Navigator initialRouteName={initialRoute} screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Tabs" component={Tabs} />

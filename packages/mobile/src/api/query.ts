@@ -4,6 +4,7 @@
 // screens loading/error/refresh states, request de-duplication, stale-time, and
 // targeted invalidation so writes can refresh exactly the reads they affect.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type Status = "idle" | "loading" | "success" | "error";
@@ -20,6 +21,36 @@ const listeners = new Map<string, Set<() => void>>();
 
 function emit(key: string): void {
   listeners.get(key)?.forEach((l) => l());
+}
+
+// --- Live refresh: focus / foreground signals ----------------------------
+// Mounted screens stay alive in the navigation stack, so a useQuery only ever
+// fetched once (on mount) and never saw server changes until the app was killed
+// and relaunched. We fix that with a global "refresh now" signal that every
+// mounted useQuery listens to: fired when the app returns to the foreground and
+// whenever navigation focus changes (returning to a screen). Each query then does
+// a background refetch — keeping its current data on screen (no spinner) while the
+// fresh result loads. notifyFocus() is also what the navigator calls on each
+// screen transition.
+const focusListeners = new Set<() => void>();
+
+/** Ping every mounted query to refresh itself if it's not already fetching. Called
+ *  on app-foreground and on navigation focus changes. */
+export function notifyFocus(): void {
+  focusListeners.forEach((l) => l());
+}
+
+let appStateWired = false;
+function wireAppState(): void {
+  if (appStateWired) return;
+  appStateWired = true;
+  try {
+    AppState.addEventListener("change", (s) => {
+      if (s === "active") notifyFocus();
+    });
+  } catch {
+    /* AppState unavailable (tests) — focus refresh just won't fire */
+  }
 }
 
 // --- Offline persistence (§1.7 offline-first) -----------------------------
@@ -42,6 +73,7 @@ function persist(key: string, entry: Entry): void {
  *  in-memory only. */
 export async function hydrateQueryCache(): Promise<void> {
   persistEnabled = true;
+  wireAppState(); // start refreshing queries on app-foreground
   try {
     const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(PERSIST_PREFIX));
     if (keys.length === 0) return;
@@ -98,14 +130,13 @@ async function runFetch<T>(key: string, fetcher: () => Promise<T>): Promise<void
   emit(key);
 }
 
-/** Drop every cached key whose name starts with `prefix`, forcing a refetch. */
+/** Refresh every cached key starting with `prefix` after a write. Keeps the last
+ *  data on screen and marks it stale so mounted subscribers refetch in the
+ *  background (no blank/spinner flash); drops keys that have no data yet. This is
+ *  the same behaviour as refreshQueries — invalidate no longer hard-deletes, so a
+ *  list the user navigates back to never flashes a spinner. */
 export function invalidateQueries(prefix: string): void {
-  for (const key of [...cache.keys()]) {
-    if (key.startsWith(prefix)) {
-      cache.delete(key);
-      emit(key);
-    }
-  }
+  refreshQueries(prefix);
 }
 
 /** Mark matching queries stale WITHOUT dropping their cached data, so a mounted
@@ -160,9 +191,9 @@ export interface QueryResult<T> {
 export function useQuery<T>(
   key: string | null,
   fetcher: () => Promise<T>,
-  opts: { enabled?: boolean; staleMs?: number } = {},
+  opts: { enabled?: boolean; staleMs?: number; pollMs?: number } = {},
 ): QueryResult<T> {
-  const { enabled = true, staleMs = 30_000 } = opts;
+  const { enabled = true, staleMs = 30_000, pollMs } = opts;
   const [, force] = useState(0);
   const rerender = useCallback(() => force((n) => n + 1), []);
   const fetcherRef = useRef(fetcher);
@@ -170,14 +201,32 @@ export function useQuery<T>(
 
   useEffect(() => {
     if (!key || !enabled) return;
-    const unsub = subscribe(key, rerender);
-    const entry = cache.get(key);
-    const fresh = entry?.fetchedAt && Date.now() - entry.fetchedAt < staleMs;
-    if (!fresh && entry?.status !== "loading") {
-      void runFetch(key, fetcherRef.current);
-    }
-    return unsub;
-  }, [key, enabled, staleMs, rerender]);
+    // Refetch the key in the background if it isn't already loading. `force` (focus /
+    // foreground / poll) refetches as long as it's older than a short throttle, so
+    // returning to a screen always pulls fresh data; otherwise we honour staleMs.
+    const maybeFetch = (forceFresh: boolean): void => {
+      const e = cache.get(key);
+      if (e?.status === "loading") return;
+      const age = e?.fetchedAt ? Date.now() - e.fetchedAt : Number.POSITIVE_INFINITY;
+      if (forceFresh ? age > 1500 : age >= staleMs) void runFetch(key, fetcherRef.current);
+    };
+    // A write (invalidate/refresh) or a peer update emits on this key → re-render AND
+    // refetch-if-stale, so an already-mounted screen reflects DB changes immediately.
+    const onNotify = (): void => {
+      rerender();
+      maybeFetch(false);
+    };
+    const onFocus = (): void => maybeFetch(true);
+    const unsub = subscribe(key, onNotify);
+    focusListeners.add(onFocus);
+    maybeFetch(false); // initial load (or refresh if the hydrated copy is stale)
+    const poll = pollMs ? setInterval(() => maybeFetch(true), pollMs) : undefined;
+    return () => {
+      unsub();
+      focusListeners.delete(onFocus);
+      if (poll) clearInterval(poll);
+    };
+  }, [key, enabled, staleMs, pollMs, rerender]);
 
   const entry = (key ? cache.get(key) : undefined) as Entry<T> | undefined;
   const refetch = useCallback(async () => {
