@@ -575,10 +575,11 @@ function BuzzCard({ post }: { post: EventPost }): ReactElement {
 
       {post.image_url ? (
         <Pressable onPress={love} accessibilityRole="imagebutton" accessibilityLabel="Double-tap to love" style={st.buzzImageWrap}>
-          <FitImage uri={post.image_url} radius={16} />
+          <FitImage uri={post.image_url} radius={16} minAspect={0.5} />
           {post.body ? (
             <>
-              <View style={st.buzzImageShade} />
+              {/* A soft bottom fade (not a hard half-overlay) so the caption stays legible. */}
+              <View style={st.buzzShade}><GradientBg vertical colors={["rgba(8,20,36,0)", "rgba(8,20,36,0.55)", "rgba(8,20,36,0.9)"]} /></View>
               <View style={st.buzzCaption}>
                 <T style={{ color: palette.goldLight, fontSize: 20, lineHeight: 18 }}>“</T>
                 <T serif style={st.buzzCaptionText} numberOfLines={3}>{post.body}</T>
@@ -659,7 +660,7 @@ const st = {
   buzzCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
   buzzCardMine: { backgroundColor: "#FFFDF7", borderColor: "rgba(200,155,60,0.35)" },
   buzzImageWrap: { marginHorizontal: spacing.base, marginBottom: spacing.md, borderRadius: 16, overflow: "hidden", position: "relative" },
-  buzzImageShade: { position: "absolute", left: 0, right: 0, bottom: 0, height: "70%", backgroundColor: "rgba(8,20,36,0.55)" },
+  buzzShade: { position: "absolute", left: 0, right: 0, bottom: 0, height: "52%" },
   buzzCaption: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: spacing.base, paddingBottom: spacing.md },
   buzzCaptionText: { color: "#fff", fontSize: 16, lineHeight: 21, fontWeight: "600", marginTop: -4 },
   buzzQuote: { marginHorizontal: spacing.base, marginBottom: spacing.md, borderRadius: 14, paddingHorizontal: spacing.base, paddingVertical: spacing.md, backgroundColor: palette.surface, borderLeftWidth: 3, borderLeftColor: palette.gold },
