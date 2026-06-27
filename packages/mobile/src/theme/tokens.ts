@@ -16,6 +16,7 @@ export const palette = {
   goldHi: "#E0B85E", // gradient top
   goldLo: "#A87F2E", // gradient bottom / gold text on light (≥14px semibold)
   goldGlow: "#E6CA68", // gold text on navy
+  goldLight: "#E6C068", // bright gold (Community/Events make — glows, live accents, GOLD_LIGHT)
   goldTint: "#FFF4C7", // subtle gold tint (completed icon bg)
   // Ink (black → greys)
   ink: "#0B0B0C", // primary text on light

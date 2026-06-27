@@ -1,14 +1,18 @@
-// Events ("Gathered together" make). Event-centric tab: a navy header, a LIVE/next
-// hero with check-in, a week strip, Today/Upcoming/My-RSVPs segments, search +
-// category chips, photo-forward event cards (category badge, going count, RSVP
-// state), "Series you follow" (real follow toggle), announcements, and the
-// member's cell summary. Every section is bound to the database — calendar
-// occurrences, RSVPs, series follows, announcements, cell summary. Decorative make
-// elements with no data source (Moments gallery, "We missed you") are omitted.
-import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
+// Events ("Gathered together" make). Event-centric tab redesigned to the Figma
+// CommunityTab: a navy header with a warm gold radial glow + a live-pulse summary
+// row (live now · this week · you're going), an immersive image-backed LIVE NOW
+// hero with a glowing gold check-in, a prominent navy/gold "All events & calendar"
+// card, photo-forward event cards (save heart, 🔥 Popular, countdown chip, series
+// tag, deeper gradient), and the existing real-data sections (week strip, segments,
+// search + category chips, series you follow, announcements, your cell) restyled to
+// the make. Every section stays bound to the database — calendar occurrences,
+// RSVPs, series follows, announcements, cell summary. Fonts nudged ~1px down across
+// the tab for a cleaner feel. Decorative make elements with no data source (Moments
+// gallery, "We missed you") are omitted.
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { Animated, Easing, Image, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import {
-  CalendarDays, Check, ChevronRight, Clock, MapPin, Megaphone, Play, QrCode, Search, Sparkles, Users,
+  CalendarDays, Check, ChevronRight, Clock, Heart, MapPin, Megaphone, Play, Plus, QrCode, Search, Sparkles, Users,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -23,15 +27,34 @@ import { errorMessage, invalidateQueries, refreshQueries } from "../api/query";
 import { Loading } from "../components/states";
 import { NotificationBell } from "../components/NotificationBell";
 import { Avatar } from "../components/Avatar";
+import { ShimmerSweep } from "../components/ShimmerSweep";
 import {
-  sameDay, isLive, weekStrip, monthLabel, todayLabel, timeOf, timeRange,
+  sameDay, isLive, weekStrip, monthLabel, todayLabel, timeRange, countdown,
   matchesCategory, matchesSearch, categoryColor, timeAgo, EVENT_CATEGORIES,
 } from "./eventHelpers";
 
 type Segment = "today" | "upcoming" | "rsvps";
 
-// A real, license-free worship image for the Psalm 122:1 banner.
-const GLAD_IMG = "https://images.unsplash.com/photo-1438232992991-995b7058bbb3?auto=format&fit=crop&w=1200&q=80";
+// A soft pulsing ring (a ring that scales out + fades) for the live-now dots — the
+// make's motion.span pulse, in RN Animated.
+function PulseRing({ size = 7, color = palette.success }: { size?: number; color?: string }): ReactElement {
+  const t = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(t, { toValue: 1, duration: 1600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [t]);
+  const scale = t.interpolate({ inputRange: [0, 1], outputRange: [1, 2.6] });
+  const opacity = t.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] });
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      <Animated.View style={{ position: "absolute", width: size, height: size, borderRadius: size / 2, backgroundColor: color, transform: [{ scale }], opacity }} />
+      <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color }} />
+    </View>
+  );
+}
 
 export function EventsScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -54,6 +77,9 @@ export function EventsScreen(): ReactElement {
   const [category, setCategory] = useState<string>("All");
   const [refreshing, setRefreshing] = useState(false);
   const [followBusy, setFollowBusy] = useState<string | null>(null);
+  // Save ♥ is local-only UI state: there is no save/bookmark-event API on NuruApi
+  // (only saveVerse). Kept optimistic in-memory so the heart toggles per session.
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -68,14 +94,20 @@ export function EventsScreen(): ReactElement {
   const today = new Date(now);
   const rsvpByEvent = useMemo(() => new Map((rsvps ?? []).map((r) => [r.event_id, r.status])), [rsvps]);
 
-  // The hero: a live event if one is happening, else the next upcoming one.
+  // The immersive hero only appears when a gathering is actually live.
   const live = all.find((o) => isLive(o, now));
-  const nextUp = all.filter((o) => new Date(o.start_at).getTime() >= now).sort((a, b) => a.start_at.localeCompare(b.start_at))[0];
-  const hero = live ?? nextUp ?? null;
 
   const todayEvents = all.filter((o) => sameDay(new Date(o.start_at), today));
   const upcoming = all.filter((o) => new Date(o.start_at).getTime() > now && !sameDay(new Date(o.start_at), today));
   const rsvpEvents = all.filter((o) => { const s = rsvpByEvent.get(o.occurrence_id); return s === "going" || s === "maybe"; });
+
+  // Pulse-row metrics, all derived from real data.
+  const liveCount = all.filter((o) => isLive(o, now)).length;
+  const weekAhead = weekStrip(all, now);
+  const weekEnd = new Date(weekAhead[weekAhead.length - 1]?.iso ?? now).getTime();
+  const thisWeekCount = all.filter((o) => { const t = new Date(o.start_at).getTime(); return t >= now && t <= weekEnd; }).length;
+  const goingCount = (rsvps ?? []).filter((r) => r.status === "going").length;
+  const upcomingCount = all.filter((o) => new Date(o.start_at).getTime() >= now).length;
 
   const counts = { today: todayEvents.length, upcoming: upcoming.length, rsvps: rsvpEvents.length };
   const SEGMENTS: Array<{ key: Segment; label: string }> = [
@@ -89,7 +121,7 @@ export function EventsScreen(): ReactElement {
   const list = baseList
     .filter((o) => matchesCategory(o, category) && matchesSearch(o, query))
     .sort((a, b) => a.start_at.localeCompare(b.start_at));
-  const sectionTitle = segment === "today" ? "Today's gatherings" : segment === "upcoming" ? "Upcoming gatherings" : "Your RSVPs";
+  const sectionTitle = segment === "today" ? "Today's gatherings" : segment === "upcoming" ? "Coming up" : "Your RSVPs";
 
   const openEvent = (o: CalendarOccurrence): void =>
     nav.navigate("EventDetail", { eventId: o.occurrence_id, title: o.title, startAt: o.start_at, endAt: o.end_at, location: o.location });
@@ -125,7 +157,6 @@ export function EventsScreen(): ReactElement {
     nav.navigate("AnnouncementDetail", { announcementId: a.announcement_id, title: a.title });
   }
 
-  const strip = weekStrip(all, now);
   const cell = cellSummary?.cell ?? null;
 
   return (
@@ -135,61 +166,108 @@ export function EventsScreen(): ReactElement {
         contentContainerStyle={{ paddingBottom: tabBarSpace }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
       >
-        {/* Header */}
+        {/* Header — navy gradient + warm gold radial glow */}
         <View style={st.header}>
+          <GradientBg colors={[palette.navy700, palette.navy, "#0A1D33"]} radius={0} />
+          <View style={st.headerGlow} />
           <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <CalendarDays size={13} color={palette.gold} />
+                <CalendarDays size={12} color={palette.gold} />
                 <T variant="micro" tone="gold" style={st.kicker}>EVENTS</T>
               </View>
-              <T serif tone="onNavy" style={{ fontSize: 30, marginTop: 4 }}>Gathered together</T>
-              <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }}>Today · {todayLabel(now)} · East Africa Time</T>
+              <T serif tone="onNavy" style={{ fontSize: 29, marginTop: 4 }}>Gathered together</T>
+              <T variant="caption" tone="onNavyDim" style={{ marginTop: 4, fontSize: 11 }}>Today · {todayLabel(now)} · East Africa Time</T>
             </View>
             <NotificationBell />
           </View>
 
-          {/* LIVE / next hero */}
-          {hero ? (
-            <View style={st.hero}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-                  {live ? (
-                    <View style={st.liveBadge}><View style={st.liveDot} /><T variant="micro" style={{ color: "#fff", fontWeight: "800" }}>LIVE</T></View>
-                  ) : (
-                    <View style={st.nextBadge}><T variant="micro" style={{ color: palette.navy, fontWeight: "800" }}>UP NEXT</T></View>
-                  )}
-                  {hero.category ? <T variant="micro" tone="gold" style={{ fontWeight: "700", letterSpacing: 1 }}>{hero.category.toUpperCase()}</T> : null}
-                </View>
-                <View style={st.qrChip}><QrCode size={16} color={palette.gold} /></View>
+          {/* Live-pulse summary row */}
+          <View style={st.pulseRow}>
+            {liveCount > 0 ? (
+              <View style={st.pulseLive}>
+                <PulseRing size={6} color="#22c55e" />
+                <T variant="micro" style={{ color: "#7fe0a0", fontWeight: "800", fontSize: 10 }}>{liveCount} live now</T>
               </View>
-              <T serif tone="onNavy" style={{ fontSize: 22, marginTop: spacing.md }}>{hero.title}</T>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.lg, marginTop: spacing.sm }}>
-                <View style={st.heroMeta}><Clock size={14} color={palette.gold} /><T variant="caption" tone="onNavyDim">{timeRange(hero.start_at, hero.end_at)}</T></View>
-                {hero.location ? <View style={st.heroMeta}><MapPin size={14} color={palette.gold} /><T variant="caption" tone="onNavyDim" numberOfLines={1}>{hero.location}</T></View> : null}
-              </View>
-              <Pressable accessibilityRole="button" accessibilityLabel={live ? "Check in" : "View details"} onPress={() => openEvent(hero)} style={({ pressed }) => [st.checkInBtn, pressed && { opacity: 0.9 }]}>
-                <QrCode size={18} color={palette.navy} />
-                <T variant="label" style={{ color: palette.navy, fontWeight: "800", letterSpacing: 0.5 }}>{live ? "CHECK IN" : "VIEW DETAILS"}</T>
-                <ChevronRight size={16} color={palette.navy} />
-              </Pressable>
+            ) : null}
+            <View style={st.pulseChip}>
+              <CalendarDays size={11} color={palette.gold} />
+              <T variant="micro" style={{ color: palette.onNavyDim, fontWeight: "700", fontSize: 10 }}>{thisWeekCount} this week</T>
             </View>
-          ) : null}
+            <View style={st.pulseChip}>
+              <Check size={11} color={palette.gold} />
+              <T variant="micro" style={{ color: palette.onNavyDim, fontWeight: "700", fontSize: 10 }}>{goingCount} you're going</T>
+            </View>
+          </View>
         </View>
 
         <View style={{ paddingHorizontal: spacing.screen, paddingTop: spacing.base, gap: spacing.base }}>
+          {/* LIVE NOW — immersive, image-backed hero */}
+          {live ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Live now: ${live.title}. Check in`}
+              onPress={() => openEvent(live)}
+              style={({ pressed }) => [st.liveHero, pressed && { transform: [{ scale: 0.99 }] }]}
+            >
+              {live.primary_image_url ? (
+                <Image source={{ uri: cdnImage(live.primary_image_url, { width: 1000 }) }} style={st.heroImg} resizeMode="cover" />
+              ) : (
+                <GradientBg colors={[palette.navy700, palette.navy, categoryColor(live.category)]} radius={0} />
+              )}
+              <View style={st.heroVeil} />
+              <View style={st.heroGlow} />
+              <View>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                    <View style={st.liveBadge}>
+                      <PulseRing size={6} color="#fff" />
+                      <T variant="micro" style={{ color: "#fff", fontWeight: "800", letterSpacing: 1, fontSize: 9 }}>LIVE NOW</T>
+                    </View>
+                    {live.category ? <T variant="micro" style={{ color: palette.goldLight, fontWeight: "700", letterSpacing: 1, fontSize: 9 }}>{live.category.toUpperCase()}</T> : null}
+                  </View>
+                  <View style={st.qrChip}><QrCode size={17} color="#fff" /></View>
+                </View>
+                <T serif tone="onNavy" style={{ fontSize: 21, marginTop: spacing.xl }}>{live.title}</T>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: spacing.sm, flexWrap: "wrap" }}>
+                  <View style={st.heroMeta}><Clock size={13} color={palette.goldLight} /><T variant="caption" tone="onNavyDim" style={{ fontSize: 10 }}>{timeRange(live.start_at, live.end_at)}</T></View>
+                  {live.location ? <View style={st.heroMeta}><MapPin size={13} color={palette.goldLight} /><T variant="caption" tone="onNavyDim" numberOfLines={1} style={{ fontSize: 10 }}>{live.location}</T></View> : null}
+                </View>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.base }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                    {live.attendees && live.attendees.length > 0 ? (
+                      <View style={{ flexDirection: "row" }}>
+                        {live.attendees.slice(0, 4).map((a, i) => (
+                          <View key={a.user_id} style={{ marginLeft: i === 0 ? 0 : -7, borderRadius: 13, borderWidth: 2, borderColor: "#081C36" }}>
+                            <Avatar uri={a.avatar_url} name={a.full_name} size={22} />
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                    <T variant="micro" style={{ color: "rgba(255,255,255,0.85)", fontWeight: "700", fontSize: 10 }}>{live.going > 0 ? `${live.going} worshipping` : "Join the gathering"}</T>
+                  </View>
+                  <View style={st.checkInBtn}>
+                    <ShimmerSweep active color="rgba(255,255,255,0.55)" durationMs={2400} />
+                    <QrCode size={15} color={palette.navy} />
+                    <T variant="micro" style={{ color: palette.navy, fontWeight: "800", letterSpacing: 1, fontSize: 10 }}>CHECK IN</T>
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          ) : null}
+
           {/* Week strip */}
           <View style={st.weekCard}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm }}>
-              <T variant="overline" tone="gold">{monthLabel(now)}</T>
-              <T variant="micro" tone="secondary" style={{ fontWeight: "700" }}>TODAY</T>
+              <T variant="overline" tone="gold" style={{ fontSize: 10 }}>{monthLabel(now)}</T>
+              <T variant="micro" tone="secondary" style={{ fontWeight: "700", fontSize: 10 }}>TODAY</T>
             </View>
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              {strip.map((d) => (
+              {weekAhead.map((d) => (
                 <View key={d.iso} style={st.dayCol}>
-                  <T variant="micro" tone="tertiary">{d.dow}</T>
+                  <T variant="micro" tone="tertiary" style={{ fontSize: 10 }}>{d.dow}</T>
                   <View style={[st.dayPill, d.isToday && { backgroundColor: palette.navy }]}>
-                    <T serif style={{ fontSize: 17, color: d.isToday ? palette.onNavy : palette.ink }}>{d.day}</T>
+                    <T serif style={{ fontSize: 16, color: d.isToday ? palette.onNavy : palette.ink }}>{d.day}</T>
                   </View>
                   <View style={[st.dayDot, d.hasEvent ? { backgroundColor: palette.gold } : { backgroundColor: "transparent" }]} />
                 </View>
@@ -197,15 +275,36 @@ export function EventsScreen(): ReactElement {
             </View>
           </View>
 
+          {/* Prominent — open the full calendar */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="All events and calendar"
+            onPress={() => nav.navigate("Calendar")}
+            style={({ pressed }) => [st.calCard, pressed && { transform: [{ scale: 0.99 }] }]}
+          >
+            <GradientBg colors={[palette.navy, "#0A1D33"]} radius={0} />
+            <View style={st.calGlow} />
+            <View style={st.calIcon}>
+              <GradientBg colors={[palette.goldHi, "#B6862F"]} radius={16} />
+              <CalendarDays size={22} color={palette.navy} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T variant="micro" style={{ color: palette.goldLight, fontWeight: "700", letterSpacing: 1, fontSize: 9 }}>CALENDAR</T>
+              <T serif tone="onNavy" style={{ fontSize: 15, marginTop: 1 }}>All events &amp; calendar</T>
+              <T variant="micro" tone="onNavyDim" style={{ marginTop: 1, fontSize: 10 }}>See the whole month · {upcomingCount} upcoming</T>
+            </View>
+            <View style={st.calChevron}><ChevronRight size={18} color="#fff" /></View>
+          </Pressable>
+
           {/* Segments */}
           <View style={st.segment}>
             {SEGMENTS.map((s) => {
               const on = segment === s.key;
               return (
                 <Pressable key={s.key} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setSegment(s.key)} style={[st.segItem, on && { backgroundColor: palette.navy }]}>
-                  <T variant="caption" style={{ fontWeight: on ? "700" : "400", color: on ? palette.white : palette.ink600 }}>{s.label}</T>
+                  <T variant="caption" style={{ fontWeight: on ? "700" : "400", color: on ? palette.white : palette.ink600, fontSize: 11 }}>{s.label}</T>
                   <View style={[st.segBadge, { backgroundColor: on ? palette.gold : palette.surface }]}>
-                    <T variant="micro" style={{ color: on ? palette.navy : palette.ink600, fontWeight: "800" }}>{counts[s.key]}</T>
+                    <T variant="micro" style={{ color: on ? palette.navy : palette.ink600, fontWeight: "800", fontSize: 10 }}>{counts[s.key]}</T>
                   </View>
                 </Pressable>
               );
@@ -214,7 +313,7 @@ export function EventsScreen(): ReactElement {
 
           {/* Search */}
           <View style={st.search}>
-            <Search size={18} color={palette.ink400} />
+            <Search size={17} color={palette.ink400} />
             <TextInput value={query} onChangeText={setQuery} placeholder="Search events by name or place" placeholderTextColor={palette.ink400} accessibilityLabel="Search events" style={st.searchInput} />
           </View>
 
@@ -222,9 +321,10 @@ export function EventsScreen(): ReactElement {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingVertical: 2 }}>
             {EVENT_CATEGORIES.map((c) => {
               const on = category === c;
+              const color = c === "All" ? palette.navy : categoryColor(c);
               return (
-                <Pressable key={c} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setCategory(c)} style={[st.chip, on ? { backgroundColor: palette.navy, borderColor: palette.navy } : null]}>
-                  <T variant="caption" style={{ color: on ? palette.white : palette.ink600, fontWeight: on ? "700" : "500" }}>{c}</T>
+                <Pressable key={c} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setCategory(c)} style={[st.chip, on ? { backgroundColor: color, borderColor: color } : null]}>
+                  <T variant="caption" style={{ color: on ? palette.white : palette.ink600, fontWeight: on ? "700" : "500", fontSize: 11 }}>{c}</T>
                 </Pressable>
               );
             })}
@@ -232,25 +332,13 @@ export function EventsScreen(): ReactElement {
 
           {/* Section header */}
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.xs }}>
-            <T serif style={{ fontSize: 20, color: palette.ink }}>{sectionTitle}</T>
+            <T serif style={{ fontSize: 19, color: palette.ink }}>{sectionTitle}</T>
             <Pressable accessibilityRole="button" accessibilityLabel="All and calendar" onPress={() => nav.navigate("Calendar")} style={({ pressed }) => pressed && { opacity: 0.7 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <T variant="caption" style={{ color: palette.navy, fontWeight: "700" }}>All &amp; calendar</T>
-                <ChevronRight size={14} color={palette.navy} />
+                <T variant="caption" style={{ color: palette.navy, fontWeight: "700", fontSize: 11 }}>All &amp; calendar</T>
+                <ChevronRight size={13} color={palette.navy} />
               </View>
             </Pressable>
-          </View>
-
-          {/* Scripture banner — Psalm 122:1 */}
-          <View style={st.gladBanner}>
-            <Image source={{ uri: GLAD_IMG }} style={st.gladImg} resizeMode="cover" />
-            <View style={st.gladShade} />
-            <View style={st.gladBody}>
-              <T serif tone="onNavy" style={{ fontSize: 19, lineHeight: 26 }}>
-                “I was glad when they said to me, ‘Let us go to the house of the LORD.’”
-              </T>
-              <T variant="micro" tone="gold" style={{ marginTop: 6, letterSpacing: 1.2, fontWeight: "700" }}>PSALM 122:1</T>
-            </View>
           </View>
 
           {/* Event cards */}
@@ -260,17 +348,26 @@ export function EventsScreen(): ReactElement {
             <View style={st.card}><T variant="heading">Couldn't load events</T><T variant="caption" tone="secondary" style={{ marginTop: 4 }}>{errorMessage(error)}</T></View>
           ) : list.length === 0 ? (
             <View style={[st.card, { alignItems: "center", paddingVertical: spacing.xl }]}>
-              <View style={st.emptyTile}><CalendarDays size={22} color={palette.gold} /></View>
-              <T variant="heading" style={{ marginTop: spacing.md }}>
+              <View style={st.emptyTile}><CalendarDays size={21} color={palette.gold} /></View>
+              <T variant="heading" style={{ marginTop: spacing.md, fontSize: 15 }}>
                 {segment === "today" ? "Nothing today" : segment === "upcoming" ? "Nothing coming up" : "No RSVPs yet"}
               </T>
-              <T variant="caption" tone="secondary" style={{ marginTop: 4, textAlign: "center", maxWidth: 260 }}>
+              <T variant="caption" tone="secondary" style={{ marginTop: 4, textAlign: "center", maxWidth: 260, fontSize: 11 }}>
                 {segment === "rsvps" ? "Tap an event to say you'll be there." : "New gatherings appear here as they're scheduled."}
               </T>
             </View>
           ) : (
             list.map((o) => (
-              <EventCard key={o.occurrence_id} occ={o} live={isLive(o, now)} status={rsvpByEvent.get(o.occurrence_id) ?? null} onPress={() => openEvent(o)} />
+              <EventCard
+                key={o.occurrence_id}
+                occ={o}
+                live={isLive(o, now)}
+                status={rsvpByEvent.get(o.occurrence_id) ?? null}
+                saved={!!saved[o.occurrence_id]}
+                onToggleSave={() => setSaved((prev) => ({ ...prev, [o.occurrence_id]: !prev[o.occurrence_id] }))}
+                now={now}
+                onPress={() => openEvent(o)}
+              />
             ))
           )}
 
@@ -280,9 +377,9 @@ export function EventsScreen(): ReactElement {
               <View style={st.cardHead}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <Sparkles size={13} color={palette.goldLo} />
-                  <T variant="overline" tone="gold">SERIES YOU FOLLOW</T>
+                  <T variant="overline" tone="gold" style={{ fontSize: 10 }}>SERIES YOU FOLLOW</T>
                 </View>
-                <Pressable accessibilityRole="button" onPress={() => nav.navigate("Calendar")}><T variant="caption" style={{ color: palette.navy, fontWeight: "700" }}>See all</T></Pressable>
+                <Pressable accessibilityRole="button" onPress={() => nav.navigate("Calendar")}><T variant="caption" style={{ color: palette.navy, fontWeight: "700", fontSize: 11 }}>See all</T></Pressable>
               </View>
               {(series ?? []).slice(0, 4).map((s, i, arr) => (
                 <Pressable
@@ -293,13 +390,13 @@ export function EventsScreen(): ReactElement {
                   onPress={() => openSeries(s)}
                   style={({ pressed }) => [st.seriesRow, i < arr.length - 1 && st.divider, pressed && s.next_occurrence_id ? { opacity: 0.7 } : null]}
                 >
-                  <View style={[st.seriesDot, { backgroundColor: `${categoryColor(s.category)}22`, borderColor: categoryColor(s.category) }]} />
+                  <View style={[st.seriesDot, { backgroundColor: `${categoryColor(s.category)}1F`, borderColor: `${categoryColor(s.category)}33` }]} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <T variant="heading" style={{ fontSize: 15 }} numberOfLines={1}>{s.title}</T>
-                      {s.following && s.new_count > 0 ? <View style={st.newChip}><T variant="micro" style={{ color: palette.goldChipText, fontWeight: "800" }}>{s.new_count} new</T></View> : null}
+                      <T variant="heading" style={{ fontSize: 14 }} numberOfLines={1}>{s.title}</T>
+                      {s.following && s.new_count > 0 ? <View style={st.newChip}><T variant="micro" style={{ color: palette.goldChipText, fontWeight: "800", fontSize: 9 }}>{s.new_count} new</T></View> : null}
                     </View>
-                    <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{s.cadence}</T>
+                    <T variant="micro" tone="tertiary" style={{ marginTop: 1, fontSize: 10 }}>{s.cadence}</T>
                   </View>
                   <Pressable
                     accessibilityRole="button"
@@ -308,8 +405,8 @@ export function EventsScreen(): ReactElement {
                     onPress={() => void toggleFollow(s)}
                     style={({ pressed }) => [s.following ? st.followingBtn : st.followBtn, pressed && { opacity: 0.85 }]}
                   >
-                    {s.following ? <Check size={14} color={palette.onNavy} /> : <T variant="caption" style={{ color: palette.navy, fontWeight: "700" }}>+ </T>}
-                    <T variant="caption" style={{ color: s.following ? palette.onNavy : palette.navy, fontWeight: "700" }}>{s.following ? "Following" : "Follow"}</T>
+                    {s.following ? <Check size={13} color={palette.onNavy} /> : <Plus size={13} color={palette.navy} />}
+                    <T variant="caption" style={{ color: s.following ? palette.onNavy : palette.navy, fontWeight: "700", fontSize: 11 }}>{s.following ? "Following" : "Follow"}</T>
                   </Pressable>
                 </Pressable>
               ))}
@@ -322,9 +419,9 @@ export function EventsScreen(): ReactElement {
               <View style={st.cardHead}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <Megaphone size={13} color={palette.goldLo} />
-                  <T variant="overline" tone="gold">ANNOUNCEMENTS</T>
+                  <T variant="overline" tone="gold" style={{ fontSize: 10 }}>ANNOUNCEMENTS</T>
                 </View>
-                <Pressable accessibilityRole="button" onPress={() => nav.navigate("Notifications")}><T variant="caption" style={{ color: palette.navy, fontWeight: "700" }}>See all</T></Pressable>
+                <Pressable accessibilityRole="button" onPress={() => nav.navigate("Notifications")}><T variant="caption" style={{ color: palette.navy, fontWeight: "700", fontSize: 11 }}>See all</T></Pressable>
               </View>
               {(announcements ?? []).slice(0, 3).map((a, i, arr) => (
                 <Pressable key={a.announcement_id} accessibilityRole="button" onPress={() => openAnnouncement(a)} style={[st.annRow, i < arr.length - 1 && st.divider]}>
@@ -340,12 +437,12 @@ export function EventsScreen(): ReactElement {
                   </View>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
-                      <T variant="heading" style={{ flex: 1, fontSize: 14 }} numberOfLines={1}>{a.title}</T>
-                      <T variant="micro" tone="tertiary">{timeAgo(a.sent_at, now)}</T>
+                      <T variant="heading" style={{ flex: 1, fontSize: 13 }} numberOfLines={1}>{a.title}</T>
+                      <T variant="micro" tone="tertiary" style={{ fontSize: 10 }}>{timeAgo(a.sent_at, now)}</T>
                     </View>
-                    <T variant="micro" tone="secondary" style={{ marginTop: 2 }} numberOfLines={2}>{a.body}</T>
+                    <T variant="micro" tone="secondary" style={{ marginTop: 2, fontSize: 10 }} numberOfLines={2}>{a.body}</T>
                     {a.video_url ? (
-                      <View style={st.annVideoChip}><Play size={9} color={palette.navy} fill={palette.navy} /><T variant="micro" style={{ color: palette.navy, fontWeight: "700" }}>Video</T></View>
+                      <View style={st.annVideoChip}><Play size={9} color={palette.navy} fill={palette.navy} /><T variant="micro" style={{ color: palette.navy, fontWeight: "700", fontSize: 10 }}>Video</T></View>
                     ) : null}
                   </View>
                   {!a.opened ? <View style={st.unreadDot} /> : <ChevronRight size={16} color={palette.ink300} />}
@@ -360,22 +457,22 @@ export function EventsScreen(): ReactElement {
               <View style={st.cardHead}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <Users size={13} color={palette.goldLo} />
-                  <T variant="overline" tone="gold">YOUR CELL</T>
+                  <T variant="overline" tone="gold" style={{ fontSize: 10 }}>YOUR CELL</T>
                 </View>
-                <Pressable accessibilityRole="button" onPress={() => nav.navigate("CohortDiscussions")}><T variant="caption" style={{ color: palette.navy, fontWeight: "700" }}>Open</T></Pressable>
+                <Pressable accessibilityRole="button" onPress={() => nav.navigate("CohortDiscussions")}><T variant="caption" style={{ color: palette.navy, fontWeight: "700", fontSize: 11 }}>Open</T></Pressable>
               </View>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm }}>
                 <CellTile label="CELL" value={cell.name} sub={`${cell.members} ${cell.members === 1 ? "member" : "members"}`} />
                 <CellTile label="ATTENDANCE" value={`${cell.attendance.attended} of ${cell.attendance.expected}`} sub="This month" />
                 <CellTile
                   label="NEXT"
-                  value={cell.next ? `${new Date(cell.next.start_at).toLocaleDateString("en-US", { weekday: "short" })} ${timeOf(cell.next.start_at)}` : "—"}
+                  value={cell.next ? `${new Date(cell.next.start_at).toLocaleDateString("en-US", { weekday: "short" })} ${new Date(cell.next.start_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : "—"}
                   sub={cell.next?.location ?? "No meeting scheduled"}
                 />
               </View>
               <Pressable accessibilityRole="button" accessibilityLabel="Open cell space" onPress={() => nav.navigate("CohortDiscussions")} style={({ pressed }) => [st.openCellBtn, pressed && { opacity: 0.9 }]}>
-                <T variant="label" style={{ color: palette.onNavy, fontWeight: "700" }}>Open cell space</T>
-                <ChevronRight size={16} color={palette.onNavy} />
+                <T variant="label" style={{ color: palette.onNavy, fontWeight: "700", fontSize: 11 }}>Open cell space</T>
+                <ChevronRight size={15} color={palette.onNavy} />
               </Pressable>
             </View>
           ) : null}
@@ -385,35 +482,74 @@ export function EventsScreen(): ReactElement {
   );
 }
 
-function EventCard({ occ, live, status, onPress }: { occ: CalendarOccurrence; live: boolean; status: string | null; onPress: () => void }): ReactElement {
+function EventCard({
+  occ, live, status, saved, onToggleSave, now, onPress,
+}: {
+  occ: CalendarOccurrence;
+  live: boolean;
+  status: string | null;
+  saved: boolean;
+  onToggleSave: () => void;
+  now: number;
+  onPress: () => void;
+}): ReactElement {
   const d = new Date(occ.start_at);
   const accent = categoryColor(occ.category);
+  const popular = occ.going >= 120;
+  const cd = live ? null : countdown(occ.start_at, now);
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={occ.title} onPress={onPress} style={({ pressed }) => [st.eventCard, pressed && { transform: [{ scale: 0.99 }] }]}>
       <View style={st.cover}>
-        <GradientBg colors={[palette.navy700, palette.navy, accent]} radius={0} />
+        {occ.primary_image_url ? (
+          <Image source={{ uri: cdnImage(occ.primary_image_url, { width: 900 }) }} style={st.coverImg} resizeMode="cover" />
+        ) : (
+          <GradientBg colors={[palette.navy700, palette.navy, accent]} radius={0} />
+        )}
+        <View style={st.coverShade} />
+        {/* Date chip · top-left */}
         <View style={st.coverDate}>
-          <T variant="micro" style={{ color: palette.navy, fontWeight: "700" }}>{d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}</T>
-          <T serif style={{ fontSize: 20, color: palette.navy }}>{d.getDate()}</T>
+          <T variant="micro" style={{ color: accent, fontWeight: "800", fontSize: 9 }}>{d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}</T>
+          <T serif style={{ fontSize: 18, color: palette.navy }}>{d.getDate()}</T>
         </View>
+        {/* Status pills · top-right */}
         <View style={st.coverBadges}>
-          {live ? <View style={st.liveBadge}><View style={st.liveDot} /><T variant="micro" style={{ color: "#fff", fontWeight: "800" }}>LIVE</T></View> : null}
-          {occ.category ? <View style={[st.catBadge, { backgroundColor: accent }]}><T variant="micro" style={{ color: "#fff", fontWeight: "800", letterSpacing: 0.5 }}>{occ.category.toUpperCase()}</T></View> : null}
+          {live ? (
+            <View style={st.liveBadgeSm}><PulseRing size={5} color="#fff" /><T variant="micro" style={{ color: "#fff", fontWeight: "800", letterSpacing: 0.5, fontSize: 9 }}>LIVE</T></View>
+          ) : popular ? (
+            <View style={st.popularBadge}><T variant="micro" style={{ color: "#fff", fontWeight: "800", fontSize: 9 }}>🔥 Popular</T></View>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={saved ? "Unsave event" : "Save event"}
+            hitSlop={8}
+            onPress={(e) => { e.stopPropagation(); onToggleSave(); }}
+            style={({ pressed }) => [st.saveBtn, pressed && { transform: [{ scale: 0.9 }] }]}
+          >
+            <Heart size={13} color={saved ? palette.gold : "#fff"} fill={saved ? palette.gold : "transparent"} />
+          </Pressable>
         </View>
+        {/* Countdown · bottom-left over image */}
+        {cd ? (
+          <View style={st.countdownChip}><Clock size={10} color={palette.goldLight} /><T variant="micro" style={{ color: "#fff", fontWeight: "700", fontSize: 9 }}>{cdLabel(cd)}</T></View>
+        ) : null}
+        {/* Series tag · bottom-right over image */}
+        {occ.category ? (
+          <View style={[st.seriesTag, { backgroundColor: `${accent}E6` }]}><T variant="micro" style={{ color: "#fff", fontWeight: "800", letterSpacing: 0.5, fontSize: 9 }}>{occ.category.toUpperCase()}</T></View>
+        ) : null}
       </View>
       <View style={{ padding: spacing.base }}>
-        <T serif style={{ fontSize: 18, color: palette.ink }} numberOfLines={1}>{occ.title}</T>
-        {occ.description ? <T variant="caption" tone="secondary" style={{ marginTop: 4 }} numberOfLines={2}>{occ.description}</T> : null}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: spacing.sm }}>
-          <View style={st.metaRow}><Clock size={12} color={palette.ink600} /><T variant="micro" tone="secondary">{timeRange(occ.start_at, occ.end_at)}</T></View>
-          {occ.location ? <View style={st.metaRow}><MapPin size={12} color={palette.ink600} /><T variant="micro" tone="secondary" numberOfLines={1}>{occ.location}</T></View> : null}
+        <T serif style={{ fontSize: 17, color: palette.ink }} numberOfLines={1}>{occ.title}</T>
+        {occ.description ? <T variant="caption" tone="secondary" style={{ marginTop: 4, fontSize: 11 }} numberOfLines={2}>{occ.description}</T> : null}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: spacing.sm, flexWrap: "wrap" }}>
+          <View style={st.metaRow}><Clock size={12} color={palette.ink600} /><T variant="micro" tone="secondary" style={{ fontSize: 10 }}>{timeRange(occ.start_at, occ.end_at)}</T></View>
+          {occ.location ? <View style={st.metaRow}><MapPin size={12} color={palette.ink600} /><T variant="micro" tone="secondary" numberOfLines={1} style={{ fontSize: 10 }}>{occ.location}</T></View> : null}
         </View>
         <View style={st.cardFooter}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
             {occ.attendees && occ.attendees.length > 0 ? (
               <View style={{ flexDirection: "row" }}>
-                {occ.attendees.slice(0, 4).map((a, i) => (
-                  <View key={a.user_id} style={{ marginLeft: i === 0 ? 0 : -8, borderRadius: 13, borderWidth: 2, borderColor: palette.white }}>
+                {occ.attendees.slice(0, 3).map((a, i) => (
+                  <View key={a.user_id} style={{ marginLeft: i === 0 ? 0 : -7, borderRadius: 13, borderWidth: 2, borderColor: palette.white }}>
                     <Avatar uri={a.avatar_url} name={a.full_name} size={22} />
                   </View>
                 ))}
@@ -421,7 +557,7 @@ function EventCard({ occ, live, status, onPress }: { occ: CalendarOccurrence; li
             ) : (
               <Users size={13} color={palette.ink600} />
             )}
-            <T variant="caption" tone="secondary">{occ.going > 0 ? `${occ.going} going` : "Be the first to RSVP"}</T>
+            <T variant="caption" tone="secondary" style={{ fontSize: 11 }}>{occ.going > 0 ? `${occ.going} going` : "Be the first to RSVP"}</T>
           </View>
           <StatusPill status={status} />
         </View>
@@ -430,64 +566,92 @@ function EventCard({ occ, live, status, onPress }: { occ: CalendarOccurrence; li
   );
 }
 
+// Tighten the helper's "N min/hours/days to go" to the make's compact chip labels.
+function cdLabel(cd: string): string {
+  if (cd === "Happening now") return "Today";
+  const days = /^(\d+) days? to go$/.exec(cd);
+  if (days) return days[1] === "1" ? "Tomorrow" : `In ${days[1]} days`;
+  return cd; // "45 min to go" / "8 hours to go" → keep as-is (same-day)
+}
+
 function StatusPill({ status }: { status: string | null }): ReactElement {
-  if (status === "going") return <View style={[st.statusPill, { backgroundColor: palette.successBg }]}><Check size={13} color={palette.successText} /><T variant="caption" style={{ color: palette.successText, fontWeight: "800" }}>GOING</T></View>;
-  if (status === "maybe") return <View style={[st.statusPill, { backgroundColor: palette.goldChipBg }]}><T variant="caption" style={{ color: palette.goldChipText, fontWeight: "800" }}>+ MAYBE</T></View>;
-  return <View style={[st.statusPill, { backgroundColor: palette.navy }]}><T variant="caption" style={{ color: palette.onNavy, fontWeight: "800" }}>RSVP</T></View>;
+  if (status === "going") return <View style={[st.statusPill, { backgroundColor: palette.successBg }]}><Check size={12} color={palette.successText} /><T variant="caption" style={{ color: palette.successText, fontWeight: "800", fontSize: 10 }}>GOING</T></View>;
+  if (status === "maybe") return <View style={[st.statusPill, { backgroundColor: palette.goldChipBg }]}><Plus size={12} color={palette.goldChipText} /><T variant="caption" style={{ color: palette.goldChipText, fontWeight: "800", fontSize: 10 }}>MAYBE</T></View>;
+  return <View style={[st.statusPill, { backgroundColor: palette.navy }]}><Plus size={12} color={palette.onNavy} /><T variant="caption" style={{ color: palette.onNavy, fontWeight: "800", fontSize: 10 }}>RSVP</T></View>;
 }
 
 function CellTile({ label, value, sub }: { label: string; value: string; sub: string }): ReactElement {
   return (
     <View style={st.cellTile}>
-      <T variant="micro" tone="gold" style={{ fontWeight: "700", letterSpacing: 0.8 }}>{label}</T>
-      <T serif style={{ fontSize: 16, color: palette.ink, marginTop: 2 }} numberOfLines={1}>{value}</T>
-      <T variant="micro" tone="tertiary" style={{ marginTop: 1 }} numberOfLines={1}>{sub}</T>
+      <T variant="micro" tone="gold" style={{ fontWeight: "700", letterSpacing: 0.8, fontSize: 10 }}>{label}</T>
+      <T serif style={{ fontSize: 15, color: palette.ink, marginTop: 2 }} numberOfLines={1}>{value}</T>
+      <T variant="micro" tone="tertiary" style={{ marginTop: 1, fontSize: 10 }} numberOfLines={1}>{sub}</T>
     </View>
   );
 }
 
 const st = {
   screen: { flex: 1, backgroundColor: palette.paper },
-  gladBanner: { height: 150, borderRadius: radii.card, overflow: "hidden", justifyContent: "flex-end", backgroundColor: palette.navy },
-  gladImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
-  gladShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.55)" },
-  gladBody: { padding: spacing.base },
-  header: { backgroundColor: palette.navy, paddingHorizontal: spacing.screen, paddingTop: 58, paddingBottom: spacing.lg, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, overflow: "hidden" },
-  kicker: { letterSpacing: 2.4, fontWeight: "600" },
-  hero: { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 20, borderWidth: 1, borderColor: "rgba(201,162,39,0.25)", padding: spacing.base, marginTop: spacing.lg },
-  liveBadge: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: palette.success, borderRadius: radii.pill, paddingHorizontal: 10, height: 24 },
-  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#fff" },
-  nextBadge: { backgroundColor: palette.gold, borderRadius: radii.pill, paddingHorizontal: 10, height: 24, alignItems: "center", justifyContent: "center" },
-  qrChip: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
+  header: { paddingHorizontal: spacing.screen, paddingTop: 58, paddingBottom: spacing.lg, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, overflow: "hidden" },
+  headerGlow: { position: "absolute", top: -80, right: -64, width: 224, height: 224, borderRadius: 112, backgroundColor: "rgba(201,162,39,0.20)" },
+  kicker: { letterSpacing: 2.4, fontWeight: "600", fontSize: 10 },
+  pulseRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6, marginTop: spacing.md },
+  pulseLive: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(22,163,74,0.18)", borderRadius: radii.pill, paddingHorizontal: 10, height: 24 },
+  pulseChip: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: radii.pill, paddingHorizontal: 10, height: 24, borderWidth: 1, borderColor: "rgba(255,255,255,0.10)" },
+  // Live hero
+  liveHero: { borderRadius: 24, overflow: "hidden", padding: spacing.base, backgroundColor: palette.navy, ...shadow.card },
+  heroImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  heroVeil: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,20,36,0.66)" },
+  heroGlow: { position: "absolute", top: -48, right: -40, width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(230,192,104,0.22)" },
+  liveBadge: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: palette.success, borderRadius: radii.pill, paddingHorizontal: 10, height: 24 },
+  qrChip: { width: 36, height: 36, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center" },
   heroMeta: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
-  checkInBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, backgroundColor: palette.gold, borderRadius: radii.pill, height: 52, marginTop: spacing.base },
-  weekCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
+  checkInBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginLeft: "auto", backgroundColor: palette.gold, borderRadius: 16, height: 40, paddingHorizontal: 16, overflow: "hidden" },
+  // Week strip
+  weekCard: { backgroundColor: palette.white, borderRadius: 22, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   dayCol: { alignItems: "center", gap: 6, width: 38 },
-  dayPill: { width: 38, height: 48, borderRadius: 19, alignItems: "center", justifyContent: "center" },
+  dayPill: { width: 38, height: 46, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   dayDot: { width: 5, height: 5, borderRadius: 3 },
+  // Calendar card
+  calCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderRadius: 22, overflow: "hidden", padding: spacing.base, backgroundColor: palette.navy, ...shadow.card },
+  calGlow: { position: "absolute", top: -48, right: -40, width: 144, height: 144, borderRadius: 72, backgroundColor: "rgba(201,162,39,0.20)" },
+  calIcon: { width: 48, height: 48, borderRadius: 16, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  calChevron: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" },
+  // Segments
   segment: { flexDirection: "row", gap: 4, backgroundColor: palette.white, borderRadius: radii.pill, padding: 5, borderWidth: 1, borderColor: palette.border, ...shadow.card },
   segItem: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 40, borderRadius: radii.pill },
   segBadge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },
+  // Search
   search: { flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: palette.white, borderRadius: radii.pill, paddingHorizontal: spacing.base, height: 48, borderWidth: 1, borderColor: palette.border, ...shadow.card },
-  searchInput: { flex: 1, color: palette.ink, fontSize: 15, paddingVertical: 0 },
-  chip: { paddingHorizontal: spacing.base, height: 38, borderRadius: radii.pill, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
-  card: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
+  searchInput: { flex: 1, color: palette.ink, fontSize: 14, paddingVertical: 0 },
+  chip: { paddingHorizontal: spacing.base, height: 36, borderRadius: radii.pill, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
+  // Generic card
+  card: { backgroundColor: palette.white, borderRadius: 22, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   cardHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  emptyTile: { width: 56, height: 56, borderRadius: 18, backgroundColor: palette.surface, alignItems: "center", justifyContent: "center" },
-  eventCard: { backgroundColor: palette.white, borderRadius: radii.card, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
-  cover: { height: 150, overflow: "hidden" },
-  coverDate: { position: "absolute", top: 14, left: 14, backgroundColor: palette.white, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6, alignItems: "center", ...shadow.card },
-  coverBadges: { position: "absolute", top: 14, right: 14, flexDirection: "row", gap: 6 },
-  catBadge: { borderRadius: radii.pill, paddingHorizontal: 10, height: 24, alignItems: "center", justifyContent: "center" },
+  emptyTile: { width: 52, height: 52, borderRadius: 16, backgroundColor: palette.surface, alignItems: "center", justifyContent: "center" },
+  // Event card
+  eventCard: { backgroundColor: palette.white, borderRadius: 22, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
+  cover: { height: 158, overflow: "hidden" },
+  coverImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  coverShade: { position: "absolute", left: 0, right: 0, bottom: 0, height: "60%", backgroundColor: "rgba(11,31,51,0.42)" },
+  coverDate: { position: "absolute", top: 12, left: 12, backgroundColor: palette.white, borderRadius: 14, width: 48, height: 48, alignItems: "center", justifyContent: "center", ...shadow.card },
+  coverBadges: { position: "absolute", top: 12, right: 12, flexDirection: "row", alignItems: "center", gap: 6 },
+  liveBadgeSm: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: palette.success, borderRadius: radii.pill, paddingHorizontal: 8, height: 22 },
+  popularBadge: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(11,31,51,0.55)", borderRadius: radii.pill, paddingHorizontal: 8, height: 22, justifyContent: "center" },
+  saveBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(11,31,51,0.45)", alignItems: "center", justifyContent: "center" },
+  countdownChip: { position: "absolute", bottom: 10, left: 12, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(11,31,51,0.5)", borderRadius: radii.pill, paddingHorizontal: 8, height: 20 },
+  seriesTag: { position: "absolute", bottom: 10, right: 12, borderRadius: radii.pill, paddingHorizontal: 8, height: 20, alignItems: "center", justifyContent: "center" },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 },
   cardFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: palette.border },
-  statusPill: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: radii.pill, paddingHorizontal: 14, height: 34 },
+  statusPill: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: radii.pill, paddingHorizontal: 12, height: 32 },
+  // Series rows
   seriesRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
-  seriesDot: { width: 40, height: 40, borderRadius: 20, borderWidth: 2 },
+  seriesDot: { width: 38, height: 38, borderRadius: 12, borderWidth: 1 },
   newChip: { backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 8, height: 18, alignItems: "center", justifyContent: "center" },
-  followBtn: { flexDirection: "row", alignItems: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, height: 36, backgroundColor: palette.white },
-  followingBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: radii.pill, paddingHorizontal: 14, height: 36, backgroundColor: palette.navy },
+  followBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: radii.pill, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, height: 34, backgroundColor: palette.white },
+  followingBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: radii.pill, paddingHorizontal: 14, height: 34, backgroundColor: palette.navy },
   divider: { borderBottomWidth: 1, borderBottomColor: palette.border },
+  // Announcements
   annRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
   annIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
   annThumbWrap: { width: 48, height: 48, borderRadius: 14, overflow: "hidden", alignItems: "center", justifyContent: "center" },
@@ -495,6 +659,7 @@ const st = {
   annPlay: { position: "absolute", width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
   annVideoChip: { flexDirection: "row", alignItems: "center", gap: 3, alignSelf: "flex-start", marginTop: 4, backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 7, paddingVertical: 2 },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.gold },
+  // Cell
   cellTile: { flexGrow: 1, flexBasis: "46%", minWidth: 140, backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
-  openCellBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, backgroundColor: palette.navy, borderRadius: radii.pill, height: 50, marginTop: spacing.base },
+  openCellBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, backgroundColor: palette.navy, borderRadius: radii.pill, height: 48, marginTop: spacing.base },
 } as const;
