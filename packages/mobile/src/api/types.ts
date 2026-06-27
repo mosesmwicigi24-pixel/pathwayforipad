@@ -710,6 +710,15 @@ export interface TailoredVerse {
   text?: string | null; // the verse text itself (set by the dated daily plan)
 }
 
+// Verse-of-the-day reactions — community counts for today's shared verse, plus
+// the caller's own reaction (one per member/day, exclusive). `counts` maps emoji
+// → number; `mine` is the emoji this member chose (or null); `total` is the sum.
+export interface VerseReactions {
+  counts: Record<string, number>;
+  mine: string | null;
+  total: number;
+}
+
 // Prayer Wall — public, congregation-scoped prayer requests (GET /prayer-wall).
 export interface PrayerReaction {
   emoji: string;

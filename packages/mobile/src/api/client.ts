@@ -46,6 +46,7 @@ import type {
   ScoresSummary,
   NextAction,
   TailoredVerse,
+  VerseReactions,
   PrayerWallPost,
   PrayerWallDetail,
   MyReflection,
@@ -662,6 +663,16 @@ export const NuruApi = {
   // Tailored "Verse for today" — server chooses the reference for this member.
   async homeVerse(): Promise<TailoredVerse> {
     const { data } = await api.get<TailoredVerse>("/me/home/verse");
+    return data;
+  },
+  // Verse-of-the-day reactions — community counts + my reaction (one per member/day,
+  // exclusive: tapping a new emoji moves my vote; tapping my current one clears it).
+  async verseReactions(): Promise<VerseReactions> {
+    const { data } = await api.get<VerseReactions>("/me/home/verse/reactions");
+    return data;
+  },
+  async setVerseReaction(emoji: string): Promise<VerseReactions> {
+    const { data } = await api.post<VerseReactions>("/me/home/verse/reactions", { emoji });
     return data;
   },
   // ---- Prayer Wall (public, opt-in; GET/POST /prayer-wall) ----

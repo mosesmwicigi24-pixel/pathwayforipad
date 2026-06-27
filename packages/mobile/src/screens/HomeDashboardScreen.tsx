@@ -57,9 +57,10 @@ import {
   usePathway,
   useScripture,
   useHomeVerse,
+  useVerseReactions,
   useWelcomeVideo,
 } from "../api/hooks";
-import type { ContentReaction, WelcomeVideo, NextAction } from "../api/types";
+import type { ContentReaction, WelcomeVideo, NextAction, VerseReactions } from "../api/types";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -120,14 +121,18 @@ function welcomeVideoUrl(v: WelcomeVideo): string | null {
 const GROW: Array<{ label: string; sub: string; route: "Devotional" | "ReadingPlans" | "PrayerJournal" | "PrayerWall" | "MemoryVerses" | "Gifts" | "Resources"; Icon: LucideIcon; tint: string; fg: string }> = [
   { label: "Devotional", sub: "Today's devotional", route: "Devotional", Icon: Sun, tint: "#FFF4DA", fg: palette.goldLo },
   { label: "Reading plan", sub: "Continue your plan", route: "ReadingPlans", Icon: BookMarked, tint: "#EEF2FF", fg: "#6366F1" },
-  { label: "Memory verses", sub: "Practice & master", route: "MemoryVerses", Icon: Quote, tint: "#FFF4DA", fg: palette.goldLo },
-  { label: "Spiritual gifts", sub: "Take assessment", route: "Gifts", Icon: Sparkles, tint: "#F3E8FF", fg: "#A855F7" },
+  { label: "Hide His Word", sub: "Memorize Scripture", route: "MemoryVerses", Icon: Quote, tint: "#FFF4DA", fg: palette.goldLo },
+  { label: "Your Calling", sub: "Discover your gifts", route: "Gifts", Icon: Sparkles, tint: "#F3E8FF", fg: "#A855F7" },
+  { label: "Prayer Wall", sub: "Pray with the family", route: "PrayerWall", Icon: HandHeart, tint: "#FEE2E2", fg: "#B91C1C" },
 ];
 
 // Placeholder story image (Figma "This week at Nuru"); shown only when no real
 // featured cell is set.
 const STORY_PHOTO = "https://images.unsplash.com/photo-1735968664648-a0df97339343?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080";
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
+// The five reactions for the shared "Verse for today" (must match the server's
+// allow-list in modules/home/index.ts). One reaction per member per day.
+const VERSE_REACTIONS = ["❤️", "🙏", "🔥", "🙌", "👍"] as const;
 
 const RHYTHM: Array<{ key: "prayer" | "word" | "reflection"; label: string }> = [
   { key: "prayer", label: "Prayer" },
@@ -157,6 +162,23 @@ export function HomeDashboardScreen(): ReactElement {
     : scriptureVerse;
   const [verseShareOpen, setVerseShareOpen] = useState(false);
   const [verseSaved, setVerseSaved] = useState(false);
+  // Verse-of-the-day reactions: server is source of truth; we keep a local copy so
+  // a tap feels instant (optimistic) and reconcile from the response.
+  const { data: serverReactions } = useVerseReactions();
+  const [reactions, setReactions] = useState<VerseReactions | null>(null);
+  useEffect(() => { if (serverReactions) setReactions(serverReactions); }, [serverReactions]);
+  const reactVerse = useCallback((emoji: string) => {
+    setReactions((prev) => {
+      const counts = { ...(prev?.counts ?? {}) };
+      const mine = prev?.mine ?? null;
+      if (mine) counts[mine] = Math.max(0, (counts[mine] ?? 1) - 1); // drop my old vote
+      const nextMine = mine === emoji ? null : emoji;                // tap-again clears
+      if (nextMine) counts[nextMine] = (counts[nextMine] ?? 0) + 1;
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+      return { counts, mine: nextMine, total };
+    });
+    void NuruApi.setVerseReaction(emoji).then(setReactions).catch(() => { /* keep optimistic */ });
+  }, []);
   const { data: welcomeVideo, refetch: refetchWelcomeVideo } = useWelcomeVideo();
   const { data: featuredCell, refetch: refetchFeaturedCell } = useFeaturedCell();
   const { data: rhythmServer } = useRhythmToday();
@@ -479,6 +501,27 @@ export function HomeDashboardScreen(): ReactElement {
               </T>
             </View>
           ) : null}
+          {/* Reactions — one per member/day, exclusive; counts are community-wide. */}
+          <View style={st.verseReactRow}>
+            {VERSE_REACTIONS.map((emoji) => {
+              const count = reactions?.counts?.[emoji] ?? 0;
+              const mine = reactions?.mine === emoji;
+              return (
+                <Pressable
+                  key={emoji}
+                  onPress={() => reactVerse(emoji)}
+                  style={[st.verseReactChip, mine && st.verseReactChipOn]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`React ${emoji}`}
+                >
+                  <T style={{ fontSize: 15 }}>{emoji}</T>
+                  {count > 0 ? (
+                    <T variant="micro" style={{ fontWeight: "700", color: mine ? palette.goldChipText : palette.ink600 }}>{count}</T>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
           <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
             <Pressable
               onPress={() => {
@@ -1379,6 +1422,13 @@ const st = {
     padding: spacing.base,
   },
   versionPill: { backgroundColor: palette.white, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: palette.border },
+  verseReactRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: spacing.md },
+  verseReactChip: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: palette.white, borderRadius: radii.pill,
+    paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: palette.border,
+  },
+  verseReactChipOn: { borderColor: palette.gold, backgroundColor: "#FFF8E6" },
   versePillBtn: {
     flexDirection: "row",
     alignItems: "center",

@@ -13,9 +13,9 @@ import { T } from "../theme/components";
 type Cta = { key: string; label: string; sub: string; Icon: LucideIcon; tint: string; fg: string; go: (n: NativeStackNavigationProp<RootStackParamList>) => void };
 
 const CTAS: Cta[] = [
-  { key: "gifts", label: "Spiritual gifts", sub: "Take the test", Icon: Sparkles, tint: "#F3E8FF", fg: "#A855F7", go: (n) => n.navigate("Gifts") },
-  { key: "verse", label: "Memory verse", sub: "Practice & master", Icon: Quote, tint: "#FEF3C7", fg: "#B45309", go: (n) => n.navigate("MemoryVerses") },
-  { key: "pray", label: "Let's pray", sub: "Pour out your heart", Icon: HandHeart, tint: "#FEE2E2", fg: "#B91C1C", go: (n) => n.navigate("PrayerJournal") },
+  { key: "wall", label: "Prayer Wall", sub: "Pray with the family", Icon: HandHeart, tint: "#FEE2E2", fg: "#B91C1C", go: (n) => n.navigate("PrayerWall") },
+  { key: "gifts", label: "Your Calling", sub: "Discover your gifts", Icon: Sparkles, tint: "#F3E8FF", fg: "#A855F7", go: (n) => n.navigate("Gifts") },
+  { key: "verse", label: "Hide His Word", sub: "Memorize Scripture", Icon: Quote, tint: "#FEF3C7", fg: "#B45309", go: (n) => n.navigate("MemoryVerses") },
 ];
 
 export function GrowthCtaRow(): ReactElement {

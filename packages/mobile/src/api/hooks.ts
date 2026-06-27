@@ -31,6 +31,7 @@ import type {
   ScoresSummary,
   NextAction,
   TailoredVerse,
+  VerseReactions,
   PrayerWallPost,
   PrayerWallDetail,
   NotificationRow,
@@ -104,6 +105,7 @@ export const queryKeys = {
   nextAction: "nextAction",
   greeting: "greeting",
   homeVerse: "homeVerse",
+  verseReactions: "verseReactions",
   prayerWall: (sort: string) => `prayerWall:${sort}`,
   prayerWallHome: "prayerWallHome",
   prayerWallPost: (id: string) => `prayerWallPost:${id}`,
@@ -326,6 +328,11 @@ export function useNextAction(): QueryResult<{ action: NextAction | null }> {
 /** Tailored "Verse for today" — server chooses the reference for this member (cached/day). */
 export function useHomeVerse(): QueryResult<TailoredVerse> {
   return useQuery(queryKeys.homeVerse, () => NuruApi.homeVerse(), { staleMs: 6 * 60 * 60 * 1000 });
+}
+
+/** Community reactions on today's shared verse + my own (one per member/day). */
+export function useVerseReactions(): QueryResult<VerseReactions> {
+  return useQuery(queryKeys.verseReactions, () => NuruApi.verseReactions(), { staleMs: 30_000 });
 }
 
 /** Nuru's personal one-line greeting (cached per day server-side). */
