@@ -1,22 +1,18 @@
 // Giving statement (mobile "Give" make). A full, grouped-by-month history of the
 // member's gifts with settled-only totals, a provider reference, the payment
 // method, and a per-gift status chip. Read-only over GET /giving/history. Tapping
-// a gift opens a detail sheet with every field plus the double-entry ledger trail
-// (GET /giving/transactions/:id); the download action opens a server-rendered PDF
-// of the statement (GET /giving/statement.pdf). All money is server-authoritative
-// — we only render what the ledger reports.
-import { useMemo, useState, type ReactElement } from "react";
-import { Linking, Modal, Platform, Pressable, ScrollView, View } from "react-native";
-import {
-  ArrowLeft, BookOpen, Calendar, CheckCircle2, CreditCard, Download, Gift, Globe,
-  HandHeart, Hash, Percent, Receipt, Wallet, X, type LucideIcon,
-} from "lucide-react-native";
+// a gift opens its full GivingReceipt (the "Giving receipt" make: transaction
+// journey + Share/Save PDF); the download action opens a server-rendered PDF of the
+// whole statement (GET /giving/statement.pdf). All money is server-authoritative.
+import { useMemo, type ReactElement } from "react";
+import { Linking, Platform, Pressable, ScrollView, View } from "react-native";
+import { ArrowLeft, BookOpen, Download, Gift, Globe, HandHeart, Percent, type LucideIcon } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
-import { T, PButton } from "../theme/components";
-import { useGivingHistory, useGivingDetail } from "../api/hooks";
+import { T } from "../theme/components";
+import { useGivingHistory } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
 import { historyStatusChip, methodLabel } from "./givingHelpers";
@@ -27,7 +23,6 @@ import type { GivingRecord } from "../api/types";
 
 const kshMinor = (m: number): string => `KSh ${(m / 100).toLocaleString()}`;
 const timeLabel = (iso: string): string => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-const dateTimeFull = (iso: string): string => new Date(iso).toLocaleString("en-US", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 
 type FundVisual = { Icon: LucideIcon; tint: string; fg: string };
 const FUND_VISUALS: Record<string, FundVisual> = {
@@ -44,12 +39,11 @@ function fundVisual(fund: string): FundVisual {
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
 export function GivingStatementScreen(): ReactElement {
-  const nav = useNavigation();
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: history, isLoading, error, refetch } = useGivingHistory();
   const records = history ?? [];
   const groups = useMemo(() => groupByDay(records), [records]);
   const total = statementTotalMinor(records);
-  const [selected, setSelected] = useState<GivingRecord | null>(null);
 
   async function downloadStatement(): Promise<void> {
     if (records.length === 0) return;
@@ -108,14 +102,12 @@ export function GivingStatementScreen(): ReactElement {
             </View>
             <View style={st.group}>
               {g.records.map((r, i) => (
-                <StatementRow key={r.transaction_id} r={r} divider={i < g.records.length - 1} onPress={() => setSelected(r)} />
+                <StatementRow key={r.transaction_id} r={r} divider={i < g.records.length - 1} onPress={() => nav.navigate("GivingReceipt", { transactionId: r.transaction_id })} />
               ))}
             </View>
           </View>
         ))}
       </ScrollView>
-
-      {selected ? <DetailSheet record={selected} onClose={() => setSelected(null)} /> : null}
     </View>
   );
 }
@@ -144,107 +136,6 @@ function StatementRow({ r, divider, onPress }: { r: GivingRecord; divider: boole
         </View>
       </View>
     </Pressable>
-  );
-}
-
-// ---- Transaction detail: every field the callback returns + the ledger trail ----
-
-function accountLabel(account: string): string {
-  const [kind, name] = account.split(":");
-  return name ? `${cap(kind ?? "")} · ${cap(name)}` : cap(account);
-}
-
-function DetailSheet({ record, onClose }: { record: GivingRecord; onClose: () => void }): ReactElement {
-  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  // Seed the sheet from the row we already have, then enrich with the full
-  // callback (ledger trail, schedule id, settled timestamp) when it arrives.
-  const { data: detail, isLoading, error } = useGivingDetail(record.transaction_id);
-  const v = fundVisual(record.fund);
-  const chip = historyStatusChip(detail?.status ?? record.status);
-  const ledger = detail?.ledger ?? [];
-
-  return (
-    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
-      <Pressable style={st.backdrop} onPress={onClose} />
-      <View style={st.sheet}>
-        <View style={st.grabber} />
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.base }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, flex: 1, minWidth: 0 }}>
-            <View style={[st.fundIcon, { width: 40, height: 40, borderRadius: 20, backgroundColor: v.tint }]}><v.Icon size={18} color={v.fg} /></View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <T serif style={{ fontSize: 20, color: palette.navy }}>{cap(record.fund)}</T>
-              <T variant="micro" tone="tertiary">Gift detail</T>
-            </View>
-          </View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={st.sheetClose}><X size={16} color={palette.navy} /></Pressable>
-        </View>
-
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.lg }}>
-          <View style={st.amountCard}>
-            <T serif tone="onNavy" style={{ fontSize: 34 }}>{kshMinor(record.amount_minor)}</T>
-            <View style={[st.statusChip, { backgroundColor: chip.bg, marginTop: 8 }]}>
-              <T variant="micro" style={{ color: chip.fg, fontWeight: "700", fontSize: 10 }}>{chip.label.toUpperCase()}</T>
-            </View>
-          </View>
-
-          <View style={{ marginTop: spacing.lg }}>
-            <DetailRow Icon={HandHeart} label="Fund" value={cap(record.fund)} />
-            <DetailRow Icon={CreditCard} label="Method" value={methodLabel(detail?.method ?? record.method)} />
-            <DetailRow Icon={Calendar} label="Given" value={dateTimeFull(record.created_at)} />
-            {detail?.settled_at ? <DetailRow Icon={CheckCircle2} label="Settled" value={dateTimeFull(detail.settled_at)} /> : null}
-            <DetailRow Icon={Wallet} label="Currency" value={(detail?.currency ?? record.currency).toUpperCase()} />
-            {(detail?.provider_ref ?? record.provider_ref) ? (
-              <DetailRow Icon={Hash} label="Reference" value={detail?.provider_ref ?? record.provider_ref ?? ""} mono />
-            ) : null}
-            {detail?.schedule_id ? <DetailRow Icon={Receipt} label="Recurring" value="Part of a giving schedule" /> : null}
-            <DetailRow Icon={Hash} label="Transaction ID" value={record.transaction_id} mono />
-          </View>
-
-          {error && ledger.length === 0 ? (
-            <T variant="micro" tone="tertiary" style={{ marginTop: spacing.base }}>{errorMessage(error)}</T>
-          ) : null}
-
-          {isLoading && ledger.length === 0 ? (
-            <T variant="micro" tone="tertiary" style={{ marginTop: spacing.base }}>Loading full detail…</T>
-          ) : null}
-
-          {ledger.length > 0 ? (
-            <View style={{ marginTop: spacing.lg }}>
-              <T variant="overline" tone="gold" style={{ marginBottom: spacing.sm }}>LEDGER</T>
-              <View style={st.group}>
-                {ledger.map((l, i) => (
-                  <View key={`${l.account}-${l.side}-${i}`} style={[st.ledgerRow, i < ledger.length - 1 && st.divider]}>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <T variant="body" style={{ fontSize: 14 }}>{accountLabel(l.account)}</T>
-                      <T variant="micro" tone="tertiary" style={{ marginTop: 1 }}>{cap(l.side)}</T>
-                    </View>
-                    <T serif style={{ fontSize: 15, color: l.side === "credit" ? palette.successText : palette.ink }}>
-                      {l.side === "credit" ? "+" : "−"}{kshMinor(l.amount_minor)}
-                    </T>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          <View style={{ marginTop: spacing.lg }}>
-            <PButton variant="primary" onPress={() => { onClose(); nav.navigate("GivingReceipt", { transactionId: record.transaction_id }); }}>
-              View receipt
-            </PButton>
-          </View>
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-
-function DetailRow({ Icon, label, value, mono }: { Icon: LucideIcon; label: string; value: string; mono?: boolean }): ReactElement {
-  return (
-    <View style={st.detailRow}>
-      <View style={st.detailIcon}><Icon size={15} color={palette.ink600} /></View>
-      <T variant="caption" tone="tertiary" style={{ width: 100 }}>{label}</T>
-      <T variant="body" style={[{ flex: 1, textAlign: "right", fontSize: 13 }, mono ? { fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" } : null]}>{value}</T>
-    </View>
   );
 }
 
