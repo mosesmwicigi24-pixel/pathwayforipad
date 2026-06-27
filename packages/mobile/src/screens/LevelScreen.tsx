@@ -147,7 +147,14 @@ export function LevelScreen(): ReactElement {
                 {mentor ? [mentor.cell_name, mentorNext ? `next ${mentorNext}` : null].filter(Boolean).join(" · ") || "Tap to open" : "Tap to learn more"}
               </T>
             </View>
-            <View style={st.chatBtn}><MessageCircle size={13} color={palette.onNavy} /><T variant="micro" style={{ color: palette.onNavy, fontWeight: "600" }}>Chat</T></View>
+            <Pressable
+              onPress={() => nav.navigate("Tabs", { screen: "Chat" })}
+              style={({ pressed }) => [st.chatBtn, pressed && st.press]}
+              accessibilityRole="button"
+              accessibilityLabel="Message your discipler"
+            >
+              <MessageCircle size={13} color={palette.onNavy} /><T variant="micro" style={{ color: palette.onNavy, fontWeight: "600" }}>Chat</T>
+            </Pressable>
           </Pressable>
 
           {/* Trail header */}

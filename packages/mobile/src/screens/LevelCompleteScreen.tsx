@@ -2,19 +2,21 @@
 // with a concentric gold certificate motif, the level name, a gold rule, and the
 // next-level card. Reached when a level is awarded (server-confirmed) or by
 // viewing an earned certificate.
-import { type ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing } from "../theme/tokens";
 import { PButton, T } from "../theme/components";
+import { Confetti } from "../components/Confetti";
 import { usePathway, useMe } from "../api/hooks";
 
 export function LevelCompleteScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: pathway } = usePathway();
   const { data: me } = useMe();
+  const [celebrate, setCelebrate] = useState(true);
 
   const levels = pathway?.levels ?? [];
   // The most-recently completed level (highest with all modules done).
@@ -70,6 +72,8 @@ export function LevelCompleteScreen(): ReactElement {
       <PButton variant="gold" onPress={() => nav.navigate("Tabs", { screen: "Home" })}>
         {nextLevel ? `Begin Level ${nextLevel.level_number}` : "Continue"}
       </PButton>
+
+      <Confetti show={celebrate} count={110} onDone={() => setCelebrate(false)} />
     </View>
   );
 }

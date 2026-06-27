@@ -1,29 +1,30 @@
-// Pathway tab root — "Today's journey" hub (new design, spec §3 PathwayHub).
-// Navy header (overall-progress ring + verse of the day); a TODAY rail with the
-// live Continue card + Devotional / Reading-plan / Prayer-wall previews; a GROW
-// stack of rich preview cards that surface what's happening on each growth page
-// (memory verse + recall, discipler + next meeting, gifts, journal, saved verses,
-// resources); then YOUR JOURNEY — vibrant per-level cards, unlocked ones live and
-// locked ones colored with a padlock. Server stays authoritative for unlocking
-// (§1.9): a level above current_level is never tappable.
-import { Fragment, useCallback, useState, type ReactElement, type ReactNode } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, View } from "react-native";
+// Pathway hub — the Figma "PathwayHub" make. The journey reads as a vertical trail
+// of the six levels: connected stations on a gold rail (completed / active /
+// locked), a Continue card themed in the active level's gradient, an auto-rotating
+// Reminders banner, the active level expanded inline to a 3-module preview, per-level
+// certificate + stars + stats, image-rich encouragement waypoints woven after each
+// level (badges, a word from your discipler, verses, cheers, event + video cards),
+// and a sunrise "Commissioned" summit card where the trail ends. Server stays
+// authoritative for unlocking (§1.9): a level above current_level is never tappable.
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { Animated, Image, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Svg, Circle } from "react-native-svg";
 import {
+  Award,
   BookMarked,
   BookOpen,
-  CalendarClock,
   Check,
-  ChevronRight,
-  Flame,
-  HandHeart,
-  PenLine,
+  CheckCircle2,
   Library,
+  ChevronRight,
+  Clock,
+  Download,
   Lock,
+  PenLine,
   PlayCircle,
   Quote,
   Sparkles,
-  Sun,
-  UserRoundCheck,
+  Star,
   type LucideIcon,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -31,81 +32,148 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
 import { GradientBg, T } from "../theme/components";
-import { Avatar } from "../components/Avatar";
 import {
   useAchievements,
-  useDevotional,
-  useMemoryVerses,
+  useLevelModules,
+  useMe,
   useMentor,
-  useMyGifts,
   usePathway,
-  useResources,
-  useRhythmToday,
-  useScripture,
-  useVerses,
-  queryKeys,
 } from "../api/hooks";
-import { NuruApi } from "../api/client";
-import { errorMessage, refreshQueries } from "../api/query";
+import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
-import { GrowthCtaRow } from "../components/GrowthCtaRow";
+import { cdnImage } from "../util/cdnImage";
 import { isLevelLocked, lockedLevelLabel } from "./levelGating";
-import type { PathwayLevel, RhythmToday } from "../api/types";
+import type { LevelModule, PathwayLevel } from "../api/types";
 
-// Per-level accent so the journey reads as a colourful ladder. Locked levels keep
-// their colour (just dimmed + padlocked) so the path ahead stays inviting.
-const LEVEL_ACCENTS = [
-  { tint: palette.goldTint, fg: palette.goldLo, bar: palette.gold },
-  { tint: "#E0E7FF", fg: "#4338CA", bar: "#6366F1" },
-  { tint: "#DCFCE7", fg: "#15803D", bar: "#22C55E" },
-  { tint: "#F3E8FF", fg: "#7E22CE", bar: "#A855F7" },
-  { tint: "#FFE4E6", fg: "#BE123C", bar: "#F43F5E" },
-  { tint: "#CFFAFE", fg: "#0E7490", bar: "#06B6D4" },
-] as const;
+const NAVY = palette.navy;
+const GOLD = palette.gold;
+const GOLD_LO = "#A8861C";
 
-// Interleaved imagery between the level cards. The Bible-study photo is a real,
-// license-free image (Unsplash CDN); swap for an uploaded asset later if desired.
-const BIBLE_STUDY_IMG = "https://images.unsplash.com/photo-1504052434569-70ad5836ab65?w=1200&q=80";
-// Light breaking through — resonates with discovering God-given gifts.
-const GIFTS_IMG = "https://images.unsplash.com/photo-1499209974431-9dddcece7f88?w=1200&q=80";
+// Per-level gradient so the journey reads as a colourful ascent. (Navy → accent.)
+const LEVEL_GRADIENTS: readonly [string, string, string][] = [
+  ["#123B62", "#0A2540", "#D8B84D"],
+  ["#0A2540", "#315F8C", "#C9A227"],
+  ["#1C2A44", "#334155", "#8B7355"],
+  ["#0F2B46", "#1E4E6E", "#7EA7C7"],
+  ["#14213D", "#5C4A22", "#C9A227"],
+  ["#081C36", "#17324F", "#E7D9A3"],
+];
+const gradientFor = (n: number): readonly [string, string, string] =>
+  LEVEL_GRADIENTS[(n - 1) % LEVEL_GRADIENTS.length] ?? LEVEL_GRADIENTS[1]!;
 
-const snippet = (s: string | null | undefined, n: number): string => {
-  const t = (s ?? "").replace(/\s+/g, " ").trim();
-  return t.length > n ? `${t.slice(0, n - 1)}…` : t;
-};
+// A lively palette so the inline module rows feel alive — locked rows keep their
+// colour (just padlocked), never going grey.
+const MOD_COLORS = ["#C9A227", "#6366F1", "#16A34A", "#0EA5E9", "#A855F7", "#DC2626", "#0891B2", "#D97706", "#DB2777"];
+
+// Imagery for event & video waypoints (license-free Unsplash CDN; cdnImage is a
+// no-op for non-Cloudinary URLs).
+const IMG_GATHERING = "https://images.unsplash.com/photo-1444664361762-afba083a4d77?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080";
+const IMG_WORSHIP = "https://images.unsplash.com/photo-1510384742052-1abcb6282645?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080";
+const IMG_BIBLE = "https://images.unsplash.com/photo-1497621122273-f5cfb6065c56?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080";
+const IMG_COMMISSIONED = "https://images.unsplash.com/photo-1513759565286-20e9c5fad06b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080";
+
+const img = (uri: string): string => cdnImage(uri, { width: 1080 }) ?? uri;
+
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+function firstName(full: string | null | undefined): string {
+  return (full ?? "").trim().split(/\s+/)[0] || "friend";
+}
+function formatDuration(min: number): string {
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+// ── Encouragement waypoints woven into the trail ──────────────────────────────
+type Encourage =
+  | { kind: "badge"; name: string; desc: string; earned: boolean; stars?: number; emoji: string }
+  | { kind: "mentor"; name: string; initials: string; quote: string }
+  | { kind: "verse"; ref: string; text: string }
+  | { kind: "cheer"; emoji: string; text: string }
+  | { kind: "announcement"; tag: string; title: string; meta: string; image: string }
+  | { kind: "video"; title: string; meta: string; duration: string; image: string };
+
+const VERSE_POOL: { ref: string; text: string }[] = [
+  { ref: "Philippians 1:6", text: "He who began a good work in you will carry it on to completion." },
+  { ref: "Psalm 119:105", text: "Your word is a lamp for my feet, a light on my path." },
+  { ref: "Isaiah 40:31", text: "Those who hope in the Lord will renew their strength; they will soar on wings like eagles." },
+];
+const CHEER_POOL: { emoji: string; text: string }[] = [
+  { emoji: "⛰️", text: "Over halfway to the summit — every page is forming Christ in you." },
+  { emoji: "🔥", text: "You're on a roll — keep showing up, heaven is cheering you on." },
+];
+
+// Build a small set of encouragement waypoints to render after a level, varied by
+// the level's status so the trail stays inviting end-to-end.
+function waypointsFor(level: PathwayLevel, mentorName: string | null): Encourage[] {
+  const champion = (level.title.split(/\s+/)[0] ?? "Faith").replace(/^\w/, (c) => c.toUpperCase());
+  if (level.status === "completed") {
+    const out: Encourage[] = [
+      { kind: "badge", name: `${champion} Champion`, desc: "Level complete", earned: true, stars: 3, emoji: "🏆" },
+    ];
+    if (level.level_number % 2 === 1) {
+      out.push({ kind: "announcement", tag: "Testimony", title: "First baptisms in your cohort", meta: "This week at Nuru · tap to read", image: IMG_GATHERING });
+    }
+    return out;
+  }
+  if (level.status === "active") {
+    return [
+      {
+        kind: "mentor",
+        name: mentorName ?? "your discipler",
+        initials: (mentorName ?? "ND").split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "ND",
+        quote: "You're growing beautifully — press on, the best is still ahead.",
+      },
+      { kind: "announcement", tag: "Event", title: "Mid-cohort retreat · this Saturday", meta: "Sat 6:00 PM · Lakeview Camp", image: IMG_GATHERING },
+      { kind: "video", title: "Watch: What is the Church?", meta: "Teaching · 6 min", duration: "6:12", image: IMG_WORSHIP },
+    ];
+  }
+  // locked — alternate a verse, a video teaser, or a cheer
+  const mod = level.level_number % 3;
+  if (mod === 0) return [{ kind: "cheer", ...CHEER_POOL[0]! }];
+  if (mod === 1) return [{ kind: "verse", ...VERSE_POOL[level.level_number % VERSE_POOL.length]! }];
+  return [{ kind: "video", title: "Preview: what's ahead", meta: "Teaching · 8 min", duration: "8:05", image: IMG_BIBLE }];
+}
 
 export function LevelsScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: pathway, isLoading, error, refetch } = usePathway();
+  const { data: me } = useMe();
+  const { data: mentorInfo } = useMentor();
   const { data: achievements, refetch: refetchAch } = useAchievements();
-  const { data: verse } = useScripture("Romans 12:2");
-  // Live previews — each card mirrors what's on its page.
-  const { data: devotional } = useDevotional();
-  const { data: rhythm } = useRhythmToday();
-  const { data: mentor } = useMentor();
-  const { data: gifts } = useMyGifts();
-  const { data: memoryVerses } = useMemoryVerses();
-  const { data: savedVerses } = useVerses();
-  const { data: resources } = useResources();
   const [refreshing, setRefreshing] = useState(false);
 
-  const onRefresh = useCallback(async () => {
+  const levels = pathway?.levels ?? [];
+  const active =
+    levels.find((l) => l.status === "active") ??
+    levels.find((l) => l.level_number === pathway?.current_level) ??
+    levels[0];
+  // The active level's real modules drive the Continue card + the inline preview.
+  const { data: activeModules } = useLevelModules(active?.level_number ?? null);
+
+  async function onRefresh(): Promise<void> {
     setRefreshing(true);
     try {
       await Promise.all([refetch(), refetchAch()]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetch, refetchAch]);
+  }
 
-  if (isLoading) {
+  if (isLoading && !pathway) {
     return (
       <View style={[st.screen, st.center]}>
         <Loading label="Loading your pathway…" />
       </View>
     );
   }
-  if (error || !pathway) {
+  if (error || !pathway || !active) {
     return (
       <View style={[st.screen, st.center]}>
         <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />
@@ -113,633 +181,629 @@ export function LevelsScreen(): ReactElement {
     );
   }
 
-  const levels = pathway.levels;
-  const active =
-    levels.find((l) => l.status === "active") ??
-    levels.find((l) => l.level_number === pathway.current_level) ??
-    levels[0];
   const totalModules = levels.reduce((s, l) => s + l.total_modules, 0);
   const doneModules = levels.reduce((s, l) => s + l.completed_modules, 0);
   const overallPct = totalModules > 0 ? Math.round((doneModules / totalModules) * 100) : 0;
-  const activePct = active && active.total_modules > 0 ? Math.round((active.completed_modules / active.total_modules) * 100) : 0;
-  const streak = achievements?.streak?.current ?? 0;
+  const activePct = active.total_modules > 0 ? Math.round((active.completed_modules / active.total_modules) * 100) : 0;
 
-  // ── derive preview content ──────────────────────────────────────────
-  const mv = memoryVerses?.find((v) => v.status === "learning") ?? memoryVerses?.[0] ?? null;
-  const topGifts = gifts?.assessment?.top_gifts ?? [];
-  const savedLatest = savedVerses?.[0] ?? null;
-  const featured = resources?.[0] ?? null;
-  const me = mentor?.mentor ?? null;
+  // The single in-progress module (or the next one up) inside the active level.
+  const activeModule =
+    activeModules?.find((m) => !m.completed && !m.locked) ??
+    activeModules?.find((m) => !m.completed) ??
+    null;
+  const mentorName = mentorInfo?.mentor?.full_name ?? null;
+  const streak = achievements?.streak?.current ?? 0;
 
   return (
     <ScrollView
       style={st.screen}
       contentContainerStyle={{ paddingBottom: tabBarSpace }}
       showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={GOLD} />}
     >
-      {/* ── Navy header with progress ring + verse ──────────────────── */}
+      {/* ── Header — your position on the journey ─────────────────────────── */}
       <View style={st.header}>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <T variant="micro" tone="gold" style={st.kicker}>PATHWAY</T>
-            <T serif tone="onNavy" style={st.h1}>Today's journey</T>
-            <T variant="body" tone="onNavyDim" style={{ marginTop: 4 }}>Grace for today's step</T>
-          </View>
-          <View style={st.ring}>
-            <T serif tone="onNavy" style={{ fontSize: 18 }}>{`${overallPct}%`}</T>
-          </View>
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => nav.navigate("VerseLibrary")}
-          style={({ pressed }) => [st.verseGlass, pressed && { opacity: 0.9 }]}
-        >
-          <View style={st.verseIcon}>
-            <Quote size={15} color={palette.goldGlow} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <T variant="micro" tone="onNavyFaint" style={{ letterSpacing: 1.2 }}>VERSE OF THE DAY</T>
-            <T serif tone="onNavy" style={{ fontSize: 14, lineHeight: 20, marginTop: 2 }} numberOfLines={2}>
-              {verse?.text ?? "“Do not conform to the pattern of this world, but be transformed by the renewing of your mind.”"}
-            </T>
-            <T variant="micro" tone="gold" style={{ marginTop: 2 }}>{verse?.reference ?? "Romans 12:2"}</T>
-          </View>
-        </Pressable>
-      </View>
-
-      <View style={st.body}>
-        {/* ── TODAY ──────────────────────────────────────────────────── */}
-        <View style={st.sectionHead}>
-          <T variant="micro" style={st.sectionLabel}>TODAY</T>
+        <GradientBg colors={["#0A2540", "#081C36"]} />
+        <View style={st.headerTopRow}>
+          <T variant="micro" tone="gold" style={{ letterSpacing: 1.8, fontWeight: "700" }}>YOUR PATHWAY</T>
           {streak > 0 ? (
             <View style={st.streakChip}>
-              <Flame size={11} color={palette.goldChipText} />
+              <Sparkles size={11} color={palette.goldChipText} />
               <T variant="micro" style={{ color: palette.goldChipText, fontWeight: "700" }}>{`${streak}-day streak`}</T>
             </View>
           ) : null}
         </View>
+        <View style={st.headerMain}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T serif tone="onNavy" style={st.h1}>{`${greeting()}, ${firstName(me?.profile?.full_name)}`}</T>
+            <T variant="caption" tone="onNavyDim" style={{ marginTop: 4 }} numberOfLines={1}>
+              {`Level ${active.level_number} of ${levels.length} · ${active.title}`}
+            </T>
+            <T variant="micro" tone="onNavyFaint" style={{ marginTop: 6 }}>{`${doneModules} of ${totalModules} modules complete`}</T>
+          </View>
+          <ProgressRing pct={overallPct} />
+        </View>
+        {/* Six-level progress ribbon */}
+        <View style={st.ribbon}>
+          {levels.map((l) => {
+            const w = l.status === "completed" ? 100 : l.status === "active" ? activePct : 0;
+            return (
+              <View key={l.level_number} style={st.ribbonTrack}>
+                <View style={{ width: `${w}%`, height: "100%", borderRadius: 4, backgroundColor: GOLD }} />
+              </View>
+            );
+          })}
+        </View>
+      </View>
 
-        {/* Continue learning (deep navy) — the primary CTA */}
-        {active ? (
+      <View style={st.body}>
+        {/* ── Continue · the active module (themed in the level gradient) ──── */}
+        {activeModule ? (
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel={`Continue ${activeModule.title}`}
             onPress={() => nav.navigate("Level", { levelId: active.level_number })}
-            style={({ pressed }) => [st.continueCard, pressed && { transform: [{ scale: 0.99 }] }]}
+            style={({ pressed }) => [st.continueCard, pressed && st.press]}
           >
-            <View style={st.continueTile}>
-              <PlayCircle size={22} color={palette.gold} />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <T variant="micro" tone="gold" style={{ letterSpacing: 1.4, fontWeight: "700" }}>
-                {`CONTINUE · LEVEL ${active.level_number}`}
-              </T>
-              <T serif tone="onNavy" style={{ fontSize: 18, marginTop: 2 }} numberOfLines={1}>{active.title}</T>
-              <View style={[st.track, { marginTop: spacing.sm, backgroundColor: "rgba(255,255,255,0.12)" }]}>
-                <View style={[st.fill, { width: `${activePct}%` }]} />
+            <GradientBg colors={gradientFor(active.level_number)} radius={radii.card} />
+            <View style={st.continueOverlay} />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <T variant="micro" tone="gold" style={{ letterSpacing: 1.4, fontWeight: "800" }}>PICK UP WHERE YOU LEFT OFF</T>
+              <View style={st.offlinePill}>
+                <Download size={8} color={palette.onNavy} />
+                <T variant="micro" style={{ color: palette.onNavy, fontWeight: "700", fontSize: 8 }}>Offline</T>
               </View>
-              <T variant="micro" tone="onNavyDim" style={{ marginTop: 6 }}>
-                {`${active.completed_modules} of ${active.total_modules} modules · ${activePct}%`}
-              </T>
             </View>
-            <ChevronRight size={18} color={palette.gold} />
+            <T serif tone="onNavy" style={{ fontSize: 20, lineHeight: 25, marginTop: 6 }} numberOfLines={2}>{activeModule.title}</T>
+            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6, marginTop: spacing.sm }}>
+              <View style={st.tonePill}><T variant="micro" style={{ color: palette.onNavy, fontWeight: "700", fontSize: 8 }} numberOfLines={1}>{active.title}</T></View>
+              <T variant="micro" tone="onNavyDim">{`Module ${activeModule.module_sequence_number} of ${active.total_modules} · ${activeModule.estimated_minutes ?? 10} min`}</T>
+            </View>
+            <View style={[st.track, { marginTop: spacing.md, backgroundColor: "rgba(255,255,255,0.2)" }]}>
+              <View style={{ width: `${Math.max(activeModule.progress, 6)}%`, height: "100%", borderRadius: 3, backgroundColor: palette.white }} />
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.md }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <PlayCircle size={11} color="rgba(255,255,255,0.75)" />
+                <T variant="micro" tone="onNavyDim">{activeModule.progress > 0 ? `${activeModule.progress}% in` : "Start now"}</T>
+              </View>
+              <View style={st.continueBtn}>
+                <T variant="micro" style={{ color: NAVY, fontWeight: "800" }}>Continue</T>
+                <ChevronRight size={14} color={NAVY} />
+              </View>
+            </View>
           </Pressable>
         ) : null}
 
-        {/* Today's Devotional — gold-accent hero preview */}
-        <PreviewCard
-          label="Today's devotional"
-          Icon={Sun}
-          tint={palette.goldTint}
-          fg={palette.goldLo}
-          accent
-          onPress={() => nav.navigate("Devotional")}
-          chip={devotional?.day_number ? { text: `Day ${devotional.day_number}`, bg: palette.goldChipBg, fg: palette.goldChipText } : undefined}
-        >
-          <T serif style={{ fontSize: 16, color: palette.ink, marginTop: 2 }} numberOfLines={1}>
-            {devotional?.title ?? "A daily word to carry with you"}
-          </T>
-          {devotional?.scripture_ref ? (
-            <T variant="micro" tone="gold" style={{ marginTop: 3 }}>{devotional.scripture_ref}</T>
-          ) : null}
-          <T variant="caption" tone="secondary" style={{ marginTop: 6 }} numberOfLines={2}>
-            {snippet(devotional?.reflection_prompt ?? devotional?.scripture_text ?? devotional?.body, 110) || "Open today's reflection."}
-          </T>
-        </PreviewCard>
+        {/* ── Reminders · auto-rotating nudges ──────────────────────────────── */}
+        <RemindersBanner
+          items={[
+            { tag: "Due today", title: `Reflection · ${activeModule?.title ?? "your module"}`, sub: "Finish your module with a few honest words", Icon: PenLine, colors: ["#C9A227", "#9A7A2A"], onPress: () => nav.navigate("Level", { levelId: active.level_number }) },
+            { tag: "Today", title: "Devotional · the renewed mind", sub: "6 min · Inner transformation", Icon: Sparkles, colors: ["#0A2540", "#081C36"], onPress: () => nav.navigate("Devotional") },
+            { tag: "Reading plan", title: "Gospel of John · Day 4", sub: "John 4:1–26 is waiting for you", Icon: BookOpen, colors: ["#4F46E5", "#3730A3"], onPress: () => nav.navigate("ReadingPlans") },
+            { tag: "Almost there", title: `${active.title} · ${activePct}%`, sub: "Finish this level to earn your certificate", Icon: Award, colors: ["#16A34A", "#15803D"], onPress: () => nav.navigate("Level", { levelId: active.level_number }) },
+            { tag: "Verse library", title: "Revisit a verse you saved", sub: "Hide His Word in your heart", Icon: Library, colors: ["#0EA5E9", "#0369A1"], onPress: () => nav.navigate("VerseLibrary") },
+            { tag: "Resources", title: "Go deeper this week", sub: "Books, audio & video for the journey", Icon: BookMarked, colors: ["#7C3AED", "#4C1D95"], onPress: () => nav.navigate("Resources") },
+          ]}
+        />
 
-        {/* Today's rhythm — prayer, word, reflection */}
-        <RhythmCard rhythm={rhythm} />
-
-        {/* Always-available growth disciplines: gifts · memory verse · prayer */}
-        <GrowthCtaRow />
-
-        {/* ── YOUR JOURNEY (the seven levels, each with a summary) ─────── */}
-        <View style={st.sectionHead}>
-          <T variant="micro" style={st.sectionLabel}>YOUR JOURNEY</T>
+        {/* ── The journey · a vertical trail of the six levels ──────────────── */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 2 }}>
+          <T variant="micro" style={{ color: GOLD_LO, fontWeight: "700", letterSpacing: 2 }}>THE JOURNEY</T>
           <T variant="micro" tone="tertiary">{`Level ${pathway.current_level} of ${levels.length}`}</T>
         </View>
-        <View style={{ gap: spacing.base }}>
-          {levels.map((lvl) => (
-            <Fragment key={lvl.level_number}>
-              <LevelCard
-                level={lvl}
-                currentLevel={pathway.current_level}
-                isActive={active?.level_number === lvl.level_number}
-                onPress={() => nav.navigate("Level", { levelId: lvl.level_number })}
-              />
-              {/* After Level 3: a Bible-study image that resonates with the Word. */}
-              {lvl.level_number === 3 ? (
-                <BibleStudyBanner onPress={() => nav.navigate("ReadingPlans")} />
-              ) : null}
-              {/* After Level 6: an in-app ad promoting the Pathway app. */}
-              {lvl.level_number === 6 ? <PathwayAdBanner /> : null}
-            </Fragment>
-          ))}
-        </View>
 
-        {/* ── GROW ───────────────────────────────────────────────────── */}
-        <View style={st.sectionHead}>
-          <T variant="micro" style={st.sectionLabel}>GROW</T>
-        </View>
-
-        {/* Memory verses — the verse + how well it's hidden */}
-        <PreviewCard
-          label="Memory verses"
-          Icon={Quote}
-          tint="#FEF3C7"
-          fg="#92400E"
-          onPress={() => nav.navigate("MemoryVerses")}
-          chip={
-            mv
-              ? mv.status === "mastered"
-                ? { text: "Mastered", bg: palette.successBg, fg: palette.successText }
-                : (mv.best_match_pct ?? 0) > 0
-                  ? { text: `${mv.best_match_pct}% recall`, bg: "#FEF3C7", fg: "#92400E" }
-                  : { text: "New", bg: "#FEF3C7", fg: "#92400E" }
-              : undefined
-          }
-        >
-          {mv ? (
-            <>
-              <T variant="micro" tone="gold" style={{ marginTop: 2 }}>{mv.reference}</T>
-              <T serif style={{ fontSize: 15, lineHeight: 22, color: palette.ink, marginTop: 3 }} numberOfLines={2}>{mv.verse_text}</T>
-            </>
-          ) : (
-            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Start hiding His Word in your heart.</T>
-          )}
-        </PreviewCard>
-
-        {/* Your discipler — who walks with you + next meeting */}
-        <PreviewCard
-          label="Your discipler"
-          Icon={UserRoundCheck}
-          tint={palette.successBg}
-          fg={palette.successText}
-          onPress={() => nav.navigate("Mentor")}
-        >
-          {me ? (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: 6 }}>
-              <Avatar uri={me.avatar_url} name={me.full_name} size={34} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <T variant="heading" style={{ fontSize: 14 }} numberOfLines={1}>{me.full_name}</T>
-                {mentor?.next_meeting_at ? (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
-                    <CalendarClock size={11} color={palette.ink400} />
-                    <T variant="micro" tone="tertiary">{`Next: ${niceDate(mentor.next_meeting_at)}`}</T>
-                  </View>
-                ) : (
-                  <T variant="micro" tone="tertiary" style={{ marginTop: 2 }}>{me.cell_name ?? "Tap to see notes"}</T>
-                )}
+        <View>
+          {levels.map((lvl, i) => {
+            const last = i === levels.length - 1;
+            const segmentDone = lvl.status === "completed";
+            const waypoints = waypointsFor(lvl, mentorName);
+            const locked = isLevelLocked(lvl.level_number, pathway.current_level, lvl.status);
+            return (
+              <View key={lvl.level_number} style={{ flexDirection: "row", gap: spacing.md }}>
+                <View style={{ alignItems: "center" }}>
+                  <JourneyNode status={lvl.status} index={lvl.level_number} />
+                  {!last ? <View style={[st.connector, { backgroundColor: segmentDone ? GOLD : "rgba(10,37,64,0.10)" }]} /> : null}
+                </View>
+                <View style={{ flex: 1, minWidth: 0, paddingBottom: last ? 0 : spacing.md }}>
+                  <LevelStation
+                    level={lvl}
+                    locked={locked}
+                    currentLevel={pathway.current_level}
+                    modules={lvl.status === "active" ? activeModules ?? null : null}
+                    onOpen={() => nav.navigate("Level", { levelId: lvl.level_number })}
+                  />
+                  {waypoints.map((w, idx) => (
+                    <View key={idx} style={{ marginTop: spacing.sm }}>
+                      <TrailEncouragement data={w} />
+                    </View>
+                  ))}
+                </View>
               </View>
-            </View>
-          ) : (
-            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>A discipler will be assigned to walk with you.</T>
-          )}
-        </PreviewCard>
+            );
+          })}
+        </View>
 
-        {/* Spiritual gifts — image-backed feature with a clear call to the test */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={topGifts.length > 0 ? "View your spiritual gifts" : "Take the spiritual gifts test"}
-          onPress={() => nav.navigate("Gifts")}
-          style={({ pressed }) => [st.giftsFeature, pressed && { opacity: 0.92 }]}
-        >
-          <Image source={{ uri: GIFTS_IMG }} style={st.giftsImg} resizeMode="cover" />
-          <View style={st.giftsShade} />
-          <View style={st.giftsBody}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Sparkles size={14} color={palette.goldGlow} />
-              <T variant="micro" tone="gold" style={{ letterSpacing: 1.6, fontWeight: "800" }}>SPIRITUAL GIFTS</T>
-            </View>
-            <T serif tone="onNavy" style={{ fontSize: 19, lineHeight: 24, marginTop: 4 }}>
-              {topGifts.length > 0 ? "Your gift personality" : "Discover how God wired you"}
-            </T>
-            <T variant="caption" tone="onNavyDim" style={{ marginTop: 3 }} numberOfLines={2}>
-              {topGifts.length > 0 ? topGifts.join(" · ") : "A short, personalized test reveals your top gifts and where to serve."}
-            </T>
-            <View style={st.giftsCta}>
-              <T variant="label" style={{ color: palette.navyDeep, fontWeight: "800" }}>
-                {topGifts.length > 0 ? "View your gifts" : "Take the test"}
-              </T>
-              <ChevronRight size={15} color={palette.navyDeep} />
-            </View>
+        {/* ── The summit — commissioned ─────────────────────────────────────── */}
+        <View style={st.summit}>
+          <Image source={{ uri: img(IMG_COMMISSIONED) }} style={st.summitImg} resizeMode="cover" />
+          <View style={st.summitShade} />
+          <View style={st.summitBody}>
+            <T style={{ fontSize: 26 }}>👑</T>
+            <T variant="micro" style={{ color: "#E6C068", fontWeight: "700", letterSpacing: 2.2, marginTop: 4 }}>THE SUMMIT</T>
+            <T serif tone="onNavy" style={{ fontSize: 19, marginTop: 2 }}>Commissioned</T>
+            <T variant="caption" tone="onNavyDim" style={{ marginTop: 2 }}>Sent to make disciples · Matthew 28:19</T>
           </View>
-        </Pressable>
-
-        {/* Verse library — latest saved + count */}
-        <PreviewCard
-          label="Verse library"
-          Icon={Library}
-          tint="#E0F2FE"
-          fg="#0369A1"
-          onPress={() => nav.navigate("VerseLibrary")}
-          chip={savedVerses && savedVerses.length > 0 ? { text: `${savedVerses.length} saved`, bg: "#E0F2FE", fg: "#0369A1" } : undefined}
-        >
-          {savedLatest ? (
-            <>
-              <T variant="micro" tone="gold" style={{ marginTop: 2 }}>{savedLatest.reference}</T>
-              <T variant="caption" tone="secondary" style={{ marginTop: 3 }} numberOfLines={2}>{snippet(savedLatest.verse_text ?? savedLatest.note, 100)}</T>
-            </>
-          ) : (
-            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Save the verses that speak to you.</T>
-          )}
-        </PreviewCard>
-
-        {/* Resources — a featured item + count */}
-        <PreviewCard
-          label="Resources"
-          Icon={BookMarked}
-          tint="#DBEAFE"
-          fg="#1D4ED8"
-          onPress={() => nav.navigate("Resources")}
-          chip={featured ? { text: featured.kind, bg: "#DBEAFE", fg: "#1D4ED8" } : undefined}
-        >
-          {featured ? (
-            <>
-              <T variant="heading" style={{ fontSize: 14, marginTop: 2 }} numberOfLines={1}>{featured.title}</T>
-              <T variant="micro" tone="tertiary" style={{ marginTop: 3 }} numberOfLines={1}>
-                {[featured.author, featured.duration_label].filter(Boolean).join(" · ") || "Tap to browse"}
-              </T>
-            </>
-          ) : (
-            <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Books, audio and video to go deeper.</T>
-          )}
-        </PreviewCard>
+        </View>
       </View>
     </ScrollView>
   );
 }
 
-function niceDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-}
-
-/** Today's rhythm — prayer, word, reflection. Tap to mark done (idempotent per
- *  day); completions tick the Word/Habits scores. */
-const RHYTHM_ITEMS = [
-  { key: "prayer" as const, label: "Prayer", Icon: HandHeart },
-  { key: "word" as const, label: "Word", Icon: BookOpen },
-  { key: "reflection" as const, label: "Reflection", Icon: PenLine },
-];
-function RhythmCard({ rhythm }: { rhythm: RhythmToday | undefined }): ReactElement {
-  const [local, setLocal] = useState<Partial<Record<"prayer" | "word" | "reflection", boolean>>>({});
-  const isDone = (k: "prayer" | "word" | "reflection"): boolean => local[k] ?? (rhythm?.[k] ?? false);
-  async function mark(k: "prayer" | "word" | "reflection"): Promise<void> {
-    if (isDone(k)) return;
-    setLocal((p) => ({ ...p, [k]: true }));
-    try {
-      await NuruApi.completeRhythm(k);
-      refreshQueries(queryKeys.rhythmToday);
-    } catch {
-      setLocal((p) => ({ ...p, [k]: false }));
-    }
-  }
-  const left = RHYTHM_ITEMS.filter((i) => !isDone(i.key)).length;
+// ── Journey node — completed / active (pulsing) / locked ──────────────────────
+function JourneyNode({ status, index }: { status: PathwayLevel["status"]; index: number }): ReactElement {
+  const done = status === "completed";
+  const active = status === "active";
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!active) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 1000, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [active, pulse]);
   return (
-    <View style={st.rhythmCard}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <Sun size={14} color={palette.goldLo} />
-        <T variant="micro" style={{ color: palette.goldLo, fontWeight: "700", letterSpacing: 1.4 }}>TODAY'S RHYTHM</T>
+    <View style={st.nodeWrap}>
+      {active ? (
+        <Animated.View
+          style={[
+            st.nodePulse,
+            { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0] }), transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] }) }] },
+          ]}
+        />
+      ) : null}
+      <View style={[st.node, { backgroundColor: done || active ? GOLD : "#EEF1F5", borderWidth: active ? 2 : 0, borderColor: NAVY }]}>
+        {done ? <CheckCircle2 size={17} color={NAVY} /> : active ? <PlayCircle size={17} color={NAVY} /> : <Lock size={13} color="#9CA3AF" />}
+        {!done && !active ? (
+          <View style={st.nodeNum}><T variant="micro" style={{ color: "#9CA3AF", fontWeight: "800", fontSize: 7 }}>{index}</T></View>
+        ) : null}
       </View>
-      <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
-        {RHYTHM_ITEMS.map(({ key, label, Icon }) => {
-          const on = isDone(key);
-          return (
-            <Pressable
-              key={key}
-              accessibilityRole="button"
-              accessibilityState={{ selected: on }}
-              accessibilityLabel={`${label}${on ? ", done" : ""}`}
-              onPress={() => void mark(key)}
-              style={[st.habitTile, on ? st.habitOn : st.habitOff]}
-            >
-              <View style={[st.habitDot, { backgroundColor: on ? palette.gold : palette.white }]}>
-                {on ? <Check size={14} color={palette.navy} /> : <Icon size={14} color={palette.ink400} />}
-              </View>
-              <T variant="caption" style={{ fontWeight: "600", color: on ? palette.navy : palette.ink600 }}>{label}</T>
-            </Pressable>
-          );
-        })}
-      </View>
-      <T variant="micro" tone="tertiary" style={{ marginTop: spacing.sm }}>
-        {left === 0 ? "Beautiful — all three today." : `${left} step${left === 1 ? "" : "s"} left today`}
-      </T>
     </View>
   );
 }
 
-/** A rich, tappable preview card: icon tile + label (+ optional right chip), and
- *  a body that previews the live state of the destination page. */
-function PreviewCard({
-  label,
-  Icon,
-  tint,
-  fg,
-  onPress,
-  chip,
-  accent,
-  children,
-}: {
-  label: string;
-  Icon: LucideIcon;
-  tint: string;
-  fg: string;
-  onPress: () => void;
-  chip?: { text: string; bg: string; fg: string } | undefined;
-  accent?: boolean;
-  children: ReactNode;
-}): ReactElement {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [st.previewCard, accent && st.previewAccent, pressed && { opacity: 0.88 }]}
-    >
-      <View style={[st.previewIcon, { backgroundColor: tint }]}>
-        <Icon size={18} color={fg} />
-      </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-          <T variant="micro" style={{ color: fg, fontWeight: "700", letterSpacing: 1.1, flex: 1 }} numberOfLines={1}>
-            {label.toUpperCase()}
-          </T>
-          {chip ? (
-            <View style={[st.chip, { backgroundColor: chip.bg }]}>
-              <T variant="micro" style={{ color: chip.fg, fontWeight: "700" }}>{chip.text}</T>
-            </View>
-          ) : null}
-        </View>
-        {children}
-      </View>
-      <ChevronRight size={18} color={palette.ink300} style={{ alignSelf: "center" }} />
-    </Pressable>
-  );
-}
-
-/** A vibrant per-level card. Unlocked → tappable with progress; locked → keeps
- *  its colour (dimmed) with a padlock and the unlock hint. §1.9 hard-lock. */
-function LevelCard({
+// ── Level station card (with the active level's inline module window) ─────────
+function LevelStation({
   level,
+  locked,
   currentLevel,
-  isActive,
-  onPress,
+  modules,
+  onOpen,
 }: {
   level: PathwayLevel;
+  locked: boolean;
   currentLevel: number;
-  isActive: boolean;
-  onPress: () => void;
+  modules: LevelModule[] | null;
+  onOpen: () => void;
 }): ReactElement {
-  const accent = LEVEL_ACCENTS[(level.level_number - 1) % LEVEL_ACCENTS.length] ?? LEVEL_ACCENTS[0];
-  const completed = level.status === "completed";
-  const locked = isLevelLocked(level.level_number, currentLevel, level.status);
+  const done = level.status === "completed";
+  const active = level.status === "active";
   const pct = level.total_modules > 0 ? Math.round((level.completed_modules / level.total_modules) * 100) : 0;
+  const remaining = Math.max(0, level.total_modules - level.completed_modules);
+  const subtitle = level.theme ?? level.description ?? "";
+
+  // A compact ~3-module window around the active module.
+  const moduleWindow: LevelModule[] = useMemo(() => {
+    if (!modules || modules.length === 0) return [];
+    const idx = Math.max(0, modules.findIndex((m) => !m.completed && !m.locked));
+    return modules.slice(idx, idx + 3);
+  }, [modules]);
+
+  const Wrap = ({ children }: { children: ReactNode }): ReactElement =>
+    locked ? (
+      <View style={[st.station, st.stationLocked]}>{children}</View>
+    ) : (
+      <Pressable accessibilityRole="button" accessibilityLabel={`Level ${level.level_number}: ${level.title}`} onPress={onOpen} style={({ pressed }) => [st.station, active && st.stationActive, pressed && st.press]}>
+        {children}
+      </Pressable>
+    );
+
+  return (
+    <Wrap>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.sm }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <T variant="micro" style={{ color: GOLD_LO, fontWeight: "700", letterSpacing: 1.6 }}>{`LEVEL ${level.level_number}`}</T>
+          <T serif style={{ fontSize: 15, color: NAVY, fontWeight: "600", marginTop: 1 }} numberOfLines={1}>{level.title}</T>
+          {subtitle ? <T variant="micro" tone="secondary" style={{ marginTop: 1 }} numberOfLines={1}>{subtitle}</T> : null}
+        </View>
+        <StatusPill status={level.status} />
+      </View>
+
+      {/* Active — progress + the modules within */}
+      {active ? (
+        <>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm }}>
+            <View style={st.miniTrack}><View style={{ width: `${pct}%`, height: "100%", borderRadius: 3, backgroundColor: GOLD }} /></View>
+            <T variant="micro" tone="tertiary">{`${level.completed_modules}/${level.total_modules}`}</T>
+          </View>
+          {moduleWindow.length > 0 ? (
+            <View style={{ marginTop: spacing.md, gap: 6 }}>
+              {moduleWindow.map((m) => (
+                <ModuleRow key={m.module_id} m={m} color={MOD_COLORS[(m.module_sequence_number - 1) % MOD_COLORS.length] as string} onPress={onOpen} />
+              ))}
+              {modules && modules.length > moduleWindow.length ? (
+                <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [st.viewAll, pressed && st.press]}>
+                  <T variant="micro" style={{ color: GOLD, fontWeight: "700" }}>{`View all ${modules.length} modules`}</T>
+                  <ChevronRight size={12} color={GOLD} />
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+        </>
+      ) : null}
+
+      {/* Related stats */}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: spacing.md }}>
+        <MiniStat Icon={BookOpen} label={`${level.completed_modules}/${level.total_modules} modules`} />
+        <MiniStat Icon={Clock} label={formatDuration(level.minutes)} />
+        {done ? <MiniStat Icon={Star} label="3 stars" gold /> : null}
+        {active ? <MiniStat Icon={Sparkles} label={`${pct}% done`} gold /> : null}
+      </View>
+
+      {/* Certificate row */}
+      <CertificateRow status={level.status} pct={pct} remaining={remaining} />
+
+      {/* Encouragement line */}
+      <T serif style={{ fontSize: 11, fontStyle: "italic", marginTop: spacing.sm, color: done ? "#7A5A14" : active ? GOLD_LO : "#9CA3AF" }}>
+        {done
+          ? "Crowned — well run. 🎉"
+          : active
+            ? remaining <= 1
+              ? "One step from your certificate — finish strong!"
+              : `Just ${remaining} modules to earn your certificate. Keep going!`
+            : locked
+              ? lockedLevelLabel(currentLevel)
+              : "A new certificate is waiting for you here."}
+      </T>
+    </Wrap>
+  );
+}
+
+function ModuleRow({ m, color, onPress }: { m: LevelModule; color: string; onPress: () => void }): ReactElement {
+  const done = m.completed;
+  const active = !m.completed && !m.locked;
+  const locked = m.locked;
   return (
     <Pressable
-      onPress={locked ? undefined : onPress}
-      disabled={locked}
       accessibilityRole="button"
-      accessibilityState={{ disabled: locked }}
-      accessibilityLabel={
-        locked ? `Level ${level.level_number}: ${level.title}, locked. ${lockedLevelLabel(currentLevel)}` : `Level ${level.level_number}: ${level.title}`
-      }
+      accessibilityLabel={`Module ${m.module_sequence_number}: ${m.title}${locked ? ", locked" : ""}`}
+      disabled={locked}
+      onPress={locked ? undefined : onPress}
       style={({ pressed }) => [
-        st.levelCard,
-        isActive && { borderColor: accent.bar, backgroundColor: "#FFFDF7" },
-        locked && { opacity: 0.74 },
-        pressed && !locked && { opacity: 0.9 },
+        st.modRow,
+        { backgroundColor: active ? `${color}26` : `${color}10`, borderColor: active ? `${color}88` : `${color}33` },
+        pressed && !locked && st.press,
       ]}
     >
-      <View style={[st.levelBar, { backgroundColor: accent.bar }]} />
-      <View style={[st.levelBadge, { backgroundColor: accent.tint }]}>
-        {locked ? (
-          <Lock size={18} color={accent.fg} />
-        ) : completed ? (
-          <Check size={18} color={accent.fg} />
-        ) : (
-          <T serif style={{ fontSize: 17, color: accent.fg }}>{level.level_number}</T>
-        )}
+      <View style={[st.modIcon, { backgroundColor: done || active ? color : `${color}26` }]}>
+        {done ? <Check size={15} color={palette.white} /> : active ? <PlayCircle size={16} color={palette.white} /> : <Lock size={14} color={color} />}
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <T variant="micro" style={{ color: accent.fg, fontWeight: "700", letterSpacing: 1.1 }} numberOfLines={1}>
-          {`LEVEL ${level.level_number}${level.theme ? ` · ${level.theme}` : ""}`}
+        <T variant="caption" style={{ color: NAVY, fontWeight: active ? "700" : "600" }} numberOfLines={1}>{m.title}</T>
+        <T variant="micro" style={{ color: done ? "#16A34A" : active ? GOLD_LO : color, fontWeight: "600", marginTop: 1 }} numberOfLines={1}>
+          {done ? "Completed" : active ? `${m.estimated_minutes ?? 10} min · in progress` : "Locked"}
         </T>
-        <T variant="heading" style={{ fontSize: 15, marginTop: 1 }} numberOfLines={1}>{level.title}</T>
-        {level.description ? (
-          <T variant="caption" tone="secondary" style={{ marginTop: 4, lineHeight: 18 }} numberOfLines={2}>{level.description}</T>
-        ) : null}
-        {locked ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 }}>
-            <Lock size={11} color={palette.ink400} />
-            <T variant="micro" tone="tertiary">{lockedLevelLabel(currentLevel)}</T>
-          </View>
-        ) : (
-          <>
-            <View style={[st.miniTrack, { marginTop: 8 }]}>
-              <View style={{ width: `${pct}%`, height: "100%", borderRadius: 2, backgroundColor: accent.bar }} />
-            </View>
-            <T variant="micro" tone="tertiary" style={{ marginTop: 5 }}>
-              {`${level.completed_modules} of ${level.total_modules} modules · ${pct}%`}
-            </T>
-          </>
-        )}
       </View>
-      {locked ? (
-        <View style={st.lockPill}>
-          <Lock size={13} color={palette.ink400} />
-        </View>
-      ) : completed ? (
-        <View style={[st.lockPill, { backgroundColor: palette.successBg }]}>
-          <Check size={13} color={palette.successText} />
-        </View>
-      ) : (
-        <ChevronRight size={18} color={accent.fg} style={{ alignSelf: "center" }} />
-      )}
+      {active ? <View style={st.resumeChip}><T variant="micro" style={{ color: GOLD, fontWeight: "700" }}>Resume</T></View> : locked ? <Lock size={13} color={color} /> : null}
     </Pressable>
   );
 }
 
-/** A real Bible-study photo with a scripture overlay — placed after Level 3. */
-function BibleStudyBanner({ onPress }: { onPress: () => void }): ReactElement {
+function MiniStat({ Icon, label, gold }: { Icon: LucideIcon; label: string; gold?: boolean }): ReactElement {
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel="Study the Word — open reading plans" onPress={onPress} style={({ pressed }) => [st.banner, pressed && { opacity: 0.92 }]}>
-      <Image source={{ uri: BIBLE_STUDY_IMG }} style={st.bannerImg} resizeMode="cover" />
-      <View style={st.bannerShade} />
-      <View style={st.bannerBody}>
-        <T variant="micro" tone="gold" style={{ letterSpacing: 1.8, fontWeight: "800" }}>GO DEEPER</T>
-        <T serif tone="onNavy" style={{ fontSize: 23, lineHeight: 28, marginTop: 4 }}>Study the Word together</T>
-        <T variant="caption" tone="onNavyDim" style={{ marginTop: 6 }} numberOfLines={2}>
-          “Be diligent… a worker who correctly handles the word of truth.” — 2 Timothy 2:15
-        </T>
-        <View style={st.bannerCta}>
-          <T variant="micro" style={{ color: palette.navyDeep, fontWeight: "800", letterSpacing: 0.4 }}>OPEN READING PLANS ›</T>
-        </View>
-      </View>
-    </Pressable>
+    <View style={[st.miniStat, gold && { backgroundColor: "rgba(201,162,39,0.14)" }]}>
+      <Icon size={9} color={gold ? GOLD_LO : "#68758A"} />
+      <T variant="micro" style={{ color: gold ? GOLD_LO : "#68758A", fontWeight: "600" }}>{label}</T>
+    </View>
   );
 }
 
-/** An in-app ad promoting the Pathway app — placed after Level 6. */
-function PathwayAdBanner(): ReactElement {
-  return (
-    <View style={st.adCard} accessibilityRole="image" accessibilityLabel="Nuru Pathway — your discipleship journey">
-      <GradientBg colors={[palette.navyDeep, palette.navy, palette.navy700]} radius={radii.card} />
-      <View style={st.adRow}>
-        <View style={st.adMark}>
-          <Sparkles size={24} color={palette.gold} />
-        </View>
+function CertificateRow({ status, pct, remaining }: { status: PathwayLevel["status"]; pct: number; remaining: number }): ReactElement {
+  if (status === "completed") {
+    return (
+      <View style={st.certEarned}>
+        <View style={st.certSeal}><Award size={18} color={NAVY} /></View>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <T variant="micro" tone="gold" style={{ letterSpacing: 1.6, fontWeight: "800" }}>NURU PATHWAY</T>
-          <T serif tone="onNavy" style={{ fontSize: 19, lineHeight: 24, marginTop: 2 }}>Keep growing, every day</T>
+          <T variant="caption" style={{ color: "#7A5A14", fontWeight: "700" }}>Certificate earned</T>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 2, marginTop: 1 }}>
+            {[0, 1, 2].map((i) => <Star key={i} size={11} color={GOLD} fill={GOLD} />)}
+            <T variant="micro" style={{ color: "#9A7A2A", marginLeft: 4 }}>Honors</T>
+          </View>
+        </View>
+        <View style={st.certView}><T variant="micro" style={{ color: GOLD, fontWeight: "700" }}>View</T></View>
+      </View>
+    );
+  }
+  if (status === "active") {
+    return (
+      <View style={st.certActive}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+            <Award size={13} color={GOLD} />
+            <T variant="micro" style={{ color: "#7A5A14", fontWeight: "600" }}>Certificate in progress</T>
+          </View>
+          <T variant="micro" style={{ color: GOLD_LO, fontWeight: "700" }}>{`${pct}%`}</T>
+        </View>
+        <View style={[st.miniTrack, { marginTop: 6 }]}><View style={{ width: `${pct}%`, height: "100%", borderRadius: 3, backgroundColor: GOLD }} /></View>
+        <T variant="micro" tone="tertiary" style={{ marginTop: 6 }}>{`${remaining} module${remaining === 1 ? "" : "s"} left to unlock it`}</T>
+      </View>
+    );
+  }
+  return (
+    <View style={st.certAwait}>
+      <View style={st.certAwaitIcon}><Award size={14} color="#9CA3AF" /></View>
+      <T variant="micro" style={{ color: "#9CA3AF" }}>Certificate awaiting you</T>
+    </View>
+  );
+}
+
+function StatusPill({ status }: { status: PathwayLevel["status"] }): ReactElement {
+  const map = {
+    completed: { label: "Complete", bg: "#DCFCE7", fg: "#166534" },
+    active: { label: "In progress", bg: "rgba(201,162,39,0.14)", fg: "#7A5A14" },
+    locked: { label: "Locked", bg: "#EEF1F5", fg: "#9CA3AF" },
+  } as const;
+  const s = map[status];
+  return <View style={[st.statusPill, { backgroundColor: s.bg }]}><T variant="micro" style={{ color: s.fg, fontWeight: "700", letterSpacing: 0.5 }}>{s.label.toUpperCase()}</T></View>;
+}
+
+// ── Auto-rotating reminders banner with dot pagination ────────────────────────
+type Reminder = { tag: string; title: string; sub: string; Icon: LucideIcon; colors: [string, string]; onPress: () => void };
+function RemindersBanner({ items }: { items: Reminder[] }): ReactElement | null {
+  const [i, setI] = useState(0);
+  const fade = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (items.length <= 1) return;
+    const t = setInterval(() => {
+      Animated.timing(fade, { toValue: 0, duration: 180, useNativeDriver: true }).start(() => {
+        setI((p) => (p + 1) % items.length);
+        Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+      });
+    }, 4500);
+    return () => clearInterval(t);
+  }, [items.length, fade]);
+
+  const r = items[i] ?? items[0];
+  if (!r) return null;
+  const { Icon } = r;
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 2 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <Sparkles size={11} color={GOLD_LO} />
+          <T variant="micro" style={{ color: GOLD_LO, fontWeight: "700", letterSpacing: 1.8 }}>REMINDERS</T>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          {items.map((_, idx) => (
+            <View key={idx} style={{ height: 6, width: idx === i ? 16 : 6, borderRadius: 3, backgroundColor: idx === i ? GOLD : "rgba(10,37,64,0.18)" }} />
+          ))}
         </View>
       </View>
-      <T variant="caption" tone="onNavyDim" style={{ marginTop: spacing.sm }}>
-        Devotionals, your levels, prayer, and your church family — all in one place. Invite a friend to walk the journey with you.
-      </T>
-      <View style={st.adPill}>
-        <T variant="micro" style={{ color: palette.navyDeep, fontWeight: "800", letterSpacing: 0.4 }}>YOUR JOURNEY, EVERY DAY</T>
+      <Animated.View style={{ opacity: fade }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`${r.tag}: ${r.title}`} onPress={r.onPress} style={({ pressed }) => [st.reminder, pressed && st.press]}>
+          <GradientBg colors={r.colors} radius={20} />
+          <View style={st.reminderIcon}><Icon size={20} color={palette.white} /></View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T variant="micro" style={{ color: "rgba(255,255,255,0.85)", fontWeight: "700", letterSpacing: 1.4 }}>{r.tag.toUpperCase()}</T>
+            <T serif tone="onNavy" style={{ fontSize: 14, marginTop: 1 }} numberOfLines={1}>{r.title}</T>
+            <T variant="micro" style={{ color: "rgba(255,255,255,0.8)", marginTop: 1 }} numberOfLines={1}>{r.sub}</T>
+          </View>
+          <ChevronRight size={18} color={palette.white} />
+        </Pressable>
+      </Animated.View>
+    </View>
+  );
+}
+
+// ── Trail encouragement waypoints (badge / mentor / verse / cheer / event / video) ─
+function TrailEncouragement({ data }: { data: Encourage }): ReactElement {
+  if (data.kind === "badge") {
+    const earned = data.earned;
+    return (
+      <View style={[st.encBadge, earned ? st.encBadgeEarned : st.encBadgeLocked]}>
+        <View style={[st.encBadgeEmoji, { backgroundColor: earned ? palette.white : "#EEF1F5", opacity: earned ? 1 : 0.7 }]}><T style={{ fontSize: 20 }}>{data.emoji}</T></View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <T variant="micro" style={{ color: earned ? GOLD_LO : "#9CA3AF", fontWeight: "700", letterSpacing: 1.4 }}>{earned ? "BADGE EARNED" : "BADGE TO EARN"}</T>
+            {!earned ? <Lock size={8} color="#9CA3AF" /> : null}
+          </View>
+          <T serif style={{ fontSize: 13, color: earned ? NAVY : "#68758A", fontWeight: "600", marginTop: 1 }} numberOfLines={1}>{data.name}</T>
+          {earned && data.stars ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 2, marginTop: 2 }}>
+              {Array.from({ length: data.stars }, (_, i) => <Star key={i} size={10} color={GOLD} fill={GOLD} />)}
+              <T variant="micro" style={{ color: "#9A7A2A", marginLeft: 4 }}>{data.desc}</T>
+            </View>
+          ) : (
+            <T variant="micro" tone="tertiary" style={{ marginTop: 1 }} numberOfLines={1}>{data.desc}</T>
+          )}
+        </View>
       </View>
+    );
+  }
+  if (data.kind === "mentor") {
+    return (
+      <View style={st.encMentor}>
+        <View style={st.encMentorAvatar}><T variant="micro" style={{ color: palette.white, fontWeight: "700" }}>{data.initials}</T></View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <T variant="micro" style={{ color: "#15803D", fontWeight: "700", letterSpacing: 1.2 }}>{`A WORD FROM ${data.name.toUpperCase()}`}</T>
+          <T serif style={{ fontSize: 11, fontStyle: "italic", color: "#14532D", lineHeight: 16, marginTop: 2 }}>{`“${data.quote}”`}</T>
+        </View>
+      </View>
+    );
+  }
+  if (data.kind === "verse") {
+    return (
+      <View style={st.encVerse}>
+        <View style={st.encVerseIcon}><Quote size={13} color={GOLD} /></View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <T serif style={{ fontSize: 11, color: NAVY, lineHeight: 16 }}>{`“${data.text}”`}</T>
+          <T variant="micro" style={{ color: GOLD_LO, fontWeight: "700", marginTop: 2 }}>{data.ref}</T>
+        </View>
+      </View>
+    );
+  }
+  if (data.kind === "announcement") {
+    return (
+      <View style={st.encMedia}>
+        <Image source={{ uri: img(data.image) }} style={st.encMediaImg} resizeMode="cover" />
+        <View style={st.encMediaShade} />
+        <View style={st.encMediaTag}><T variant="micro" style={{ color: NAVY, fontWeight: "700", letterSpacing: 1 }}>{data.tag.toUpperCase()}</T></View>
+        <View style={st.encMediaCaption}>
+          <T serif tone="onNavy" style={{ fontSize: 15 }} numberOfLines={1}>{data.title}</T>
+          <T variant="micro" style={{ color: "rgba(255,255,255,0.85)", marginTop: 1 }} numberOfLines={1}>{data.meta}</T>
+        </View>
+      </View>
+    );
+  }
+  if (data.kind === "video") {
+    return (
+      <View style={st.encMedia}>
+        <Image source={{ uri: img(data.image) }} style={st.encMediaImg} resizeMode="cover" />
+        <View style={st.encMediaShade} />
+        <BreathingPlay />
+        <View style={st.encMediaDuration}><T variant="micro" style={{ color: palette.white, fontWeight: "700" }}>{data.duration}</T></View>
+        <View style={st.encMediaCaption}>
+          <T variant="micro" style={{ color: "#E6C068", fontWeight: "700", letterSpacing: 1.4 }}>WATCH</T>
+          <T serif tone="onNavy" style={{ fontSize: 15 }} numberOfLines={1}>{data.title}</T>
+          <T variant="micro" style={{ color: "rgba(255,255,255,0.85)", marginTop: 1 }} numberOfLines={1}>{data.meta}</T>
+        </View>
+      </View>
+    );
+  }
+  // cheer
+  return (
+    <View style={st.encCheer}>
+      <T style={{ fontSize: 18 }}>{data.emoji}</T>
+      <T serif style={{ flex: 1, fontSize: 11, fontStyle: "italic", color: "#7A5A14", lineHeight: 15 }}>{data.text}</T>
+    </View>
+  );
+}
+
+function BreathingPlay(): ReactElement {
+  const s = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(s, { toValue: 1, duration: 1200, useNativeDriver: true }),
+        Animated.timing(s, { toValue: 0, duration: 1200, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [s]);
+  return (
+    <View style={st.playWrap} pointerEvents="none">
+      <Animated.View style={[st.playBtn, { transform: [{ scale: s.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) }] }]}>
+        <PlayCircle size={28} color={NAVY} fill={NAVY} />
+      </Animated.View>
+    </View>
+  );
+}
+
+function ProgressRing({ pct }: { pct: number }): ReactElement {
+  const size = 64;
+  const stroke = 5;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c - (pct / 100) * c;
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      <Svg width={size} height={size} style={{ position: "absolute", transform: [{ rotate: "-90deg" }] }}>
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke="rgba(255,255,255,0.12)" strokeWidth={stroke} fill="none" />
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={GOLD} strokeWidth={stroke} fill="none" strokeLinecap="round" strokeDasharray={`${c}`} strokeDashoffset={offset} />
+      </Svg>
+      <T serif tone="onNavy" style={{ fontSize: 14 }}>{`${pct}%`}</T>
     </View>
   );
 }
 
 const st = {
-  screen: { flex: 1, backgroundColor: palette.paper },
-  // Card column: bigger breathing room between cards, and a max width so the
-  // layout doesn't over-stretch on large/foldable Android screens (centered).
+  screen: { flex: 1, backgroundColor: "#F4F0E8" },
+  center: { alignItems: "center", justifyContent: "center" },
+  header: { paddingHorizontal: spacing.screen, paddingTop: 54, paddingBottom: spacing.lg, borderBottomLeftRadius: 30, borderBottomRightRadius: 30, overflow: "hidden" },
+  headerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  streakChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  headerMain: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", marginTop: spacing.sm, gap: spacing.md },
+  h1: { fontSize: 22, lineHeight: 27, fontWeight: "600" },
+  ribbon: { flexDirection: "row", gap: 6, marginTop: spacing.base },
+  ribbonTrack: { flex: 1, height: 6, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.14)", overflow: "hidden" },
   body: {
     width: "100%",
     maxWidth: 640,
     alignSelf: "center",
     paddingHorizontal: spacing.screen,
     paddingTop: spacing.lg,
-    paddingBottom: spacing.sm,
     gap: spacing.lg,
   },
-  center: { alignItems: "center", justifyContent: "center" },
-  header: {
-    backgroundColor: palette.navy,
-    paddingHorizontal: spacing.screen,
-    paddingTop: 58,
-    paddingBottom: spacing.lg,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-    overflow: "hidden",
-  },
-  kicker: { letterSpacing: 2.4, fontWeight: "600" },
-  h1: { fontSize: 26, lineHeight: 32, marginTop: spacing.sm, fontWeight: "600" },
-  ring: { width: 64, height: 64, borderRadius: 32, borderWidth: 5, borderColor: palette.gold, alignItems: "center", justifyContent: "center" },
-  verseGlass: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    marginTop: spacing.base,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(201,162,39,0.33)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    padding: spacing.md,
-  },
-  verseIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: "rgba(201,162,39,0.15)", alignItems: "center", justifyContent: "center" },
-  sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.xs },
-  sectionLabel: { color: palette.goldLo, fontWeight: "700", letterSpacing: 2 },
-  streakChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: palette.goldChipBg, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
-  continueCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    backgroundColor: palette.navyDeep,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(201,162,39,0.33)",
-    padding: spacing.base,
-    overflow: "hidden",
-    ...shadow.card,
-  },
-  continueTile: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(201,162,39,0.15)", alignItems: "center", justifyContent: "center" },
-  track: { height: 6, borderRadius: 3, backgroundColor: palette.track, overflow: "hidden" },
-  fill: { height: "100%", borderRadius: 3, backgroundColor: palette.gold },
-  previewCard: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.md,
-    backgroundColor: palette.white,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: spacing.base,
-    ...shadow.card,
-  },
-  previewAccent: { borderColor: "rgba(201,162,39,0.45)", backgroundColor: palette.verseBg },
-  rhythmCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
-  habitTile: { flex: 1, alignItems: "center", gap: 4, borderRadius: 14, paddingVertical: spacing.md, borderWidth: 1 },
-  habitOn: { backgroundColor: "rgba(201,162,39,0.12)", borderColor: "rgba(201,162,39,0.45)" },
-  habitOff: { backgroundColor: palette.surface, borderColor: "transparent" },
-  habitDot: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  twoUp: {
-    flex: 1,
-    minHeight: 132,
-    backgroundColor: palette.white,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: spacing.base,
-    ...shadow.card,
-  },
-  giftsFeature: { height: 168, borderRadius: radii.card, overflow: "hidden", justifyContent: "flex-end", backgroundColor: palette.navy, ...shadow.card },
-  giftsImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
-  giftsShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(28,16,54,0.58)" },
-  giftsBody: { padding: spacing.base },
-  giftsCta: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", marginTop: spacing.md, backgroundColor: palette.gold, borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 7 },
-  previewIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  chip: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3 },
-  giftChip: { backgroundColor: "#F3E8FF", borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
-  miniTrack: { height: 4, borderRadius: 2, backgroundColor: palette.track, overflow: "hidden" },
-  levelCard: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.md,
-    backgroundColor: palette.white,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: palette.border,
-    paddingVertical: spacing.md,
-    paddingRight: spacing.base,
-    paddingLeft: spacing.base + 6,
-    overflow: "hidden",
-    ...shadow.card,
-  },
-  levelBar: { position: "absolute", left: 0, top: 0, bottom: 0, width: 5 },
-  levelBadge: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  lockPill: { width: 30, height: 30, borderRadius: 15, backgroundColor: palette.mutedBg, alignItems: "center", justifyContent: "center", alignSelf: "center" },
-  banner: { height: 210, borderRadius: radii.card, overflow: "hidden", justifyContent: "flex-end", backgroundColor: palette.navy, marginVertical: 2, ...shadow.card },
-  bannerImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
-  bannerShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.5)" },
-  bannerBody: { padding: spacing.lg },
-  bannerCta: { alignSelf: "flex-start", marginTop: spacing.md, backgroundColor: palette.gold, borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 7 },
-  adCard: { borderRadius: radii.card, overflow: "hidden", padding: spacing.base, marginVertical: 2, backgroundColor: palette.navyDeep, ...shadow.card },
-  adRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  adMark: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(201,162,39,0.16)", alignItems: "center", justifyContent: "center" },
-  adPill: { alignSelf: "flex-start", marginTop: spacing.md, backgroundColor: palette.gold, borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 6 },
+  continueCard: { borderRadius: radii.card, borderWidth: 1, borderColor: "rgba(201,162,39,0.2)", padding: spacing.base, overflow: "hidden", ...shadow.card },
+  continueOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.12)" },
+  offlinePill: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(255,255,255,0.18)", borderRadius: radii.pill, paddingHorizontal: 6, paddingVertical: 2 },
+  tonePill: { backgroundColor: "rgba(255,255,255,0.18)", borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3, maxWidth: 160 },
+  track: { height: 6, borderRadius: 3, overflow: "hidden" },
+  continueBtn: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: GOLD, borderRadius: radii.pill, paddingHorizontal: 14, paddingVertical: 7 },
+  press: { transform: [{ scale: 0.99 }], opacity: 0.96 },
+  // journey
+  nodeWrap: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  nodePulse: { position: "absolute", width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(201,162,39,0.45)" },
+  node: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  nodeNum: { position: "absolute", bottom: -2, right: -2, width: 15, height: 15, borderRadius: 8, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
+  connector: { width: 3, flex: 1, borderRadius: 2, minHeight: 18, marginTop: 2 },
+  station: { borderRadius: 20, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, padding: spacing.md, ...shadow.card },
+  stationActive: { borderColor: "rgba(201,162,39,0.4)" },
+  stationLocked: { backgroundColor: palette.surface, opacity: 0.85 },
+  statusPill: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3, alignSelf: "flex-start" },
+  miniTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: "rgba(10,37,64,0.08)", overflow: "hidden" },
+  // module rows
+  modRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderRadius: 12, borderWidth: 1, padding: spacing.sm },
+  modIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  resumeChip: { backgroundColor: NAVY, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 5 },
+  viewAll: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(201,162,39,0.4)", backgroundColor: "rgba(201,162,39,0.05)", paddingVertical: spacing.sm },
+  miniStat: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#EEF1F5", borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3 },
+  // certificate
+  certEarned: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: "rgba(201,162,39,0.35)", backgroundColor: "rgba(201,162,39,0.10)", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  certSeal: { width: 36, height: 36, borderRadius: 18, backgroundColor: GOLD, alignItems: "center", justifyContent: "center" },
+  certView: { backgroundColor: NAVY, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 5 },
+  certActive: { marginTop: spacing.md, borderRadius: 16, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(201,162,39,0.5)", backgroundColor: palette.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  certAwait: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  certAwaitIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: "#EEF1F5", alignItems: "center", justifyContent: "center" },
+  // reminders
+  reminder: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderRadius: 20, padding: spacing.md, overflow: "hidden" },
+  reminderIcon: { width: 44, height: 44, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
+  // encouragements
+  encBadge: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderRadius: 16, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  encBadgeEarned: { backgroundColor: "rgba(201,162,39,0.12)", borderWidth: 1, borderColor: "rgba(201,162,39,0.35)" },
+  encBadgeLocked: { backgroundColor: palette.surface, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(10,37,64,0.18)" },
+  encBadgeEmoji: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(201,162,39,0.35)" },
+  encMentor: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, borderRadius: 16, backgroundColor: "#F0FDF4", borderWidth: 1, borderColor: "#BBF7D0", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  encMentorAvatar: { width: 36, height: 36, borderRadius: 14, backgroundColor: "#16A34A", alignItems: "center", justifyContent: "center" },
+  encVerse: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, borderRadius: 16, backgroundColor: "#FFF8E6", borderWidth: 1, borderColor: "rgba(201,162,39,0.25)", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  encVerseIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: "rgba(201,162,39,0.14)", alignItems: "center", justifyContent: "center" },
+  encMedia: { height: 160, borderRadius: 20, overflow: "hidden", backgroundColor: NAVY, borderWidth: 1, borderColor: palette.border, justifyContent: "flex-end" },
+  encMediaImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  encMediaShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.32)" },
+  encMediaTag: { position: "absolute", top: 12, left: 12, backgroundColor: GOLD, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  encMediaDuration: { position: "absolute", top: 12, right: 12, backgroundColor: "rgba(11,31,51,0.7)", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  encMediaCaption: { padding: spacing.md },
+  playWrap: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
+  playBtn: { width: 56, height: 56, borderRadius: 28, backgroundColor: GOLD, alignItems: "center", justifyContent: "center", borderWidth: 4, borderColor: "rgba(255,255,255,0.3)" },
+  encCheer: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderRadius: 16, backgroundColor: "rgba(201,162,39,0.10)", borderWidth: 1, borderColor: "rgba(201,162,39,0.33)", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  // summit
+  summit: { height: 176, borderRadius: 22, overflow: "hidden", backgroundColor: NAVY, justifyContent: "flex-end", ...shadow.card },
+  summitImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  summitShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.55)" },
+  summitBody: { alignItems: "center", padding: spacing.base },
 } as const;

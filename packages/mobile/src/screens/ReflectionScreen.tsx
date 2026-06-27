@@ -14,6 +14,7 @@ import type { RootStackParamList } from "../navigation/types";
 import { palette, spacing, shadow } from "../theme/tokens";
 import { T } from "../theme/components";
 import { Loading, ErrorState } from "../components/states";
+import { Confetti } from "../components/Confetti";
 import { useKeyboardInset } from "../components/useKeyboardInset";
 import { useModule, useMyReflection, useScripture, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
@@ -57,6 +58,8 @@ export function ReflectionScreen(): ReactElement {
   const status = reflection ? toStatus(reflection.state) : null;
   // Show the composer when nothing is submitted yet, or on a deliberate revise.
   const [revising, setRevising] = useState(false);
+  // Celebrate a completed module the moment the reflection is submitted.
+  const [celebrate, setCelebrate] = useState(false);
   const composing = !reflection || revising || status === "returned";
 
   const submit = useMutation((body: { reflection_text: string }) =>
@@ -78,7 +81,9 @@ export function ReflectionScreen(): ReactElement {
       invalidateQueries("achievements");
       void refetchReflection();
       setRevising(false);
-      if (out.queued) nav.goBack();
+      setCelebrate(true);
+      // Let the confetti play before leaving when the write was queued offline.
+      if (out.queued) setTimeout(() => nav.goBack(), 1500);
     } catch {
       // surfaced via submit.error
     }
@@ -105,27 +110,32 @@ export function ReflectionScreen(): ReactElement {
 
   const moduleLabel = `Module ${module.module_sequence_number} · ${module.title}`;
 
-  return composing ? (
-    <Composer
-      moduleLabel={moduleLabel}
-      prompt={DEFAULT_PROMPT}
-      scripture={scripture}
-      initial={revising ? (reflection?.body ?? "") : ""}
-      submitting={submit.isLoading}
-      errorText={submit.error ? errorMessage(submit.error) : null}
-      onBack={() => (revising ? setRevising(false) : nav.goBack())}
-      onSubmit={(text) => void onSubmit(text)}
-    />
-  ) : (
-    <StatusView
-      reflection={reflection!}
-      status={status!}
-      moduleLabel={moduleLabel}
-      prompt={DEFAULT_PROMPT}
-      scripture={scripture}
-      onBack={() => nav.goBack()}
-      onRevise={() => setRevising(true)}
-    />
+  return (
+    <View style={{ flex: 1 }}>
+      {composing ? (
+        <Composer
+          moduleLabel={moduleLabel}
+          prompt={DEFAULT_PROMPT}
+          scripture={scripture}
+          initial={revising ? (reflection?.body ?? "") : ""}
+          submitting={submit.isLoading}
+          errorText={submit.error ? errorMessage(submit.error) : null}
+          onBack={() => (revising ? setRevising(false) : nav.goBack())}
+          onSubmit={(text) => void onSubmit(text)}
+        />
+      ) : (
+        <StatusView
+          reflection={reflection!}
+          status={status!}
+          moduleLabel={moduleLabel}
+          prompt={DEFAULT_PROMPT}
+          scripture={scripture}
+          onBack={() => nav.goBack()}
+          onRevise={() => setRevising(true)}
+        />
+      )}
+      <Confetti show={celebrate} count={100} onDone={() => setCelebrate(false)} />
+    </View>
   );
 }
 
