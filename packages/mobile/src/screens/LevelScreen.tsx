@@ -365,7 +365,6 @@ function TrailEncouragement({ enc }: { enc: LevelEncouragement }): ReactElement 
 
 const st = {
   screen: { flex: 1, backgroundColor: "#F4F0E8" },
-  hero: { height: 240, overflow: "hidden", borderBottomLeftRadius: 28, borderBottomRightRadius: 28, justifyContent: "space-between" },
   heroFit: { borderBottomLeftRadius: 28, borderBottomRightRadius: 28, minHeight: 220 },
   heroFill: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" },
   heroShade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(8,28,54,0.5)" },
