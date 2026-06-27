@@ -2,8 +2,10 @@
 // HTML-stripped before returning, so the client never calls the IdP-keyed API
 // directly and never renders raw markup. Behind a provider interface for testing;
 // fails closed with 503 when YOUVERSION_APP_KEY is absent.
+import type { Redis } from "ioredis";
 import { ApiError } from "../../http/errors.js";
 import type { Env } from "../../config/env.js";
+import { cacheGetSet, cacheKeys } from "../../cache.js";
 
 export interface ScripturePassage {
   reference: string;
@@ -63,15 +65,23 @@ export function buildScriptureProvider(env: Env, fetchImpl?: typeof fetch): Scri
   return new NotConfiguredScriptureProvider();
 }
 
+// Scripture text never changes for a given ref+version+language, so we cache it for
+// a month — turning a slow external YouVersion round-trip into a Redis hit.
+const SCRIPTURE_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 export class ScriptureService {
   constructor(
     private readonly provider: ScriptureProvider,
     private readonly languageRanges: string,
+    private readonly redis?: Redis | undefined,
   ) {}
 
   async passage(ref: string, version?: string, language?: string): Promise<ScripturePassage> {
     if (!ref) throw new ApiError("VALIDATION_FAILED", "ref is required");
     const lang = language ?? this.languageRanges.split(";")[0] ?? "en";
-    return this.provider.fetch({ ref, version: version ?? "", language: lang });
+    const ver = version ?? "";
+    return cacheGetSet(this.redis, cacheKeys.scripture(ref, ver, lang), SCRIPTURE_TTL_SECONDS, () =>
+      this.provider.fetch({ ref, version: ver, language: lang }),
+    );
   }
 }

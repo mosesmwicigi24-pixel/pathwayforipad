@@ -42,4 +42,7 @@ export async function cacheInvalidate(redis: Redis | undefined, ...keys: string[
 export const cacheKeys = {
   levels: "cache:levels",
   moduleContent: (moduleId: string): string => `cache:module:content:${moduleId}`,
+  // Scripture is reader-identical and immutable for a given ref+version+language, so
+  // it's safe to cache for a long time (avoids the external YouVersion round-trip).
+  scripture: (ref: string, version: string, language: string): string => `cache:scripture:${version}:${language}:${ref}`,
 };

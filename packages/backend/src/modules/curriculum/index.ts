@@ -20,7 +20,7 @@ const idOf = (req: { params: Record<string, string | undefined> }, k: string): s
 export function registerCurriculum(ctx: AppContext): Router {
   const svc = new CurriculumService(ctx.db.primary, ctx.redis);
   const admin = new AdminCurriculumService(ctx.db.primary);
-  const scripture = new ScriptureService(buildScriptureProvider(ctx.env), ctx.env.YOUVERSION_LANGUAGE_RANGES);
+  const scripture = new ScriptureService(buildScriptureProvider(ctx.env), ctx.env.YOUVERSION_LANGUAGE_RANGES, ctx.redis);
   const auth = authenticate(ctx.env);
   const perm = requirePermission(ctx.db.replica); // RBAC: curriculum modules levels/cms/quiz (§5.4)
   const r = curriculumRouter;
@@ -73,6 +73,9 @@ export function registerCurriculum(ctx: AppContext): Router {
         z.object({ ref: z.string().min(1), version: z.string().optional(), language: z.string().optional() }),
         req.query,
       );
+      // Scripture is public, immutable content — let any edge/CDN (e.g. Cloudflare)
+      // cache it for a day; the server-side Redis cache backs this regardless.
+      res.setHeader("Cache-Control", "public, max-age=86400");
       res.json(await scripture.passage(q.ref, q.version, q.language));
     }),
   );
