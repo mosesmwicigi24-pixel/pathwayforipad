@@ -80,6 +80,8 @@ export interface CalendarOccurrence {
   end_at: string;
   rescheduled: boolean;
   going: number;
+  // A few faces of those coming (most-recent "going" RSVPs) — for the calendar cards.
+  attendees?: Array<{ user_id: string; full_name: string; avatar_url: string | null }>;
 }
 
 /** A followable event series (Events tab "Series you follow"). */

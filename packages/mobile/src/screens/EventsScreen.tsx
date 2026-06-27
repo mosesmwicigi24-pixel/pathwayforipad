@@ -21,6 +21,7 @@ import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries, refreshQueries } from "../api/query";
 import { Loading } from "../components/states";
 import { NotificationBell } from "../components/NotificationBell";
+import { Avatar } from "../components/Avatar";
 import {
   sameDay, isLive, weekStrip, monthLabel, todayLabel, timeOf, timeRange,
   matchesCategory, matchesSearch, categoryColor, timeAgo, EVENT_CATEGORIES,
@@ -83,7 +84,10 @@ export function EventsScreen(): ReactElement {
   ];
 
   const baseList = segment === "today" ? todayEvents : segment === "upcoming" ? upcoming : rsvpEvents;
-  const list = baseList.filter((o) => matchesCategory(o, category) && matchesSearch(o, query));
+  // Nearest gatherings first, out to the far end — explicit chronological order.
+  const list = baseList
+    .filter((o) => matchesCategory(o, category) && matchesSearch(o, query))
+    .sort((a, b) => a.start_at.localeCompare(b.start_at));
   const sectionTitle = segment === "today" ? "Today's gatherings" : segment === "upcoming" ? "Upcoming gatherings" : "Your RSVPs";
 
   const openEvent = (o: CalendarOccurrence): void =>
@@ -404,7 +408,20 @@ function EventCard({ occ, live, status, onPress }: { occ: CalendarOccurrence; li
           {occ.location ? <View style={st.metaRow}><MapPin size={12} color={palette.ink600} /><T variant="micro" tone="secondary" numberOfLines={1}>{occ.location}</T></View> : null}
         </View>
         <View style={st.cardFooter}>
-          <View style={st.metaRow}><Users size={13} color={palette.ink600} /><T variant="caption" tone="secondary">{occ.going} going</T></View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+            {occ.attendees && occ.attendees.length > 0 ? (
+              <View style={{ flexDirection: "row" }}>
+                {occ.attendees.slice(0, 4).map((a, i) => (
+                  <View key={a.user_id} style={{ marginLeft: i === 0 ? 0 : -8, borderRadius: 13, borderWidth: 2, borderColor: palette.white }}>
+                    <Avatar uri={a.avatar_url} name={a.full_name} size={22} />
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Users size={13} color={palette.ink600} />
+            )}
+            <T variant="caption" tone="secondary">{occ.going > 0 ? `${occ.going} going` : "Be the first to RSVP"}</T>
+          </View>
           <StatusPill status={status} />
         </View>
       </View>

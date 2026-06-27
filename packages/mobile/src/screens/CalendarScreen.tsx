@@ -4,7 +4,7 @@
 // calendar module owns recurrence/visibility scoping server-side.
 import { useMemo, useState, type ReactElement } from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { Bell, CalendarDays, ChevronLeft, ChevronRight, Clock, MapPin } from "lucide-react-native";
+import { Bell, CalendarDays, ChevronLeft, ChevronRight, Clock, MapPin, Users } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -13,6 +13,7 @@ import { T } from "../theme/components";
 import { useCalendar } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
+import { Avatar } from "../components/Avatar";
 import type { CalendarOccurrence } from "../api/types";
 
 const WEEK_DAYS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -45,7 +46,9 @@ export function CalendarScreen(): ReactElement {
 
   const list = events ?? [];
   const dayOf = (e: CalendarOccurrence): number => new Date(e.start_at).getDate();
-  const selectedEvents = list.filter((e) => dayOf(e) === selectedDay);
+  const selectedEvents = list
+    .filter((e) => dayOf(e) === selectedDay)
+    .sort((a, b) => a.start_at.localeCompare(b.start_at)); // earliest first → later in the day
   const upcoming = list
     .filter((e) => new Date(e.start_at).getTime() >= today.getTime())
     .slice(0, 3);
@@ -155,6 +158,21 @@ export function CalendarScreen(): ReactElement {
                       {e.location ? (
                         <View style={st.eventMeta}><MapPin size={14} color={palette.ink600} /><T variant="caption" tone="secondary">{e.location}</T></View>
                       ) : null}
+                      {/* Who's coming — a few faces of those attending */}
+                      <View style={[st.eventMeta, { alignItems: "center" }]}>
+                        {e.attendees && e.attendees.length > 0 ? (
+                          <View style={{ flexDirection: "row", marginRight: 2 }}>
+                            {e.attendees.slice(0, 4).map((a, i) => (
+                              <View key={a.user_id} style={{ marginLeft: i === 0 ? 0 : -8, borderRadius: 12, borderWidth: 2, borderColor: palette.white }}>
+                                <Avatar uri={a.avatar_url} name={a.full_name} size={20} />
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                          <Users size={14} color={palette.ink600} />
+                        )}
+                        <T variant="caption" tone="secondary">{e.going > 0 ? `${e.going} going` : "Be the first to RSVP"}</T>
+                      </View>
                     </View>
                   </Pressable>
                 ))
