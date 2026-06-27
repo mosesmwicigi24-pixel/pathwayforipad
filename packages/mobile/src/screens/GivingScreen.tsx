@@ -798,7 +798,6 @@ const st = {
   divider: { borderBottomWidth: 1, borderBottomColor: "rgba(10,37,64,0.06)" },
   emptyRow: { alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.base, paddingVertical: spacing.lg },
   emptyIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.mutedBg, alignItems: "center", justifyContent: "center" },
-  recurIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
   scheduleCard: { flexGrow: 1, flexBasis: "46%", minWidth: 150, backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   statusChip: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3 },
   detailRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.base, paddingVertical: 13 },

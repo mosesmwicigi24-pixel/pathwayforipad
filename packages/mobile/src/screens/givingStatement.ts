@@ -16,38 +16,6 @@ export function statementTotalMinor(records: GivingRecord[]): number {
   return records.reduce((sum, r) => sum + (isSettled(r.status) ? r.amount_minor : 0), 0);
 }
 
-export interface MonthGroup {
-  key: string; // "2026-05"
-  label: string; // "MAY 2026"
-  totalMinor: number; // settled-only month total
-  records: GivingRecord[]; // most-recent first
-}
-
-/** Group records by calendar month, newest month first, each carrying a
- *  settled-only subtotal. Records within a month stay newest-first. */
-export function groupByMonth(records: GivingRecord[]): MonthGroup[] {
-  const sorted = [...records].sort((a, b) => b.created_at.localeCompare(a.created_at));
-  const groups = new Map<string, GivingRecord[]>();
-  for (const r of sorted) {
-    const key = r.created_at.slice(0, 7); // YYYY-MM
-    const bucket = groups.get(key);
-    if (bucket) bucket.push(r);
-    else groups.set(key, [r]);
-  }
-  return [...groups.entries()]
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([key, rows]) => ({
-      key,
-      label: monthLabel(rows[0]!.created_at),
-      totalMinor: statementTotalMinor(rows),
-      records: rows,
-    }));
-}
-
-/** "MAY 2026" from an ISO timestamp. */
-export function monthLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase();
-}
 
 export interface DayGroup {
   key: string; // "2026-05-18"

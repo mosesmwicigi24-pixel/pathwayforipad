@@ -102,5 +102,4 @@ const st = {
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   card: { backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.border, padding: spacing.base, ...shadow.card },
   iconTile: { width: 40, height: 40, borderRadius: 12, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
-  avatar: { width: 48, height: 48, borderRadius: 16, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
 } as const;

@@ -37,7 +37,6 @@ interface Ctx {
   poster: string | null;
   title: string;
   radius: number;
-  fallbackHeight: number;
   playing: boolean;
   floating: boolean;
   aspect: number | null;
@@ -54,14 +53,12 @@ export function FeaturedVideoProvider({
   poster,
   title,
   radius = 16,
-  fallbackHeight = 200,
   children,
 }: {
   uri: string;
   poster?: string | null;
   title: string;
   radius?: number;
-  fallbackHeight?: number;
   children: ReactNode;
 }): ReactElement {
   const insets = useSafeAreaInsets();
@@ -136,7 +133,7 @@ export function FeaturedVideoProvider({
   );
 
   const value: Ctx = {
-    uri, poster: poster ?? null, title, radius, fallbackHeight,
+    uri, poster: poster ?? null, title, radius,
     playing, floating, aspect, start, close,
     setSlotRef: (node) => { slotRef.current = node; },
     bindVideo,

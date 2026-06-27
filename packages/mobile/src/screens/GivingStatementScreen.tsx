@@ -150,13 +150,4 @@ const st = {
   fundIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   statusChip: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 3, alignSelf: "flex-start" },
   empty: { alignItems: "center", paddingVertical: spacing.xxl, paddingHorizontal: spacing.lg },
-  // ---- detail sheet ----
-  backdrop: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(10,37,64,0.45)" },
-  sheet: { position: "absolute", left: 0, right: 0, bottom: 0, maxHeight: "88%", backgroundColor: palette.paper, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.lg },
-  grabber: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: palette.border, marginBottom: spacing.base },
-  sheetClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: palette.mutedBg, alignItems: "center", justifyContent: "center" },
-  amountCard: { backgroundColor: palette.navy, borderRadius: 18, paddingVertical: spacing.lg, alignItems: "center", overflow: "hidden" },
-  detailRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: "rgba(10,37,64,0.05)" },
-  detailIcon: { width: 26, height: 26, borderRadius: 13, backgroundColor: palette.mutedBg, alignItems: "center", justifyContent: "center" },
-  ledgerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.base },
 } as const;

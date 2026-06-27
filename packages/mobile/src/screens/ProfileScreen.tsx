@@ -1055,7 +1055,6 @@ const st = {
   header: { backgroundColor: palette.navy, paddingTop: 54, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
   kicker: { letterSpacing: 1.8, textTransform: "uppercase" },
   headerBtn: { width: 40, height: 40, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
-  avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: "#15355f", borderWidth: 2, borderColor: palette.gold, alignItems: "center", justifyContent: "center" },
   avatarEdit: { position: "absolute", bottom: -2, right: -2, width: 26, height: 26, borderRadius: 13, backgroundColor: palette.gold, borderWidth: 2, borderColor: palette.navy, alignItems: "center", justifyContent: "center" },
   levelChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(201,162,39,0.4)", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   faChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(22,163,74,0.2)", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },

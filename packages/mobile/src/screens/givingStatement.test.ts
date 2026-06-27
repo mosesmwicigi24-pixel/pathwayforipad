@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isSettled, statementTotalMinor, groupByMonth, groupByDay, monthLabel, shortRef } from "./givingStatement";
+import { isSettled, statementTotalMinor, groupByDay, shortRef } from "./givingStatement";
 import type { GivingRecord } from "../api/types";
 
 function rec(over: Partial<GivingRecord>): GivingRecord {
@@ -41,18 +41,6 @@ describe("statementTotalMinor", () => {
   });
 });
 
-describe("groupByMonth", () => {
-  it("buckets by calendar month, newest first, with settled-only subtotals", () => {
-    const groups = groupByMonth(records);
-    expect(groups.map((g) => g.key)).toEqual(["2026-05", "2026-03"]);
-    expect(groups[0]!.label).toBe("MAY 2026");
-    expect(groups[0]!.totalMinor).toBe(350000); // 250000 + 100000 (processing excluded)
-    expect(groups[1]!.totalMinor).toBe(250000); // refund excluded
-    // newest-first within the month
-    expect(groups[0]!.records.map((r) => r.transaction_id)).toEqual(["1", "2", "3"]);
-  });
-});
-
 describe("groupByDay", () => {
   it("buckets by calendar day, newest first, with settled-only subtotals", () => {
     const sameDay: GivingRecord[] = [
@@ -69,10 +57,7 @@ describe("groupByDay", () => {
   });
 });
 
-describe("monthLabel + shortRef", () => {
-  it("formats a month label", () => {
-    expect(monthLabel("2026-04-14T00:00:00Z")).toBe("APRIL 2026");
-  });
+describe("shortRef", () => {
   it("normalizes a provider ref to the last 8 alphanumerics, uppercased", () => {
     expect(shortRef("ref-qfr8k2")).toBe("REFQFR8K2".slice(-8)); // "EFQFR8K2"
     expect(shortRef("QFR8K2")).toBe("QFR8K2");

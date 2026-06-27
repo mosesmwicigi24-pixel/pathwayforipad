@@ -1304,17 +1304,6 @@ const st = {
   },
   channelRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: spacing.md },
   channelAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
-  thumb: { height: 170, borderRadius: 16, overflow: "hidden", alignItems: "center", justifyContent: "center" },
-  playBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: palette.gold,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.6)",
-  },
   resumeTile: { width: 44, height: 44, borderRadius: 14, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
   resumeKicker: { color: palette.goldLo, fontWeight: "700", letterSpacing: 1.8 },
   resumeTitle: { fontSize: 19, color: palette.ink, marginTop: 2 },
@@ -1358,7 +1347,6 @@ const st = {
     marginTop: spacing.md,
   },
   targetTile: { width: 28, height: 28, borderRadius: 9, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
-  featChip: { backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, borderRadius: radii.pill, paddingHorizontal: spacing.md, paddingVertical: 7 },
   reflectBanner: {
     flexDirection: "row", alignItems: "center", gap: spacing.md,
     backgroundColor: palette.goldChipBg, borderWidth: 1, borderColor: palette.goldTint,
@@ -1376,7 +1364,6 @@ const st = {
     backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border,
     borderRadius: 14, padding: spacing.md, marginTop: spacing.sm,
   },
-  disciplerAvatar: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#16A34A", alignItems: "center", justifyContent: "center" },
   // Upcoming calendar grid
   calBox: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: spacing.sm },
   calRow: { flexDirection: "row" },
@@ -1390,7 +1377,6 @@ const st = {
   calEmpty: { backgroundColor: palette.surface, borderRadius: 14, alignItems: "center", justifyContent: "center", paddingVertical: spacing.lg, marginTop: 6 },
   calEvent: { backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
   // Your cohort
-  cohortAvatar: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: palette.white },
   cohortStat: { width: "48%", flexGrow: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: palette.surface, borderRadius: 14, padding: spacing.md },
   cohortStatIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: palette.white, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
   weekChip: {
@@ -1412,8 +1398,6 @@ const st = {
     marginTop: spacing.md,
   },
   weekMeetTile: { width: 28, height: 28, borderRadius: 9, backgroundColor: palette.goldTint, alignItems: "center", justifyContent: "center" },
-  eventRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.md },
-  eventDate: { width: 46, height: 46, borderRadius: 14, backgroundColor: palette.navy, alignItems: "center", justifyContent: "center" },
   verseCard: {
     backgroundColor: palette.verseBg,
     borderRadius: 20,
@@ -1449,13 +1433,10 @@ const st = {
     padding: spacing.md,
   },
   encourageTile: { width: 32, height: 32, borderRadius: 10, backgroundColor: palette.white, alignItems: "center", justifyContent: "center", ...shadow.card },
-  annRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.md },
   annCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
   annCardImgWrap: { height: 140, backgroundColor: palette.mutedBg },
   annPlayBadge: { position: "absolute", top: 10, left: 10, width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
   annNewBadge: { position: "absolute", top: 10, right: 10, backgroundColor: palette.gold, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
-  annTile: { width: 36, height: 36, borderRadius: 12, backgroundColor: palette.tintBlue, alignItems: "center", justifyContent: "center" },
-  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.gold },
   cohortBtn: {
     marginTop: spacing.md,
     backgroundColor: palette.surface,

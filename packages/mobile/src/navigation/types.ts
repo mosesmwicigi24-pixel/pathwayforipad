@@ -23,7 +23,6 @@ export type RootStackParamList = {
   Quiz: { moduleId: string };
   Reflection: { moduleId: string }; // dedicated reflection composer + status (Figma "Reflection")
   LevelComplete: undefined;
-  Giving: undefined; // legacy push target (Profile rows); the Give tab is primary
   GivingStatement: undefined; // full grouped giving history (Give make)
   GivingReceipt: { transactionId: string; title?: string }; // single-gift official receipt (Give make)
   Calendar: undefined; // full browse, pushed from Home's Upcoming section
@@ -48,6 +47,5 @@ export type RootStackParamList = {
   Mentor: undefined; // discipler + meeting notes (D5)
   Resources: undefined; // resource library (D5)
   EventDetail: { eventId: string; title: string; startAt: string; endAt?: string; location?: string | null };
-  EventPostCompose: { eventId: string; title: string };
   AnnouncementDetail: { announcementId: string; title?: string };
 };

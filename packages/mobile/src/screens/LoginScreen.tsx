@@ -360,8 +360,6 @@ const st = {
     borderRadius: radii.control, paddingHorizontal: spacing.base,
   },
   input: { paddingVertical: 14, fontSize: 16, color: palette.white },
-  divider: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginVertical: spacing.lg },
-  line: { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
   rememberRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   rememberLeft: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   checkbox: {
