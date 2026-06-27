@@ -17,7 +17,8 @@ import { GradientBg, T } from "../theme/components";
 import { useChatInbox, useChatPeople, useMentor, queryKeys } from "../api/hooks";
 import { errorMessage, refreshQueries } from "../api/query";
 import { NuruApi } from "../api/client";
-import { Loading, ErrorState } from "../components/states";
+import { ErrorState } from "../components/states";
+import { SkeletonList } from "../components/Skeleton";
 import { Avatar } from "../components/Avatar";
 import { NotificationBell } from "../components/NotificationBell";
 import {
@@ -182,7 +183,7 @@ export function ChatScreen(): ReactElement {
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
       >
-        {isLoading ? <Loading label="Loading your conversations…" /> : null}
+        {isLoading ? <SkeletonList count={5} /> : null}
         {error ? <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /> : null}
 
         {!isLoading && !error ? (

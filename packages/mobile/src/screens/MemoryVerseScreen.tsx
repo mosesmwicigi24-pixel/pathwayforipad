@@ -3,7 +3,7 @@
 // the attempt locally (word overlap) and posts it — the SERVER decides mastery
 // (≥90% match) and keeps the best score. Real data throughout.
 import { useState, type ReactElement } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import { FlatList, Pressable, TextInput, View } from "react-native";
 import { ArrowLeft, Check } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NuruApi } from "../api/client";
@@ -12,7 +12,8 @@ import { PButton, T } from "../theme/components";
 import { useKeyboardInset } from "../components/useKeyboardInset";
 import { useMemoryVerses, useWordScore } from "../api/hooks";
 import { errorMessage, invalidateQueries, refreshQueries } from "../api/query";
-import { Loading, ErrorState } from "../components/states";
+import { ErrorState } from "../components/states";
+import { SkeletonList } from "../components/Skeleton";
 import type { MemoryVerseRow } from "../api/types";
 
 /** Word-overlap match the member sees while practicing; the server re-derives
@@ -42,29 +43,35 @@ export function MemoryVerseScreen(): ReactElement {
         <T serif tone="onNavy" style={{ fontSize: 24, marginTop: 4 }}>Memory verses</T>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }} showsVerticalScrollIndicator={false}>
-        {word ? (
-          <View style={[st.card, st.scoreCard]}>
-            <View style={st.scoreRing}>
-              <T serif style={{ fontSize: 26, color: palette.navyDeep }}>{word.score}</T>
-              <T variant="micro" style={{ color: palette.ink600, marginTop: -2 }}>/100</T>
-            </View>
-            <View style={{ flex: 1 }}>
-              <T variant="micro" tone="gold" style={{ fontWeight: "700", letterSpacing: 1.2 }}>WORD SCORE</T>
-              <T variant="heading" style={{ color: palette.ink, marginTop: 1 }}>{word.band}</T>
-              <View style={st.scoreBars}>
-                <ScoreBar label="Consistency" value={word.components.consistency ?? 0} />
-                <ScoreBar label="Memorization" value={word.components.memorization ?? 0} />
-                <ScoreBar label="Breadth" value={word.components.breadth ?? 0} />
+      <FlatList
+        data={verses ?? []}
+        keyExtractor={(v) => v.memory_verse_id}
+        contentContainerStyle={{ padding: spacing.screen, paddingBottom: spacing.xxl }}
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={8}
+        windowSize={11}
+        removeClippedSubviews
+        ListHeaderComponent={
+          word ? (
+            <View style={[st.card, st.scoreCard]}>
+              <View style={st.scoreRing}>
+                <T serif style={{ fontSize: 26, color: palette.navyDeep }}>{word.score}</T>
+                <T variant="micro" style={{ color: palette.ink600, marginTop: -2 }}>/100</T>
+              </View>
+              <View style={{ flex: 1 }}>
+                <T variant="micro" tone="gold" style={{ fontWeight: "700", letterSpacing: 1.2 }}>WORD SCORE</T>
+                <T variant="heading" style={{ color: palette.ink, marginTop: 1 }}>{word.band}</T>
+                <View style={st.scoreBars}>
+                  <ScoreBar label="Consistency" value={word.components.consistency ?? 0} />
+                  <ScoreBar label="Memorization" value={word.components.memorization ?? 0} />
+                  <ScoreBar label="Breadth" value={word.components.breadth ?? 0} />
+                </View>
               </View>
             </View>
-          </View>
-        ) : null}
-
-        {isLoading ? <Loading label="Loading your verses…" /> : null}
-        {error ? <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /> : null}
-        {(verses ?? []).map((v) => (
-          <View key={v.memory_verse_id} style={[st.card, { marginBottom: spacing.sm }]}>
+          ) : null
+        }
+        renderItem={({ item: v }) => (
+          <View style={[st.card, { marginBottom: spacing.sm }]}>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <T variant="heading" style={{ flex: 1, fontSize: 15, color: palette.goldLo }}>{v.reference}</T>
               {v.status === "mastered" ? (
@@ -83,11 +90,20 @@ export function MemoryVerseScreen(): ReactElement {
               </PButton>
             </View>
           </View>
-        ))}
-        {!isLoading && (verses ?? []).length === 0 ? (
-          <View style={st.card}><T variant="heading">No verses yet</T><T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Your church will add memory verses here.</T></View>
-        ) : null}
-      </ScrollView>
+        )}
+        ListEmptyComponent={
+          isLoading ? (
+            <SkeletonList count={5} />
+          ) : error ? (
+            <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />
+          ) : (
+            <View style={st.card}>
+              <T variant="heading">No verses yet</T>
+              <T variant="caption" tone="secondary" style={{ marginTop: 4 }}>Your church will add memory verses here.</T>
+            </View>
+          )
+        }
+      />
 
       {practice ? (
         <PracticeSheet

@@ -24,7 +24,7 @@ import { palette, spacing } from "../theme/tokens";
 import { T, EmptyState, ErrorState } from "../theme/components";
 import { useNotifications } from "../api/hooks";
 import { invalidateQueries, errorMessage } from "../api/query";
-import { Loading } from "../components/states";
+import { SkeletonList } from "../components/Skeleton";
 import type { NotificationRow } from "../api/types";
 
 interface TypeMeta {
@@ -181,8 +181,8 @@ export function NotificationsScreen(): ReactElement {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={palette.gold} />}
       >
         {isLoading ? (
-          <View style={{ paddingTop: spacing.xl }}>
-            <Loading label="Loading…" />
+          <View style={{ paddingTop: spacing.md }}>
+            <SkeletonList count={5} />
           </View>
         ) : error ? (
           <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />

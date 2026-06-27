@@ -15,7 +15,8 @@ import { Avatar } from "../components/Avatar";
 import { FitImage } from "../components/FitImage";
 import { usePrayerWall } from "../api/hooks";
 import { invalidateQueries, errorMessage } from "../api/query";
-import { Loading, ErrorState } from "../components/states";
+import { ErrorState } from "../components/states";
+import { SkeletonList } from "../components/Skeleton";
 import { useKeyboardInset } from "../components/useKeyboardInset";
 import { useVoiceNote, VoiceRecorderButton, VoiceNotePlayer } from "../components/voiceNote";
 import type { PrayerWallPost } from "../api/types";
@@ -95,7 +96,7 @@ export function PrayerWallScreen(): ReactElement {
             ))}
           </View>
 
-        {isLoading ? <Loading label="Loading the wall…" /> : null}
+        {isLoading && (posts ?? []).length === 0 ? <SkeletonList count={4} /> : null}
         {error ? <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} /> : null}
         {!isLoading && !error && (posts ?? []).length === 0 ? (
           <View style={{ alignItems: "center", paddingTop: spacing.xxl }}>
