@@ -57,10 +57,16 @@ export function App(): ReactElement {
     configureApiBase(apiBaseUrl(Platform.OS, metroDevHost()));
     setConnectivity(new NetInfoConnectivity()); // real online/offline detection
     installAuth(getVault()); // attach Bearer + 401-refresh-retry against the vault
-    void hydrateQueryCache(); // restore last-known reads so screens show instantly + work offline (§1.7)
 
+    // Warm the read-cache from disk AND read the saved session in parallel, THEN pick
+    // the entry screen. Gating the (already-brief) splash on hydration means the first
+    // authed screen paints its last-known data instantly from disk — no spinner and no
+    // waiting on the network on a cold open (§1.7). It then refreshes silently.
     void (async () => {
-      const refresh = await getVault().getRefresh().catch(() => null);
+      const [refresh] = await Promise.all([
+        getVault().getRefresh().catch(() => null),
+        hydrateQueryCache().catch(() => undefined),
+      ]);
       setBootRoute(refresh ? "Tabs" : "Login");
     })();
 

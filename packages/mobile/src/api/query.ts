@@ -107,27 +107,54 @@ function subscribe(key: string, fn: () => void): () => void {
   };
 }
 
-async function runFetch<T>(key: string, fetcher: () => Promise<T>): Promise<void> {
+/** Structural equality for two server payloads (plain JSON). Lets us repaint ONLY
+ *  when the table's data actually changed — an identical refresh is a no-op. */
+function dataEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
+async function runFetch<T>(key: string, fetcher: () => Promise<T>, opts: { silent?: boolean } = {}): Promise<void> {
   const prev = cache.get(key);
-  // Build entries without ever assigning `undefined` explicitly (exactOptionalPropertyTypes).
-  const loading: Entry<T> = { status: "loading" };
-  if (prev?.data !== undefined) loading.data = prev.data as T;
-  if (prev?.fetchedAt !== undefined) loading.fetchedAt = prev.fetchedAt;
-  cache.set(key, loading);
-  emit(key);
+  const silent = opts.silent === true;
+  // A first/explicit load flips to "loading" so the screen can show its state; a
+  // SILENT background refresh (focus / foreground / write / poll) never does — it
+  // stays invisible and only surfaces if the data really changed.
+  if (!silent) {
+    // Build entries without ever assigning `undefined` explicitly (exactOptionalPropertyTypes).
+    const loading: Entry<T> = { status: "loading" };
+    if (prev?.data !== undefined) loading.data = prev.data as T;
+    if (prev?.fetchedAt !== undefined) loading.fetchedAt = prev.fetchedAt;
+    cache.set(key, loading);
+    emit(key);
+  }
   try {
     const data = await fetcher();
+    const prevData = cache.get(key)?.data;
+    if (prevData !== undefined && dataEqual(prevData, data)) {
+      // Unchanged: keep the SAME data reference (so React doesn't re-render) and only
+      // bump freshness. The screen updates only when the DB row actually changed.
+      cache.set(key, { status: "success", data: prevData as T, fetchedAt: Date.now() });
+      if (!silent) emit(key); // settle the loading flag we raised above
+      return;
+    }
     const ok: Entry<T> = { status: "success", data, fetchedAt: Date.now() };
     cache.set(key, ok);
     persist(key, ok);
+    emit(key);
   } catch (error) {
+    if (silent) return; // a failed background refresh stays invisible over good data
     const cur = cache.get(key);
     const failed: Entry<T> = { status: "error", error };
     if (cur?.data !== undefined) failed.data = cur.data as T;
     if (cur?.fetchedAt !== undefined) failed.fetchedAt = cur.fetchedAt;
     cache.set(key, failed);
+    emit(key);
   }
-  emit(key);
 }
 
 /** Refresh every cached key starting with `prefix` after a write. Keeps the last
@@ -208,7 +235,9 @@ export function useQuery<T>(
       const e = cache.get(key);
       if (e?.status === "loading") return;
       const age = e?.fetchedAt ? Date.now() - e.fetchedAt : Number.POSITIVE_INFINITY;
-      if (forceFresh ? age > 1500 : age >= staleMs) void runFetch(key, fetcherRef.current);
+      // First load (no data yet) shows the loading state; once we have data, every
+      // refresh is silent — invisible unless the data actually changed.
+      if (forceFresh ? age > 1500 : age >= staleMs) void runFetch(key, fetcherRef.current, { silent: e?.data !== undefined });
     };
     // A write (invalidate/refresh) or a peer update emits on this key → re-render AND
     // refetch-if-stale, so an already-mounted screen reflects DB changes immediately.
