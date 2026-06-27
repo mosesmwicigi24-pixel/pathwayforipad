@@ -12,7 +12,7 @@ import { ApiError } from "../../http/errors.js";
 import type { PaymentGateway } from "./gateway.js";
 import type { MobileMoneyKey, MobileMoneyProviders } from "./providers.js";
 import type { PayPalGateway } from "./paypal.js";
-import { renderStatementPdf } from "./statementPdf.js";
+import { renderStatementPdf, renderReceiptPdf } from "./statementPdf.js";
 
 const sha256 = (b: Buffer | string): string => createHash("sha256").update(b).digest("hex");
 
@@ -437,6 +437,48 @@ export class FinancialService {
       count: rows.length,
       generatedAt: new Date().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" }),
       groups,
+    });
+  }
+
+  /** Render ONE of the caller's gifts as a downloadable receipt PDF (the in-app
+   *  "Giving receipt"). Owner-scoped (404 otherwise). Money stays server-side. */
+  async receiptPdf(userId: string, transactionId: string): Promise<Buffer> {
+    const t = await maybeOne<{ amount_minor: number; currency: string; status: string; fund: string | null; provider: string | null; provider_ref: string | null; created_at: unknown; settled_at: unknown }>(
+      this.pool,
+      `SELECT t.amount_minor, t.currency, t.status, f.code AS fund, t.provider,
+              COALESCE(t.provider_ref, t.stripe_payment_intent) AS provider_ref, t.created_at, t.settled_at
+         FROM transactions t LEFT JOIN funds f ON f.fund_id = t.fund_id
+        WHERE t.transaction_id = $1 AND t.user_id = $2`,
+      [transactionId, userId],
+    );
+    if (!t) throw new ApiError("NOT_FOUND", "Gift not found");
+    const me = await maybeOne<{ full_name: string; congregation: string | null }>(
+      this.pool,
+      `SELECT u.full_name, c.name AS congregation FROM users u LEFT JOIN congregations c ON c.congregation_id = u.congregation_id WHERE u.user_id = $1`,
+      [userId],
+    );
+    const ksh = (m: number): string => `KSh ${(m / 100).toLocaleString("en-US")}`;
+    const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v));
+    const stamp = (v: unknown): string => new Date(iso(v)).toLocaleString("en-US", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+    const settled = (s: string): boolean => s === "succeeded" || s === "settled" || s === "completed";
+    const provider = (t.provider as string | null) ?? "stripe";
+    const method = provider === "stripe" ? "card" : provider;
+    const methodLabel = ({ mpesa: "M-PESA", airtel: "Airtel Money", card: "Card", paypal: "PayPal" } as Record<string, string>)[method] ?? method;
+    const fund = t.fund ? t.fund[0]!.toUpperCase() + t.fund.slice(1) : "Gift";
+    const ref = (t.provider_ref ?? "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    return renderReceiptPdf({
+      congregation: me?.congregation ?? "Nuru Place Church",
+      member: me?.full_name ?? "",
+      ref,
+      amountLabel: ksh(Number(t.amount_minor)),
+      fund,
+      methodLabel,
+      statusLabel: settled(t.status) ? "Completed" : t.status[0]!.toUpperCase() + t.status.slice(1),
+      feeLabel: ksh(0),
+      totalLabel: ksh(Number(t.amount_minor)),
+      initiatedAt: stamp(t.created_at),
+      settledAt: t.settled_at ? stamp(t.settled_at) : null,
+      generatedAt: new Date().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" }),
     });
   }
 

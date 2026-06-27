@@ -73,7 +73,7 @@ const PROVIDER: Record<UIMethod, GivingMethod | null> = { mpesa: "mpesa", airtel
 
 type Freq = "once" | "weekly" | "monthly";
 type Phase = "stk" | "success" | "failed";
-type Ceremony = { phase: Phase; amount: number; fund: string; method: UIMethod; ref: string; note?: string; scheduled?: boolean };
+type Ceremony = { phase: Phase; amount: number; fund: string; method: UIMethod; ref: string; note?: string; scheduled?: boolean; txnId?: string };
 
 export function GivingScreen(): ReactElement {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -145,7 +145,7 @@ export function GivingScreen(): ReactElement {
         return;
       }
       if (order.approve_url) void Linking.openURL(order.approve_url).catch(() => undefined);
-      setCeremony({ phase: "stk", amount: total, fund: fund.label, method: "paypal", ref: order.provider_ref ?? "", note: "paypal" });
+      setCeremony({ phase: "stk", amount: total, fund: fund.label, method: "paypal", ref: order.provider_ref ?? "", note: "paypal", txnId: order.transaction_id });
       return;
     }
 
@@ -172,7 +172,7 @@ export function GivingScreen(): ReactElement {
       setCeremony({ ...base, phase: "failed" });
       return;
     }
-    const withRef = { ...base, ref: res.provider_ref ?? res.transaction_id };
+    const withRef = { ...base, ref: res.provider_ref ?? res.transaction_id, txnId: res.transaction_id };
     setCeremony({ ...withRef, phase: "stk" });
     void watchSettlement(res.transaction_id, withRef);
   }
@@ -483,9 +483,9 @@ export function GivingScreen(): ReactElement {
         <ScheduleDetailSheet schedule={scheduleDetail} onClose={() => setScheduleDetail(null)} onCancel={() => confirmCancel(scheduleDetail)} />
       ) : null}
       {historyDetail ? (
-        <HistoryDetailSheet record={historyDetail} onClose={() => setHistoryDetail(null)} />
+        <HistoryDetailSheet record={historyDetail} onClose={() => setHistoryDetail(null)} onViewReceipt={(txnId) => { setHistoryDetail(null); nav.navigate("GivingReceipt", { transactionId: txnId }); }} />
       ) : null}
-      {ceremony ? <CeremonyOverlay c={ceremony} onDismiss={dismiss} onRetry={() => { setCeremony(null); void give(); }} onConfirmPayPal={(id) => void confirmPayPal(id)} /> : null}
+      {ceremony ? <CeremonyOverlay c={ceremony} onDismiss={dismiss} onRetry={() => { setCeremony(null); void give(); }} onConfirmPayPal={(id) => void confirmPayPal(id)} onViewReceipt={(txnId) => { dismiss(); nav.navigate("GivingReceipt", { transactionId: txnId }); }} /> : null}
     </View>
   );
 }
@@ -650,7 +650,7 @@ function ScheduleDetailSheet({ schedule, onClose, onCancel }: { schedule: Giving
 }
 
 /* ---------- giving history detail ---------- */
-function HistoryDetailSheet({ record, onClose }: { record: GivingRecord; onClose: () => void }): ReactElement {
+function HistoryDetailSheet({ record, onClose, onViewReceipt }: { record: GivingRecord; onClose: () => void; onViewReceipt: (txnId: string) => void }): ReactElement {
   const chip = historyStatusChip(record.status);
   const rows: Array<{ Icon: LucideIcon; label: string; value: string }> = [
     { Icon: HandHeart, label: "Fund", value: record.fund },
@@ -685,7 +685,8 @@ function HistoryDetailSheet({ record, onClose }: { record: GivingRecord; onClose
           ))}
         </View>
 
-        <View style={{ marginTop: spacing.base }}>
+        <View style={{ marginTop: spacing.base, gap: spacing.sm }}>
+          <PButton variant="primary" onPress={() => onViewReceipt(record.transaction_id)}>View receipt</PButton>
           <PButton variant="ghost" onPress={onClose}>Done</PButton>
         </View>
       </View>
@@ -694,7 +695,7 @@ function HistoryDetailSheet({ record, onClose }: { record: GivingRecord; onClose
 }
 
 /* ---------- ceremony ---------- */
-function CeremonyOverlay({ c, onDismiss, onRetry, onConfirmPayPal }: { c: Ceremony; onDismiss: () => void; onRetry: () => void; onConfirmPayPal: (orderId: string) => void }): ReactElement {
+function CeremonyOverlay({ c, onDismiss, onRetry, onConfirmPayPal, onViewReceipt }: { c: Ceremony; onDismiss: () => void; onRetry: () => void; onConfirmPayPal: (orderId: string) => void; onViewReceipt: (txnId: string) => void }): ReactElement {
   const mm = c.method === "mpesa" || c.method === "airtel";
   const paypal = c.note === "paypal" || c.note === "paypal-capturing";
   if (c.phase === "stk" && paypal) {
@@ -736,7 +737,10 @@ function CeremonyOverlay({ c, onDismiss, onRetry, onConfirmPayPal }: { c: Ceremo
           {c.scheduled ? `${ksh(c.amount)} · ${c.fund} · recurring` : `${ksh(c.amount)} · ${c.fund}${c.ref ? ` · Ref ${c.ref.slice(0, 10).toUpperCase()}` : ""}`}
         </T>
         <T variant="micro" tone="tertiary" style={{ marginTop: spacing.md }}>{c.scheduled ? "Manage it anytime under Recurring giving." : "Your receipt is saved to Recent giving."}</T>
-        <View style={{ position: "absolute", left: spacing.lg, right: spacing.lg, bottom: 48 }}><PButton variant="primary" onPress={onDismiss}>Done</PButton></View>
+        <View style={{ position: "absolute", left: spacing.lg, right: spacing.lg, bottom: 48, gap: spacing.sm }}>
+          {!c.scheduled && c.txnId ? <PButton variant="primary" onPress={() => onViewReceipt(c.txnId as string)}>View receipt</PButton> : null}
+          <PButton variant={!c.scheduled && c.txnId ? "ghost" : "primary"} onPress={onDismiss}>Done</PButton>
+        </View>
       </View>
     );
   }

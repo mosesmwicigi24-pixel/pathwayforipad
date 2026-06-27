@@ -24,6 +24,51 @@ export interface StatementFacts {
 
 const MAX_LINES = 52; // fits one US-Letter page at 14pt leading from y=748
 
+export interface ReceiptFacts {
+  congregation: string;
+  member: string;
+  ref: string;
+  amountLabel: string;
+  fund: string;
+  methodLabel: string;
+  statusLabel: string;
+  feeLabel: string;
+  totalLabel: string;
+  initiatedAt: string;
+  settledAt: string | null;
+  generatedAt: string;
+}
+
+/** A single-gift receipt as a one-page PDF (dep-free), mirroring the in-app
+ *  "Giving receipt": header, the gift, a transaction journey, totals, and a
+ *  scripture. Reuses the same minimal PDF/1.4 writer as the statement. */
+export function renderReceiptPdf(f: ReceiptFacts): Buffer {
+  const lines: string[] = [
+    "NURU PATHWAY - GIVING RECEIPT",
+    f.congregation,
+    "Received with thanks",
+    "",
+    `${f.amountLabel}   ${f.fund}`,
+    `Ref ${f.ref}   -   ${f.statusLabel}`,
+    "",
+    "TRANSACTION JOURNEY",
+    `  01 Initiated   ${f.member}`,
+    `     ${f.initiatedAt}`,
+    `  02 Authorized  ${f.methodLabel}${f.ref ? `  -  Code ${f.ref}` : ""}`,
+    `  03 Received     ${f.congregation}  -  ${f.fund}`,
+    `  04 Settled      ${f.settledAt ? `Cleared ${f.amountLabel}  -  ${f.settledAt}` : f.statusLabel}`,
+    "",
+    `Account: ${f.fund}    Fee: ${f.feeLabel}    Total: ${f.totalLabel}`,
+    "",
+    '"Each of you should give what you have decided in your heart to give,',
+    ' for God loves a cheerful giver."   - 2 Corinthians 9:7',
+    "",
+    `Official receipt - Finance - ${f.congregation}`,
+    `Generated: ${f.generatedAt}`,
+  ];
+  return renderLinesPdf(lines);
+}
+
 export function renderStatementPdf(facts: StatementFacts): Buffer {
   const lines: string[] = [
     "NURU PATHWAY - GIVING STATEMENT",
@@ -39,6 +84,12 @@ export function renderStatementPdf(facts: StatementFacts): Buffer {
     for (const r of g.rows) lines.push(`   ${r}`);
     lines.push("");
   }
+  return renderLinesPdf(lines);
+}
+
+/** Shared one-page PDF/1.4 writer: a title line (14pt) then body lines (10pt),
+ *  truncated to one page. Used by both the statement and the single-gift receipt. */
+function renderLinesPdf(lines: string[]): Buffer {
   const shown = lines.slice(0, MAX_LINES);
   if (lines.length > MAX_LINES) shown.push(`… and ${lines.length - MAX_LINES} more line(s) — see the app for the full history.`);
 

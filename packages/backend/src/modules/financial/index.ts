@@ -82,6 +82,24 @@ export function registerFinancial(
     }),
   );
 
+  // A single gift's receipt as a downloadable PDF — opened via the OS browser
+  // (Linking.openURL), so it accepts a `?token=` access JWT like the statement.
+  r.get(
+    "/giving/transactions/:id/receipt.pdf",
+    handler(async (req, res) => {
+      const { id } = parseBody(z.object({ id: z.string().uuid() }), req.params);
+      const header = req.header("authorization");
+      const bearer = header?.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : null;
+      const token = bearer ?? (typeof req.query.token === "string" ? req.query.token : null);
+      if (!token) throw new ApiError("AUTH_REQUIRED", "Access token required");
+      const claims = verifyAccessToken(ctx.env, token);
+      const pdf = await svc.receiptPdf(claims.sub, id);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", 'attachment; filename="nuru-giving-receipt.pdf"');
+      res.send(pdf);
+    }),
+  );
+
   // ---- Recurring giving (B7): managed online-only; the scheduler charges ----
   r.post(
     "/giving/schedules",

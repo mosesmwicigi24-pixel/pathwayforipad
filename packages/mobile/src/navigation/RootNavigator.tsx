@@ -47,6 +47,7 @@ import { QuizScreen } from "../screens/QuizScreen.js";
 import { ReflectionScreen } from "../screens/ReflectionScreen.js";
 import { GivingScreen } from "../screens/GivingScreen.js";
 import { GivingStatementScreen } from "../screens/GivingStatementScreen.js";
+import { GivingReceiptScreen } from "../screens/GivingReceiptScreen.js";
 import { LevelCompleteScreen } from "../screens/LevelCompleteScreen.js";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -83,6 +84,7 @@ export function RootNavigator({ initialRoute = "Login" }: { initialRoute?: "Logi
         <Stack.Screen name="LevelComplete" component={LevelCompleteScreen} />
         <Stack.Screen name="Giving" component={GivingScreen} />
         <Stack.Screen name="GivingStatement" component={GivingStatementScreen} />
+        <Stack.Screen name="GivingReceipt" component={GivingReceiptScreen} />
         <Stack.Screen name="Calendar" component={CalendarScreen} />
         <Stack.Screen name="Thread" component={ThreadScreen} />
         <Stack.Screen name="ChatThread" component={ChatThreadScreen} />

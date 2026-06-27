@@ -1069,6 +1069,20 @@ paths:
               schema: { $ref: "#/components/schemas/GivingDetail" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /giving/transactions/{id}/receipt.pdf:
+    get:
+      tags: [giving]
+      summary: One of the caller's gifts as a downloadable receipt PDF.
+      description: >
+        Rendered server-side and opened in the OS browser/viewer. Accepts the
+        access token either as a Bearer header or a `token` query parameter.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: token, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: "application/pdf receipt", content: { application/pdf: { schema: { type: string, format: binary } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /giving/statement.pdf:
     get:
       tags: [giving]

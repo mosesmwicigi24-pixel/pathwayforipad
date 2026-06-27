@@ -12,8 +12,10 @@ import {
   HandHeart, Hash, Percent, Receipt, Wallet, X, type LucideIcon,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/types";
 import { palette, radii, spacing, shadow, tabBarSpace } from "../theme/tokens";
-import { T } from "../theme/components";
+import { T, PButton } from "../theme/components";
 import { useGivingHistory, useGivingDetail } from "../api/hooks";
 import { errorMessage } from "../api/query";
 import { Loading, ErrorState } from "../components/states";
@@ -153,6 +155,7 @@ function accountLabel(account: string): string {
 }
 
 function DetailSheet({ record, onClose }: { record: GivingRecord; onClose: () => void }): ReactElement {
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // Seed the sheet from the row we already have, then enrich with the full
   // callback (ledger trail, schedule id, settled timestamp) when it arrives.
   const { data: detail, isLoading, error } = useGivingDetail(record.transaction_id);
@@ -223,6 +226,12 @@ function DetailSheet({ record, onClose }: { record: GivingRecord; onClose: () =>
               </View>
             </View>
           ) : null}
+
+          <View style={{ marginTop: spacing.lg }}>
+            <PButton variant="primary" onPress={() => { onClose(); nav.navigate("GivingReceipt", { transactionId: record.transaction_id }); }}>
+              View receipt
+            </PButton>
+          </View>
         </ScrollView>
       </View>
     </Modal>

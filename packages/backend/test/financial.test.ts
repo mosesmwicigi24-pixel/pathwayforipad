@@ -269,6 +269,21 @@ describe("financial / giving (§1.10 C, §3.5)", () => {
     expect(body).toContain("%%EOF");
   });
 
+  it("receiptPdf renders a valid one-gift receipt; 404 for someone else's", async () => {
+    const txId = await settle("rcpt-1", "tithe", 2500);
+    const pdf = await svc.receiptPdf(user, txId);
+    expect(pdf).toBeInstanceOf(Buffer);
+    expect(pdf.subarray(0, 8).toString("latin1").startsWith("%PDF-1.4")).toBe(true);
+    const body = pdf.toString("latin1");
+    expect(body).toContain("GIVING RECEIPT");
+    expect(body).toContain("Tithe");
+    expect(body).toContain("2 Corinthians 9:7");
+    expect(body).toContain("%%EOF");
+
+    const other = (await createUser({ congregationId: await createCongregation() })).user_id;
+    await expect(svc.receiptPdf(other, txId)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   it("financeFunds lists the configured funds (no secrets)", async () => {
     const funds = await svc.financeFunds();
     expect(funds.length).toBeGreaterThan(0);

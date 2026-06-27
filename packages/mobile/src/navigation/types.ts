@@ -25,6 +25,7 @@ export type RootStackParamList = {
   LevelComplete: undefined;
   Giving: undefined; // legacy push target (Profile rows); the Give tab is primary
   GivingStatement: undefined; // full grouped giving history (Give make)
+  GivingReceipt: { transactionId: string; title?: string }; // single-gift official receipt (Give make)
   Calendar: undefined; // full browse, pushed from Home's Upcoming section
   Thread: { threadId: string; title?: string }; // cohort discussion detail (M2)
   CohortDiscussions: undefined; // cohort thread board (D3, pushed from Community)
