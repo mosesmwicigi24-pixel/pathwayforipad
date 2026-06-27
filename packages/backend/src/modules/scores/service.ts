@@ -192,23 +192,31 @@ export class ScoresService {
    * member view never disagrees with the pastoral metric.
    */
   async attendance(userId: string): Promise<ScoreBreakdown> {
-    const row = await one<{ attended_30: number; cadence: number }>(
+    // "Are you showing up?" — credited by PRESENT DAYS in the last 30: a day the
+    // member engaged in the app (≥5 min + activity, logged as an 'attendance'
+    // interaction) OR checked in to a real gathering. Counting either means the
+    // signal actually has data and reflects how disciples gather today — in the
+    // community app between Sundays, not only at events.
+    const row = await one<{ present_days: number }>(
       this.pool,
-      `SELECT COALESCE(count(al.attendance_id) FILTER (WHERE al.checked_in_at >= now() - interval '30 days'), 0)::int AS attended_30,
-              GREATEST(COALESCE(cg.meeting_cadence, 1), 1)::int AS cadence
-         FROM users u
-         LEFT JOIN cell_groups cg ON cg.cell_group_id = u.cell_group_id
-         LEFT JOIN attendance_logs al ON al.user_id = u.user_id
-        WHERE u.user_id = $1
-        GROUP BY cg.meeting_cadence`,
-      [userId],
+      `SELECT count(*)::int AS present_days FROM (
+         SELECT (occurred_at AT TIME ZONE $2)::date AS d
+           FROM interaction_events
+          WHERE user_id = $1 AND kind = 'attendance' AND occurred_at >= now() - interval '30 days'
+         UNION
+         SELECT (checked_in_at AT TIME ZONE $2)::date AS d
+           FROM attendance_logs
+          WHERE user_id = $1 AND checked_in_at >= now() - interval '30 days'
+       ) days`,
+      [userId, TZ],
     );
-    const score = Math.min(100, Math.round((100 * row.attended_30) / row.cadence));
+    const TARGET = 12; // showing up ~3×/week over the month = full marks
+    const score = Math.min(100, Math.round((100 * row.present_days) / TARGET));
     return {
       score,
       band: band(score),
       components: { attendance: score },
-      detail: { attended_30d: row.attended_30, expected: row.cadence },
+      detail: { present_days_30d: row.present_days, target: TARGET },
     };
   }
 

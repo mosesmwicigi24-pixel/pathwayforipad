@@ -107,14 +107,14 @@ export function MemberProfile(): ReactElement {
   const kpis = [
     { label: "Habits", value: `${m.metrics.habits_pct}%`, Icon: Sunrise, tint: "tint-green", cardBg: "#F3FAF5", border: "#D6ECDF", sub: `${m.metrics.active_days_30} / 30 active days` },
     { label: "Curriculum", value: `${m.metrics.curriculum_pct}%`, Icon: BookOpen, tint: "tint-amber", cardBg: "#FDF9EF", border: "#F0E2BD", sub: `Level ${lvl.current_level}` },
-    { label: "Attendance", value: `${m.metrics.attendance_pct}%`, Icon: CalendarDays, tint: "tint-blue", cardBg: "#F4F6FB", border: "#DBE2EF", sub: `${m.metrics.attended} / ${m.metrics.events_held} gatherings` },
+    { label: "Attendance", value: `${m.metrics.attendance_pct}%`, Icon: CalendarDays, tint: "tint-blue", cardBg: "#F4F6FB", border: "#DBE2EF", sub: `${m.metrics.attended} present days · 90d` },
     { label: "Badges", value: String(m.badges.length), Icon: Award, tint: "tint-violet", cardBg: "#F7F3FC", border: "#E2D7F2", sub: `${m.certificates.length} certificates` },
   ];
 
   const progressCards = [
     { key: "habits", title: "Habits", icon: Sunrise, value: m.metrics.habits_pct, summary: "Prayer · Word · Reflection", detail: `${m.metrics.active_days_30} of 30 active days · ${m.metrics.current_streak_days}-day streak`, accent: "#16A34A", bg: "#F3FAF5", border: "#D6ECDF" },
     { key: "curriculum", title: "Curriculum", icon: BookOpen, value: m.metrics.curriculum_pct, summary: `Level ${lvl.current_level}`, detail: `${m.metrics.modules_done} of ${m.metrics.modules_total} modules complete`, accent: "#C89B3C", bg: "#FDF9EF", border: "#F0E2BD" },
-    { key: "attendance", title: "Attendance", icon: CalendarDays, value: m.metrics.attendance_pct, summary: "Cell + Sunday gatherings", detail: `${m.metrics.attended} of ${m.metrics.events_held} last 90 days`, accent: "#0B1F33", bg: "#F4F6FB", border: "#DBE2EF" },
+    { key: "attendance", title: "Attendance", icon: CalendarDays, value: m.metrics.attendance_pct, summary: "App engagement + gatherings", detail: `${m.metrics.attended} present days · last 90 days`, accent: "#0B1F33", bg: "#F4F6FB", border: "#DBE2EF" },
   ];
 
   const milestones = [

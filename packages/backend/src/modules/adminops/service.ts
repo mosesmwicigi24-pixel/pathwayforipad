@@ -1137,19 +1137,27 @@ export class AdminOpsService {
     const modulesTotal = Number(curr.total);
     const curriculumPct = modulesTotal > 0 ? Math.round((modulesDone / modulesTotal) * 100) : 0;
 
-    // Attendance: member check-ins vs. congregation events over the last 90 days.
-    const att = await one<{ attended: string; held: string }>(
+    // Attendance: distinct PRESENT days over the last 90 — a day the member engaged
+    // in the app (≥5 min + activity, logged as an 'attendance' interaction) OR
+    // checked in to a real gathering. Scored against a target of consistent
+    // presence so the metric actually carries data (event-only check-ins were ~0).
+    const att = await one<{ present: string }>(
       this.replica,
-      `SELECT
-          (SELECT count(*) FROM attendance_logs al
-            WHERE al.user_id = $1 AND al.checked_in_at >= now() - INTERVAL '90 days') AS attended,
-          (SELECT count(DISTINCT al.event_id) FROM attendance_logs al
-            WHERE al.checked_in_at >= now() - INTERVAL '90 days') AS held`,
+      `SELECT count(*) AS present FROM (
+         SELECT (occurred_at AT TIME ZONE 'Africa/Nairobi')::date AS d
+           FROM interaction_events
+          WHERE user_id = $1 AND kind = 'attendance' AND occurred_at >= now() - INTERVAL '90 days'
+         UNION
+         SELECT (checked_in_at AT TIME ZONE 'Africa/Nairobi')::date AS d
+           FROM attendance_logs
+          WHERE user_id = $1 AND checked_in_at >= now() - INTERVAL '90 days'
+       ) days`,
       [userId],
     );
-    const attended = Number(att.attended);
-    const held = Number(att.held);
-    const attendancePct = held > 0 ? Math.min(100, Math.round((attended / held) * 100)) : 0;
+    const ATTEND_TARGET_90 = 36; // ~3×/week of showing up over 90 days = full marks
+    const attended = Number(att.present);
+    const held = ATTEND_TARGET_90;
+    const attendancePct = Math.min(100, Math.round((attended / ATTEND_TARGET_90) * 100));
 
     // Habits: distinct active days in the last 30 (derived from interaction_events).
     const habit = await one<{ active_days: string }>(

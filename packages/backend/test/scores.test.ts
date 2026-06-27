@@ -68,4 +68,26 @@ describe("activity ledger feeds the scores", () => {
     const rhythm = await agent().get("/v1/me/rhythm/today").set(auth(meTok));
     expect(rhythm.body.prayer).toBe(true);
   });
+
+  it("app-engagement 'attendance' days lift the attendance score (no event check-in needed)", async () => {
+    const before = await agent().get("/v1/me/scores/attendance").set(auth(meTok));
+    expect(before.body.score).toBe(0);
+    expect(before.body.detail.present_days_30d).toBe(0);
+
+    // Two distinct app-present days (the mobile logs an 'attendance' interaction
+    // when a member spends >=5 min in-app + does activity).
+    const { testPool } = await import("./helpers/db.js");
+    await testPool().query(
+      `INSERT INTO interaction_events (user_id, kind, occurred_at, client_event_id) VALUES
+         ($1, 'attendance', now() - interval '1 day',  gen_random_uuid()),
+         ($1, 'attendance', now() - interval '3 days',  gen_random_uuid())`,
+      [meId],
+    );
+
+    const after = await agent().get("/v1/me/scores/attendance").set(auth(meTok));
+    expect(after.body.detail.present_days_30d).toBe(2);
+    expect(after.body.detail.target).toBe(12);
+    expect(after.body.score).toBe(Math.round((100 * 2) / 12)); // 17
+    expect(after.body.score).toBeGreaterThan(0);
+  });
 });
