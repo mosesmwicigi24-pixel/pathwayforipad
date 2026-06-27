@@ -2759,7 +2759,6 @@ function CreateAnnouncementModal({ events, onClose, onCreated, onError, editing 
   const [body, setBody] = useState(editing?.body ?? "");
   const [channels, setChannels] = useState<Set<string>>(new Set(editing?.channels ?? ["push", "email"]));
   const [audience, setAudience] = useState<"all" | "cells" | "level">(editing?.audience_kind ?? "all");
-  const [schedule, setSchedule] = useState<"now" | "schedule">("now");
   const [primaryImage, setPrimaryImage] = useState(editing?.primary_image_url ?? "");
   const [gallery, setGallery] = useState<string[]>(editing?.gallery_image_urls ?? []);
   const [featured, setFeatured] = useState(editing?.is_featured ?? false);
@@ -2804,7 +2803,10 @@ function CreateAnnouncementModal({ events, onClose, onCreated, onError, editing 
     }
   }
 
-  async function submit(asDraft: boolean): Promise<void> {
+  // Save the announcement record. The backend derives the status itself
+  // (draft unless a scheduled_at is supplied), so we never send a `status`
+  // field — the Compose schema is `.strict()` and rejects unknown keys.
+  async function submit(): Promise<void> {
     if (!title.trim() || !body.trim()) {
       onError("Announcement title and body are required.");
       return;
@@ -2814,15 +2816,11 @@ function CreateAnnouncementModal({ events, onClose, onCreated, onError, editing 
       body: body.trim(),
       channels: Array.from(channels),
       audience: audiencePayload(),
-      status: asDraft ? "draft" : schedule === "now" ? "draft" : "scheduled",
       ...images,
     };
     setBusy(true);
     try {
       const created = await AnnouncementsApi.create(payload);
-      if (!asDraft && schedule === "now") {
-        await AnnouncementsApi.send(created.announcement_id).catch(() => undefined);
-      }
       if (featured) await AnnouncementsApi.setHomepage(created.announcement_id).catch(() => undefined);
       onCreated();
     } catch (e) {
@@ -2901,21 +2899,6 @@ function CreateAnnouncementModal({ events, onClose, onCreated, onError, editing 
           })}
         </div>
 
-        <SectionDivider label="Schedule" />
-        <div className="grid grid-cols-2 gap-2">
-          {([
-            { key: "now", label: "Send now" },
-            { key: "schedule", label: "Schedule later" },
-          ] as const).map((s) => {
-            const on = schedule === s.key;
-            return (
-              <button key={s.key} onClick={() => setSchedule(s.key)} className="rounded-xl py-2" style={{ background: on ? "var(--nuru-navy)" : "var(--input-background)", color: on ? "#fff" : "var(--foreground)", border: "1px solid", borderColor: on ? "var(--nuru-navy)" : "var(--border)", fontSize: 12, fontWeight: 600 }}>
-                {s.label}
-              </button>
-            );
-          })}
-        </div>
-
         <SectionDivider label="Images" />
         <ImagesField folder="announcements" primary={primaryImage} gallery={gallery} onPrimary={setPrimaryImage} onGallery={setGallery} />
 
@@ -2936,12 +2919,9 @@ function CreateAnnouncementModal({ events, onClose, onCreated, onError, editing 
             <CheckCircle2 size={13} /> {busy ? "Saving…" : "Save changes"}
           </button>
         ) : (
-          <>
-            <button onClick={() => void submit(true)} disabled={busy} className="rounded-xl px-4 py-2.5" style={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>Save draft</button>
-            <button onClick={() => void submit(false)} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-navy)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none" }}>
-              <Send size={13} /> {schedule === "now" ? "Send now" : "Schedule"}
-            </button>
-          </>
+          <button onClick={() => void submit()} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "var(--nuru-navy)", color: "#fff", fontSize: 13, fontWeight: 700, border: "none" }}>
+            <Plus size={13} /> {busy ? "Saving…" : "Save"}
+          </button>
         )}
       </div>
     </Modal>
