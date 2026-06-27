@@ -3645,22 +3645,241 @@ SELECT module_id, 'multiple_choice', $NQ$The text explains why Paul uses the sin
   FROM modules WHERE level_number=1 AND module_sequence_number=7;
 
 -- ===== Level 1 · Module 8: Christian Living & Character (First Steps of Obedience) =====
-INSERT INTO modules (level_number, module_sequence_number, title, lesson_content, evaluation_kind, estimated_minutes, quiz_pass_mark, status)
-VALUES (1, 8, $NT$Christian Living & Character (First Steps of Obedience)$NT$, $NB$●​ Biblical Lifestyle Principles
+-- Full teaching content supplied by the pastoral team (was outline-only). A read-and-
+-- complete lesson ('none'); the body carries the section "Group Questions" inline.
+INSERT INTO modules (level_number, module_sequence_number, title, summary, key_verses, lesson_content, evaluation_kind, estimated_minutes, quiz_pass_mark, status)
+VALUES (1, 8, $NT$Christian Living & Character (First Steps of Obedience)$NT$,
+  $NS$Living from who you already are in Christ — biblical lifestyle principles, Christlike character, integrity, purpose, and freedom from guilt and condemnation.$NS$,
+  $NK$["2 Corinthians 5:17", "Romans 12:2", "Galatians 2:20", "Galatians 5:22-23", "Proverbs 11:3", "1 Peter 2:9", "Romans 8:1", "1 John 1:9"]$NK$::jsonb,
+  $NB$*First Steps of Obedience*
 
-  ●​ Christlikeness
+Christian living is not about trying harder to be good; it is about living from the reality of who you already are in Christ. You are a new creation (2 Corinthians 5:17), and your character is simply the expression of Christ's life flowing through you. This module will equip you to walk in biblical lifestyle principles, develop Christlike character, maintain integrity, live purposefully, and walk free from guilt and condemnation.
 
-  ●​ Integrity
+## 1. Biblical Lifestyle Principles
 
-  ●​ Living Purposefully
+### 1.1 What Is a Biblical Lifestyle?
 
-  ●​ Purpose in God
+A biblical lifestyle is one that aligns with God's Word in every area — thoughts, speech, relationships, work, finances, leisure, and worship. It is not a set of restrictions but a pathway to abundant living (John 10:10).
 
-  ●​ Goodbye Guilt (Part 1): (silencing the echoes of your past to hear the music of
+### 1.2 Foundational Principles
 
-     your future — forgiveness, cleansing, assurance)$NB$, 'none', 8, 70, 'published')
+**a) The Word as Your Guide**
+
+> "Your word is a lamp to my feet and a light to my path." — Psalm 119:105
+
+A Christian must build a dependency on the Word of God — in other words, cultivate a Word culture. To do this, you have to:
+
+- Make daily Bible reading and meditation non-negotiable.
+- Allow Scripture to shape your decisions, rather than culture or emotions.
+- Memorise key verses for moments of temptation and decision-making.
+
+**b) Prayer as Communion, Not Just Communication**
+
+When you receive Christ, you are called into constant fellowship with God, and one of the avenues for this fellowship is prayer. God calls us to cultivate a lifestyle of prayer; Scripture repeatedly emphasises the need to pray continually — that is, to make prayer habitual. The Word calls us to:
+
+- Pray without ceasing (1 Thessalonians 5:17) — maintaining an ongoing conversation with God.
+- Pray in tongues daily for self-edification (Jude 1:20; 1 Corinthians 14:4).
+- Bring everything to God in prayer with thanksgiving (Philippians 4:6-7).
+
+**c) Fellowship and Church Commitment**
+
+In Module 6, we covered fellowship at length — a key aspect of the biblical lifestyle into which God has called His children. You must be committed to fellowship with other believers, which you can do by:
+
+- Not forsaking the assembling of yourselves together with other believers (Hebrews 10:25).
+- Serving in your local church — you are a member of the Body, not a spectator.
+- Building genuine Christian friendships that sharpen and strengthen you (Proverbs 27:17).
+
+**d) Stewardship**
+
+There is so much that God has committed to your stewardship, and all of it must produce fruit for Him. This is why we will give an account for everything God has entrusted to us. Ask yourself: what has my life produced for God so far? At the most basic level, your life ought to manifest the fruits of righteousness, now that Christ lives in you.
+
+> "Being filled with the fruits of righteousness, which are by Jesus Christ, unto the glory and praise of God." — Philippians 1:11 (NKJV)
+
+Other areas in which we ought to exercise godly stewardship include:
+
+- **Time.** Spend your time in a manner that honours God and bears fruit for Him. "Redeem the time, for the days are evil" (Ephesians 5:16).
+- **Finances.** The financial blessings God gives are meant to enable us to serve Him and His people better. Honour God with your increase; give cheerfully and consistently (2 Corinthians 9:7).
+- **The Body.** Your body is the temple of the Holy Spirit, so care for it (1 Corinthians 6:19-20). This places a demand on us not to expose our bodies to things that dishonour God — for example, a Christian should not watch adult-rated content or indulge in substance abuse, as these dishonour God and His temple.
+- **Gifts and Talents.** God expects us to deploy our gifts for Kingdom impact, serving one another in love, meekness, and faithfulness.
+
+**e) Separation from Worldly Patterns**
+
+Being born again means being translated into a new Kingdom — the Kingdom of God — and so the world's principles and patterns become foreign to you. Worldly ways should no longer shape how a Christian operates.
+
+> "Do not be conformed to this world, but be transformed by the renewing of your mind." — Romans 12:2
+
+Therefore, we are called to:
+
+- Be in the world, but not of it (John 17:14-16).
+- Guard what you consume — media, entertainment, and music.
+- Choose holiness over popularity.
+- Use the Word as our benchmark for decision-making and the way we handle things.
+
+### 1.3 Practical Application
+
+| Area | Biblical Standard | Practical Step |
+| --- | --- | --- |
+| Speech | Ephesians 4:29 | Pause before speaking and ask: Is it true, kind, and necessary? |
+| Entertainment | Philippians 4:8 | Audit what you watch — does it honour God? |
+| Relationships | 2 Corinthians 6:14 | Pursue friendships that draw you closer to God. |
+| Work | Colossians 3:23 | Work as unto the Lord, not unto men. |
+| Finances | Malachi 3:10; Luke 6:38 | Tithe faithfully and give generously. |
+
+## 2. Christlikeness
+
+Christlikeness is not imitation; it is manifestation. Christ lives in you (Galatians 2:20), and your life expresses His character. You are not trying to become like Jesus — you are already like Him by new birth. Now you simply express it.
+
+> "Therefore if any man be in Christ, he is a new creature: old things are passed away; behold, all things are become new." — 2 Corinthians 5:17 (KJV)
+
+God's goal for you is not merely to make you religious, but to make you like His Son, Jesus. Christlikeness means your character begins to look like His — His love, His patience, His humility, His kindness. This happens little by little as you spend time with Him. You do not produce it by force; the Holy Spirit grows it in you, like fruit on a healthy branch.
+
+> "For whom he did foreknow, he also did predestinate to be conformed to the image of his Son, that he might be the firstborn among many brethren." — Romans 8:29 (KJV)
+
+> "But the fruit of the Spirit is love, joy, peace, longsuffering, gentleness, goodness, faith, meekness, temperance: against such there is no law." — Galatians 5:22-23 (KJV)
+
+> "Have this mind among yourselves, which is yours in Christ Jesus, who, though he was in the form of God, did not count equality with God a thing to be grasped, but emptied himself, by taking the form of a servant, being born in the likeness of men." — Philippians 2:5-7
+
+> "I am crucified with Christ: nevertheless I live; yet not I, but Christ liveth in me: and the life which I now live in the flesh I live by the faith of the Son of God, who loved me, and gave himself for me." — Galatians 2:20 (KJV)
+
+**Remember This:** God is not just making me better. He is making me like Jesus.
+
+**Illustration.** A branch does not strain to produce oranges. It stays connected to the tree, and the fruit comes naturally. Christian character works the same way: stay joined to Jesus, and His life produces the fruit in you. Trying to bear fruit while disconnected only leads to frustration. Jesus Himself said that He does what He sees His Father do:
+
+> "Truly, truly, I say to you, the Son can do nothing of his own accord, but only what he sees the Father doing. For whatever the Father does, that the Son does likewise." — John 5:19-20
+
+**Practical Ways of Cultivating Christlikeness**
+
+- Spend time with Him — you become like what you behold (2 Corinthians 3:18).
+- Obey promptly — obedience is the soil where character grows.
+- Embrace trials — suffering produces perseverance and character (Romans 5:3-4).
+- Yield to the Holy Spirit — He produces the fruit; you simply abide (Galatians 5:22-23).
+- Confess and renounce — when you fall, agree with God quickly and move on (1 John 1:9).
+
+**Key Truth:** I do not behave in order to become a new creation. I behave like a new creation because that is who I already am.
+
+**Group Question:** What is one old thing you sense God has already begun to make new in you? How does it change things to know that you are accepted first, and then you obey — rather than obeying in order to be accepted?
+
+## 3. Integrity
+
+Integrity is wholeness — being the same person in private that you are in public. It is honesty, consistency, and moral uprightness, and it is the foundation of trust and influence.
+
+> "The integrity of the upright will guide them." — Proverbs 11:3
+
+> "If you have not handled the riches of this world with integrity, why should you be trusted with the eternal treasures of the spiritual world?" — Luke 16:11 (paraphrase)
+
+Integrity means being the same person all the way through: who you are in private matches who you are in public. There is no hidden life that contradicts the visible one.
+
+**Why Integrity Matters**
+
+- **God values it:** the Lord delights in those who walk in integrity (Proverbs 11:20).
+- **It protects you:** integrity guards your reputation and your future.
+- **It amplifies your witness:** people trust and follow those of integrity.
+- **It honours God:** your life becomes a testimony of His transforming power.
+
+Integrity is built in the small choices, long before it is tested in the big ones — honesty and godly stewardship with a little money, faithfulness in a small job, truth in a small conversation. That is where character is made.
+
+> "He that walketh uprightly walketh surely: but he that perverteth his ways shall be known." — Proverbs 10:9 (KJV)
+
+> "He that is faithful in that which is least is faithful also in much: and he that is unjust in the least is unjust also in much." — Luke 16:10 (KJV)
+
+**Remember:** Integrity is who I am when no one but God is looking.
+
+**Areas in Which to Uphold Integrity**
+
+**a) Honesty in Speech** — Let your yes be yes and your no be no (Matthew 5:37); no exaggeration, no half-truths, no deception; admit your mistakes quickly.
+
+**b) Faithfulness in Commitments** — Keep your promises; show up on time and prepared; finish what you start.
+
+**c) Financial Integrity** — Pay your debts; do not cheat, cut corners, or defraud; be transparent in business and ministry finances.
+
+**d) Moral Purity** — Flee sexual immorality (1 Corinthians 6:18); guard your eyes and your heart; set boundaries before temptation comes.
+
+**e) Confidentiality** — Do not gossip or betray confidences; be a safe person for others.
+
+## 4. Living Purposefully
+
+To live purposefully, you must first understand your true identity. Living purposefully means living on purpose, not by accident. A follower of Jesus does not merely drift through life; you live with direction, making daily choices that matter for eternity. God made you for good works that He prepared for you ahead of time, and part of living purposefully is letting go of the past so that it does not weigh down your future.
+
+### True Identity
+
+Your true identity is an identity that is not influenced or affected by the external factors of life — the factors that otherwise shape how we relate to others, how we handle situations, and how our personality forms. There is who we say we are, and there is who God says we are.
+
+### Who God Says We Are
+
+> "But you are a chosen people, a royal priesthood, a holy nation, God's special possession, that you may declare the praises of him who called you out of darkness into his wonderful light." — 1 Peter 2:9 (NIV)
+
+Our purpose is attached to our true identity: "…that you may declare the praises of him who called you" (1 Peter 2:9).
+
+> "For those who are led by the Spirit of God are the children of God." — Romans 8:14 (NIV)
+
+So, according to God, we are: a chosen people; a royal priesthood; a holy nation; God's special possession; children of God. Living in the reality of what God says we are depends largely on our priesthood, so let us look more closely at the royal priesthood.
+
+### Royal Priesthood
+
+> "…and from Jesus Christ, who is the faithful witness, the firstborn from the dead, and the ruler of the kings of the earth. To him who loves us and has freed us from our sins by his blood, and has made us to be a kingdom and priests to serve his God and Father — to him be glory and power for ever and ever! Amen." — Revelation 1:5-6 (NIV)
+
+This scripture reveals two things: kingship and priesthood.
+
+**Kingship.** A kingdom or nation is ruled by a head of state, such as a monarch, president, or prime minister.
+
+> "The heaven, even the heavens, are the LORD's: but the earth hath he given to the children of men." — Psalm 115:16 (KJV)
+
+> "And God blessed them, and God said unto them, Be fruitful, and multiply, and replenish the earth, and subdue it: and have dominion…" — Genesis 1:28 (KJV)
+
+Authority was given to us as rulers over the earth; therefore, we are to exercise kingship — and our kingship depends on our priesthood.
+
+**Priesthood** represents direct access to God, the privilege of intercession, and the responsibility to offer spiritual sacrifices of praise and service.
+
+> "The LORD has sworn and will not change his mind: 'You are a priest forever, in the order of Melchizedek.'" — Psalm 110:4 (NIV)
+
+Your engagement in prayer and intercession is what brings about revelation, awakening, and a supply of grace:
+
+- **Revelation** — that God "may give you the Spirit of wisdom and revelation, so that you may know him better." (Ephesians 1:16-17, NIV)
+- **Awakening** — "that the eyes of your heart may be enlightened in order that you may know the hope to which he has called you…" (Ephesians 1:18, NIV)
+- **Supply of Grace** — "…and his incomparably great power for us who believe." (Ephesians 1:19, NIV)
+
+Prayer is not a choice; it is a mandate (Luke 18:1).
+
+**Always Remember:** Your purpose is tied to your identity.
+
+## 5. Purpose in God
+
+Living purposefully answers the *how*; purpose in God answers the *why*. Your life is not an accident. God has good thoughts toward you, and He has a part for you to play in His plan. You do not have to do everything in order to be accepted — God loved us even before we knew He loved us.
+
+> "For whom he did foreknow, he also did predestinate to be conformed to the image of his Son…" — Romans 8:29 (KJV)
+
+Like David, you can serve your own generation by the will of God: know God, serve the people around you, and do His will in your day.
+
+> "For I know the thoughts that I think toward you, saith the LORD, thoughts of peace, and not of evil, to give you an expected end." — Jeremiah 29:11 (KJV)
+
+> "For David, after he had served his own generation by the will of God, fell on sleep, and was laid unto his fathers, and saw corruption." — Acts 13:36 (KJV)
+
+God ordained you before birth (Jeremiah 1:5), but it will take your willingness (Isaiah 6:8) and your partnership with Him to bring His will into manifestation.
+
+**Always Remember:** My life is not random. I was made on purpose, for a purpose, by a God who has good thoughts toward me.
+
+## 6. Goodbye Guilt (Part 1)
+
+*Silencing the echoes of your past to hear the music of your future.*
+
+Many new believers carry guilt and shame from the past. The enemy replays your old failures like echoes that will not stop, trying to drown out the new song God is singing over you. Today, those echoes can be silenced. God gives you three gifts — forgiveness, cleansing, and assurance. Receive each one.
+
+> "If we confess our sins, he is faithful and just to forgive us our sins, and to cleanse us from all unrighteousness." — 1 John 1:9 (KJV)
+
+> "As far as the east is from the west, so far hath he removed our transgressions from us." — Psalm 103:12 (KJV)
+
+> "There is therefore now no condemnation to them which are in Christ Jesus, who walk not after the flesh, but after the Spirit." — Romans 8:1 (KJV)
+
+**Three Things God Gives You**
+
+- **Forgiveness** — when you confess, He always forgives.
+- **Cleansing** — He blots out your sin and chooses not to remember it.
+- **Assurance** — in Christ, there is now no condemnation at all.
+
+**Always Remember:** God has forgiven it, cleansed it, and forgotten it. I am not condemned. I am free.$NB$, 'none', 25, 70, 'published')
 ON CONFLICT (level_number, module_sequence_number) DO UPDATE SET
-  title = EXCLUDED.title, lesson_content = EXCLUDED.lesson_content, evaluation_kind = EXCLUDED.evaluation_kind,
+  title = EXCLUDED.title, summary = EXCLUDED.summary, key_verses = EXCLUDED.key_verses,
+  lesson_content = EXCLUDED.lesson_content, evaluation_kind = EXCLUDED.evaluation_kind,
   estimated_minutes = EXCLUDED.estimated_minutes, quiz_pass_mark = EXCLUDED.quiz_pass_mark,
   status = 'published', updated_at = now();
 DELETE FROM question_bank WHERE module_id = (SELECT module_id FROM modules WHERE level_number=1 AND module_sequence_number=8);
