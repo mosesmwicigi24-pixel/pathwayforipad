@@ -200,6 +200,7 @@ export class CalendarService {
           original_start_at: o.start_at,
           rescheduled: Boolean(ex && !ex.is_cancelled && ex.new_start_at),
           going: 0,
+          attendees: [] as Array<{ user_id: string; full_name: string; avatar_url: string | null }>,
         });
       }
     }
@@ -220,6 +221,29 @@ export class CalendarService {
       const goingByKey = new Map(counts.map((c) => [`${c.series_id}|${new Date(c.occurrence_start).getTime()}`, c.going]));
       for (const o of out as Array<{ series_id: string; original_start_at: string; going: number }>) {
         o.going = goingByKey.get(`${o.series_id}|${new Date(o.original_start_at).getTime()}`) ?? 0;
+      }
+
+      // Attach a few attendee faces per occurrence (most-recent "going" RSVPs) so the
+      // calendar cards can show "who's coming". Batched + grouped to avoid N+1.
+      const faces = await many<{ series_id: string; occurrence_start: string; user_id: string; full_name: string; avatar_url: string | null }>(
+        this.pool,
+        `SELECT e.series_id, e.occurrence_start, u.user_id, u.full_name, u.avatar_url
+           FROM events e
+           JOIN event_rsvps r ON r.event_id = e.event_id AND r.status = 'going'
+           JOIN users u ON u.user_id = r.user_id
+          WHERE e.series_id = ANY($1::uuid[]) AND e.occurrence_start BETWEEN $2 AND $3
+          ORDER BY r.updated_at DESC`,
+        [seriesIds, from.toISOString(), to.toISOString()],
+      );
+      const facesByKey = new Map<string, Array<{ user_id: string; full_name: string; avatar_url: string | null }>>();
+      for (const f of faces) {
+        const key = `${f.series_id}|${new Date(f.occurrence_start).getTime()}`;
+        const list = facesByKey.get(key) ?? [];
+        if (list.length < 5) list.push({ user_id: f.user_id, full_name: f.full_name, avatar_url: f.avatar_url });
+        facesByKey.set(key, list);
+      }
+      for (const o of out as Array<{ series_id: string; original_start_at: string; attendees: unknown[] }>) {
+        o.attendees = facesByKey.get(`${o.series_id}|${new Date(o.original_start_at).getTime()}`) ?? [];
       }
     }
     out.sort((a, b) => String((a as { start_at: string }).start_at).localeCompare(String((b as { start_at: string }).start_at)));

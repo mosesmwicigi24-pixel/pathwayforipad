@@ -1418,7 +1418,7 @@ paths:
         - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
         - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
       responses:
-        "200": { description: Occurrences }
+        "200": { description: "Occurrences, each with a `going` count and up to 5 `attendees` ({ user_id, full_name, avatar_url }) for who's coming." }
         "400": { description: Invalid range }
   /calendar/parse:
     post:

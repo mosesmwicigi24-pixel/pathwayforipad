@@ -44,6 +44,7 @@ import {
   Sparkles,
   TrendingUp,
   UserPlus,
+  UserCheck,
   Users,
   X,
 } from "lucide-react";
@@ -1525,6 +1526,7 @@ export function Events(): ReactElement {
               <DrawerAction icon={<QrCode size={13} />} label="Show QR" onClick={() => setShowQrScreen(drawerOcc.id)} primary />
               <DrawerAction icon={<Send size={13} />} label="Send announcement" onClick={() => setShowCreateAnnouncement(true)} />
               <DrawerAction icon={<Users size={13} />} label="View attendance" onClick={() => setAttendanceDrawerId(drawerOcc.id)} />
+              <DrawerAction icon={<UserCheck size={13} />} label="View RSVPs" onClick={() => setRsvpDrawerId(drawerOcc.id)} />
               <DrawerAction icon={<CheckCircle2 size={13} />} label="Manual check-in" onClick={() => setManualCheckinFor(drawerOcc.id)} />
               <DrawerAction icon={<RefreshCw size={13} />} label="Reschedule" onClick={() => setShowRescheduleModal(true)} />
               <DrawerAction
