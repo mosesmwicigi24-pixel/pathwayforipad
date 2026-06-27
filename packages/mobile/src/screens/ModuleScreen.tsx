@@ -17,6 +17,7 @@ import { useModule, useMyReflection, queryKeys } from "../api/hooks";
 import { NuruApi } from "../api/client";
 import { errorMessage, invalidateQueries, useMutation } from "../api/query";
 import { levelJustCompleted } from "./levelCelebration";
+import { Confetti } from "../components/Confetti";
 import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
@@ -38,6 +39,8 @@ export function ModuleScreen(): ReactElement {
     }, [refetch]),
   );
   const [reflection, setReflection] = useState("");
+  // Brief confetti burst on a successful module completion before we return to the trail.
+  const [celebrate, setCelebrate] = useState(false);
   // Completion is online-first; offline it queues a module_progress:complete
   // mutation that replays on reconnect (server stays authoritative for gating).
   const complete = useMutation((body?: { reflection_text?: string }) =>
@@ -133,7 +136,13 @@ export function ModuleScreen(): ReactElement {
         // Finishing the last module of a level → the certificate celebration.
         nav.navigate("LevelComplete");
       } else if (res && (res.next_module_unlocked || res.is_completed)) {
-        nav.goBack();
+        // Celebrate the module completion, then return to the level trail.
+        if (res.is_completed && !res.duplicate) {
+          setCelebrate(true);
+          setTimeout(() => nav.goBack(), 1300);
+        } else {
+          nav.goBack();
+        }
       }
     } catch {
       // error surfaced via complete.error below
@@ -342,6 +351,7 @@ export function ModuleScreen(): ReactElement {
           </View>
         </>
       )}
+      <Confetti show={celebrate} count={90} onDone={() => setCelebrate(false)} />
     </View>
   );
 }

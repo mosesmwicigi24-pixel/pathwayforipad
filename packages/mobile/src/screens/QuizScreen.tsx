@@ -17,6 +17,7 @@ import { NuruApi } from "../api/client";
 import type { AnswerOptions, QuestionChoice, QuestionScale, QuizQuestion, QuizResult } from "../api/types";
 import { errorMessage, invalidateQueries, useMutation } from "../api/query";
 import { levelJustCompleted } from "./levelCelebration";
+import { Confetti } from "../components/Confetti";
 import { uuidv4 } from "../util/uuid";
 
 const TF_OPTIONS: QuestionChoice[] = [
@@ -167,6 +168,7 @@ export function QuizScreen(): ReactElement {
     return result.is_passed ? (
       <View style={[res.root, { backgroundColor: "#081C36" }]}>
         <Header onBack={() => nav.goBack()} title="Module quiz" />
+        <Confetti show count={90} />
         <View style={res.center}>
           <View style={res.laurel}><T style={{ fontSize: 44 }}>🏅</T></View>
           <T serif style={res.bigGold}>{Math.round(result.score_achieved)}%</T>
