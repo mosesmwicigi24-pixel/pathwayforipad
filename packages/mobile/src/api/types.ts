@@ -122,6 +122,9 @@ export interface EventDetail {
   video_url?: string | null;
   rsvp_counts: { going?: number; maybe?: number; declined?: number };
   my_rsvp: "going" | "maybe" | "declined" | null;
+  // A few faces of those going (most-recent "going" RSVPs) — the real roster for
+  // the detail's "who's going" rail.
+  attendees?: Array<{ user_id: string; full_name: string; avatar_url: string | null }>;
 }
 
 // A post on an event's wall (attendee photo + caption).

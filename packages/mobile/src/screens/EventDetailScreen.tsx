@@ -220,20 +220,25 @@ export function EventDetailScreen(): ReactElement {
 
   const canPost = !posting && (composerText.trim().length > 0 || composerPhoto !== null);
 
-  // "Who's going" rail — real faces drawn from the wall: authors who are marked
-  // "going", de-duplicated by user (most-recent post wins, since posts are newest-
-  // first). We never invent names — only render the people we actually have, and
-  // use the event's going COUNT for the trailing "+N more" tile.
+  // "Who's going" rail — the real RSVP roster (most-recent "going" faces from the
+  // server), then any wall authors who are going but aren't already shown, de-duped
+  // by user. We never invent names — only people we actually have — and the event's
+  // going COUNT drives the trailing "+N more" tile.
   const goingFaces = useMemo(() => {
     const seen = new Set<string>();
     const out: Array<{ id: string; name: string; avatar: string | null }> = [];
+    for (const a of event?.attendees ?? []) {
+      if (seen.has(a.user_id)) continue;
+      seen.add(a.user_id);
+      out.push({ id: a.user_id, name: a.full_name, avatar: a.avatar_url });
+    }
     for (const p of posts ?? []) {
       if (p.rsvp_status !== "going" || seen.has(p.author_user_id)) continue;
       seen.add(p.author_user_id);
       out.push({ id: p.author_user_id, name: p.author_name, avatar: p.author_avatar });
     }
     return out;
-  }, [posts]);
+  }, [event?.attendees, posts]);
   const moreGoing = Math.max(0, goingCount - goingFaces.length);
 
   // Parallax: map vertical scroll to an Animated.Value so the hero drifts at ~0.3×.

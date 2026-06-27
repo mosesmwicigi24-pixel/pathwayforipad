@@ -68,9 +68,15 @@ describe("series → projection → materialization → RSVP (§C.2/§C.3)", () 
     const dup = await svc().setRsvp(member, eventId, { status: "going", client_mutation_id: "00000000-0000-4000-8000-0000000000aa" });
     expect(dup.duplicate).toBe(true);
 
-    const detail = (await svc().getEvent(member, eventId)) as { rsvp_counts: Record<string, number>; my_rsvp: string };
+    const detail = (await svc().getEvent(member, eventId)) as {
+      rsvp_counts: Record<string, number>;
+      my_rsvp: string;
+      attendees: Array<{ user_id: string; full_name: string; avatar_url: string | null }>;
+    };
     expect(detail.rsvp_counts.going).toBe(1);
     expect(detail.my_rsvp).toBe("going");
+    // The detail's "who's going" rail draws on a real faces roster, not the wall.
+    expect(detail.attendees.map((a) => a.user_id)).toContain(member);
   });
 
   it("applies a cancellation exception (occurrence disappears from projection)", async () => {

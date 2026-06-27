@@ -843,6 +843,17 @@ export class CalendarService {
       [eventId],
     );
     const mine = await maybeOne<{ status: string }>(this.pool, `SELECT status FROM event_rsvps WHERE event_id = $1 AND user_id = $2`, [eventId, userId]);
+    // A few attendee faces (most-recent "going" RSVPs) so the detail's "who's going"
+    // rail shows the real roster, not just whoever posted to the wall.
+    const faces = await many<{ user_id: string; full_name: string; avatar_url: string | null }>(
+      this.pool,
+      `SELECT u.user_id, u.full_name, u.avatar_url
+         FROM event_rsvps r JOIN users u ON u.user_id = r.user_id
+        WHERE r.event_id = $1 AND r.status = 'going'
+        ORDER BY r.updated_at DESC
+        LIMIT 12`,
+      [eventId],
+    );
     // Primary first, then the gallery — what the mobile detail carousel renders.
     const images = [ev.primary_image_url, ...(ev.gallery_image_urls ?? [])].filter((u): u is string => !!u);
     return {
@@ -857,6 +868,7 @@ export class CalendarService {
       video_url: ev.video_url ?? null,
       rsvp_counts: Object.fromEntries(counts.map((r) => [r.status, r.n])),
       my_rsvp: mine?.status ?? null,
+      attendees: faces,
     };
   }
 
