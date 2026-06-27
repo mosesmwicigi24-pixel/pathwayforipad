@@ -138,3 +138,36 @@ describe("pickVerse — deterministic, repeat-avoiding picker (unit)", () => {
     expect(VERSE_POOL.prayer).toContain(picked);
   });
 });
+
+describe("verse reactions — one per member per day (exclusive)", () => {
+  it("a heart then a like MOVES the count; tapping the same emoji removes it", async () => {
+    // React ❤️ → my reaction is ❤️, count 1.
+    let res = await agent().post("/v1/me/home/verse/reactions").set(auth(meTok)).send({ emoji: "❤️" });
+    expect(res.status).toBe(200);
+    expect(res.body.mine).toBe("❤️");
+    expect(res.body.counts["❤️"]).toBe(1);
+    expect(res.body.total).toBe(1);
+
+    // Switch to 👍 → the ❤️ count drops to 0 (gone), 👍 becomes 1 — still ONE reaction.
+    res = await agent().post("/v1/me/home/verse/reactions").set(auth(meTok)).send({ emoji: "👍" });
+    expect(res.body.mine).toBe("👍");
+    expect(res.body.counts["👍"]).toBe(1);
+    expect(res.body.counts["❤️"]).toBeUndefined();
+    expect(res.body.total).toBe(1);
+
+    // Tap 👍 again → toggled off.
+    res = await agent().post("/v1/me/home/verse/reactions").set(auth(meTok)).send({ emoji: "👍" });
+    expect(res.body.mine).toBeNull();
+    expect(res.body.total).toBe(0);
+
+    // GET reflects the current state.
+    const get = await agent().get("/v1/me/home/verse/reactions").set(auth(meTok));
+    expect(get.body.mine).toBeNull();
+    expect(get.body.total).toBe(0);
+  });
+
+  it("rejects an emoji outside the allowed set", async () => {
+    const res = await agent().post("/v1/me/home/verse/reactions").set(auth(meTok)).send({ emoji: "💩" });
+    expect(res.status).toBe(400);
+  });
+});

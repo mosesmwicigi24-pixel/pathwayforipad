@@ -6,7 +6,7 @@
 // highest-priority one. Deterministic + explainable (pastoral, never shaming);
 // the ranking can later grow into segments / bandits / ML behind this same shape.
 import type { Pool } from "pg";
-import { one, maybeOne } from "../../db/db.js";
+import { one, maybeOne, tx } from "../../db/db.js";
 import { ScoresService, type ScoreBreakdown } from "../scores/service.js";
 import type { AiProvider } from "../assistant/provider.js";
 import { pickVerse, THEME_REASON, type VerseTheme } from "./verses.js";
@@ -87,18 +87,36 @@ export class HomeService {
     try {
       const scores = await this.scores.all(userId);
       const weak = lowestLabel(scores);
-      const streak = await maybeOne<{ n: number }>(
+      // Pull a richer read of where the member is — streak, level, and how active
+      // they've been across the disciplines this week — so the blessing is grounded
+      // in their actual walk, not generic.
+      const sig = await one<{ streak: number; level: number | null; active_days: number; prayers: number; reflections: number }>(
         this.pool,
-        `SELECT current_streak_days AS n FROM user_streaks WHERE user_id = $1`,
-        [userId],
+        `SELECT COALESCE((SELECT current_streak_days FROM user_streaks WHERE user_id = $1), 0) AS streak,
+                (SELECT current_level FROM enrollments WHERE user_id = $1 LIMIT 1) AS level,
+                (SELECT count(DISTINCT (occurred_at AT TIME ZONE $2)::date)::int FROM interaction_events
+                   WHERE user_id = $1 AND occurred_at > now() - interval '7 days') AS active_days,
+                (SELECT count(*)::int FROM prayer_entries WHERE user_id = $1 AND created_at > now() - interval '7 days') AS prayers,
+                (SELECT count(*)::int FROM devotional_reflections WHERE user_id = $1) AS reflections`,
+        [userId, TZ],
       );
       const system =
-        "You are Nuru, a warm discipleship companion in a church app. Write ONE short, " +
-        "encouraging greeting (max 20 words) for this member today. Be specific and hopeful; " +
-        "you may reference Scripture lightly. No preamble, no quotes, no lists, plain sentence.";
-      const streakLine = streak && streak.n >= 2 ? ` They are on a ${streak.n}-day rhythm streak.` : "";
-      const ctx = `Member's first name: ${firstName}. Overall growth: ${scores.overall.band}. Area to gently nurture: ${weak}.${streakLine}`;
-      const raw = (await this.provider.complete({ system, messages: [{ role: "user", text: ctx }] })).trim();
+        "You are Nuru, a warm discipleship companion in a church app. Write ONE short blessing or " +
+        "exhortation (max 22 words) spoken DIRECTLY to this member and addressed by their first name — " +
+        "e.g. \"Moses, may God's love steady you as you...\". Be specific to their walk, warm and hopeful; " +
+        "you may weave in Scripture lightly. No preamble, no quotation marks, no lists — one plain sentence " +
+        "beginning with their name.";
+      const bits = [
+        `First name: ${firstName}`,
+        `Overall growth: ${scores.overall.band}`,
+        `Area to gently nurture: ${weak}`,
+        sig.level != null ? `On pathway level ${sig.level}` : null,
+        sig.streak >= 2 ? `${sig.streak}-day rhythm streak` : null,
+        sig.active_days > 0 ? `Active ${sig.active_days} of the last 7 days` : `Has been quiet this week`,
+        sig.prayers > 0 ? `Prayed ${sig.prayers} time(s) this week` : null,
+        sig.reflections > 0 ? `Has written ${sig.reflections} reflection(s)` : null,
+      ].filter(Boolean);
+      const raw = (await this.provider.complete({ system, messages: [{ role: "user", text: bits.join(". ") + "." }] })).trim();
       const text = raw.replace(/^["']|["']$/g, "").slice(0, 240);
       if (text) {
         await this.cacheGreeting(userId, text);
@@ -172,6 +190,53 @@ export class HomeService {
       [userId, TZ, reference, theme, reason],
     );
     return { reference, version: "WEB", theme, reason };
+  }
+
+  /**
+   * Reactions on TODAY's shared verse (community-wide counts per emoji + my own
+   * reaction). One reaction per member per day — see setVerseReaction.
+   */
+  async verseReactions(userId: string): Promise<{ counts: Record<string, number>; mine: string | null; total: number }> {
+    const rows = (await this.pool.query<{ emoji: string; n: number }>(
+      `SELECT emoji, count(*)::int AS n FROM verse_reactions
+        WHERE day_date = (now() AT TIME ZONE $1)::date GROUP BY emoji`,
+      [TZ],
+    )).rows;
+    const mine = await maybeOne<{ emoji: string }>(
+      this.pool,
+      `SELECT emoji FROM verse_reactions WHERE user_id = $1 AND day_date = (now() AT TIME ZONE $2)::date`,
+      [userId, TZ],
+    );
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const r of rows) { counts[r.emoji] = r.n; total += r.n; }
+    return { counts, mine: mine?.emoji ?? null, total };
+  }
+
+  /**
+   * Set (or toggle off) my reaction to today's verse. Exactly ONE reaction per
+   * member per day: tapping a different emoji MOVES my reaction (the old emoji's
+   * count drops, the new one's rises); tapping my current emoji removes it.
+   */
+  async setVerseReaction(userId: string, emoji: string): Promise<{ counts: Record<string, number>; mine: string | null; total: number }> {
+    await tx(this.pool, async (c) => {
+      const cur = await maybeOne<{ emoji: string }>(
+        c,
+        `SELECT emoji FROM verse_reactions WHERE user_id = $1 AND day_date = (now() AT TIME ZONE $2)::date`,
+        [userId, TZ],
+      );
+      if (cur && cur.emoji === emoji) {
+        await c.query(`DELETE FROM verse_reactions WHERE user_id = $1 AND day_date = (now() AT TIME ZONE $2)::date`, [userId, TZ]);
+      } else {
+        await c.query(
+          `INSERT INTO verse_reactions (user_id, day_date, emoji)
+           VALUES ($1, (now() AT TIME ZONE $2)::date, $3)
+           ON CONFLICT (user_id, day_date) DO UPDATE SET emoji = EXCLUDED.emoji, updated_at = now()`,
+          [userId, TZ, emoji],
+        );
+      }
+    });
+    return this.verseReactions(userId);
   }
 
   /**

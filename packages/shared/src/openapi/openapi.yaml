@@ -2596,6 +2596,20 @@ paths:
       responses:
         "200": { description: "Tailored verse: { reference, version, theme, reason }" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/home/verse/reactions:
+    get:
+      tags: [progress]
+      summary: Community reactions on today's verse — counts per emoji + my own reaction.
+      responses:
+        "200": { description: "{ counts: {emoji:count}, mine: emoji|null, total }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [progress]
+      summary: Set/toggle my reaction to today's verse (exactly one per member per day).
+      responses:
+        "200": { description: "Updated reaction counts" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /me/scores:
     get:
       tags: [progress]
