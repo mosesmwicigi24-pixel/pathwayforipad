@@ -7,11 +7,15 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
+    "ipad:build": "VITE_API_BASE=https://pathway.nuruplace.org/v1 vite build && cap sync ios",
+    "ipad:open": "cap open ios",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/ios": "^8.4.1",
     "@nuru/shared": "workspace:*",
     "@reduxjs/toolkit": "^2.2.6",
     "@tailwindcss/vite": "^4",
@@ -27,6 +31,7 @@
     "tailwindcss": "^4"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^18.3.3",
