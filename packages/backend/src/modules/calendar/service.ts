@@ -761,16 +761,69 @@ export class CalendarService {
       `SELECT p.post_id, p.author_user_id, u.full_name AS author_name, u.avatar_url AS author_avatar,
               p.body, p.image_url, p.created_at,
               (p.author_user_id = $2) AS mine,
-              r.status AS rsvp_status
+              r.status AS rsvp_status,
+              COALESCE(rx.cheer_count, 0)::int AS cheer_count,
+              COALESCE(rx.love_count, 0)::int AS love_count,
+              mine_rx.kind AS my_reaction
          FROM event_posts p
          JOIN users u ON u.user_id = p.author_user_id
          LEFT JOIN event_rsvps r ON r.event_id = p.event_id AND r.user_id = p.author_user_id
+         LEFT JOIN (
+           SELECT post_id,
+                  count(*) FILTER (WHERE kind = 'cheer') AS cheer_count,
+                  count(*) FILTER (WHERE kind = 'love')  AS love_count
+             FROM event_post_reactions GROUP BY post_id
+         ) rx ON rx.post_id = p.post_id
+         LEFT JOIN event_post_reactions mine_rx ON mine_rx.post_id = p.post_id AND mine_rx.user_id = $2
         WHERE p.event_id = $1 AND NOT p.is_hidden
         ORDER BY p.created_at DESC
         LIMIT 100`,
       [eventId, userId],
     );
     return { data };
+  }
+
+  static readonly Reaction = z.object({
+    // null clears the member's reaction (toggle off); a kind sets/switches it.
+    kind: z.enum(["cheer", "love"]).nullable(),
+  });
+
+  /**
+   * Set, switch, or clear the member's single reaction on a post. One row per
+   * (post_id, user_id): tapping a new emoji upserts (keep the latter), tapping
+   * the held emoji clears it. Returns the fresh counts + my_reaction.
+   */
+  async reactToPost(
+    userId: string,
+    eventId: string,
+    postId: string,
+    kind: "cheer" | "love" | null,
+  ): Promise<{ cheer_count: number; love_count: number; my_reaction: "cheer" | "love" | null }> {
+    const post = await maybeOne<{ post_id: string }>(
+      this.pool,
+      `SELECT post_id FROM event_posts WHERE post_id = $1 AND event_id = $2 AND NOT is_hidden`,
+      [postId, eventId],
+    );
+    if (!post) throw new ApiError("NOT_FOUND", "Post not found");
+    return tx(this.pool, async (c) => {
+      if (kind === null) {
+        await c.query(`DELETE FROM event_post_reactions WHERE post_id = $1 AND user_id = $2`, [postId, userId]);
+      } else {
+        await c.query(
+          `INSERT INTO event_post_reactions (post_id, user_id, kind) VALUES ($1, $2, $3)
+           ON CONFLICT (post_id, user_id) DO UPDATE SET kind = EXCLUDED.kind, updated_at = now()`,
+          [postId, userId, kind],
+        );
+      }
+      const counts = await one<{ cheer_count: number; love_count: number }>(
+        c,
+        `SELECT count(*) FILTER (WHERE kind = 'cheer')::int AS cheer_count,
+                count(*) FILTER (WHERE kind = 'love')::int  AS love_count
+           FROM event_post_reactions WHERE post_id = $1`,
+        [postId],
+      );
+      return { cheer_count: counts.cheer_count, love_count: counts.love_count, my_reaction: kind };
+    });
   }
 
   async createEventPost(

@@ -37,7 +37,8 @@ import { writeThrough } from "../sync/offlineWrite";
 import { getSyncEngine } from "../sync/engineProvider";
 import { getConnectivity } from "../net/connectivity";
 import { invalidateQueries, errorMessage } from "../api/query";
-import type { EventPost } from "../api/types";
+import type { EventPost, ReactionKind } from "../api/types";
+import { FitImage } from "../components/FitImage";
 
 // Emojis + sticker-style faces for the wall composer (no native sticker lib; this
 // generous set covers the intent — tap to drop one into the caption).
@@ -47,15 +48,6 @@ type Picked = { uri: string; type: string; name: string };
 // Green gradient for the live "Buzzing" / "Coming" pills, and gold for the Post pill.
 const GREEN_PILL = ["#22B24C", "#15803D"] as const;
 const GOLD_PILL = ["#E2BC55", palette.gold] as const;
-
-// Deterministic base reaction counts per post (there's no reactions backend for
-// event posts, so cheers/loves are local celebration counts seeded from the id).
-function buzzCounts(id: string, mine: boolean): { cheer: number; love: number } {
-  if (mine) return { cheer: 0, love: 0 };
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return { cheer: 6 + (h % 16), love: 1 + ((h >> 4) % 12) };
-}
 
 // A soft pulsing white dot (the "live" tell on the Buzzing pill).
 function PulseDot(): ReactElement {
@@ -538,7 +530,7 @@ export function EventDetailScreen(): ReactElement {
             {posts && posts.length > 0 ? (
               <View style={{ gap: spacing.md, marginTop: spacing.md }}>
                 {posts.map((p) => (
-                  <BuzzCard key={p.post_id} post={p} />
+                  <BuzzCard key={p.post_id} post={p} eventId={eventId} />
                 ))}
               </View>
             ) : null}
@@ -567,27 +559,55 @@ export function EventDetailScreen(): ReactElement {
   );
 }
 
-// A premium buzz card for one real attendee post. PHOTO posts → caption as a gold
-// serif pull-quote over a strong bottom gradient; TEXT posts → a gold-left-accent
-// serif-italic quote card. The 🙌 cheer / ❤️ love reactions and the double-tap
-// heart-burst are LOCAL celebration state only — there's no reactions backend for
-// event posts, so these never persist and are intentionally client-side.
-function BuzzCard({ post }: { post: EventPost }): ReactElement {
-  const [cheered, setCheered] = useState(false);
-  const [loved, setLoved] = useState(false);
+// A premium buzz card for one real attendee post. PHOTO posts → the photo at its
+// natural aspect (the card grows to fit it — never cropped, no dark shade) with the
+// caption as a gold serif pull-quote BELOW it; TEXT posts → a gold-left-accent
+// serif-italic quote card. The 🙌 cheer / ❤️ love reactions are server-backed:
+// exactly one per member per post (PRIMARY KEY (post_id, user_id)) — tapping a new
+// emoji switches (keep the latter), tapping the held emoji clears it.
+function BuzzCard({ post, eventId }: { post: EventPost; eventId: string }): ReactElement {
+  const [my, setMy] = useState<ReactionKind | null>(post.my_reaction);
+  const [cheer, setCheer] = useState(post.cheer_count);
+  const [love, setLove] = useState(post.love_count);
   const burst = useRef(new Animated.Value(0)).current;
-  const counts = buzzCounts(post.post_id, post.mine);
 
-  function love(): void {
-    setLoved((v) => !v);
-    if (!loved) {
-      burst.setValue(0);
-      Animated.sequence([
-        Animated.spring(burst, { toValue: 1, useNativeDriver: true, friction: 5 }),
-        Animated.timing(burst, { toValue: 0, duration: 240, delay: 360, useNativeDriver: true }),
-      ]).start();
-    }
+  function playBurst(): void {
+    burst.setValue(0);
+    Animated.sequence([
+      Animated.spring(burst, { toValue: 1, useNativeDriver: true, friction: 5 }),
+      Animated.timing(burst, { toValue: 0, duration: 240, delay: 360, useNativeDriver: true }),
+    ]).start();
   }
+
+  // Move the optimistic count off `from` and onto `to` (never below zero).
+  function shift(from: ReactionKind | null, to: ReactionKind | null): void {
+    if (from === to) return;
+    if (from === "cheer") setCheer((c) => Math.max(0, c - 1));
+    if (from === "love") setLove((c) => Math.max(0, c - 1));
+    if (to === "cheer") setCheer((c) => c + 1);
+    if (to === "love") setLove((c) => c + 1);
+  }
+
+  function react(kind: ReactionKind): void {
+    const prev = my;
+    const next = my === kind ? null : kind; // tap held emoji → clear; else set/switch
+    shift(prev, next);
+    setMy(next);
+    if (next === "love") playBurst();
+    void NuruApi.reactToEventPost(eventId, post.post_id, next)
+      .then((r) => {
+        setCheer(r.cheer_count);
+        setLove(r.love_count);
+        setMy(r.my_reaction);
+      })
+      .catch(() => {
+        shift(next, prev); // revert the optimistic move
+        setMy(prev);
+      });
+  }
+
+  const cheered = my === "cheer";
+  const loved = my === "love";
 
   return (
     <View style={[st.buzzCard, post.mine && st.buzzCardMine]}>
@@ -607,27 +627,25 @@ function BuzzCard({ post }: { post: EventPost }): ReactElement {
       </View>
 
       {post.image_url ? (
-        <Pressable onPress={love} accessibilityRole="imagebutton" accessibilityLabel="Double-tap to love" style={st.buzzImageWrap}>
-          {/* Cover-filled at a uniform card aspect — never letterboxed (no dark block). */}
-          <Image source={{ uri: cdnImage(post.image_url, { width: 1000 }) ?? post.image_url }} style={st.buzzImageInner} resizeMode="cover" />
+        <>
+          {/* The card grows to the photo's natural aspect — fully visible, never cropped. */}
+          <Pressable onPress={() => react("love")} accessibilityRole="imagebutton" accessibilityLabel="Tap to love" style={st.buzzImageWrap}>
+            <FitImage uri={post.image_url} radius={16} maxHeight={520}>
+              <Animated.Text
+                pointerEvents="none"
+                style={[st.heartBurst, { opacity: burst, transform: [{ scale: burst.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1.5] }) }] }]}
+              >
+                ❤️
+              </Animated.Text>
+            </FitImage>
+          </Pressable>
           {post.body ? (
-            <>
-              {/* A thin bottom fade behind the caption — the image stays fully visible. */}
-              <View style={st.buzzShade}><GradientBg vertical colors={["rgba(8,20,36,0)", "rgba(8,20,36,0.82)"]} /></View>
-              <View style={st.buzzCaption}>
-                <T serif style={{ color: palette.goldLight, fontSize: 22, lineHeight: 16 }}>“</T>
-                <T serif style={st.buzzCaptionText} numberOfLines={3}>{post.body}</T>
-              </View>
-            </>
+            <View style={st.buzzCaptionBelow}>
+              <T serif style={{ color: palette.goldLight, fontSize: 22, lineHeight: 14 }}>“</T>
+              <T serif style={st.buzzQuoteText} numberOfLines={4}>{post.body}</T>
+            </View>
           ) : null}
-          {/* double-tap heart-burst (local) */}
-          <Animated.Text
-            pointerEvents="none"
-            style={[st.heartBurst, { opacity: burst, transform: [{ scale: burst.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1.5] }) }] }]}
-          >
-            ❤️
-          </Animated.Text>
-        </Pressable>
+        </>
       ) : post.body ? (
         <View style={st.buzzQuote}>
           <T serif style={{ color: palette.goldLight, fontSize: 22, lineHeight: 14 }}>“</T>
@@ -635,15 +653,15 @@ function BuzzCard({ post }: { post: EventPost }): ReactElement {
         </View>
       ) : null}
 
-      {/* Reactions — count pills (local) + a green "Coming" tag */}
+      {/* Reactions — server-backed count pills (one per member) + a green "Coming" tag */}
       <View style={st.buzzReactions}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Cheer" onPress={() => setCheered((v) => !v)} style={[st.reactCount, cheered && st.reactCountCheer]}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Cheer" onPress={() => react("cheer")} style={[st.reactCount, cheered && st.reactCountCheer]}>
           <T style={{ fontSize: 13 }}>🙌</T>
-          <T variant="micro" style={{ fontWeight: "800", color: cheered ? palette.goldLo : palette.ink600 }}>{counts.cheer + (cheered ? 1 : 0)}</T>
+          <T variant="micro" style={{ fontWeight: "800", color: cheered ? palette.goldLo : palette.ink600 }}>{cheer}</T>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Love" onPress={love} style={[st.reactCount, loved && st.reactCountLove]}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Love" onPress={() => react("love")} style={[st.reactCount, loved && st.reactCountLove]}>
           <Heart size={13} color={loved ? palette.error : palette.ink600} fill={loved ? palette.error : "transparent"} />
-          <T variant="micro" style={{ fontWeight: "800", color: loved ? palette.error : palette.ink600 }}>{counts.love + (loved ? 1 : 0)}</T>
+          <T variant="micro" style={{ fontWeight: "800", color: loved ? palette.error : palette.ink600 }}>{love}</T>
         </Pressable>
         {post.rsvp_status === "going" ? (
           <View style={st.comingPill}>
@@ -701,11 +719,8 @@ const st = {
   buzzingPill: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: radii.pill, paddingHorizontal: 12, height: 28, overflow: "hidden" },
   buzzCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
   buzzCardMine: { backgroundColor: "#FFFDF7", borderColor: "rgba(200,155,60,0.35)" },
-  buzzImageWrap: { marginHorizontal: spacing.base, marginBottom: spacing.md, borderRadius: 16, overflow: "hidden", position: "relative", aspectRatio: 4 / 3, backgroundColor: palette.mutedBg },
-  buzzImageInner: { width: "100%", height: "100%" },
-  buzzShade: { position: "absolute", left: 0, right: 0, bottom: 0, height: "42%" },
-  buzzCaption: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: spacing.base, paddingBottom: spacing.md },
-  buzzCaptionText: { color: "#fff", fontSize: 16, lineHeight: 21, fontWeight: "600", marginTop: -6 },
+  buzzImageWrap: { marginHorizontal: spacing.base, marginBottom: spacing.sm },
+  buzzCaptionBelow: { marginHorizontal: spacing.base, marginBottom: spacing.md, paddingHorizontal: spacing.xs },
   buzzQuote: { marginHorizontal: spacing.base, marginBottom: spacing.md, borderRadius: 14, paddingHorizontal: spacing.base, paddingVertical: spacing.md, backgroundColor: "#FFFBEF", borderLeftWidth: 3, borderLeftColor: palette.gold },
   buzzQuoteText: { color: palette.navy, fontSize: 15, lineHeight: 22, fontStyle: "italic", marginTop: -8 },
   heartBurst: { position: "absolute", alignSelf: "center", top: "38%", fontSize: 64 },

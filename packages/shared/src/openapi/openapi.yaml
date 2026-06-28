@@ -1477,6 +1477,23 @@ paths:
         "201": { description: Posted }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /events/{id}/posts/{postId}/react:
+    post:
+      tags: [system]
+      summary: >-
+        Set, switch, or clear the member's single reaction on a buzz post. One
+        reaction per member per post (kind=cheer|love, or null to clear); switching
+        keeps the latter. Returns fresh counts + the member's reaction.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - name: postId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Reaction applied }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/events/series:
     post:
       tags: [system]

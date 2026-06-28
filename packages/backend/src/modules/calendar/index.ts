@@ -61,6 +61,15 @@ export function registerCalendar(ctx: AppContext): Router {
       res.status(201).json(await svc.createEventPost(requirePrincipal(req).userId, req.params.id ?? "", input));
     }),
   );
+  // Set / switch / clear the member's single reaction on a post.
+  r.post(
+    "/events/:id/posts/:postId/react",
+    auth,
+    handler(async (req, res) => {
+      const { kind } = parseBody(CalendarService.Reaction, req.body ?? {});
+      res.json(await svc.reactToPost(requirePrincipal(req).userId, req.params.id ?? "", req.params.postId ?? "", kind));
+    }),
+  );
 
   // The member's upcoming RSVPs ("My RSVPs", Contract Matrix B2).
   r.get(

@@ -209,6 +209,43 @@ describe("Events tab: category, going counts, series follow, cell summary", () =
     expect(post.author_name).toBeTruthy();
   });
 
+  it("reacts to a post: one reaction per member, switching keeps the latter, tap-again clears", async () => {
+    const s = (await svc().createSeries(principal(admin, "Admin", cong), {
+      title: "Worship Night",
+      timezone: "Africa/Nairobi",
+      dtstart_local: "2026-07-13T18:00:00",
+      duration_min: 90,
+      rrule: "FREQ=WEEKLY;BYDAY=MO;COUNT=2",
+      visibility: "congregation",
+    })) as { series_id: string };
+    const projected = (await svc().projectRange(member, "2026-06-25T00:00:00Z", "2026-08-15T00:00:00Z")) as Array<{ occurrence_id: string; series_id: string }>;
+    const occId = projected.find((o) => o.series_id === s.series_id)!.occurrence_id;
+    const pid = "00000000-0000-4000-8000-0000000000cc";
+    await svc().createEventPost(member, occId, { post_id: pid, body: "Glory!" });
+
+    // first reaction
+    let r = await svc().reactToPost(member, occId, pid, "love");
+    expect(r).toMatchObject({ cheer_count: 0, love_count: 1, my_reaction: "love" });
+    // switch emoji → count moves (no double count), keep the latter
+    r = await svc().reactToPost(member, occId, pid, "cheer");
+    expect(r).toMatchObject({ cheer_count: 1, love_count: 0, my_reaction: "cheer" });
+    // tap the held emoji again → clears
+    r = await svc().reactToPost(member, occId, pid, null);
+    expect(r).toMatchObject({ cheer_count: 0, love_count: 0, my_reaction: null });
+
+    // a second member adds one reaction → exactly one each
+    const member2 = (await createUser({ congregationId: cong, cellGroupId: cell, role: "Student", email: "m2@dev.local" })).user_id;
+    await svc().reactToPost(member, occId, pid, "love");
+    r = await svc().reactToPost(member2, occId, pid, "love");
+    expect(r.love_count).toBe(2);
+
+    const { data } = await svc().listEventPosts(member, occId);
+    const post = data[0] as { cheer_count: number; love_count: number; my_reaction: string | null };
+    expect(post.love_count).toBe(2);
+    expect(post.cheer_count).toBe(0);
+    expect(post.my_reaction).toBe("love");
+  });
+
   it("rejects an empty event-wall post", async () => {
     const s = (await svc().createSeries(principal(admin, "Admin", cong), {
       title: "Prayer Vigil",

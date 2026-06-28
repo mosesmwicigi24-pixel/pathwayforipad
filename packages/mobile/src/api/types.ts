@@ -138,6 +138,17 @@ export interface EventPost {
   created_at: string;
   mine: boolean;
   rsvp_status: "going" | "maybe" | "declined" | null;
+  cheer_count: number;
+  love_count: number;
+  my_reaction: "cheer" | "love" | null;
+}
+
+export type ReactionKind = "cheer" | "love";
+
+export interface PostReactionResult {
+  cheer_count: number;
+  love_count: number;
+  my_reaction: ReactionKind | null;
 }
 
 export interface GivingRecord {

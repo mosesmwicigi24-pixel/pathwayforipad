@@ -19,6 +19,8 @@ import type {
   CompleteResult,
   EventDetail,
   EventPost,
+  PostReactionResult,
+  ReactionKind,
   GivingIntentResult,
   GivingRecord,
   GivingDetail,
@@ -298,6 +300,13 @@ export const NuruApi = {
   },
   async createEventPost(eventId: string, body: { post_id: string; body?: string | null; image_url?: string | null; client_mutation_id?: string }): Promise<{ post_id: string }> {
     const { data } = await api.post<{ post_id: string }>(`/events/${encodeURIComponent(eventId)}/posts`, body);
+    return data;
+  },
+  async reactToEventPost(eventId: string, postId: string, kind: ReactionKind | null): Promise<PostReactionResult> {
+    const { data } = await api.post<PostReactionResult>(
+      `/events/${encodeURIComponent(eventId)}/posts/${encodeURIComponent(postId)}/react`,
+      { kind },
+    );
     return data;
   },
   async eventSeries(): Promise<EventSeries[]> {
