@@ -610,15 +610,11 @@ function EventCard({
   const accent = categoryColor(occ.category);
   const popular = occ.going >= 120;
   const cd = live ? null : countdown(occ.start_at, now);
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={occ.title} onPress={onPress} style={({ pressed }) => [st.eventCard, pressed && { transform: [{ scale: 0.99 }] }]}>
-      <View style={st.cover}>
-        {occ.primary_image_url ? (
-          <Image source={{ uri: cdnImage(occ.primary_image_url, { width: 900 }) }} style={st.coverImg} resizeMode="cover" />
-        ) : (
-          <GradientBg colors={[palette.navy700, palette.navy, accent]} radius={0} />
-        )}
-        <View style={st.coverShade} />
+  // Corner chrome that overlays the cover photo (shade + date + badges + tags).
+  // Shared between the photo (growing) and the gradient-fallback branches.
+  const coverChrome = (
+    <>
+      <View style={st.coverShade} />
         {/* Date chip · top-left */}
         <View style={st.coverDate}>
           <T variant="micro" style={{ color: accent, fontWeight: "800", fontSize: 9 }}>{d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}</T>
@@ -645,11 +641,25 @@ function EventCard({
         {cd ? (
           <View style={st.countdownChip}><Clock size={10} color={palette.goldLight} /><T variant="micro" style={{ color: "#fff", fontWeight: "700", fontSize: 9 }}>{cdLabel(cd)}</T></View>
         ) : null}
-        {/* Series tag · bottom-right over image */}
-        {occ.category ? (
-          <View style={[st.seriesTag, { backgroundColor: `${accent}E6` }]}><T variant="micro" style={{ color: "#fff", fontWeight: "800", letterSpacing: 0.5, fontSize: 9 }}>{occ.category.toUpperCase()}</T></View>
-        ) : null}
-      </View>
+      {/* Series tag · bottom-right over image */}
+      {occ.category ? (
+        <View style={[st.seriesTag, { backgroundColor: `${accent}E6` }]}><T variant="micro" style={{ color: "#fff", fontWeight: "800", letterSpacing: 0.5, fontSize: 9 }}>{occ.category.toUpperCase()}</T></View>
+      ) : null}
+    </>
+  );
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={occ.title} onPress={onPress} style={({ pressed }) => [st.eventCard, pressed && { transform: [{ scale: 0.99 }] }]}>
+      {/* Cover photo grows to its natural aspect (no crop); gradient fallback keeps a fixed band. */}
+      {occ.primary_image_url ? (
+        <FitImage uri={occ.primary_image_url} maxHeight={300} background={palette.navy}>
+          {coverChrome}
+        </FitImage>
+      ) : (
+        <View style={st.cover}>
+          <GradientBg colors={[palette.navy700, palette.navy, accent]} radius={0} />
+          {coverChrome}
+        </View>
+      )}
       <View style={{ padding: spacing.base }}>
         <T serif style={{ fontSize: 17, color: palette.ink }} numberOfLines={1}>{occ.title}</T>
         {occ.description ? <T variant="caption" tone="secondary" style={{ marginTop: 4, fontSize: 11 }} numberOfLines={2}>{occ.description}</T> : null}
