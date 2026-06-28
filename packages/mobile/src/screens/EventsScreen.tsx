@@ -614,7 +614,6 @@ function EventCard({
   // Shared between the photo (growing) and the gradient-fallback branches.
   const coverChrome = (
     <>
-      <View style={st.coverShade} />
         {/* Date chip · top-left */}
         <View style={st.coverDate}>
           <T variant="micro" style={{ color: accent, fontWeight: "800", fontSize: 9 }}>{d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}</T>
@@ -651,7 +650,7 @@ function EventCard({
     <Pressable accessibilityRole="button" accessibilityLabel={occ.title} onPress={onPress} style={({ pressed }) => [st.eventCard, pressed && { transform: [{ scale: 0.99 }] }]}>
       {/* Cover photo grows to its natural aspect (no crop); gradient fallback keeps a fixed band. */}
       {occ.primary_image_url ? (
-        <FitImage uri={occ.primary_image_url} maxHeight={300} background={palette.navy}>
+        <FitImage uri={occ.primary_image_url} minAspect={0.5} background={palette.navy}>
           {coverChrome}
         </FitImage>
       ) : (
@@ -764,7 +763,6 @@ const st = {
   eventCard: { backgroundColor: palette.white, borderRadius: 22, borderWidth: 1, borderColor: palette.border, overflow: "hidden", ...shadow.card },
   cover: { height: 158, overflow: "hidden" },
   coverImg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
-  coverShade: { position: "absolute", left: 0, right: 0, bottom: 0, height: "60%", backgroundColor: "rgba(11,31,51,0.42)" },
   coverDate: { position: "absolute", top: 12, left: 12, backgroundColor: palette.white, borderRadius: 14, width: 48, height: 48, alignItems: "center", justifyContent: "center", ...shadow.card },
   coverBadges: { position: "absolute", top: 12, right: 12, flexDirection: "row", alignItems: "center", gap: 6 },
   liveBadgeSm: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: palette.success, borderRadius: radii.pill, paddingHorizontal: 8, height: 22 },
