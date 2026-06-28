@@ -327,6 +327,7 @@ export interface ChatConversation {
   last_type: string | null;
   last_at: string | null;
   last_author: string | null;
+  last_duration?: number | null; // seconds, when the last message is a voice note
   unread: number;
   avatar_url?: string | null; // the other member's photo, for DMs
   message_count?: number; // total messages (the "comment" counter)

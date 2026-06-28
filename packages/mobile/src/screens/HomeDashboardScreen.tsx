@@ -255,9 +255,12 @@ export function HomeDashboardScreen(): ReactElement {
   useFocusEffect(useCallback(() => () => setStatus(false), [setStatus]));
 
   const [fromIso, toIso] = useMemo(() => {
-    const now = new Date();
+    // Anchor to the start of day so the calendar query key is stable across mounts
+    // (a per-millisecond key forced a cache miss + spinner on every return to Home).
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
     // 30-day window so the "next gathering" fallback can look beyond this week.
-    return [now.toISOString(), new Date(now.getTime() + 30 * 86_400_000).toISOString()];
+    return [dayStart.toISOString(), new Date(dayStart.getTime() + 30 * 86_400_000).toISOString()];
   }, []);
   const { data: occurrences } = useCalendar(fromIso, toIso);
 

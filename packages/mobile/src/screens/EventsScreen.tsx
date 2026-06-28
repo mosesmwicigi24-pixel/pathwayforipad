@@ -69,9 +69,14 @@ export function EventsScreen(): ReactElement {
   // render → new calendar from/to ISO → new query key → infinite refetch storm
   // that drains the rate limiter and 429s every screen.)
   const now = useMemo(() => Date.now(), []);
+  // Anchor the calendar window to the START OF DAY (not the exact millisecond) so
+  // the query key is identical across every mount of this screen on a given day.
+  // A per-millisecond key meant a fresh cache miss + full spinner on every visit
+  // (and on every back-navigation); a day-stable key hits the persisted cache and
+  // renders instantly, refreshing in the background.
   const [fromIso, toIso] = useMemo(() => {
-    const n = new Date(now);
-    return [new Date(n.getTime() - 7 * 86_400_000).toISOString(), new Date(n.getTime() + 45 * 86_400_000).toISOString()];
+    const dayStart = startOfDay(now);
+    return [new Date(dayStart - 7 * 86_400_000).toISOString(), new Date(dayStart + 45 * 86_400_000).toISOString()];
   }, [now]);
   const { data: occurrences, isLoading, error, refetch } = useCalendar(fromIso, toIso);
   const { data: rsvps, refetch: refetchRsvps } = useMyRsvps();

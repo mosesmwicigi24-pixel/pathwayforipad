@@ -242,6 +242,7 @@ export class ChatService {
               cv.title, cv.topic, cv.category,
               (SELECT count(*)::int FROM chat_members m2 WHERE m2.conversation_id = cv.conversation_id) AS member_count,
               lm.body AS last_body, lm.msg_type AS last_type, lm.created_at AS last_at,
+              (lm.attachment_meta->>'duration')::int AS last_duration,
               la.full_name AS last_author,
               0 AS unread,
               (SELECT count(*)::int FROM chat_messages cm
@@ -253,7 +254,7 @@ export class ChatService {
                  WHERE fm.conversation_id = cv.conversation_id AND fm.is_flagged AND NOT fm.is_hidden) AS flagged
          FROM chat_conversations cv
          LEFT JOIN LATERAL (
-            SELECT body, msg_type, created_at, author_user_id FROM chat_messages
+            SELECT body, msg_type, created_at, author_user_id, attachment_meta FROM chat_messages
              WHERE conversation_id = cv.conversation_id AND NOT is_hidden
              ORDER BY created_at DESC LIMIT 1
          ) lm ON TRUE
@@ -284,6 +285,7 @@ export class ChatService {
               cv.topic, cv.category,
               (SELECT count(*)::int FROM chat_members m2 WHERE m2.conversation_id = cv.conversation_id) AS member_count,
               lm.body AS last_body, lm.msg_type AS last_type, lm.created_at AS last_at,
+              (lm.attachment_meta->>'duration')::int AS last_duration,
               la.full_name AS last_author,
               (SELECT count(*)::int FROM chat_messages um
                  WHERE um.conversation_id = cv.conversation_id AND NOT um.is_hidden
@@ -302,7 +304,7 @@ export class ChatService {
          ) od ON cv.kind = 'dm'
          LEFT JOIN users other ON other.user_id = od.user_id
          LEFT JOIN LATERAL (
-            SELECT body, msg_type, created_at, author_user_id FROM chat_messages
+            SELECT body, msg_type, created_at, author_user_id, attachment_meta FROM chat_messages
              WHERE conversation_id = cv.conversation_id AND NOT is_hidden
              ORDER BY created_at DESC LIMIT 1
          ) lm ON TRUE

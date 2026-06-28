@@ -36,7 +36,7 @@ import { ErrorState } from "../components/states";
 import { SkeletonList } from "../components/Skeleton";
 import { Avatar } from "../components/Avatar";
 import { NotificationBell } from "../components/NotificationBell";
-import { SectionLabel } from "../components/ChatKit";
+import { SectionLabel, Waveform } from "../components/ChatKit";
 import {
   groupInbox,
   inboxStats,
@@ -102,6 +102,12 @@ function spaceStatus(category: string | null | undefined): string {
 function compactCount(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k`;
   return String(n);
+}
+
+// "0:21" style duration for a voice-note preview.
+function fmtDuration(sec: number | null | undefined): string {
+  const s = Math.max(0, Math.round(sec ?? 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 export function ChatScreen(): ReactElement {
@@ -185,7 +191,6 @@ export function ChatScreen(): ReactElement {
       {/* Navy greeting header (gradient + soft gold glow), search */}
       <View style={st.header}>
         <GradientBg colors={["#0B1F33", "#0D2742", "#163655"]} />
-        <View style={st.headerGlow} />
         <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.base }}>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -585,16 +590,44 @@ function ConvoRow({
             {inboxTime(c.last_at)}
           </T>
         </View>
-        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, marginTop: 3 }}>
-          {isVoice ? <Mic size={13} color={palette.gold} style={{ marginTop: 2 }} /> : null}
-          <T variant="caption" tone={unread ? "ink" : "secondary"} style={{ flex: 1, lineHeight: 18 }} numberOfLines={2}>
-            {previewText(c)}
-          </T>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: 3 }}>
+          {isVoice ? (
+            // Voice preview = mic + a mini waveform + duration (the Figma worship-team
+            // card), with the author prefixed on spaces/groups.
+            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Mic size={13} color={palette.gold} />
+              {c.last_author && c.kind !== "dm" ? (
+                <T variant="caption" tone={unread ? "ink" : "secondary"} numberOfLines={1} style={{ maxWidth: 90 }}>{c.last_author}</T>
+              ) : null}
+              <Waveform color={palette.gold} dimColor={palette.goldChipBg} height={16} />
+              <T variant="micro" tone="tertiary">{fmtDuration(c.last_duration)}</T>
+            </View>
+          ) : (
+            <T variant="caption" tone={unread ? "ink" : "secondary"} style={{ flex: 1, lineHeight: 18 }} numberOfLines={2}>
+              {previewText(c)}
+            </T>
+          )}
           {unread ? (
             <View style={st.badge}><T variant="micro" style={{ color: palette.navy, fontWeight: "800" }}>{c.unread}</T></View>
           ) : null}
         </View>
-        {((c.reaction_count ?? 0) > 0 || (c.message_count ?? 0) > 0) && (
+        {hash ? (
+          // Space rows mirror the Figma "My Space" card: an overlapping member
+          // avatar stack + count on the left, an activity pill on the right.
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.sm }}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              {[0, 1, 2].map((n) => (
+                <View key={n} style={[st.memberStackDot, { backgroundColor: avatarColor(`${c.conversation_id}:${n}`), marginLeft: n === 0 ? 0 : -10, zIndex: 3 - n }]} />
+              ))}
+              <View style={st.memberStackCount}>
+                <T variant="micro" style={{ color: palette.navy, fontWeight: "800" }}>{compactCount(c.member_count)}</T>
+              </View>
+            </View>
+            <View style={st.activityPill}>
+              <T variant="micro" style={{ color: palette.ink600, fontWeight: "700" }}>{spaceStatus(c.category)}</T>
+            </View>
+          </View>
+        ) : ((c.reaction_count ?? 0) > 0 || (c.message_count ?? 0) > 0) ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.base, marginTop: 6 }}>
             {(c.reaction_count ?? 0) > 0 && (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
@@ -608,14 +641,8 @@ function ConvoRow({
                 <T variant="micro" tone="tertiary">{c.message_count}</T>
               </View>
             )}
-            {hash && (c.member_count ?? 0) > 0 ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Users size={12} color={palette.ink400} />
-                <T variant="micro" tone="tertiary">{compactCount(c.member_count)}</T>
-              </View>
-            ) : null}
           </View>
-        )}
+        ) : null}
       </View>
     </Pressable>
   );
@@ -644,7 +671,6 @@ function EmptyHint({ text }: { text: string }): ReactElement {
 const st = {
   screen: { flex: 1, backgroundColor: palette.paper },
   header: { paddingHorizontal: spacing.lg, paddingTop: 56, paddingBottom: spacing.lg, overflow: "hidden", borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
-  headerGlow: { position: "absolute", right: -60, top: -70, width: 200, height: 200, borderRadius: 100, backgroundColor: "rgba(201,162,39,0.22)" },
   kicker: { letterSpacing: 2, color: palette.goldGlow, fontWeight: "700" },
   search: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,
@@ -689,6 +715,10 @@ const st = {
   avatarSquare: { width: 52, height: 52, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   memberDot: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: palette.white },
   memberCount: { height: 34, minWidth: 34, paddingHorizontal: 6, borderRadius: 17, marginLeft: -12, backgroundColor: palette.white, borderWidth: 1.5, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
+  // Compact member stack + activity pill on a joined space ROW (Figma "My Space").
+  memberStackDot: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: palette.white },
+  memberStackCount: { height: 24, minWidth: 24, paddingHorizontal: 6, borderRadius: 12, marginLeft: -10, backgroundColor: palette.white, borderWidth: 1.5, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
+  activityPill: { paddingHorizontal: 10, height: 24, borderRadius: 12, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
   discoverCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: spacing.base, marginBottom: spacing.sm, ...shadow.card },
   joinBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: palette.navy, paddingHorizontal: spacing.base, height: 38, borderRadius: radii.pill },
   story: { alignItems: "center", gap: 6, width: 72 },

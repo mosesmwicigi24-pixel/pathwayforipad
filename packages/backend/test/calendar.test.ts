@@ -10,6 +10,21 @@ import type { Principal } from "../src/http/http.js";
 const svc = () => new CalendarService(testPool());
 const principal = (userId: string, role: Principal["role"], cong: string): Principal => ({ userId, role, congregationId: cong });
 
+// materialize() only creates occurrences from `now` forward, so series tests must
+// be anchored in the FUTURE or they rot as real time passes. This yields a weekly
+// series starting `weeksAhead` from today plus a projection window that covers all
+// `count` occurrences. (Date.now() is fine in tests — only workflow scripts ban it.)
+const pad = (n: number): string => String(n).padStart(2, "0");
+function futureWeekly(count: number, weeksAhead = 1): { dtstart_local: string; rrule: string; from: string; to: string } {
+  const d = new Date();
+  d.setDate(d.getDate() + weeksAhead * 7);
+  d.setHours(9, 0, 0, 0);
+  const dtstart_local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T09:00:00`;
+  const from = new Date(d.getTime() - 2 * 86_400_000).toISOString();
+  const to = new Date(d.getTime() + (count + 1) * 7 * 86_400_000).toISOString();
+  return { dtstart_local, rrule: `FREQ=WEEKLY;COUNT=${count}`, from, to };
+}
+
 describe("RRULE recurrence engine (§C.0/§D.2/§C.4)", () => {
   it("rejects disallowed or unbounded rules and accepts a valid one", () => {
     expect(() => validateRrule("FREQ=YEARLY;COUNT=5")).toThrow();
@@ -45,16 +60,17 @@ describe("series → projection → materialization → RSVP (§C.2/§C.3)", () 
   });
 
   it("creates a weekly series, projects it, materializes events, and records an RSVP", async () => {
+    const win = futureWeekly(4);
     const s = (await svc().createSeries(principal(admin, "Admin", cong), {
       title: "Sunday Service",
       timezone: "Africa/Nairobi",
-      dtstart_local: "2026-06-07T09:00:00",
+      dtstart_local: win.dtstart_local,
       duration_min: 90,
-      rrule: "FREQ=WEEKLY;BYDAY=SU;COUNT=4",
+      rrule: win.rrule,
       visibility: "congregation",
     })) as { series_id: string };
 
-    const projected = await svc().projectRange(member, "2026-06-01T00:00:00Z", "2026-07-15T00:00:00Z");
+    const projected = await svc().projectRange(member, win.from, win.to);
     expect(projected.length).toBe(4);
 
     const mat = await svc().materialize(s.series_id);
@@ -111,20 +127,21 @@ describe("Events tab: category, going counts, series follow, cell summary", () =
   });
 
   it("projects a series category and real per-occurrence going counts", async () => {
+    const win = futureWeekly(4);
     const s = (await svc().createSeries(principal(admin, "Admin", cong), {
       title: "Sunday Worship Service",
       category: "worship",
       timezone: "Africa/Nairobi",
-      dtstart_local: "2026-06-07T09:00:00",
+      dtstart_local: win.dtstart_local,
       duration_min: 90,
-      rrule: "FREQ=WEEKLY;BYDAY=SU;COUNT=4",
+      rrule: win.rrule,
       visibility: "congregation",
     })) as { series_id: string };
     await svc().materialize(s.series_id);
     const ev = await testPool().query("SELECT event_id FROM events WHERE series_id=$1 ORDER BY occurrence_start LIMIT 1", [s.series_id]);
     await svc().setRsvp(member, ev.rows[0].event_id, { status: "going" });
 
-    const projected = (await svc().projectRange(member, "2026-06-01T00:00:00Z", "2026-07-15T00:00:00Z")) as Array<{ category: string; going: number }>;
+    const projected = (await svc().projectRange(member, win.from, win.to)) as Array<{ category: string; going: number }>;
     expect(projected[0]!.category).toBe("worship");
     // materialize only creates future occurrences, so the RSVP lands on whichever
     // occurrence got materialized — assert exactly one "going" across the series.
