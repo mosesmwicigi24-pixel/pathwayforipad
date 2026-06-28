@@ -15,6 +15,7 @@ import {
   ScrollView,
   Share,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
@@ -259,9 +260,39 @@ export function EventDetailScreen(): ReactElement {
   }, [event?.attendees, posts]);
   const moreGoing = Math.max(0, goingCount - goingFaces.length);
 
-  // Parallax: map vertical scroll to an Animated.Value so the hero drifts at ~0.3×.
+  // Hero sizing: grow the hero to the photo's NATURAL aspect so the subject is
+  // never cropped ("card stretches to fit the image"), clamped to a sane band so a
+  // very tall portrait can't dominate. cover at the measured aspect == the whole
+  // image, edge-to-edge, no letterbox.
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  const [heroAspect, setHeroAspect] = useState<number | null>(null);
+  const heroSrc = heroUri ? cdnImage(heroUri, { width: 1200 }) : null;
+  useEffect(() => {
+    let alive = true;
+    if (!heroSrc) {
+      setHeroAspect(null);
+      return;
+    }
+    Image.getSize(
+      heroSrc,
+      (w, h) => {
+        if (alive && w > 0 && h > 0) setHeroAspect(w / h);
+      },
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, [heroSrc]);
+  const heroH = heroAspect
+    ? Math.round(Math.min(Math.max(screenW / heroAspect, 220), screenH * 0.62))
+    : HERO_HEIGHT;
+
+  // Parallax: map vertical scroll to an Animated.Value. The hero shows the full
+  // image at rest (scale 1) and only STRETCHES on overscroll (the iOS hero-pull),
+  // so it never crops the subject.
   const scrollY = useRef(new Animated.Value(0)).current;
-  const coverTranslate = scrollY.interpolate({ inputRange: [-200, 0, 600], outputRange: [-60, 0, 180], extrapolate: "clamp" });
+  const heroScale = scrollY.interpolate({ inputRange: [-240, 0, 1], outputRange: [1.28, 1, 1], extrapolate: "clamp" });
 
   return (
     <View style={st.screen}>
@@ -275,15 +306,15 @@ export function EventDetailScreen(): ReactElement {
       >
         {/* HERO — parallax cover with the title + category/live pills overlaid at
             the bottom and glassy back/share controls at the top. */}
-        <View style={st.hero}>
-          {heroUri ? (
+        <View style={[st.hero, { height: heroH }]}>
+          {heroSrc ? (
             <Animated.Image
-              source={{ uri: cdnImage(heroUri, { width: 1200 }) }}
-              style={[st.heroImage, { transform: [{ translateY: coverTranslate }, { scale: 1.12 }] }]}
+              source={{ uri: heroSrc }}
+              style={[st.heroImage, { height: heroH, transform: [{ scale: heroScale }] }]}
               resizeMode="cover"
             />
           ) : (
-            <Animated.View style={[st.heroImage, { transform: [{ translateY: coverTranslate }, { scale: 1.12 }] }]}>
+            <Animated.View style={[st.heroImage, { height: heroH, transform: [{ scale: heroScale }] }]}>
               <GradientBg colors={[palette.navy700, palette.navy, palette.navyDeep]} />
             </Animated.View>
           )}
