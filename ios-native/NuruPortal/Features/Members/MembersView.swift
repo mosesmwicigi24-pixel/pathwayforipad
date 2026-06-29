@@ -257,6 +257,7 @@ private final class MembersVM: ObservableObject {
 
 struct MembersView: View {
     @StateObject private var vm = MembersVM()
+    @EnvironmentObject private var router: NavRouter
     @State private var addOpen = false
     @State private var editId: String?
     @State private var resultsId: String?
@@ -290,7 +291,13 @@ struct MembersView: View {
         .navigationTitle("Members")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
-        .task { if vm.rows.isEmpty { await vm.bootstrap() } }
+        .task {
+            if let q = router.memberSearch { vm.search = q; router.memberSearch = nil }
+            if vm.rows.isEmpty { await vm.bootstrap() }
+        }
+        .onChange(of: router.memberSearch) { _, q in
+            if let q { vm.search = q; router.memberSearch = nil; Task { await vm.reload() } }
+        }
         .refreshable { await vm.reload() }
         .sheet(isPresented: $addOpen) { MemberFormSheet(mode: .add, cells: vm.cells, countries: vm.countries) { Task { await vm.reload() } } }
         .sheet(item: Binding(get: { editId.map { IdBox(id: $0) } }, set: { editId = $0?.id })) { box in
