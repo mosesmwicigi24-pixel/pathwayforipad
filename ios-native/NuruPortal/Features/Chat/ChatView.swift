@@ -834,13 +834,25 @@ private struct MessageRowView: View {
                 .foregroundStyle(tag.fg).padding(.horizontal, 8).padding(.vertical, 1)
                 .background(tag.bg).clipShape(Capsule())
             }
-            if !removed, !m.reactions.isEmpty {
+            if !removed {
                 HStack(spacing: 4) {
                     ForEach(m.reactions) { r in
-                        Text("\(r.emoji) \(r.count)").font(.inter(10.5, .semibold))
-                            .foregroundStyle(navy ? .white : Nuru.navy)
-                            .padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(navy ? Color.white.opacity(0.14) : Nuru.inputBg).clipShape(Capsule())
+                        Button { model.react(m.messageId, r.emoji) } label: {
+                            Text("\(r.emoji) \(r.count)").font(.inter(10.5, .semibold))
+                                .foregroundStyle(r.mine ? Nuru.gold : (navy ? .white : Nuru.navy))
+                                .padding(.horizontal, 7).padding(.vertical, 2)
+                                .background(navy ? Color.white.opacity(0.14) : Nuru.inputBg).clipShape(Capsule())
+                        }.buttonStyle(.plain)
+                    }
+                    Menu {
+                        ForEach(["🙏", "🔥", "❤️", "👏", "✅", "😀"], id: \.self) { e in
+                            Button(e) { model.react(m.messageId, e) }
+                        }
+                    } label: {
+                        Image(systemName: "face.smiling").font(.system(size: 11))
+                            .foregroundStyle(navy ? .white.opacity(0.7) : Nuru.ink400)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(navy ? Color.white.opacity(0.10) : Nuru.inputBg).clipShape(Capsule())
                     }
                 }
             }
@@ -1276,6 +1288,16 @@ private final class ChatModel: ObservableObject {
     func flag(_ id: String)   { moderate(id) { _ = try await self.api.post("/chat/messages/\(id)/flag", body: EmptyBody(), as: ModAck.self) } }
     func unflag(_ id: String) { moderate(id) { _ = try await self.api.post("/chat/messages/\(id)/unflag", body: EmptyBody(), as: ModAck.self) } }
     func remove(_ id: String) { moderate(id) { _ = try await self.api.post("/chat/messages/\(id)/remove", body: EmptyBody(), as: ModAck.self) } }
+
+    /// Toggle an emoji reaction on a message (POST /chat/messages/{id}/reactions {emoji}).
+    func react(_ messageId: String, _ emoji: String) {
+        struct ReactBody: Encodable { let emoji: String }
+        struct ReactAck: Decodable {}
+        Task {
+            _ = try? await api.post("/chat/messages/\(messageId)/reactions", body: ReactBody(emoji: emoji), as: ReactAck.self)
+            await refetchThread(activeId)
+        }
+    }
 
     // MARK: local toggles
     func toggleMute()    { if let id = active?.conversationId { toggle(&muted, id) } }

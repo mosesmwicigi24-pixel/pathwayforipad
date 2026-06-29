@@ -184,6 +184,72 @@ private enum CmsAPI {
         // Server returns the re-sequenced list under { data: [...] }; we only need success.
         _ = try await api.post("/admin/modules/\(id)/reorder", body: ReorderBody(toSequence: toSequence), as: DataList<AdminModuleSummary>.self)
     }
+
+    // ── Full module load + save (web LevelDetail right pane) ──
+
+    /// GET /admin/modules/{id} → the full AdminModule for the editor.
+    static func module(_ id: String) async throws -> ModuleFull {
+        try await api.get("/admin/modules/\(id)", as: ModuleFull.self)
+    }
+    /// PUT /admin/modules/{id} with the edited fields + expected_row_version
+    /// (web's optimistic-concurrency guard). Returns the refreshed row.
+    static func updateModule(_ id: String, _ body: ModuleUpdateBody) async throws -> ModuleFull {
+        try await api.put("/admin/modules/\(id)", body: body, as: ModuleFull.self)
+    }
+}
+
+/// Tolerant decode of the full module row (web AdminModule). Optionals + the shared
+/// @Default* wrappers guard against null/missing — synthesized Codable would throw
+/// on a plain `var x = default`, so every non-optional uses a wrapper.
+private struct ModuleFull: Codable {
+    @DefaultEmpty var moduleId: String
+    @DefaultEmpty var title: String
+    let summary: String?
+    @DefaultEmpty var status: String
+    @DefaultZero var moduleSequenceNumber: Int
+    @DefaultEmpty var evaluationKind: String
+    @DefaultEmpty var lessonContent: String
+    let keyVerses: [String]?
+    let objectives: String?
+    let tags: String?
+    @DefaultEmpty var visibility: String           // "members" | "leaders" | "public"
+    @DefaultEmpty var difficulty: String           // "beginner" | "intermediate" | "advanced"
+    let videoUrl: String?
+    let estimatedMinutes: Int?
+    @DefaultFalse var required: Bool
+    @DefaultEmpty var quizPassMark: String
+    let timeLimitSec: Int?
+    let maxAttempts: Int?
+    @DefaultFalse var quizShuffle: Bool
+    @DefaultFalse var quizShowAnswers: Bool
+    @DefaultFalse var quizShowScore: Bool
+    @DefaultZero var currentVersion: Int
+    @DefaultZero var rowVersion: Int
+    @DefaultZero var levelNumber: Int
+}
+
+/// PUT body for the module editor. camelCase encodes to snake_case via the actor's
+/// convertToSnakeCase (so `expectedRowVersion` → `expected_row_version`, matching web).
+private struct ModuleUpdateBody: Encodable {
+    let title: String
+    let summary: String?
+    let lessonContent: String
+    let evaluationKind: String
+    let quizPassMark: Int
+    let estimatedMinutes: Int?
+    let videoUrl: String?
+    let keyVerses: [String]?
+    let maxAttempts: Int?
+    let difficulty: String
+    let objectives: String?
+    let tags: String?
+    let visibility: String
+    let required: Bool
+    let quizShuffle: Bool
+    let quizShowAnswers: Bool
+    let quizShowScore: Bool
+    let timeLimitSec: Int?
+    let expectedRowVersion: Int
 }
 
 /// Combined load: levels + the learners-by-level report, merged into [UiLevel].
@@ -318,6 +384,16 @@ private struct CmsCurriculumContent: View {
     }
     private var totalLevels: Int { donutData.reduce(0) { $0 + $1.value } }
 
+    // ── Deep-link (router.pendingLevel → focus that level) ──
+
+    /// If the shared router carries a pending level number, select it and clear the
+    /// flag so a subsequent navigation to the page doesn't re-trigger the jump.
+    private func applyPendingLevel() {
+        guard let n = router.pendingLevel else { return }
+        if levels.contains(where: { $0.number == n }) { selectedNo = n }
+        router.pendingLevel = nil
+    }
+
     // ── Write actions (mirror the CmsCurriculum.tsx handlers) ──
 
     private func setLevelStatus(_ n: Int, _ status: CmsEditStatus) {
@@ -350,7 +426,11 @@ private struct CmsCurriculumContent: View {
                 mainScroll
             }
         }
-        .onAppear { if selectedNo == nil { selectedNo = levels.first?.number } }
+        .onAppear {
+            if selectedNo == nil { selectedNo = levels.first?.number }
+            applyPendingLevel()
+        }
+        .onChange(of: router.pendingLevel) { _, _ in applyPendingLevel() }
         .sheet(item: $levelSheet) { mode in
             let formMode: LevelFormSheet.Mode = {
                 switch mode {
@@ -1469,13 +1549,50 @@ private struct LevelFormSheet: View {
     }
 }
 
-// MARK: - ModuleQuizView (module question bank — read-only, links to Quiz Builder)
+// MARK: - ModuleQuizView (module screen — Editor + question bank, links to Quiz Builder)
+//
+// Ports the web LevelDetail.tsx right pane: a segmented control toggles between the
+// full module editor (Content tab) and this module's read-only question bank (Quiz
+// tab). The Quiz Builder cross-nav stays in the toolbar.
 
 struct ModuleQuizView: View {
     let module: AdminModuleSummary
     @EnvironmentObject private var router: NavRouter
 
+    enum Pane: String, CaseIterable, Identifiable { case editor = "Editor", questions = "Questions"; var id: String { rawValue } }
+    @State private var pane: Pane = .editor
+
     var body: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $pane) {
+                ForEach(Pane.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, Nuru.S.screen)
+            .padding(.vertical, 10)
+            .background(Nuru.white)
+
+            Divider()
+
+            switch pane {
+            case .editor:
+                ModuleEditorPane(moduleId: module.moduleId, fallbackTitle: module.title)
+            case .questions:
+                questionBank
+            }
+        }
+        .background(Nuru.paper)
+        .portalPage(module.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { router.go(.quizBuilder) } label: { Label("Quiz Builder", systemImage: "questionmark.circle") }
+            }
+        }
+    }
+
+    // The original read-only question bank, unchanged in behavior.
+    private var questionBank: some View {
         AsyncView({ try await PortalAPI.questions(moduleId: module.moduleId) }) { questions in
             if questions.isEmpty {
                 ContentUnavailableView {
@@ -1518,12 +1635,210 @@ struct ModuleQuizView: View {
                 }
             }
         }
-        .portalPage(module.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { router.go(.quizBuilder) } label: { Label("Quiz Builder", systemImage: "questionmark.circle") }
+    }
+}
+
+// MARK: - ModuleEditorPane (web LevelDetail.tsx right-pane module editor)
+//
+// Loads the full module (GET /admin/modules/{id}), exposes every editable field as a
+// Form, and saves via PUT with expected_row_version for optimistic concurrency.
+
+private struct ModuleEditorPane: View {
+    let moduleId: String
+    let fallbackTitle: String
+
+    @State private var loaded: ModuleFull?
+    @State private var phase: Phase = .loading
+    private enum Phase { case loading, ready, failed(String) }
+
+    // Editable fields.
+    @State private var title = ""
+    @State private var summary = ""
+    @State private var lessonContent = ""
+    @State private var objectives = ""
+    @State private var tags = ""
+    @State private var keyVersesText = ""
+    @State private var evaluationKind = "none"
+    @State private var difficulty = "beginner"
+    @State private var visibility = "members"
+    @State private var required = false
+    @State private var videoUrl = ""
+    @State private var estimatedMinutes = 0
+    @State private var quizPassMark = 70
+    @State private var maxAttempts = 3
+    @State private var timeLimitMinutes = 0
+    @State private var quizShuffle = false
+    @State private var quizShowAnswers = false
+    @State private var quizShowScore = true
+
+    @State private var saving = false
+    @State private var notice: String?
+    @State private var error: String?
+
+    // Web option sets.
+    private let evalOpts: [(v: String, l: String)] = [("none", "— none —"), ("quiz", "Quiz"), ("reflection", "Reflection"), ("exit_exam", "Exit exam")]
+    private let difficultyOpts: [(v: String, l: String)] = [("beginner", "Beginner"), ("intermediate", "Intermediate"), ("advanced", "Advanced")]
+    private let visibilityOpts: [(v: String, l: String)] = [("members", "Members"), ("leaders", "Leaders only"), ("public", "Public")]
+    private var isQuiz: Bool { evaluationKind == "quiz" }
+
+    var body: some View {
+        Group {
+            switch phase {
+            case .loading:
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed(let m):
+                ScrollView { ErrorBanner(message: m) { Task { await load() } }.padding(Nuru.S.screen) }
+            case .ready:
+                editorForm
             }
+        }
+        .task(id: moduleId) { await load() }
+    }
+
+    private var editorForm: some View {
+        Form {
+            SwiftUI.Section("Module basics") {
+                TextField("Title", text: $title)
+                Picker("Difficulty", selection: $difficulty) {
+                    ForEach(difficultyOpts, id: \.v) { Text($0.l).tag($0.v) }
+                }
+                Stepper("Estimated minutes: \(estimatedMinutes)", value: $estimatedMinutes, in: 0...600, step: 5)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Summary").font(.nMicro).foregroundStyle(Nuru.ink600)
+                    TextEditor(text: $summary).frame(minHeight: 60).font(.inter(14, .regular))
+                }
+            }
+
+            SwiftUI.Section("Lesson content · Markdown") {
+                TextEditor(text: $lessonContent)
+                    .frame(minHeight: 220)
+                    .font(.system(.body, design: .monospaced))
+                Text("\(lessonContent.count) chars").font(.nMicro).foregroundStyle(Nuru.ink400)
+            }
+
+            SwiftUI.Section("Objectives & scripture") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Learning objectives (one per line)").font(.nMicro).foregroundStyle(Nuru.ink600)
+                    TextEditor(text: $objectives).frame(minHeight: 80).font(.inter(14, .regular))
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Key scripture (one per line)").font(.nMicro).foregroundStyle(Nuru.ink600)
+                    TextEditor(text: $keyVersesText).frame(minHeight: 80).font(.inter(14, .regular))
+                }
+                TextField("Tags (comma-separated)", text: $tags)
+            }
+
+            SwiftUI.Section("Evaluation & gating") {
+                Picker("Evaluation kind", selection: $evaluationKind) {
+                    ForEach(evalOpts, id: \.v) { Text($0.l).tag($0.v) }
+                }
+                Picker("Visibility", selection: $visibility) {
+                    ForEach(visibilityOpts, id: \.v) { Text($0.l).tag($0.v) }
+                }
+                Toggle("Required to advance", isOn: $required)
+            }
+
+            SwiftUI.Section("Quiz settings") {
+                Stepper("Pass mark: \(quizPassMark)%", value: $quizPassMark, in: 0...100, step: 5)
+                    .disabled(!isQuiz)
+                Stepper("Attempts allowed: \(maxAttempts)", value: $maxAttempts, in: 1...50)
+                    .disabled(!isQuiz)
+                Stepper(timeLimitMinutes > 0 ? "Time limit: \(timeLimitMinutes) min" : "Time limit: none",
+                        value: $timeLimitMinutes, in: 0...240, step: 5)
+                Toggle("Shuffle questions", isOn: $quizShuffle)
+                Toggle("Show answers after submit", isOn: $quizShowAnswers)
+                Toggle("Show score after submit", isOn: $quizShowScore)
+            }
+
+            SwiftUI.Section("Lesson media") {
+                TextField("Lesson video URL", text: $videoUrl)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+            }
+
+            if let notice { SwiftUI.Section { Text(notice).font(.nCaption).foregroundStyle(Nuru.success) } }
+            if let error { SwiftUI.Section { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) } }
+
+            SwiftUI.Section {
+                Button { Task { await save() } } label: {
+                    HStack {
+                        Spacer()
+                        Text(saving ? "Saving…" : "Save module").font(.inter(14, .semibold)).foregroundStyle(.white)
+                        Spacer()
+                    }
+                }
+                .listRowBackground(title.trimmingCharacters(in: .whitespaces).isEmpty ? Nuru.mutedBg : Nuru.navy)
+                .disabled(saving || title.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+    }
+
+    // ── Load / reflect / save ──
+
+    @MainActor private func load() async {
+        phase = .loading
+        do {
+            let m = try await CmsAPI.module(moduleId)
+            reflect(m)
+            phase = .ready
+        } catch {
+            phase = .failed((error as? APIError)?.errorDescription ?? "Could not load module.")
+        }
+    }
+
+    private func reflect(_ m: ModuleFull) {
+        loaded = m
+        title = m.title
+        summary = m.summary ?? ""
+        lessonContent = m.lessonContent
+        objectives = m.objectives ?? ""
+        tags = m.tags ?? ""
+        keyVersesText = (m.keyVerses ?? []).joined(separator: "\n")
+        evaluationKind = m.evaluationKind.isEmpty ? "none" : m.evaluationKind
+        difficulty = m.difficulty.isEmpty ? "beginner" : m.difficulty
+        visibility = m.visibility.isEmpty ? "members" : m.visibility
+        required = m.required
+        videoUrl = m.videoUrl ?? ""
+        estimatedMinutes = m.estimatedMinutes ?? 0
+        quizPassMark = Int(Double(m.quizPassMark) ?? 70)
+        maxAttempts = m.maxAttempts ?? 3
+        timeLimitMinutes = m.timeLimitSec != nil ? Int((m.timeLimitSec! / 60)) : 0
+        quizShuffle = m.quizShuffle
+        quizShowAnswers = m.quizShowAnswers
+        quizShowScore = m.quizShowScore
+    }
+
+    @MainActor private func save() async {
+        guard let m = loaded else { return }
+        saving = true; error = nil; notice = nil
+        let verses = keyVersesText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let body = ModuleUpdateBody(
+            title: title.trimmingCharacters(in: .whitespaces),
+            summary: summary.isEmpty ? nil : summary,
+            lessonContent: lessonContent,
+            evaluationKind: evaluationKind,
+            quizPassMark: quizPassMark,
+            estimatedMinutes: estimatedMinutes > 0 ? estimatedMinutes : nil,
+            videoUrl: videoUrl.trimmingCharacters(in: .whitespaces).isEmpty ? nil : videoUrl,
+            keyVerses: verses.isEmpty ? nil : verses,
+            maxAttempts: maxAttempts,
+            difficulty: difficulty,
+            objectives: objectives.isEmpty ? nil : objectives,
+            tags: tags.trimmingCharacters(in: .whitespaces).isEmpty ? nil : tags,
+            visibility: visibility,
+            required: required,
+            quizShuffle: quizShuffle,
+            quizShowAnswers: quizShowAnswers,
+            quizShowScore: quizShowScore,
+            timeLimitSec: timeLimitMinutes > 0 ? timeLimitMinutes * 60 : nil,
+            expectedRowVersion: m.rowVersion)
+        do {
+            let updated = try await CmsAPI.updateModule(moduleId, body)
+            reflect(updated)
+            notice = "Saved."
+            saving = false
+        } catch {
+            self.error = (error as? APIError)?.errorDescription ?? "Save failed — the module may have changed elsewhere (reload)."
+            saving = false
         }
     }
 }

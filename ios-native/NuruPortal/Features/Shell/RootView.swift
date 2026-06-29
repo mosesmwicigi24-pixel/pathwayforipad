@@ -94,10 +94,13 @@ struct MemberRef: Identifiable, Equatable { let id: String; let name: String }
     @Published var memberSearch: String?
     /// Deep-link: open a specific member's profile from anywhere (param route).
     @Published var openMember: MemberRef?
+    /// Deep-link: open CMS Curriculum focused on a specific level number.
+    @Published var pendingLevel: Int?
     // Instant — no transition animation, for maximum tap reactivity.
     func go(_ s: Section) { section = s }
     func search(_ q: String) { memberSearch = q; section = .members }
     func member(_ id: String, _ name: String) { openMember = MemberRef(id: id, name: name) }
+    func openLevel(_ n: Int) { pendingLevel = n; section = .cms }
 }
 
 struct RootView: View {

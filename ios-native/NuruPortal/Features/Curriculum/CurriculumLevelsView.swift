@@ -106,7 +106,7 @@ struct CurriculumLevelsView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14)], spacing: 14) {
                         ForEach(levels) { lvl in
                             LevelCard(level: lvl, active: activeId == lvl.levelNumber,
-                                      onOpen: { router.go(.cms) })
+                                      onOpen: { router.openLevel(lvl.levelNumber) })
                                 .onTapGesture { activeId = lvl.levelNumber }
                         }
                     }
@@ -114,7 +114,7 @@ struct CurriculumLevelsView: View {
                     // Row 5: active-level deep-dive
                     if let active {
                         ActiveLevelDeepDive(level: active, trend: report.trend,
-                                            onOpen: { router.go(.cms) })
+                                            onOpen: { router.openLevel(active.levelNumber) })
                     }
                 }
                 .padding(.horizontal, 20)
