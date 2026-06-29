@@ -2044,11 +2044,7 @@ private struct CreateEventSheet: View {
                     }
 
                     sectionLabel("Image")
-                    formField("Primary image URL") {
-                        TextField("https://… (Cloudinary)", text: $primaryImageUrl).textFieldStyle(.plain).font(.inter(12, .regular)).autocorrectionDisabled().textInputAutocapitalization(.never)
-                    }
-                    Text("NEEDS: in-app image picker → Cloudinary signed upload (POST /admin/media/images/sign). Paste a hosted URL for now.")
-                        .font(.nMicro).foregroundStyle(Nuru.muted)
+                    ImageUploadField(label: "Primary image", folder: "events", url: $primaryImageUrl)
 
                     Toggle(isOn: $featured) { Label("Feature on mobile home + Events hero", systemImage: "star").font(.inter(13, .regular)) }.tint(Nuru.gold)
 
@@ -2173,11 +2169,7 @@ private struct CreateAnnouncementSheet: View {
                     }
 
                     sectionLabel("Image")
-                    formField("Primary image URL") {
-                        TextField("https://… (Cloudinary)", text: $primaryImageUrl).textFieldStyle(.plain).font(.inter(12, .regular)).autocorrectionDisabled().textInputAutocapitalization(.never)
-                    }
-                    Text("NEEDS: in-app image picker → Cloudinary signed upload. Paste a hosted URL for now.")
-                        .font(.nMicro).foregroundStyle(Nuru.muted)
+                    ImageUploadField(label: "Primary image", folder: "announcements", url: $primaryImageUrl)
 
                     Toggle(isOn: $featured) { Label("Feature on the mobile homepage", systemImage: "star").font(.inter(13, .regular)) }.tint(Nuru.gold)
 
@@ -2356,11 +2348,7 @@ private struct PostMomentSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    formField("Image URL") {
-                        TextField("https://… (Cloudinary)", text: $imageUrl).textFieldStyle(.plain).font(.inter(12, .regular)).autocorrectionDisabled().textInputAutocapitalization(.never)
-                    }
-                    Text("NEEDS: in-app image picker → Cloudinary signed upload (folder \"moments\"). Paste a hosted URL for now.")
-                        .font(.nMicro).foregroundStyle(Nuru.muted)
+                    ImageUploadField(label: "Image", folder: "moments", url: $imageUrl)
                     formField("Caption (optional)") {
                         TextField("A moment from Sunday…", text: $caption).textFieldStyle(.plain).font(.inter(13, .regular))
                     }

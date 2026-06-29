@@ -157,7 +157,7 @@ struct ReflectionQueueView: View {
                                   onReturn: { decide(current, "return") },
                                   onDefer: { decide(current, "defer") },
                                   onHistory: { openHistory(current) },
-                                  onProfile: { router.go(.members) })
+                                  onProfile: { router.member(current.userId, current.fullName) })
                             .id(current.reflectionId)
                     } else {
                         emptyWorkspace

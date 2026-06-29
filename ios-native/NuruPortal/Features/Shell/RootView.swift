@@ -86,13 +86,18 @@ private let navGroups: [NavGroup] = [
 
 /// App-wide navigation router — lets any detail screen jump to another top-level
 /// sidebar section (the iPad equivalent of the web portal's cross-page links).
+struct MemberRef: Identifiable, Equatable { let id: String; let name: String }
+
 @MainActor final class NavRouter: ObservableObject {
     @Published var section: Section? = .dashboard
     /// Global-search hand-off: set then route to Members, which applies it.
     @Published var memberSearch: String?
+    /// Deep-link: open a specific member's profile from anywhere (param route).
+    @Published var openMember: MemberRef?
     // Instant — no transition animation, for maximum tap reactivity.
     func go(_ s: Section) { section = s }
     func search(_ q: String) { memberSearch = q; section = .members }
+    func member(_ id: String, _ name: String) { openMember = MemberRef(id: id, name: name) }
 }
 
 struct RootView: View {
@@ -119,6 +124,9 @@ struct RootView: View {
         }
         .environmentObject(router)
         .background(Nuru.paper.ignoresSafeArea())
+        .sheet(item: $router.openMember) { ref in
+            NavigationStack { MemberDetailView(userId: ref.id, name: ref.name) }
+        }
     }
 
     private var sidebar: some View {

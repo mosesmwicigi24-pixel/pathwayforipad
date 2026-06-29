@@ -392,6 +392,7 @@ private struct CellWriteBody: Encodable {
     let meets: String?
     let room: String?
     let nextSession: String?
+    let imageUrl: String?
 }
 
 private struct CellModalSheet: View {
@@ -409,6 +410,7 @@ private struct CellModalSheet: View {
     @State private var nextSession = ""
     @State private var tone: String
     @State private var featureOnHomepage = false
+    @State private var coverUrl = ""
     @State private var saving = false
     @State private var error: String?
 
@@ -460,6 +462,7 @@ private struct CellModalSheet: View {
                             }.tag(opt.key)
                         }
                     }
+                    ImageUploadField(label: "Cover photo", folder: "events", url: $coverUrl)
                 } header: { Text("Appearance") }
 
                 if !editing {
@@ -506,7 +509,8 @@ private struct CellModalSheet: View {
             name: trimmedName, disciplerName: trimmedDiscipler, disciplerRole: disciplerRole,
             levelLabel: level, tone: tone,
             focus: nilIfBlank(focus), meets: nilIfBlank(meets),
-            room: nilIfBlank(room), nextSession: nilIfBlank(nextSession)
+            room: nilIfBlank(room), nextSession: nilIfBlank(nextSession),
+            imageUrl: nilIfBlank(coverUrl)
         )
         error = nil; saving = true
         do {

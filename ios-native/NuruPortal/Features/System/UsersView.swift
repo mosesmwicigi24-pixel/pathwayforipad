@@ -498,6 +498,7 @@ private struct UserForm: View {
     @State private var roleKeys: [String] = []
     @State private var require2fa = false
     @State private var disciplerMessage = ""
+    @State private var avatarUrl = ""
     @State private var loadedExtras = false
     @State private var saving = false
     @State private var error: String?
@@ -592,6 +593,7 @@ private struct UserForm: View {
                 TextEditor(text: $disciplerMessage)
                     .frame(minHeight: 88)
                     .font(.inter(14)).foregroundStyle(Nuru.ink)
+                ImageUploadField(label: "Profile photo", folder: "disciplers", url: $avatarUrl)
             }
         }
     }
@@ -649,6 +651,7 @@ private struct UserForm: View {
             if let l = row.locale, !l.isEmpty { locale = l }
             require2fa = row.require2fa
             disciplerMessage = row.disciplerMessage ?? ""
+            avatarUrl = row.avatarUrl ?? ""
         }
         loadedExtras = true
     }
@@ -678,6 +681,7 @@ private struct UserForm: View {
             "require_2fa": .scalar(.bool(require2fa)),
             "role_keys": .strings(roleKeys),
             "discipler_message": .scalar(disciplerMessage.trimmingCharacters(in: .whitespaces).isEmpty ? .null : .string(disciplerMessage.trimmingCharacters(in: .whitespaces))),
+            "avatar_url": .scalar(avatarUrl.trimmingCharacters(in: .whitespaces).isEmpty ? .null : .string(avatarUrl.trimmingCharacters(in: .whitespaces))),
         ]
         if !password.isEmpty { body["password"] = .scalar(.string(password)) }
 
