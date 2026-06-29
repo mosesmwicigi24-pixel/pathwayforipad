@@ -143,6 +143,20 @@ enum PortalAPI {
         try await api.get("/admin/media", as: MediaListResponse.self).data
     }
 
+    // Dashboard report extras
+    static func attendance(weeks: Int = 8) async throws -> [AttendanceTrendPoint] {
+        try await api.get("/admin/reports/attendance", query: ["weeks": "\(weeks)"], as: AttendanceReport.self).trend
+    }
+    static func auditFeed() async throws -> [AuditRow] {
+        try await api.get("/admin/audit", as: AuditPage.self).data
+    }
+    static func consentsCount() async throws -> Int {
+        try await api.get("/admin/reports/consents", as: ConsentsPage.self).data.count
+    }
+    static func mediaStuck() async throws -> Int {
+        try await api.get("/admin/media", as: MediaListResponse.self).stuck
+    }
+
     // Chat
     static func chatConversations() async throws -> ChatList {
         try await api.get("/chat/conversations", query: ["scope": "mine"], as: ChatList.self)

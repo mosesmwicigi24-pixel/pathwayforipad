@@ -360,7 +360,34 @@ struct MediaAssetRow: Codable, Identifiable {
     let completion: Double?
     var id: String { mediaAssetId }
 }
-struct MediaListResponse: Codable { let data: [MediaAssetRow] }
+struct MediaListResponse: Codable {
+    let data: [MediaAssetRow]
+    @DefaultZero var stuck: Int
+    @DefaultZero var total: Int
+}
+
+// MARK: - Dashboard report extras
+
+struct AttendanceTrendPoint: Codable, Identifiable {
+    @DefaultEmpty var weekStart: String
+    @DefaultZero var checkIns: Int
+    @DefaultZero var uniqueMembers: Int
+    var id: String { weekStart }
+}
+struct AttendanceReport: Codable { let trend: [AttendanceTrendPoint] }
+
+struct AuditRow: Codable, Identifiable {
+    @DefaultZero var auditId: Int
+    @DefaultEmpty var action: String
+    let entity: String?
+    let actorName: String?
+    @DefaultEmpty var createdAt: String
+    var id: Int { auditId }
+}
+struct AuditPage: Codable { let data: [AuditRow] }
+
+struct ConsentRow: Codable { @DefaultEmpty var consentId: String }
+struct ConsentsPage: Codable { let data: [ConsentRow] }
 
 // MARK: - Chat
 

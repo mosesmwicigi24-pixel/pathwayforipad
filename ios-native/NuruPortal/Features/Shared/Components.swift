@@ -326,6 +326,153 @@ struct StatCard: View {
     }
 }
 
+// MARK: - Portal hero (navy banner with breadcrumb, action chips, KPI strip)
+
+struct HeroStat: Identifiable {
+    let label: String, value: String, hint: String
+    var id: String { label }
+}
+
+struct PortalHero<Actions: View>: View {
+    var breadcrumb: [String] = []
+    var eyebrow: String? = nil
+    let title: String
+    var subtitle: String? = nil
+    var stats: [HeroStat] = []
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center) {
+                if !breadcrumb.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(Array(breadcrumb.enumerated()), id: \.offset) { i, crumb in
+                            if i > 0 { Image(systemName: "chevron.right").font(.system(size: 8)).foregroundStyle(Nuru.onNavyFaint) }
+                            Text(crumb).font(.nMicro)
+                                .foregroundStyle(i == breadcrumb.count - 1 ? .white : Nuru.onNavyDim)
+                        }
+                    }
+                }
+                Spacer()
+                actions
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                if let eyebrow { Text(eyebrow.uppercased()).font(.nOverline).tracking(1.8).foregroundStyle(Nuru.goldGlow) }
+                Text(title).font(.nDisplay).foregroundStyle(.white)
+                if let subtitle { Text(subtitle).font(.nBody).foregroundStyle(Nuru.onNavyDim).fixedSize(horizontal: false, vertical: true) }
+            }
+            if !stats.isEmpty { statStrip }
+        }
+        .padding(.horizontal, Nuru.S.lg).padding(.top, Nuru.S.lg).padding(.bottom, Nuru.S.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.navyCeremony)
+    }
+
+    private var statStrip: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(stats.enumerated()), id: \.element.id) { i, s in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(s.label.uppercased()).font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)
+                    Text(s.value).font(.fraunces(24, .medium)).foregroundStyle(.white)
+                    Text(s.hint).font(.nMicro).foregroundStyle(Nuru.onNavyFaint)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 18).padding(.vertical, 14)
+                if i < stats.count - 1 { Rectangle().fill(.white.opacity(0.08)).frame(width: 1) }
+            }
+        }
+        .background(.white.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+    }
+}
+extension PortalHero where Actions == EmptyView {
+    init(breadcrumb: [String] = [], eyebrow: String? = nil, title: String, subtitle: String? = nil, stats: [HeroStat] = []) {
+        self.init(breadcrumb: breadcrumb, eyebrow: eyebrow, title: title, subtitle: subtitle, stats: stats) { EmptyView() }
+    }
+}
+
+/// Hero action chip — ghost (translucent), gold (solid), or tag (gold-tinted).
+struct HeroChip: View {
+    enum Style { case ghost, gold, tag }
+    let label: String
+    var icon: String? = nil
+    var trailingIcon: String? = nil
+    var style: Style = .ghost
+    var action: () -> Void = {}
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if let icon { Image(systemName: icon).font(.system(size: 11, weight: .semibold)) }
+                Text(label).font(.inter(11.5, style == .tag ? .bold : .semibold))
+                    .textCase(style == .tag ? .uppercase : nil)
+                if let trailingIcon { Image(systemName: trailingIcon).font(.system(size: 10, weight: .bold)) }
+            }
+            .padding(.horizontal, 12).frame(height: 32)
+            .foregroundStyle(fg)
+            .background(bg)
+            .overlay(Capsule().stroke(border, lineWidth: 1))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+    private var fg: Color { switch style { case .gold: .white; case .tag: Nuru.goldGlow; case .ghost: .white } }
+    private var bg: Color { switch style { case .gold: Nuru.gold; case .tag: Nuru.gold.opacity(0.14); case .ghost: .white.opacity(0.08) } }
+    private var border: Color { switch style { case .gold: .clear; case .tag: Nuru.gold.opacity(0.25); case .ghost: .white.opacity(0.15) } }
+}
+
+/// Pastel KPI tile (Dashboard) — tinted card, icon chip, serif value, tap-through.
+struct KpiTile: View {
+    let label: String, value: String, icon: String
+    let tint: Nuru.Tint
+    var action: () -> Void = {}
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous).fill(tint.fg.opacity(0.14))
+                    Image(systemName: icon).font(.system(size: 18, weight: .semibold)).foregroundStyle(tint.fg)
+                }.frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label).font(.nCaption).foregroundStyle(Nuru.ink600).lineLimit(1)
+                    Text(value).font(.fraunces(23, .semibold)).foregroundStyle(Nuru.navy)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "ellipsis").font(.system(size: 13)).foregroundStyle(Nuru.ink300)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(tint.bg)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(tint.fg.opacity(0.18), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Pipeline status tile (Drafts / In review / Archived / Published).
+struct PipelineTile: View {
+    let label: String, value: String, icon: String
+    let tint: Nuru.Tint
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.7))
+                Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(tint.fg)
+            }.frame(width: 34, height: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value).font(.fraunces(22, .semibold)).foregroundStyle(tint.fg)
+                Text(label).font(.inter(11.5, .semibold)).foregroundStyle(tint.fg.opacity(0.85))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.bg)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+    }
+}
+
 // MARK: - Formatting
 
 enum Fmt {
