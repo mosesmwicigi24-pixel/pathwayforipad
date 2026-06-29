@@ -260,24 +260,39 @@ struct BadgesView: View {
                 HStack {
                     Pill(text: cat.label, color: cat.color)
                     Spacer()
-                    Circle().fill(active ? Color(hex: 0x16A34A) : Color(hex: 0x9CA3AF)).frame(width: 8, height: 8)
+                    HStack(spacing: 4) {
+                        Circle().fill(active ? Color(hex: 0x16A34A) : Color(hex: 0x9CA3AF)).frame(width: 7, height: 7)
+                        Text(active ? "Active" : "Inactive")
+                            .font(.inter(9, .semibold)).tracking(0.3)
+                            .foregroundStyle(active ? Color(hex: 0x16A34A) : Nuru.muted)
+                    }
                 }
                 Medallion(icon: cat.icon, size: 60, color: cat.color)
                     .saturation(active ? 1 : 0.5)
                     .padding(.top, 6)
                 Text(b.name).font(.fraunces(15, .medium)).foregroundStyle(Nuru.ink)
                     .multilineTextAlignment(.center).lineLimit(2).padding(.top, 10)
-                Text(b.description.count > 56 ? "\(b.description.prefix(56))…" : b.description)
+                Text(b.description.count > 64 ? "\(b.description.prefix(64))…" : b.description)
                     .font(.inter(11, .regular)).foregroundStyle(Nuru.muted)
                     .multilineTextAlignment(.center).lineLimit(2)
                     .frame(minHeight: 30).padding(.top, 3)
+
+                // Awarding criteria line (real code) — the stable rule key.
+                Text(b.code).font(.inter(9.5, .medium)).monospaced().tracking(0.2)
+                    .foregroundStyle(Nuru.muted).lineLimit(1).minimumScaleFactor(0.8)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Nuru.surface).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .padding(.top, 8)
+
+                // Awarded count — pluralized so the tile reads as a sentence, not a bare number.
                 HStack(spacing: 4) {
-                    Image(systemName: "person.2").font(.system(size: 10)).foregroundStyle(Nuru.gold)
-                    Text("\(b.earnedCount)").font(.inter(11, .bold)).foregroundStyle(Nuru.navy)
+                    Image(systemName: "person.2.fill").font(.system(size: 9)).foregroundStyle(Nuru.gold)
+                    Text(b.earnedCount == 1 ? "Earned by 1 member" : "Earned by \(b.earnedCount.formatted()) members")
+                        .font(.inter(10, .medium)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.8)
                 }
                 .padding(.horizontal, 9).padding(.vertical, 3)
                 .background(Nuru.surface).clipShape(Capsule())
-                .padding(.top, 10)
+                .padding(.top, 6)
 
                 Divider().overlay(Nuru.border).padding(.top, 12)
                 HStack(spacing: 6) {

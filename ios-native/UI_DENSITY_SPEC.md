@@ -53,3 +53,62 @@ per row than the web's narrower layout).
 
 Reference the web page (`packages/admin-web/src/components/pages/<Page>.tsx`) for the
 intended columns/density, then tailor denser for the iPad canvas.
+
+---
+
+## Pass v2 — PORTRAIT tuning (primary target now)
+
+We now optimize for **iPad Pro 13" (M5) in PORTRAIT**. Get portrait right and landscape
+follows. Critical constraints:
+
+- **Content width is NARROW in portrait:** screen ≈ 1032pt − 264pt sidebar − padding ≈
+  **~720–760pt usable** (less than half the landscape width). Design grids for THIS width.
+  For a row of **5 compact KPI tiles** use `GridItem(.adaptive(minimum: 132), spacing: 12)`;
+  for 4-up use ~150; for 3-up content cards use ~220. Verify counts mentally at ~740pt.
+- **Cards must not look jam-packed/busy.** Inside each card: clear hierarchy — icon (small,
+  tinted), one value (the number), one short label, optional one-line hint. Don't cram 4+
+  competing elements. **Thinner/smaller fonts** — prefer `Font.inter(.., .regular/.medium)`
+  and `.semibold` only for the value; avoid heavy/oversized weights. Numbers compact.
+- **Fix broken/truncated label words** (e.g. an overline like "AVG ENGAGEMENT" wrapping
+  mid-word, "View" buttons mis-rendering). Give labels `lineLimit(1)` +
+  `minimumScaleFactor(0.85)` or shorter text; keep action buttons (Edit / View) the SAME
+  size, SAME style, aligned on one baseline — never one big + one broken.
+- **Reduce vertical run.** In portrait, long stacks scroll forever. Where sections are
+  independent, lay them out in **two columns** (a primary/left column + a secondary/right
+  column) using an HStack of two VStacks (or a 2-col grid) so content spreads sideways
+  instead of marching down the page. Tables/wide charts stay full width.
+- Keep everything from Pass v1 (tables, visible pills, tight padding) and **all wiring**.
+
+### Per-page directives (from the product owner, portrait)
+
+- **Cell Engagement + Cell Detail:** disciple/cell cards look jam-packed & busy — reorganize
+  so number/icon/label/buttons are clean and aligned. Edit & View buttons must be the same
+  button style/size on one row (View is currently broken). Thinner/smaller fonts. Fix broken
+  truncated overline words (e.g. "AVG ENGAGEMENT").
+- **Members list + Member Detail:** (1) the hero/top card has a big empty gap before the
+  person's name — remove that dead space so the name sits up. (2) **De-duplicate the KPI
+  tiles** — Habits/Curriculum/Attendance currently appear twice (an upper info strip AND a
+  lower KPI row repeat Habits & Attendance). Consolidate into **ONE row of 5 compact tiles**:
+  Habits · Curriculum · Attendance · Badges · (+ the 5th existing metric, e.g. Word/score).
+  (3) Then Recent Activity, and Milestones/Certificates/Badges organized neatly. (4) Reduce
+  vertical run: put the upper section blocks into a **middle column** and the rest into a
+  **right/end column** (two-column layout) so info spreads sideways. Results dossier can stay
+  a single column (it's a table) but sit beside the rest where it fits.
+- **Reflection Queue:** cards are decent — light polish only.
+- **Chat:** the header stat cards ("Conversations 13", "Active 1", "Graded 1") are too big →
+  make them **small** compact chips/tiles. The chart is fine — leave it.
+- **Events:** **remove the "Live QR" feature/card entirely.** Keep everything else; organize
+  neatly.
+- **Finance:** cards are HUGE → **small fonts** for amounts (the big currency numbers shrink),
+  organize card content neatly, aim for **~5 cards per row**. The **"Giving by fund" pie/donut
+  chart is unclear — redesign it** to read clearly (legend with values/percentages, clean
+  slices). The **Discipleship/Gift/Mission breakdown** needs a cleaner presentation. The
+  **summary** block must be neat. **Transactions** table is good — light presentation polish.
+  **Ledger** good. Improve **Audit** and **Configuration** presentation too.
+- **Certificates:** fine — leave as-is.
+- **Badges:** add a touch more info to each badge tile (e.g. under "First Steps — Completed
+  your first module" show criteria/awarded-count/level) to enrich without clutter.
+- **Curriculum (Levels, Quiz Builder, Content Studio, Video Library, CMS):** apply the same
+  organization wisdom — clean cards, right column counts for portrait, thinner fonts.
+- **System (Countries, Languages, Congregations, Users, Roles):** refine presentation for
+  portrait width; keep the dense tables but make sure nothing overflows at ~740pt.

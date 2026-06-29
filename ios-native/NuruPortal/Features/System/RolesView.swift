@@ -325,29 +325,31 @@ private struct KeyRoleCard: View {
 // Columns mirror the web Roles.tsx table: Role · Type · Permissions · Users ·
 // Status · ⋯, width-aligned across rows.
 
+// Tuned for PORTRAIT (usable row ≈ 692pt): fixed 432 + 5×12 gaps + name flex
+// ≈ 200 → fits without clipping.
 private enum RoleCol {
-    static let type: CGFloat = 110
-    static let perms: CGFloat = 150
-    static let users: CGFloat = 90
-    static let status: CGFloat = 120
-    static let actions: CGFloat = 90
+    static let type: CGFloat = 84
+    static let perms: CGFloat = 104
+    static let users: CGFloat = 64
+    static let status: CGFloat = 96
+    static let actions: CGFloat = 84
 }
 
 private struct RoleHeaderRow: View {
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             head("Role").frame(maxWidth: .infinity, alignment: .leading)
             head("Type").frame(width: RoleCol.type, alignment: .leading)
-            head("Permissions").frame(width: RoleCol.perms, alignment: .leading)
+            head("Perms").frame(width: RoleCol.perms, alignment: .leading)
             head("Users").frame(width: RoleCol.users, alignment: .trailing)
             head("Status").frame(width: RoleCol.status, alignment: .leading)
             head("").frame(width: RoleCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 12)
+        .padding(.horizontal, 16).padding(.vertical, 11)
         .background(Nuru.surface)
     }
     private func head(_ t: String) -> some View {
-        Text(t.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.ink600)
+        Text(t.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.85)
     }
 }
 
@@ -358,11 +360,11 @@ private struct RoleTableRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             // Role — name + monospaced key
             VStack(alignment: .leading, spacing: 2) {
-                Text(role.name).font(.inter(14, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                Text(role.roleKey).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Nuru.ink600).lineLimit(1)
+                Text(role.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.85)
+                Text(role.roleKey).font(.system(size: 11, design: .monospaced)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -371,9 +373,9 @@ private struct RoleTableRow: View {
 
             // Permissions — tap opens the matrix sheet
             Button(action: onOpen) {
-                HStack(spacing: 5) {
-                    Image(systemName: "shield.lefthalf.filled").font(.system(size: 11, weight: .semibold))
-                    Text("\(role.permissions.count) perms").font(.inter(12, .semibold)).lineLimit(1)
+                HStack(spacing: 4) {
+                    Image(systemName: "shield.lefthalf.filled").font(.system(size: 10.5, weight: .semibold))
+                    Text("\(role.permissions.count) perms").font(.inter(11.5, .semibold)).lineLimit(1).minimumScaleFactor(0.8)
                 }
                 .foregroundStyle(Nuru.gold)
             }
@@ -383,7 +385,7 @@ private struct RoleTableRow: View {
             // Users
             HStack(spacing: 4) {
                 Image(systemName: "person.2.fill").font(.system(size: 9)).foregroundStyle(Nuru.ink400)
-                Text("\(role.userCount)").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink600)
+                Text("\(role.userCount)").font(.inter(12, .semibold)).foregroundStyle(Nuru.ink600)
             }
             .frame(width: RoleCol.users, alignment: .trailing)
 
@@ -394,27 +396,27 @@ private struct RoleTableRow: View {
             HStack(spacing: 6) {
                 Spacer(minLength: 0)
                 Button(action: onEdit) {
-                    Image(systemName: "pencil").font(.system(size: 13, weight: .semibold))
+                    Image(systemName: "pencil").font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(Nuru.navy)
-                        .frame(width: 34, height: 30)
+                        .frame(width: 30, height: 28)
                         .background(Nuru.navy.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 Button(action: onDelete) {
-                    Image(systemName: "trash").font(.system(size: 13, weight: .semibold))
+                    Image(systemName: "trash").font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(role.isSystem ? Nuru.ink400 : Color(hex: 0xDC2626))
-                        .frame(width: 34, height: 30)
+                        .frame(width: 30, height: 28)
                         .background((role.isSystem ? Nuru.ink400 : Color(hex: 0xDC2626)).opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(role.isSystem)
             }
             .frame(width: RoleCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 10)
-        .frame(minHeight: 52)
+        .padding(.horizontal, 16).padding(.vertical, 9)
+        .frame(minHeight: 50)
     }
 
     private var typePill: some View {

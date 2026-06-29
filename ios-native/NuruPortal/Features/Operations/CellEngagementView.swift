@@ -77,8 +77,8 @@ struct CellEngagementView: View {
     @EnvironmentObject private var router: NavRouter
     @State private var addOpen = false
     @State private var editCell: EngagementCellRow?
-    // Denser roster grid: ~4–5 cards per row on the wide iPad canvas.
-    private let grid = [GridItem(.adaptive(minimum: 230), spacing: 14)]
+    // Portrait roster grid: ~720–760pt usable → 3-up at minimum 220.
+    private let grid = [GridItem(.adaptive(minimum: 220), spacing: 14)]
 
     var body: some View {
         Group {
@@ -287,100 +287,86 @@ private struct CellCard: View {
         let tone = toneOf(cell.cellGroupId)
         let avg = engPct(cell.avgEngagement)
         return Card(padding: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 14) {
+                // 1) Identity — monogram, name, members. One clean row.
+                HStack(alignment: .center, spacing: 10) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 13, style: .continuous).fill(tone.opacity(0.12))
-                        Text(cellInitials(cell.name)).font(.inter(14, .bold)).foregroundStyle(tone)
-                    }.frame(width: 42, height: 42)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tone.opacity(0.12))
+                        Text(cellInitials(cell.name)).font(.inter(14, .semibold)).foregroundStyle(tone)
+                    }.frame(width: 40, height: 40)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(cell.name).font(.inter(15, .bold)).foregroundStyle(Nuru.navy).lineLimit(2)
-                        Text("\(cell.members) members").font(.inter(11, .semibold)).foregroundStyle(Nuru.muted)
+                        Text(cell.name).font(.inter(14.5, .semibold)).foregroundStyle(Nuru.navy)
+                            .lineLimit(1).minimumScaleFactor(0.85)
+                        Text("\(cell.members) members").font(.inter(11, .regular)).foregroundStyle(Nuru.muted)
                     }
                     Spacer(minLength: 0)
-                    HStack(spacing: 6) {
-                        // Edit cell → CellModal (PATCH /admin/cells/{id}).
-                        Button(action: onEdit) {
-                            HStack(spacing: 3) {
-                                Image(systemName: "pencil").font(.system(size: 9, weight: .bold))
-                                Text("Edit").font(.inter(11, .bold))
-                            }
-                            .foregroundStyle(Nuru.navy)
-                            .padding(.horizontal, 8).padding(.vertical, 5)
-                            .overlay(Capsule().stroke(Nuru.border, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                        // View → CellDetailView.
-                        NavigationLink {
-                            CellDetailView(cellGroupId: cell.cellGroupId, name: cell.name)
-                        } label: {
-                            HStack(spacing: 3) {
-                                Text("View").font(.inter(11, .bold)).foregroundStyle(Nuru.navy)
-                                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(Nuru.navy)
-                            }
-                            .padding(.horizontal, 8).padding(.vertical, 5)
-                            .overlay(Capsule().stroke(Nuru.border, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
+                    // Feature toggle reduced to a single star affordance so it no longer
+                    // competes with the identity line (POST/DELETE /admin/cells/{id}/homepage).
+                    Button(action: onToggleFeatured) {
+                        Image(systemName: isFeatured ? "star.fill" : "star")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(isFeatured ? Nuru.gold : Nuru.ink300)
+                            .frame(width: 30, height: 30)
+                            .background(isFeatured ? Nuru.gold.opacity(0.12) : Color.black.opacity(0.03))
+                            .clipShape(Circle())
+                            .opacity(isFeaturing ? 0.5 : 1)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(isFeaturing)
                 }
 
-                // "Feature on homepage" toggle (POST/DELETE /admin/cells/{id}/homepage).
-                Button(action: onToggleFeatured) {
-                    HStack(spacing: 6) {
-                        Image(systemName: isFeatured ? "star.fill" : "star").font(.system(size: 10))
-                        Text(isFeatured ? "Homepage · This week" : "Feature on homepage").font(.inter(11, .bold))
-                    }
-                    .foregroundStyle(isFeatured ? .white : Nuru.muted)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(isFeatured ? Nuru.gold : Color.black.opacity(0.03))
-                    .overlay(Capsule().stroke(isFeatured ? Nuru.gold : Nuru.border, lineWidth: 1))
-                    .clipShape(Capsule())
-                    .opacity(isFeaturing ? 0.6 : 1)
-                }
-                .buttonStyle(.plain)
-                .disabled(isFeaturing)
-
-                // Compact stat strip — avg engagement no longer dominates with a
-                // half-card serif number; sits inline with the bar + status pills.
-                VStack(alignment: .leading, spacing: 7) {
+                // 2) Engagement — one short label, one value, one bar.
+                VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text("AVG ENGAGEMENT").font(.nOverline).tracking(1.1).foregroundStyle(Nuru.ink600)
+                        Text("Engagement").font(.inter(10.5, .medium)).tracking(0.4)
+                            .foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.85)
                         Spacer()
-                        Text("\(avg)%").font(.inter(18, .bold)).foregroundStyle(Nuru.navy)
+                        Text("\(avg)%").font(.inter(16, .semibold)).foregroundStyle(Nuru.navy)
                     }
-                    ProgressBar(pct: Double(avg), fill: tone, height: 7)
-                    HStack(spacing: 6) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "person.2.fill").font(.system(size: 10)).foregroundStyle(tone)
-                            Text("\(cell.members)").font(.inter(11.5, .bold)).foregroundStyle(Nuru.navy)
-                        }
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(tone.opacity(0.10)).clipShape(Capsule())
-                        Spacer(minLength: 0)
-                        if cell.atRisk > 0 {
-                            HStack(spacing: 4) {
-                                Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9))
-                                Text("\(cell.atRisk) at-risk").font(.inter(10.5, .bold))
-                            }
-                            .foregroundStyle(Nuru.danger)
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(Nuru.danger.opacity(0.10))
-                            .clipShape(Capsule())
-                        } else {
-                            HStack(spacing: 4) {
-                                Image(systemName: "checkmark.circle.fill").font(.system(size: 9))
-                                Text("On track").font(.inter(10.5, .bold))
-                            }
-                            .foregroundStyle(Nuru.success)
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(Nuru.success.opacity(0.10))
-                            .clipShape(Capsule())
-                        }
-                    }
+                    ProgressBar(pct: Double(avg), fill: tone, height: 6)
+                }
+
+                // 3) Status — single quiet line.
+                if cell.atRisk > 0 {
+                    statusLabel("exclamationmark.circle.fill", "\(cell.atRisk) at-risk", Nuru.danger)
+                } else {
+                    statusLabel("checkmark.circle.fill", "On track", Nuru.success)
+                }
+
+                // 4) Actions — Edit & View: identical style, identical size, one row.
+                HStack(spacing: 8) {
+                    Button(action: onEdit) { actionLabel("Edit", "pencil") }
+                        .buttonStyle(.plain)
+                    NavigationLink {
+                        CellDetailView(cellGroupId: cell.cellGroupId, name: cell.name)
+                    } label: { actionLabel("View", "arrow.up.right") }
+                        .buttonStyle(.plain)
                 }
             }
         }
+    }
+
+    // Identical pill button used for both Edit and View (same size + style).
+    private func actionLabel(_ title: String, _ icon: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 10, weight: .medium))
+            Text(title).font(.inter(12, .medium)).lineLimit(1)
+        }
+        .foregroundStyle(Nuru.navy)
+        .frame(maxWidth: .infinity)
+        .frame(height: 34)
+        .overlay(Capsule().stroke(Nuru.border, lineWidth: 1))
+    }
+
+    private func statusLabel(_ icon: String, _ text: String, _ color: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 10))
+            Text(text).font(.inter(11, .medium)).lineLimit(1).minimumScaleFactor(0.85)
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 9).padding(.vertical, 4)
+        .background(color.opacity(0.10))
+        .clipShape(Capsule())
     }
 }
 

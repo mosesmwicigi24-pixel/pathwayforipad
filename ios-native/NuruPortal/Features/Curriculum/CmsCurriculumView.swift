@@ -327,7 +327,6 @@ struct CmsCurriculumView: View {
 private struct CmsCurriculumContent: View {
     let levels: [UiLevel]
     let reload: () async -> Void
-    @Environment(\.horizontalSizeClass) private var hSize
     @EnvironmentObject private var router: NavRouter
 
     @State private var search = ""
@@ -338,6 +337,12 @@ private struct CmsCurriculumContent: View {
     // Authoring action state.
     @State private var levelSheet: LevelSheetMode?
     @State private var actionError: String?
+    // In portrait the 360pt rail would crush the main column, so the inspector
+    // is presented as a sheet instead (toggled when a level is tapped on narrow).
+    @State private var inspectorSheet = false
+    // Mirrors the GeometryReader's dock decision so row taps know whether the
+    // inspector is already docked (just select) or needs the sheet (select + open).
+    @State private var docked = false
 
     enum FilterPill: String, CaseIterable { case all = "All", published = "Published", inReview = "In Review", draft = "Draft" }
     enum ReportTab: String, CaseIterable { case overview = "Overview", modules = "Modules", engagement = "Engagement" }
@@ -373,7 +378,6 @@ private struct CmsCurriculumContent: View {
     }
 
     private var selected: UiLevel? { levels.first { $0.number == selectedNo } }
-    private var isPad: Bool { hSize == .regular }
 
     // Donut slices (web donutData) — Published / In Review / Drafts.
     private struct StatusSlice: Identifiable { let name: String; let value: Int; let color: Color; var id: String { name } }
@@ -410,20 +414,31 @@ private struct CmsCurriculumContent: View {
     }
 
     var body: some View {
-        Group {
-            if isPad {
-                HStack(spacing: 0) {
-                    mainScroll
-                    if let sel = selected {
+        GeometryReader { geo in
+            // Only dock the 360pt inspector beside the main column when there's
+            // genuine room for both (landscape). In portrait (~740pt usable) the
+            // rail would crush the charts, so main goes full width and the
+            // inspector opens as a sheet on selection.
+            let canDock = geo.size.width >= 1040
+            Group {
+                if canDock, let sel = selected {
+                    HStack(spacing: 0) {
+                        mainScroll
                         Divider()
                         LevelInspectorRail(level: sel,
                                            reload: reload,
                                            onEdit: { levelSheet = .edit(sel) })
                             .frame(width: 360)
                     }
+                } else {
+                    mainScroll
                 }
-            } else {
-                mainScroll
+            }
+            .onAppear { docked = canDock }
+            .onChange(of: canDock) { _, isDocked in
+                docked = isDocked
+                // When docked the rail is inline, so the sheet must not also be up.
+                if isDocked { inspectorSheet = false }
             }
         }
         .onAppear {
@@ -439,6 +454,18 @@ private struct CmsCurriculumContent: View {
                 }
             }()
             LevelFormSheet(mode: formMode, nextNumber: levels.count + 1, reload: reload)
+        }
+        .sheet(isPresented: $inspectorSheet) {
+            if let sel = selected {
+                NavigationStack {
+                    LevelInspectorRail(level: sel,
+                                       reload: reload,
+                                       onEdit: { inspectorSheet = false; levelSheet = .edit(sel) })
+                        .navigationTitle("Level \(sel.number)")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { inspectorSheet = false } } }
+                }
+            }
         }
         .alert("Action failed", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
             Button("OK", role: .cancel) { actionError = nil }
@@ -701,7 +728,12 @@ private struct CmsCurriculumContent: View {
                         PathwayRow(
                             level: level,
                             selected: selectedNo == level.number,
-                            onSelect: { selectedNo = level.number },
+                            onSelect: {
+                                selectedNo = level.number
+                                // Portrait: surface the module inspector as a sheet
+                                // since there's no room to dock it beside the page.
+                                if !docked { inspectorSheet = true }
+                            },
                             onReview: { setLevelStatus(level.number, .inReview) },
                             onPublish: { setLevelStatus(level.number, .published) },
                             onUnlock: { toggleLock(level) })

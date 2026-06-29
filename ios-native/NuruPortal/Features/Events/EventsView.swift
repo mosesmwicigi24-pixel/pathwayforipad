@@ -14,8 +14,9 @@
 //     "Active event series" list (grouped by title; count + next date; Active pill).
 //     Series pause/resume is wired (POST /admin/events/series/{id}/pause|resume) and
 //     refetches afterward. (NEEDS: per-occurrence reschedule/cancel — exceptions API.)
-//   - "Announcements" grid (status pill, channels, audience, when, delivered/opened)
-//     and a "Live QR" panel (procedural QR placeholder + rotating secret).
+//   - "Announcements" grid (status pill, channels, audience, when, delivered/opened).
+//     (The standalone "Live QR" panel was removed; QR attendance lives in the
+//     per-occurrence QR screen reached from event detail / today's flow.)
 //   - "Moments" curated gallery — post (POST /admin/moments) + delete
 //     (DELETE /admin/moments/{id}) wired. (NEEDS: Cloudinary image picker; URL paste for now.)
 //   - "Event insights" + "Follow-up queue" (display-only on the web too).
@@ -473,14 +474,8 @@ struct EventsView: View {
                     VStack(spacing: 20) { upcomingCard; seriesCard }
                 }
 
-                // Announcements + QR
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 20) {
-                        announcementsCard.frame(maxWidth: .infinity)
-                        qrCard.frame(width: 340)
-                    }
-                    VStack(spacing: 20) { announcementsCard; qrCard }
-                }
+                // Announcements (full width — Live QR card removed)
+                announcementsCard
 
                 momentsCard
 
@@ -993,7 +988,7 @@ struct EventsView: View {
         }.padding(.vertical, 10)
     }
 
-    // MARK: Announcements + QR
+    // MARK: Announcements
 
     private var announcementsCard: some View {
         Card {
@@ -1060,52 +1055,6 @@ struct EventsView: View {
     private func announcementWhen(_ a: AnnouncementItem) -> String {
         let iso = a.sentAt ?? a.scheduledAt
         return iso.map { Fmt.date($0, style: .dateTime.day().month(.abbreviated).year().hour().minute()) } ?? "—"
-    }
-
-    private var qrCard: some View {
-        let occ = todayOccs.first ?? upcoming.first
-        let secret = qrSecret(for: occ)
-        return Card(padding: 0) {
-            VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("LIVE QR").font(.nOverline).tracking(0.6).foregroundStyle(Nuru.onNavyDim)
-                        Spacer()
-                        Text("● LIVE").font(.system(size: 10, weight: .bold)).foregroundStyle(Color(hex: 0x7FE0A0))
-                            .padding(.horizontal, 8).padding(.vertical, 2)
-                            .background(Color(hex: 0x16A34A).opacity(0.25)).clipShape(Capsule())
-                    }
-                    Text(occ?.title ?? "Next occurrence").font(.fraunces(18, .medium)).foregroundStyle(.white)
-                    Label("\(occ?.timeShort ?? "—") · \(occ?.location ?? "—")", systemImage: "clock")
-                        .font(.nMicro).foregroundStyle(Nuru.onNavyDim)
-                }
-                .padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Nuru.navy)
-
-                VStack(spacing: 12) {
-                    QrPlaceholder(value: secret, size: 180)
-                    HStack(spacing: 8) {
-                        Label("Rotating secret", systemImage: "sparkles").font(.nMicro).foregroundStyle(Nuru.muted)
-                        Button { qrTick += 1 } label: {
-                            Label("Refresh", systemImage: "arrow.clockwise").font(.nMicro).foregroundStyle(Nuru.ink)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        }.buttonStyle(.plain)
-                    }
-                    Text(secret).font(.system(size: 10)).monospaced().tracking(1).foregroundStyle(Nuru.muted)
-                    Button { if let occ { qrOcc = occ } } label: {
-                        Text("Open full QR screen").font(.inter(12, .bold)).foregroundStyle(.white)
-                            .frame(maxWidth: .infinity).padding(.vertical, 11)
-                            .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    }.buttonStyle(.plain)
-                }.padding(20)
-            }
-        }
-    }
-
-    private func qrSecret(for occ: UiOcc?) -> String {
-        let base = (occ?.id ?? "occurrence").prefix(8).uppercased()
-        return "NURU-\(base)-\(String(qrTick, radix: 36).uppercased())"
     }
 
     // MARK: Moments

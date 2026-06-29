@@ -85,8 +85,9 @@ struct LanguagesView: View {
     @State private var editing: LangBox?
     @State private var deleteTarget: Language?
 
-    // Denser adaptive grid: ~260pt min so 3-up (often 4-up) fits the wide iPad canvas.
-    private let columns = [GridItem(.adaptive(minimum: 260), spacing: 14)]
+    // PORTRAIT-tuned adaptive grid: ~224pt min so a clean 3-up fits the ~724pt
+    // content width (falls to 2-up when narrower / in split view).
+    private let columns = [GridItem(.adaptive(minimum: 224), spacing: 14)]
 
     var body: some View {
         Group {
@@ -181,21 +182,21 @@ private struct LanguageCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 8) {
-                        Text(l.name).font(.fraunces(17, .semibold)).foregroundStyle(Nuru.foreground).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(l.name).font(.fraunces(15.5, .semibold)).foregroundStyle(Nuru.foreground).lineLimit(1).minimumScaleFactor(0.85)
                         if l.isDefault {
-                            HStack(spacing: 4) {
-                                Image(systemName: "star.fill").font(.system(size: 8))
-                                Text("Default").font(.inter(10, .bold)).tracking(0.5)
+                            HStack(spacing: 3) {
+                                Image(systemName: "star.fill").font(.system(size: 7.5))
+                                Text("Default").font(.inter(9.5, .bold)).tracking(0.4)
                             }
                             .textCase(.uppercase)
                             .foregroundStyle(Nuru.gold)
-                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .padding(.horizontal, 7).padding(.vertical, 2.5)
                             .background(Nuru.gold.opacity(0.14))
                             .clipShape(Capsule())
                         }
                     }
-                    Text(l.nativeName).font(.inter(13)).foregroundStyle(Nuru.muted)
+                    Text(l.nativeName).font(.inter(12.5)).foregroundStyle(Nuru.muted).lineLimit(1)
                 }
                 Spacer(minLength: 8)
                 Text(l.code.uppercased()).font(.system(.caption, design: .monospaced)).foregroundStyle(Nuru.muted)
@@ -220,27 +221,27 @@ private struct LanguageCard: View {
 
             Divider().background(Nuru.border)
 
-            HStack(spacing: 10) {
+            HStack(spacing: 9) {
                 if !l.isDefault {
                     Button(action: onSetDefault) {
-                        HStack(spacing: 4) { Image(systemName: "star").font(.system(size: 12)); Text("Default") }
-                            .font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
+                        HStack(spacing: 3) { Image(systemName: "star").font(.system(size: 11)); Text("Default") }
+                            .font(.inter(11, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
                     }
                     .buttonStyle(.plain)
                 }
                 Button(action: onEdit) {
-                    HStack(spacing: 4) { Image(systemName: "pencil").font(.system(size: 12)); Text("Edit") }
-                        .font(.inter(12, .semibold)).foregroundStyle(Nuru.muted)
+                    HStack(spacing: 3) { Image(systemName: "pencil").font(.system(size: 11)); Text("Edit") }
+                        .font(.inter(11, .semibold)).foregroundStyle(Nuru.muted).lineLimit(1)
                 }
                 .buttonStyle(.plain)
                 Button(action: onToggle) {
-                    Text(active ? "Disable" : "Enable").font(.inter(12, .semibold))
+                    Text(active ? "Disable" : "Enable").font(.inter(11, .semibold)).lineLimit(1)
                         .foregroundStyle(active ? Color(hex: 0xDC2626) : Color(hex: 0x16A34A))
                 }
                 .buttonStyle(.plain)
                 Spacer(minLength: 0)
                 if !l.isDefault {
-                    Button(action: onDelete) { Image(systemName: "trash").font(.system(size: 14)).foregroundStyle(Color(hex: 0xDC2626)) }
+                    Button(action: onDelete) { Image(systemName: "trash").font(.system(size: 13)).foregroundStyle(Color(hex: 0xDC2626)) }
                         .buttonStyle(.plain)
                 }
             }

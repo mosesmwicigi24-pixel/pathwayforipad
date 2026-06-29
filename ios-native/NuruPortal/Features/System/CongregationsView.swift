@@ -256,18 +256,19 @@ fileprivate struct EmptyRow: View {
 }
 
 // Fixed column widths so every cell aligns across rows. The Congregation (name)
-// column flexes; the rest are fixed.
+// column flexes; the rest are fixed. Tuned for PORTRAIT (usable row ≈ 692pt):
+// fixed 416 + 5×12 gaps + name flex ≈ 216 → fits cleanly.
 private enum CongCol {
-    static let country: CGFloat = 90
-    static let timezone: CGFloat = 200
-    static let cells: CGFloat = 80
-    static let members: CGFloat = 90
-    static let actions: CGFloat = 90
+    static let country: CGFloat = 64
+    static let timezone: CGFloat = 150
+    static let cells: CGFloat = 56
+    static let members: CGFloat = 70
+    static let actions: CGFloat = 76
 }
 
 private struct CongregationHeaderRow: View {
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             head("Congregation", maxWidth: .infinity, align: .leading)
             head("Country", width: CongCol.country, align: .leading)
             head("Timezone", width: CongCol.timezone, align: .leading)
@@ -275,7 +276,7 @@ private struct CongregationHeaderRow: View {
             head("Members", width: CongCol.members, align: .trailing)
             head("", width: CongCol.actions, align: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 11)
+        .padding(.horizontal, 16).padding(.vertical, 10)
         .background(Nuru.surface)
     }
     @ViewBuilder private func head(_ t: String, width: CGFloat? = nil, maxWidth: CGFloat? = nil, align: Alignment) -> some View {
@@ -293,34 +294,34 @@ private struct CongregationRow: View {
         self.c = c; self.onEdit = onEdit; self.onDelete = onDelete
     }
     var body: some View {
-        HStack(spacing: 14) {
-            HStack(spacing: 11) {
+        HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Image(systemName: "building.columns")
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(Nuru.navy)
-                    .frame(width: 30, height: 30).background(Nuru.navy.opacity(0.10))
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Nuru.navy)
+                    .frame(width: 28, height: 28).background(Nuru.navy.opacity(0.10))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                Text(c.name).font(.inter(14, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                Text(c.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(c.country).font(.system(.subheadline, design: .monospaced)).foregroundStyle(Nuru.foreground).lineLimit(1)
+            Text(c.country).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Nuru.foreground).lineLimit(1)
                 .frame(width: CongCol.country, alignment: .leading)
-            Text(c.timezone).font(.inter(13)).foregroundStyle(Nuru.foreground).lineLimit(1)
+            Text(c.timezone).font(.inter(12.5)).foregroundStyle(Nuru.foreground).lineLimit(1).minimumScaleFactor(0.8)
                 .frame(width: CongCol.timezone, alignment: .leading)
-            Text("\(c.cellCount)").font(.inter(13, .semibold)).foregroundStyle(Nuru.foreground)
+            Text("\(c.cellCount)").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.foreground)
                 .frame(width: CongCol.cells, alignment: .trailing)
-            Text("\(c.memberCount)").font(.inter(13, .semibold)).foregroundStyle(Nuru.foreground)
+            Text("\(c.memberCount)").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.foreground)
                 .frame(width: CongCol.members, alignment: .trailing)
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Spacer(minLength: 0)
-                Button(action: onEdit) { Image(systemName: "pencil").font(.system(size: 14)).foregroundStyle(Nuru.muted) }
+                Button(action: onEdit) { Image(systemName: "pencil").font(.system(size: 13)).foregroundStyle(Nuru.muted) }
                     .buttonStyle(.plain)
-                Button(action: onDelete) { Image(systemName: "trash").font(.system(size: 14)).foregroundStyle(Color(hex: 0xDC2626)) }
+                Button(action: onDelete) { Image(systemName: "trash").font(.system(size: 13)).foregroundStyle(Color(hex: 0xDC2626)) }
                     .buttonStyle(.plain)
             }
             .frame(width: CongCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 11)
-        .frame(minHeight: 52)
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .frame(minHeight: 50)
     }
 }

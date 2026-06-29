@@ -423,21 +423,28 @@ struct FinanceView: View {
     }
 
     private var heroStatStrip: some View {
+        // ~5 compact tiles across the narrow portrait canvas. Small value fonts so
+        // the currency reads compactly; one short hint each. No half-screen cards.
+        let avgGift = giftCount > 0 ? allTotal / giftCount : 0
         let items: [(label: String, value: String, hint: String)] = [
             ("This month", Fmt.money(minor: monthTotal, currency: currency), "\(giftCount) gifts"),
             ("All time", Fmt.money(minor: allTotal, currency: currency), "across funds"),
+            ("Avg gift", Fmt.money(minor: avgGift, currency: currency), "per gift"),
             ("Funds", String(funds.count), "active"),
             ("Gifts", String(giftCount), "received"),
         ]
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 1), count: 4), spacing: 1) {
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 1)], spacing: 1) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.label.uppercased()).font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)
-                    Text(item.value).font(.fraunces(20, .medium)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.label.uppercased()).font(.nOverline).tracking(1.0)
+                        .foregroundStyle(Nuru.onNavyDim).lineLimit(1).minimumScaleFactor(0.85)
+                    Text(item.value).font(.inter(15, .semibold)).foregroundStyle(.white)
+                        .lineLimit(1).minimumScaleFactor(0.6)
                     Text(item.hint).font(.nMicro).foregroundStyle(Nuru.onNavyFaint)
+                        .lineLimit(1).minimumScaleFactor(0.85)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                .padding(.horizontal, 12).padding(.vertical, 10)
                 .background(Color.white.opacity(0.04))
             }
         }
@@ -532,18 +539,19 @@ private struct OverviewTab: View {
     let allTotal: Int
     let giftCount: Int
 
-    private let cols = [GridItem(.adaptive(minimum: 210), spacing: 14)]
+    // ~5 compact fund tiles per row at ~740pt portrait width.
+    private let cols = [GridItem(.adaptive(minimum: 132), spacing: 12)]
 
     var body: some View {
-        VStack(spacing: 20) {
-            // fund cards
+        VStack(spacing: 16) {
+            // fund tiles — compact stat strip, small amount font
             if funds.isEmpty {
-                Text("No funds configured.").font(.nCaption).foregroundStyle(Nuru.ink600)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Card { Text("No funds configured.").font(.nCaption).foregroundStyle(Nuru.ink600)
+                    .frame(maxWidth: .infinity, alignment: .leading) }
             } else {
-                LazyVGrid(columns: cols, spacing: 16) {
+                LazyVGrid(columns: cols, spacing: 12) {
                     ForEach(Array(funds.enumerated()), id: \.element.id) { i, f in
-                        fundCard(f, tone: FinanceTone.at(i))
+                        fundTile(f, tone: FinanceTone.at(i))
                     }
                 }
             }
@@ -551,79 +559,152 @@ private struct OverviewTab: View {
             // monthly giving trend
             Card {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Monthly giving").font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
+                    Text("Monthly giving").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
                     Text("Last 6 months · \(currency)").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
-                    trendChart.frame(height: 220).padding(.top, 12)
+                    trendChart.frame(height: 200).padding(.top, 12)
                 }
             }
 
-            // giving by fund (donut)
+            // giving by fund — donut + clear legend (value + %)
             Card {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Giving by fund").font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
+                    Text("Giving by fund").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
                     Text("This month · \(currency)").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
-                    donutChart.frame(height: 180).padding(.top, 12)
-                    VStack(spacing: 6) {
-                        ForEach(donut) { d in
-                            HStack {
-                                HStack(spacing: 8) {
-                                    Circle().fill(d.color).frame(width: 8, height: 8)
-                                    Text(d.name).font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
+                    if donut.isEmpty {
+                        Text("No giving this month yet.").font(.nCaption).foregroundStyle(Nuru.ink600)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 16)
+                    } else {
+                        HStack(alignment: .center, spacing: 16) {
+                            donutChart
+                                .frame(width: 132, height: 132)
+                                .overlay {
+                                    VStack(spacing: 0) {
+                                        Text("\(currency)").font(.inter(9, .semibold)).foregroundStyle(Nuru.ink600)
+                                        Text(donutTotal.formatted()).font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
+                                            .lineLimit(1).minimumScaleFactor(0.6)
+                                        Text("this month").font(.nMicro).foregroundStyle(Nuru.ink400)
+                                    }
+                                    .padding(.horizontal, 6)
                                 }
-                                Spacer()
-                                Text("\(currency) \(d.value.formatted())").font(.inter(12, .regular)).foregroundStyle(Nuru.ink600)
+                            VStack(spacing: 7) {
+                                ForEach(donut) { d in donutLegendRow(d) }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        if donut.isEmpty {
-                            Text("No giving this month yet.").font(.nCaption).foregroundStyle(Nuru.ink600)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                        .padding(.top, 14)
                     }
-                    .padding(.top, 8)
                 }
             }
+
+            // Discipleship / Gift / Mission breakdown — aligned bars
+            breakdownCard
 
             // summary
             Card {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Summary").font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
-                    ForEach(summaryRows, id: \.label) { row in
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(row.label).font(.nCaption).foregroundStyle(Nuru.ink600)
-                            Spacer()
-                            Text(row.value).font(.fraunces(18, .medium)).foregroundStyle(Nuru.navy)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Summary").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                    VStack(spacing: 0) {
+                        ForEach(Array(summaryRows.enumerated()), id: \.element.label) { idx, row in
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(row.label).font(.inter(12.5)).foregroundStyle(Nuru.ink600)
+                                Spacer(minLength: 8)
+                                Text(row.value).font(.inter(13.5, .semibold)).monospaced().foregroundStyle(Nuru.navy)
+                                    .lineLimit(1).minimumScaleFactor(0.7)
+                            }
+                            .padding(.vertical, 9)
+                            .overlay(alignment: .top) {
+                                if idx > 0 { Rectangle().fill(Nuru.border).frame(height: 1) }
+                            }
                         }
                     }
+                    .padding(.top, 6)
                 }
             }
         }
     }
 
     private var summaryRows: [(label: String, value: String)] {
-        [("This month", Fmt.money(minor: monthTotal, currency: currency)),
-         ("All time", Fmt.money(minor: allTotal, currency: currency)),
-         ("Funds", String(funds.count)),
-         ("Gifts", String(giftCount))]
+        let avg = giftCount > 0 ? allTotal / giftCount : 0
+        return [("This month", Fmt.money(minor: monthTotal, currency: currency)),
+                ("All time", Fmt.money(minor: allTotal, currency: currency)),
+                ("Average gift", Fmt.money(minor: avg, currency: currency)),
+                ("Funds", String(funds.count)),
+                ("Gifts received", String(giftCount))]
     }
 
-    private func fundCard(_ f: FundSummary, tone: Color) -> some View {
-        Card(padding: 18) {
+    // compact fund tile — small icon, small label, small amount, one hint
+    private func fundTile(_ f: FundSummary, tone: Color) -> some View {
+        Card(padding: 12) {
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
+                HStack(spacing: 6) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(tone.opacity(0.10))
-                        Image(systemName: "banknote.fill").font(.system(size: 15, weight: .semibold)).foregroundStyle(tone)
-                    }.frame(width: 34, height: 34)
-                    Spacer()
-                    Text("\(f.giftCount) gifts").font(.inter(11, .bold)).foregroundStyle(Nuru.ink600)
+                        RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tone.opacity(0.12))
+                        Image(systemName: "banknote.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(tone)
+                    }.frame(width: 24, height: 24)
+                    Spacer(minLength: 0)
+                    Text("\(f.giftCount)").font(.inter(10.5, .semibold)).foregroundStyle(Nuru.ink600)
                 }
-                Text(f.name.uppercased()).font(.nOverline).tracking(1.4).foregroundStyle(Nuru.ink600).padding(.top, 8)
+                Text(f.name.uppercased()).font(.nOverline).tracking(0.8).foregroundStyle(Nuru.ink600)
+                    .lineLimit(1).minimumScaleFactor(0.8).padding(.top, 7)
                 Text(Fmt.money(minor: f.totalMinor, currency: f.currency))
-                    .font(.fraunces(24, .medium)).foregroundStyle(Nuru.navy).padding(.top, 4)
-                    .lineLimit(1).minimumScaleFactor(0.6)
-                Text("\(Fmt.money(minor: f.monthMinor, currency: f.currency)) this month")
-                    .font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 6)
+                    .font(.inter(15, .semibold)).foregroundStyle(Nuru.navy).padding(.top, 2)
+                    .lineLimit(1).minimumScaleFactor(0.55)
+                Text("\(Fmt.money(minor: f.monthMinor, currency: f.currency)) this mo.")
+                    .font(.nMicro).foregroundStyle(Nuru.ink400).padding(.top, 3)
+                    .lineLimit(1).minimumScaleFactor(0.7)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var donutTotal: Int { donut.reduce(0) { $0 + $1.value } }
+
+    private func donutLegendRow(_ d: FinanceView.DonutSlice) -> some View {
+        let pct = donutTotal > 0 ? Double(d.value) / Double(donutTotal) * 100 : 0
+        return HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous).fill(d.color).frame(width: 10, height: 10)
+            Text(d.name).font(.inter(12, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
+            Spacer(minLength: 6)
+            Text("\(currency) \(d.value.formatted())").font(.inter(12, .semibold)).monospaced().foregroundStyle(Nuru.navy)
+            Text("\(Int(pct.rounded()))%").font(.inter(11)).foregroundStyle(Nuru.ink600)
+                .frame(width: 34, alignment: .trailing)
+        }
+    }
+
+    // Discipleship / Gift / Mission breakdown — labelled bars with amounts.
+    private var breakdownCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Breakdown").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                Text("By fund · this month").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
+                if donut.isEmpty {
+                    Text("No giving this month yet.").font(.nCaption).foregroundStyle(Nuru.ink600)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 14)
+                } else {
+                    VStack(spacing: 12) {
+                        ForEach(donut) { d in breakdownRow(d) }
+                    }
+                    .padding(.top, 14)
+                }
+            }
+        }
+    }
+
+    private func breakdownRow(_ d: FinanceView.DonutSlice) -> some View {
+        let frac = donutTotal > 0 ? Double(d.value) / Double(donutTotal) : 0
+        return VStack(spacing: 5) {
+            HStack {
+                Text(d.name).font(.inter(12.5, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
+                Spacer(minLength: 8)
+                Text("\(currency) \(d.value.formatted())").font(.inter(12.5, .semibold)).monospaced().foregroundStyle(Nuru.navy)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Nuru.mutedBg)
+                    Capsule().fill(d.color).frame(width: max(4, geo.size.width * frac))
+                }
+            }
+            .frame(height: 7)
         }
     }
 
@@ -670,6 +751,7 @@ private struct OverviewTab: View {
                     .foregroundStyle(d.color)
                     .cornerRadius(2)
             }
+            .chartLegend(.hidden)
         }
     }
 }
@@ -690,7 +772,7 @@ private struct TransactionsTab: View {
                 // header
                 VStack(alignment: .leading, spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Recent transactions").font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
+                        Text("Recent transactions").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
                         Text("Every confirmed gift links to a balanced ledger entry.")
                             .font(.nCaption).foregroundStyle(Nuru.ink600)
                     }
@@ -825,7 +907,7 @@ private struct LedgerTab: View {
             VStack(spacing: 0) {
                 // header
                 HStack {
-                    Text("Double-entry ledger").font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
+                    Text("Double-entry ledger").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
                     Spacer(minLength: 8)
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark.shield.fill").font(.system(size: 12)).foregroundStyle(Color(hex: 0x16A34A))
@@ -914,7 +996,7 @@ private struct AuditTab: View {
                 // header
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Audit trail").font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
+                        Text("Audit trail").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
                         Text("System and admin actions related to finance.").font(.nCaption).foregroundStyle(Nuru.ink600)
                     }
                     Spacer(minLength: 8)
@@ -1010,7 +1092,7 @@ private struct ConfigTab: View {
                 Card(padding: 0) {
                     VStack(spacing: 0) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Funds").font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
+                            Text("Funds").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
                             Text("Giving funds configured for this organization.").font(.nCaption).foregroundStyle(Nuru.ink600)
                         }
                         .padding(.horizontal, 18).padding(.vertical, 16)
@@ -1053,7 +1135,7 @@ private struct ConfigTab: View {
                 // payment providers
                 Card {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text("Payment providers").font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
+                        Text("Payment providers").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
                         Text("Connections are managed server-side. Secrets are never displayed.")
                             .font(.nCaption).foregroundStyle(Nuru.ink600).padding(.top, 4)
                         if config.providers.isEmpty {
@@ -1129,9 +1211,10 @@ private struct TxDetailSheet: View {
         let lc = ledgerStatus(t.status)
         return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text(t.fullName ?? "Anonymous").font(.inter(16, .bold)).foregroundStyle(Nuru.navy)
+                Text(t.fullName ?? "Anonymous").font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                 Text(Fmt.money(minor: t.amountMinor, currency: t.currency))
-                    .font(.fraunces(24, .semibold)).monospaced().foregroundStyle(Nuru.navy).padding(.top, 2)
+                    .font(.inter(20, .semibold)).monospaced().foregroundStyle(Nuru.navy).padding(.top, 2)
+                    .lineLimit(1).minimumScaleFactor(0.6)
 
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                     cell("Fund") { Text(t.fundName ?? t.fund ?? "—").font(.inter(13)).foregroundStyle(Nuru.navy) }

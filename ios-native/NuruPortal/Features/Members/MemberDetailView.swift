@@ -285,8 +285,9 @@ struct MemberDetailView: View {
             ("Last activity", Fmt.date(m.lastActivity, style: .dateTime.month().day().hour().minute()), false),
         ]
 
-        return VStack(alignment: .leading, spacing: 18) {
-            // Breadcrumb + action chips
+        let graduated = graduatedOverride ?? m.graduated
+        return VStack(alignment: .leading, spacing: 14) {
+            // Breadcrumb
             HStack(spacing: 6) {
                 Text("Nuru Pathway").font(.nMicro).foregroundStyle(Nuru.onNavyDim)
                 Image(systemName: "chevron.right").font(.system(size: 8)).foregroundStyle(Nuru.onNavyFaint)
@@ -295,7 +296,22 @@ struct MemberDetailView: View {
                 Text(m.fullName).font(.nMicro).foregroundStyle(.white).lineLimit(1)
                 Spacer(minLength: 0)
             }
-            let graduated = graduatedOverride ?? m.graduated
+
+            // Avatar + name + contact sit directly under the breadcrumb (no dead gap).
+            HStack(spacing: 14) {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(hex: 0xF5C77E, alpha: 0.16))
+                    .frame(width: 50, height: 50)
+                    .overlay(Text(initials(m.fullName)).font(.fraunces(20, .medium)).foregroundStyle(Color(hex: 0xF5C77E)))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color(hex: 0xF5C77E, alpha: 0.3), lineWidth: 1))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(m.fullName).font(.fraunces(24, .regular)).foregroundStyle(.white).lineLimit(2)
+                    Text(m.phoneNumber + (m.email.map { " · \($0)" } ?? "")).font(.inter(12.5)).foregroundStyle(Nuru.onNavyDim).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+
+            // Action chips
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     if graduated {
@@ -317,21 +333,7 @@ struct MemberDetailView: View {
                 Text(graduationError).font(.inter(11.5)).foregroundStyle(Color(hex: 0xFCA5A5))
             }
 
-            // Avatar + name + contact
-            HStack(spacing: 16) {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(hex: 0xF5C77E, alpha: 0.16))
-                    .frame(width: 56, height: 56)
-                    .overlay(Text(initials(m.fullName)).font(.fraunces(22, .medium)).foregroundStyle(Color(hex: 0xF5C77E)))
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(hex: 0xF5C77E, alpha: 0.3), lineWidth: 1))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(m.fullName).font(.fraunces(28, .regular)).foregroundStyle(.white).lineLimit(2)
-                    Text(m.phoneNumber + (m.email.map { " · \($0)" } ?? "")).font(.inter(13)).foregroundStyle(Nuru.onNavyDim).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-
-            // 9-up info strip — 3 cols on the wide canvas (3 dense rows, no tall gaps).
+            // 9-up info strip — adaptive cols (dense rows, no tall gaps).
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 0)], spacing: 0) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     VStack(alignment: .leading, spacing: 5) {
@@ -353,7 +355,7 @@ struct MemberDetailView: View {
             .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
         }
-        .padding(.horizontal, Nuru.S.base).padding(.top, Nuru.S.lg).padding(.bottom, Nuru.S.lg)
+        .padding(.horizontal, Nuru.S.base).padding(.top, Nuru.S.base).padding(.bottom, Nuru.S.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.navyCeremony)
     }
@@ -389,19 +391,26 @@ struct MemberDetailView: View {
 
     private func body(_ m: MemberFull) -> some View {
         VStack(spacing: 16) {
+            // ONE consolidated row of 5 compact KPI tiles (no duplicate Habits/
+            // Curriculum/Attendance strip). 5-up at ~740pt via adaptive minimum 132.
             kpiRow(m)
-            progressRings(m)
 
-            // Activity + Milestones, then Certificates + Badges — paired 2-up on the
-            // wide canvas (one column when narrow) so no card sits half-empty.
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 360), spacing: 16, alignment: .top)], spacing: 16) {
-                activityCard(m)
-                milestonesCard(m)
-                certificatesCard(m)
-                badgesCard(m)
+            // Two-column layout so content spreads sideways instead of marching down.
+            // Left column: progress detail + recent activity. Right column: milestones,
+            // certificates, badges. Falls back to a single stack when narrow.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 16, alignment: .top)], spacing: 16) {
+                VStack(spacing: 16) {
+                    progressCard(m)
+                    activityCard(m)
+                }
+                VStack(spacing: 16) {
+                    milestonesCard(m)
+                    certificatesCard(m)
+                    badgesCard(m)
+                }
             }
 
-            // Results dossier (levels/modules/exams/badges/certs)
+            // Results dossier (levels/modules/exams/badges/certs) — full width table.
             ResultsSection(userId: userId)
         }
         .padding(.horizontal, Nuru.S.base)
@@ -409,30 +418,31 @@ struct MemberDetailView: View {
         .padding(.bottom, Nuru.S.xxl)
     }
 
+    // ONE row of 5 compact tiles: Habits · Curriculum · Attendance · Badges · Engagement.
     private func kpiRow(_ m: MemberFull) -> some View {
         let met = m.metrics
-        let kpis: [(String, String, String, Nuru.Tint, Color, Color, String)] = [
-            ("Habits", "\(met.habitsPct)%", "sunrise.fill", Nuru.tints[2], Color(hex: 0xF3FAF5), Color(hex: 0xD6ECDF), "\(met.activeDays30) / 30 active days"),
-            ("Curriculum", "\(met.curriculumPct)%", "book.fill", Nuru.tints[0], Color(hex: 0xFDF9EF), Color(hex: 0xF0E2BD), "Level \(m.enrollment.currentLevel)"),
-            ("Attendance", "\(met.attendancePct)%", "calendar", Nuru.tints[1], Color(hex: 0xF4F6FB), Color(hex: 0xDBE2EF), "\(met.attended) present days · 90d"),
-            ("Badges", String(m.badges.count), "rosette", Nuru.tints[3], Color(hex: 0xF7F3FC), Color(hex: 0xE2D7F2), "\(m.certificates.count) certificates"),
+        let eng = m.engagement.eScore.map { "\(Int($0.rounded()))" } ?? "—"
+        // (label, value, icon, tintFg, bg, border, hint)
+        let kpis: [(String, String, String, Color, Color, Color, String)] = [
+            ("Habits", "\(met.habitsPct)%", "sunrise.fill", Color(hex: 0x16A34A), Color(hex: 0xF3FAF5), Color(hex: 0xD6ECDF), "\(met.activeDays30)/30 days"),
+            ("Curriculum", "\(met.curriculumPct)%", "book.fill", Color(hex: 0xC89B3C), Color(hex: 0xFDF9EF), Color(hex: 0xF0E2BD), "Level \(m.enrollment.currentLevel)"),
+            ("Attendance", "\(met.attendancePct)%", "calendar", Color(hex: 0x2563EB), Color(hex: 0xF4F6FB), Color(hex: 0xDBE2EF), "\(met.attended) · 90d"),
+            ("Badges", String(m.badges.count), "rosette", Color(hex: 0x7C3AED), Color(hex: 0xF7F3FC), Color(hex: 0xE2D7F2), "\(m.certificates.count) certs"),
+            ("Engagement", eng, "waveform.path.ecg", Color(hex: 0xA87616), Color(hex: 0xFFF6E0), Color(hex: 0xF5E0A8), m.engagement.band ?? "—"),
         ]
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 12)], spacing: 12) {
             ForEach(Array(kpis.enumerated()), id: \.offset) { _, k in
-                HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous).fill(k.3.fg.opacity(0.14))
-                        Image(systemName: k.2).font(.system(size: 17, weight: .semibold)).foregroundStyle(k.3.fg)
-                    }.frame(width: 42, height: 42)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(k.0.uppercased()).font(.nOverline).tracking(1.0).foregroundStyle(Nuru.muted)
-                        Text(k.1).font(.fraunces(24, .medium)).foregroundStyle(Nuru.navy)
-                        Text(k.6).font(.inter(10.5)).foregroundStyle(Nuru.muted).lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
+                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(k.3.opacity(0.14))
+                        Image(systemName: k.2).font(.system(size: 14, weight: .medium)).foregroundStyle(k.3)
+                    }.frame(width: 32, height: 32)
+                    Text(k.1).font(.fraunces(22, .medium)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.7)
+                    Text(k.0.uppercased()).font(.nOverline).tracking(0.8).foregroundStyle(Nuru.muted).lineLimit(1).minimumScaleFactor(0.85)
+                    Text(k.6).font(.inter(10)).foregroundStyle(Nuru.muted).lineLimit(1).minimumScaleFactor(0.85)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14))
+                .padding(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
                 .background(k.4)
                 .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(k.5, lineWidth: 1))
@@ -440,33 +450,32 @@ struct MemberDetailView: View {
         }
     }
 
-    private func progressRings(_ m: MemberFull) -> some View {
+    // Progress detail (rings) — kept once, inside the left column, not duplicating KPIs.
+    private func progressCard(_ m: MemberFull) -> some View {
         let met = m.metrics
-        let cards: [(String, String, Int, String, String, Color, Color, Color)] = [
-            ("Habits", "sunrise.fill", met.habitsPct, "Prayer · Word · Reflection", "\(met.activeDays30) of 30 active days · \(met.currentStreakDays)-day streak", Color(hex: 0x16A34A), Color(hex: 0xF3FAF5), Color(hex: 0xD6ECDF)),
-            ("Curriculum", "book.fill", met.curriculumPct, "Level \(m.enrollment.currentLevel)", "\(met.modulesDone) of \(met.modulesTotal) modules complete", Color(hex: 0xC89B3C), Color(hex: 0xFDF9EF), Color(hex: 0xF0E2BD)),
-            ("Attendance", "calendar", met.attendancePct, "App engagement + gatherings", "\(met.attended) present days · last 90 days", Color(hex: 0x0B1F33), Color(hex: 0xF4F6FB), Color(hex: 0xDBE2EF)),
+        let rings: [(String, String, Int, String, Color)] = [
+            ("Habits", "sunrise.fill", met.habitsPct, "\(met.activeDays30)/30 active · \(met.currentStreakDays)-day streak", Color(hex: 0x16A34A)),
+            ("Curriculum", "book.fill", met.curriculumPct, "\(met.modulesDone)/\(met.modulesTotal) modules complete", Color(hex: 0xC89B3C)),
+            ("Attendance", "calendar", met.attendancePct, "\(met.attended) present days · 90d", Color(hex: 0x0B1F33)),
         ]
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12, alignment: .top)], spacing: 12) {
-            ForEach(Array(cards.enumerated()), id: \.offset) { _, c in
-                HStack(spacing: 14) {
-                    ProgressRing(value: c.2, color: c.5, size: 72)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Image(systemName: c.1).font(.system(size: 13)).foregroundStyle(c.5)
-                            Text(c.0.uppercased()).font(.inter(12, .bold)).tracking(0.5).foregroundStyle(Nuru.ink)
+        return sectionCard(bg: Nuru.white, border: Nuru.border, icon: "chart.bar.fill", title: "Progress") {
+            VStack(spacing: 0) {
+                ForEach(Array(rings.enumerated()), id: \.offset) { i, c in
+                    HStack(spacing: 14) {
+                        ProgressRing(value: c.2, color: c.4, size: 56)
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Image(systemName: c.1).font(.system(size: 12)).foregroundStyle(c.4)
+                                Text(c.0.uppercased()).font(.inter(11.5, .semibold)).tracking(0.5).foregroundStyle(Nuru.ink)
+                            }
+                            Text(c.3).font(.inter(11)).foregroundStyle(Nuru.muted).fixedSize(horizontal: false, vertical: true)
+                            ProgressBar(pct: Double(c.2), fill: c.4, height: 4).padding(.top, 2)
                         }
-                        Text(c.3).font(.inter(12.5)).foregroundStyle(Nuru.ink).lineLimit(1)
-                        Text(c.4).font(.inter(11)).foregroundStyle(Nuru.muted).fixedSize(horizontal: false, vertical: true)
-                        ProgressBar(pct: Double(c.2), fill: c.5, height: 4).padding(.top, 4)
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                    .padding(.vertical, 10)
+                    if i < rings.count - 1 { Rectangle().fill(Nuru.border).frame(height: 1) }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                .background(c.6)
-                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(c.7, lineWidth: 1))
             }
         }
     }
@@ -642,13 +651,15 @@ private struct ProgressRing: View {
     let color: Color
     var size: CGFloat = 84
     var body: some View {
-        ZStack {
-            Circle().stroke(Color(hex: 0xEEF0F3), lineWidth: 8)
+        let lw: CGFloat = size > 64 ? 8 : 6
+        return ZStack {
+            Circle().stroke(Color(hex: 0xEEF0F3), lineWidth: lw)
             Circle()
                 .trim(from: 0, to: min(max(Double(value) / 100, 0), 1))
-                .stroke(color, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                .stroke(color, style: StrokeStyle(lineWidth: lw, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            Text("\(value)%").font(.fraunces(21, .medium)).foregroundStyle(Nuru.ink)
+            Text("\(value)%").font(.fraunces(size > 64 ? 21 : 15, .medium)).foregroundStyle(Nuru.ink)
+                .lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(width: size, height: size)
     }

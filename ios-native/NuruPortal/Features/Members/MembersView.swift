@@ -435,20 +435,21 @@ struct MembersView: View {
     }
 
     // Column header — widths mirror MemberRowCard's fixed columns so titles align.
+    // Tuned to fit ~740pt portrait width without horizontal overflow.
     private var tableHeader: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
             Text("Member").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                .frame(width: 44 + 210 + 14, alignment: .leading)
+                .frame(width: 44 + 175 + 10, alignment: .leading)
             Text("Cell").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                .frame(width: 150, alignment: .leading)
+                .frame(width: 105, alignment: .leading)
             Text("Start").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                .frame(width: 100, alignment: .leading)
+                .frame(width: 72, alignment: .leading)
             Text("Progress").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                .frame(width: 170, alignment: .leading)
+                .frame(width: 120, alignment: .leading)
             Spacer(minLength: 0)
             Text("Status").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                .frame(width: 80, alignment: .center)
-            Text("").frame(width: 36 + 14 + 32)   // Results + menu action columns
+                .frame(width: 70, alignment: .center)
+            Text("").frame(width: 34 + 10 + 30)   // Results + menu action columns
         }
         .padding(.horizontal, 18).padding(.vertical, 11)
         .background(Nuru.surface)
@@ -496,11 +497,11 @@ private struct MemberRowCard: View {
         return NavigationLink {
             MemberDetailView(userId: member.userId, name: member.fullName)
         } label: {
-            HStack(spacing: 14) {
+            HStack(spacing: 10) {
                 ZStack(alignment: .bottomTrailing) {
                     RoundedRectangle(cornerRadius: 12, style: .continuous).fill(avatarGradient(index))
                         .frame(width: 44, height: 44)
-                        .overlay(Text(initials(member.fullName)).font(.inter(14, .bold)).foregroundStyle(.white))
+                        .overlay(Text(initials(member.fullName)).font(.inter(13.5, .bold)).foregroundStyle(.white))
                     if member.status == "thriving" {
                         Circle().fill(Color(hex: 0x16A34A)).frame(width: 12, height: 12)
                             .overlay(Circle().stroke(.white, lineWidth: 2)).offset(x: 3, y: 3)
@@ -508,7 +509,7 @@ private struct MemberRowCard: View {
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(member.fullName).font(.inter(14, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                        Text(member.fullName).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
                         Text("L\(member.currentLevel.map(String.init) ?? "—")").font(.inter(9.5, .bold))
                             .foregroundStyle(Nuru.goldLo).padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Nuru.gold.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 4))
@@ -527,37 +528,38 @@ private struct MemberRowCard: View {
                         }
                     }
                 }
-                .frame(width: 210, alignment: .leading)
+                .frame(width: 175, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(member.cellName ?? "—").font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                    Text(member.cellName ?? "—").font(.inter(12, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
                     Label("cell", systemImage: "person.crop.circle.badge.checkmark").font(.nMicro).foregroundStyle(Nuru.ink600)
-                }.frame(width: 150, alignment: .leading)
+                }.frame(width: 105, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Label("L\(member.startLevel ?? 1)·M\(member.startModuleSequence ?? 1)", systemImage: "flag.fill")
-                        .font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy)
-                    Text("start point").font(.nMicro).foregroundStyle(Nuru.ink600)
-                }.frame(width: 100, alignment: .leading)
+                        .font(.inter(12, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.85)
+                    Text("start").font(.nMicro).foregroundStyle(Nuru.ink600)
+                }.frame(width: 72, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(member.programme.flatMap { PROGRAMME_LABELS[$0] } ?? "Engagement").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
-                        Spacer()
-                        Text("\(progress)%").font(.inter(12, .bold)).foregroundStyle(Nuru.navy)
+                        Text(member.programme.flatMap { PROGRAMME_LABELS[$0] } ?? "Engagement").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.85)
+                        Spacer(minLength: 4)
+                        Text("\(progress)%").font(.inter(11.5, .bold)).foregroundStyle(Nuru.navy)
                     }
                     ProgressBar(pct: Double(progress), fill: sm.fg, height: 6)
-                }.frame(width: 170)
+                }.frame(width: 120)
 
                 Spacer(minLength: 0)
 
-                Text(sm.label).font(.inter(11, .bold)).foregroundStyle(sm.fg)
-                    .frame(width: 80).padding(.vertical, 5)
+                Text(sm.label).font(.inter(10.5, .bold)).foregroundStyle(sm.fg)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .frame(width: 70).padding(.vertical, 5)
                     .background(sm.bg).overlay(Capsule().stroke(sm.fg.opacity(0.2), lineWidth: 1)).clipShape(Capsule())
 
                 Button(action: onResults) {
-                    Image(systemName: "chart.bar.xaxis").font(.system(size: 15)).foregroundStyle(Nuru.goldLo)
-                        .frame(width: 36, height: 36).background(Nuru.inputBg)
+                    Image(systemName: "chart.bar.xaxis").font(.system(size: 14)).foregroundStyle(Nuru.goldLo)
+                        .frame(width: 34, height: 34).background(Nuru.inputBg)
                         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Nuru.border, lineWidth: 1))
                         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                 }.buttonStyle(.plain)
@@ -566,8 +568,8 @@ private struct MemberRowCard: View {
                     Button { onEdit() } label: { Label("Edit member", systemImage: "pencil") }
                     Button { onGraduate() } label: { Label(member.status == "graduated" ? "Un-graduate" : "Mark graduated", systemImage: "graduationcap") }
                 } label: {
-                    Image(systemName: "ellipsis").font(.system(size: 15)).foregroundStyle(Nuru.ink600)
-                        .frame(width: 32, height: 32).background(Nuru.inputBg)
+                    Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(Nuru.ink600)
+                        .frame(width: 30, height: 30).background(Nuru.inputBg)
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Nuru.border, lineWidth: 1))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }

@@ -361,27 +361,27 @@ struct VideoLibraryView: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(hex: 0xF2E2BD), lineWidth: 1))
     }
 
-    // ────── 4 KPI tiles — a compact 4-up strip (no half-empty cards) ──────
+    // ────── 4 KPI tiles — compact 4-up strip; clean icon · value · label
+    // hierarchy that fits at ~740pt portrait (minimum 150 → all four on one row). ──────
     private var kpiCards: some View {
         let pct = vm.totalCount > 0 ? "\(Int((Double(vm.ready) / Double(vm.totalCount) * 100).rounded()))% of library" : "—"
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 184), spacing: 14)], spacing: 14) {
-            kpiCard("Total video assets", vm.totalCount, "film", "in the library", tint: 1)
-            kpiCard("Ready for members",  vm.ready, "checkmark.circle.fill", pct, tint: 2)
-            kpiCard("Processing",         vm.processing, "arrow.triangle.2.circlepath", "uploading / transcoding", tint: 1)
-            kpiCard("Failed",             vm.failed + vm.stuck, "exclamationmark.triangle.fill", "review and retry", tint: 4)
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+            kpiCard("Total assets", vm.totalCount, "film", "in the library", tint: 1)
+            kpiCard("Ready", vm.ready, "checkmark.circle.fill", pct, tint: 2)
+            kpiCard("Processing", vm.processing, "arrow.triangle.2.circlepath", "uploading / transcoding", tint: 1)
+            kpiCard("Failed", vm.failed + vm.stuck, "exclamationmark.triangle.fill", "review and retry", tint: 4)
         }
     }
     private func kpiCard(_ label: String, _ value: Int, _ icon: String, _ sub: String, tint: Int) -> some View {
         Card(padding: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                TintedIcon(systemName: icon, color: Nuru.tint(tint).fg, size: 36)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(label.uppercased()).font(.nOverline).tracking(1).foregroundStyle(Nuru.ink600).lineLimit(1)
-                    Text("\(value)").font(.fraunces(24, .semibold)).foregroundStyle(Nuru.navy)
-                    Text(sub).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
-                }
-                Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 7) {
+                TintedIcon(systemName: icon, color: Nuru.tint(tint).fg, size: 30)
+                Text("\(value)").font(.inter(22, .semibold)).foregroundStyle(Nuru.navy)
+                Text(label.uppercased()).font(.nOverline).tracking(0.8).foregroundStyle(Nuru.ink600)
+                    .lineLimit(1).minimumScaleFactor(0.85)
+                Text(sub).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.85)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

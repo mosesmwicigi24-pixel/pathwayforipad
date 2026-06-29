@@ -353,8 +353,9 @@ struct ReflectionQueueView: View {
                             .background(c.4).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(c.0).font(.nCaption).foregroundStyle(Nuru.ink600)
+                                .lineLimit(1).minimumScaleFactor(0.85)
                             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Text(c.1).font(.fraunces(22, .semibold)).foregroundStyle(Nuru.navy)
+                                Text(c.1).font(.fraunces(22, .medium)).foregroundStyle(Nuru.navy)
                                 if let sub = c.2 { Text(sub).font(.nMicro).foregroundStyle(Nuru.ink600) }
                             }
                         }
@@ -436,7 +437,8 @@ private struct QueueList: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("\(tab.capitalized) reflections").font(.fraunces(16, .semibold)).foregroundStyle(Nuru.navy)
+                Text("\(tab.capitalized) reflections").font(.fraunces(16, .medium)).foregroundStyle(Nuru.navy)
+                    .lineLimit(1).minimumScaleFactor(0.85)
                 Spacer()
                 Text("\(rows.count)").font(.inter(11, .bold)).foregroundStyle(.white)
                     .padding(.horizontal, 8).padding(.vertical, 3).background(Nuru.navy).clipShape(Capsule())
@@ -510,7 +512,7 @@ private struct QueueList: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(hex: 0xF5E7C5)).frame(width: 56, height: 56)
                 Image(systemName: "book.closed.fill").font(.system(size: 22)).foregroundStyle(Color(hex: 0x92651B))
             }
-            Text("Queue is clear — well shepherded").font(.fraunces(16, .semibold)).foregroundStyle(Nuru.navy)
+            Text("Queue is clear — well shepherded").font(.fraunces(16, .medium)).foregroundStyle(Nuru.navy)
                 .multilineTextAlignment(.center)
             Text("No \(tab) reflections match these filters.").font(.nCaption).foregroundStyle(Nuru.ink600)
                 .multilineTextAlignment(.center)
@@ -556,11 +558,13 @@ private struct Workspace: View {
                 Monogram(name: current.fullName, size: 44)
                 VStack(alignment: .leading, spacing: 3) {
                     Button(action: onProfile) {
-                        Text(current.fullName).font(.fraunces(18, .semibold)).foregroundStyle(Nuru.navy)
+                        Text(current.fullName).font(.fraunces(18, .medium)).foregroundStyle(Nuru.navy)
+                            .lineLimit(1).minimumScaleFactor(0.8)
                     }.buttonStyle(.plain)
                     Text("\(current.moduleTitle) · \(Fmt.date(current.submittedAt))" +
                          (member?.cellName.map { " · \($0)" } ?? ""))
                         .font(.nMicro).foregroundStyle(Nuru.ink600)
+                        .lineLimit(1).minimumScaleFactor(0.85)
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .trailing, spacing: 6) {
@@ -626,7 +630,7 @@ private struct Workspace: View {
                             Image(systemName: "quote.opening").font(.system(size: 11)).foregroundStyle(.white)
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Member reflection").font(.fraunces(15, .semibold)).foregroundStyle(Nuru.navy)
+                            Text("Member reflection").font(.fraunces(15, .medium)).foregroundStyle(Nuru.navy)
                             Text("Submitted response for review").font(.nMicro).foregroundStyle(Nuru.ink600)
                         }
                     }
@@ -657,7 +661,7 @@ private struct Workspace: View {
         Card(padding: 20) {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Decision").font(.fraunces(17, .semibold)).foregroundStyle(Nuru.navy)
+                    Text("Decision").font(.fraunces(17, .medium)).foregroundStyle(Nuru.navy)
                     Text("Choose whether this reflection shows readiness to advance.")
                         .font(.nCaption).foregroundStyle(Nuru.ink600)
                 }
@@ -720,7 +724,8 @@ private struct Workspace: View {
                         RoundedRectangle(cornerRadius: 9, style: .continuous).fill(iconBg).frame(width: 32, height: 32)
                         Image(systemName: icon).font(.system(size: 15)).foregroundStyle(.white)
                     }
-                    Text(title).font(.fraunces(18, .semibold)).foregroundStyle(titleColor)
+                    Text(title).font(.fraunces(17, .medium)).foregroundStyle(titleColor)
+                        .lineLimit(1).minimumScaleFactor(0.8)
                 }
                 Text(desc).font(.nCaption).foregroundStyle(titleColor).fixedSize(horizontal: false, vertical: true)
             }

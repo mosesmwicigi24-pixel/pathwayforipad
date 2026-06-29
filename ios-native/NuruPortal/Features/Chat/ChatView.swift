@@ -210,6 +210,7 @@ struct ChatView: View {
                 hero
                 VStack(alignment: .leading, spacing: 16) {
                     if let e = model.listError { inlineError(e) }
+                    statChips
                     actionBar
                     if twoPane {
                         HStack(alignment: .top, spacing: 16) {
@@ -244,13 +245,48 @@ struct ChatView: View {
             breadcrumb: ["Operations", "Chat"],
             eyebrow: "Messaging",
             title: "Chat",
-            subtitle: "Oversee disciple, group and space conversations from the mobile app. Read threads, moderate flagged messages and reply when needed.",
-            stats: model.heroStats
+            subtitle: "Oversee disciple, group and space conversations from the mobile app. Read threads, moderate flagged messages and reply when needed."
         ) {
             if model.totalFlagged > 0 {
                 HeroChip(label: "\(model.totalFlagged) flagged", icon: "exclamationmark.shield.fill", style: .tag)
             }
         }
+    }
+
+    // Compact stat chips — small icon + number + tiny label tiles (replaces the
+    // oversized hero stat strip). A tight, even HStack that stays compact at ~740pt.
+    private var statChips: some View {
+        let icons = ["bubble.left.and.bubble.right.fill", "bolt.fill", "envelope.fill", "exclamationmark.shield.fill"]
+        let tints: [Color] = [Nuru.navy, Color(hex: 0x0F6B33), Nuru.gold, Color(hex: 0xA8281F)]
+        return HStack(spacing: 8) {
+            ForEach(Array(model.heroStats.enumerated()), id: \.element.id) { i, s in
+                statChip(icon: icons[i % icons.count], tint: tints[i % tints.count],
+                         value: s.value, label: s.label)
+            }
+        }
+    }
+
+    private func statChip(icon: String, tint: Color, value: String, label: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 26, height: 26)
+                .background(tint.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: 0) {
+                Text(value).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                Text(label.uppercased()).font(.inter(8.5, .bold)).tracking(0.4)
+                    .foregroundStyle(Nuru.muted)
+                    .lineLimit(1).minimumScaleFactor(0.75)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .frame(maxWidth: .infinity)
+        .background(Nuru.white)
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var actionBar: some View {

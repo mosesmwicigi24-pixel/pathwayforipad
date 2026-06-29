@@ -262,17 +262,19 @@ private struct CountryFormSheet: View {
 
 // Fixed column widths so every cell aligns across rows and the status Pill is
 // never squeezed to zero. The Country (name) column flexes; the rest are fixed.
+// Tuned for PORTRAIT: usable row width ≈ 688pt (724 Card − 36 row padding).
+// fixed 470 + 5×14 gaps + name flex ≈ 148 → fits without clipping.
 private enum CountryCol {
-    static let region: CGFloat = 200
-    static let currency: CGFloat = 110
-    static let dial: CGFloat = 110
-    static let status: CGFloat = 110
-    static let actions: CGFloat = 150
+    static let region: CGFloat = 130
+    static let currency: CGFloat = 70
+    static let dial: CGFloat = 78
+    static let status: CGFloat = 96
+    static let actions: CGFloat = 96
 }
 
 private struct CountryHeaderRow: View {
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Text("Country").modifier(CountryHead(maxWidth: .infinity, align: .leading))
             Text("Region").modifier(CountryHead(width: CountryCol.region, align: .leading))
             Text("Currency").modifier(CountryHead(width: CountryCol.currency, align: .leading))
@@ -280,7 +282,7 @@ private struct CountryHeaderRow: View {
             Text("Status").modifier(CountryHead(width: CountryCol.status, align: .leading))
             Text("").modifier(CountryHead(width: CountryCol.actions, align: .trailing))
         }
-        .padding(.horizontal, 18).padding(.vertical, 11)
+        .padding(.horizontal, 16).padding(.vertical, 10)
         .background(Nuru.surface)
     }
 }
@@ -307,41 +309,42 @@ private struct CountryRow: View {
     }
     var body: some View {
         let active = c.status == "active"
-        HStack(spacing: 14) {
-            HStack(spacing: 11) {
-                Text(c.flag ?? "🏳️").font(.system(size: 20))
+        HStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Text(c.flag ?? "🏳️").font(.system(size: 18))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(c.name).font(.inter(14, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                    Text(c.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
                     Text(c.code).font(.system(.caption2, design: .monospaced)).foregroundStyle(Nuru.muted)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(c.region ?? "—").font(.inter(13)).foregroundStyle(Nuru.foreground).lineLimit(1)
+            Text(c.region ?? "—").font(.inter(12.5)).foregroundStyle(Nuru.foreground).lineLimit(1).minimumScaleFactor(0.85)
                 .frame(width: CountryCol.region, alignment: .leading)
-            Text(c.currency ?? "—").font(.inter(13, .semibold)).foregroundStyle(Nuru.foreground).lineLimit(1)
+            Text(c.currency ?? "—").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.foreground).lineLimit(1)
                 .frame(width: CountryCol.currency, alignment: .leading)
-            Text(c.dialCode ?? "—").font(.system(.subheadline, design: .monospaced)).foregroundStyle(Nuru.foreground).lineLimit(1)
+            Text(c.dialCode ?? "—").font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Nuru.foreground).lineLimit(1)
                 .frame(width: CountryCol.dial, alignment: .leading)
             HStack {
                 Pill(text: active ? "Active" : "Inactive", color: active ? Nuru.success : Nuru.muted)
                 Spacer(minLength: 0)
             }
             .frame(width: CountryCol.status, alignment: .leading)
-            HStack(spacing: 14) {
+            HStack(spacing: 10) {
                 Spacer(minLength: 0)
-                Button(action: onEdit) { Image(systemName: "pencil").font(.system(size: 14)).foregroundStyle(Nuru.muted) }
+                Button(action: onEdit) { Image(systemName: "pencil").font(.system(size: 13)).foregroundStyle(Nuru.muted) }
                     .buttonStyle(.plain)
                 Button(action: onToggle) {
-                    Text(active ? "Disable" : "Enable").font(.inter(12, .bold))
+                    Text(active ? "Disable" : "Enable").font(.inter(11.5, .bold))
                         .foregroundStyle(active ? Color(hex: 0xDC2626) : Color(hex: 0x16A34A))
+                        .lineLimit(1).fixedSize()
                 }
                 .buttonStyle(.plain)
             }
             .frame(width: CountryCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 11)
-        .frame(minHeight: 52)
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .frame(minHeight: 50)
     }
 }
 

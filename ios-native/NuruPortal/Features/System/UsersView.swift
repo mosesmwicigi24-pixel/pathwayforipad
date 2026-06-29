@@ -302,29 +302,31 @@ private enum UsersLoad {
 // (the web Users.tsx table). Columns are width-aligned across rows via fixed
 // frames so the whole list reads as a real table, not stacked cards.
 
+// Tuned for PORTRAIT (usable row ≈ 692pt): fixed 440 + 5×12 gaps + name flex
+// ≈ 192 → fits without clipping. Email/roles flex within their fixed columns.
 private enum UserCol {
-    static let contact: CGFloat = 240
-    static let roles: CGFloat = 220
-    static let status: CGFloat = 120
-    static let lastActive: CGFloat = 120
-    static let actions: CGFloat = 132
+    static let contact: CGFloat = 150
+    static let roles: CGFloat = 120
+    static let status: CGFloat = 92
+    static let lastActive: CGFloat = 74
+    static let actions: CGFloat = 104
 }
 
 private struct UserHeaderRow: View {
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             head("User").frame(maxWidth: .infinity, alignment: .leading)
             head("Email / Phone").frame(width: UserCol.contact, alignment: .leading)
             head("Roles").frame(width: UserCol.roles, alignment: .leading)
             head("Status").frame(width: UserCol.status, alignment: .leading)
-            head("Last active").frame(width: UserCol.lastActive, alignment: .leading)
+            head("Active").frame(width: UserCol.lastActive, alignment: .leading)
             head("").frame(width: UserCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 12)
+        .padding(.horizontal, 16).padding(.vertical, 11)
         .background(Nuru.surface)
     }
     private func head(_ t: String) -> some View {
-        Text(t.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.ink600)
+        Text(t.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.85)
     }
 }
 
@@ -337,12 +339,12 @@ private struct UserTableRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             // User — monogram + name
-            HStack(spacing: 11) {
-                Monogram(name: user.fullName, size: 36, gradient: Self.avatarGradients[index % Self.avatarGradients.count])
-                Text(user.fullName).font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                    .lineLimit(1)
+            HStack(spacing: 10) {
+                Monogram(name: user.fullName, size: 32, gradient: Self.avatarGradients[index % Self.avatarGradients.count])
+                Text(user.fullName).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
+                    .lineLimit(1).minimumScaleFactor(0.85)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -350,7 +352,7 @@ private struct UserTableRow: View {
             HStack(spacing: 5) {
                 Image(systemName: user.email?.isEmpty == false ? "envelope" : "phone")
                     .font(.system(size: 10)).foregroundStyle(Nuru.ink400)
-                Text(displayContact).font(.inter(12.5)).foregroundStyle(Nuru.ink600).lineLimit(1)
+                Text(displayContact).font(.inter(11.5)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(width: UserCol.contact, alignment: .leading)
 
@@ -361,11 +363,11 @@ private struct UserTableRow: View {
             statusPill.frame(width: UserCol.status, alignment: .leading)
 
             // Last active
-            Text(lastActive).font(.inter(12)).foregroundStyle(Nuru.ink600)
+            Text(lastActive).font(.inter(11.5)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.85)
                 .frame(width: UserCol.lastActive, alignment: .leading)
 
             // Actions — fixed trailing width
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 Spacer(minLength: 0)
                 IconAction(icon: "pencil", tint: Nuru.navy, action: onEdit)
                 IconAction(
@@ -377,8 +379,8 @@ private struct UserTableRow: View {
             }
             .frame(width: UserCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 10)
-        .frame(minHeight: 52)
+        .padding(.horizontal, 16).padding(.vertical, 9)
+        .frame(minHeight: 50)
     }
 
     private var displayContact: String {
@@ -391,22 +393,22 @@ private struct UserTableRow: View {
         if user.roleKeys.isEmpty {
             Text("No role").font(.nMicro).foregroundStyle(Nuru.ink400)
         } else {
-            HStack(spacing: 6) {
-                ForEach(user.roleKeys.prefix(2), id: \.self) { key in
+            HStack(spacing: 5) {
+                ForEach(user.roleKeys.prefix(1), id: \.self) { key in
                     let tone = roleTone(key)
                     Text(roleName(key))
-                        .font(.inter(11, .semibold))
+                        .font(.inter(10.5, .semibold))
                         .foregroundStyle(tone.fg)
-                        .lineLimit(1)
-                        .padding(.horizontal, 9).padding(.vertical, 3)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(tone.bg)
                         .clipShape(Capsule())
                 }
-                if user.roleKeys.count > 2 {
-                    Text("+\(user.roleKeys.count - 2)")
-                        .font(.inter(11, .semibold))
+                if user.roleKeys.count > 1 {
+                    Text("+\(user.roleKeys.count - 1)")
+                        .font(.inter(10.5, .semibold))
                         .foregroundStyle(Nuru.ink600)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
                         .background(Nuru.inputBg)
                         .clipShape(Capsule())
                 }
@@ -416,11 +418,11 @@ private struct UserTableRow: View {
 
     private var statusPill: some View {
         let s = statusStyle
-        return HStack(spacing: 5) {
-            Circle().fill(s.fg).frame(width: 6, height: 6)
-            Text(s.label).font(.inter(11, .semibold)).foregroundStyle(s.fg)
+        return HStack(spacing: 4) {
+            Circle().fill(s.fg).frame(width: 5, height: 5)
+            Text(s.label).font(.inter(10.5, .semibold)).foregroundStyle(s.fg).lineLimit(1).fixedSize()
         }
-        .padding(.horizontal, 10).padding(.vertical, 4)
+        .padding(.horizontal, 8).padding(.vertical, 4)
         .background(s.bg)
         .clipShape(Capsule())
     }
@@ -463,11 +465,11 @@ private struct IconAction: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+            Image(systemName: icon).font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(tint)
-                .frame(width: 34, height: 30)
+                .frame(width: 30, height: 28)
                 .background(tint.opacity(0.10))
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
     }

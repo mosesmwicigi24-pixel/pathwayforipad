@@ -148,6 +148,7 @@ struct CellDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("HEALTH MIX").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.goldLo)
+                        .lineLimit(1).minimumScaleFactor(0.85)
                     Text("Engagement bands").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
                 }
                 GeometryReader { geo in
@@ -171,10 +172,11 @@ struct CellDetailView: View {
                         HStack {
                             HStack(spacing: 6) {
                                 Circle().fill(b.color).frame(width: 8, height: 8)
-                                Text(b.label).font(.inter(12, .medium)).foregroundStyle(Nuru.navy)
+                                Text(b.label).font(.inter(12, .regular)).foregroundStyle(Nuru.navy)
+                                    .lineLimit(1).minimumScaleFactor(0.85)
                             }
                             Spacer()
-                            Text("\(vm.count(b))").font(.inter(12, .bold)).foregroundStyle(Nuru.navy)
+                            Text("\(vm.count(b))").font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
                         }
                         .padding(.horizontal, 12).padding(.vertical, 8)
                         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
@@ -259,12 +261,13 @@ struct CellDetailView: View {
         return HStack(spacing: 12) {
             Monogram(name: nm, size: 36)
             VStack(alignment: .leading, spacing: 2) {
-                Text(nm).font(.inter(14, .bold)).foregroundStyle(Nuru.ink).lineLimit(1)
+                Text(nm).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.ink)
+                    .lineLimit(1).minimumScaleFactor(0.85)
                 HStack(spacing: 8) {
                     Pill(text: band.label, color: band.fg)
                     if let days {
                         Text("\(days)d ago")
-                            .font(.inter(12, days >= 7 ? .bold : .regular))
+                            .font(.inter(11.5, days >= 7 ? .semibold : .regular))
                             .foregroundStyle(days >= 7 ? Nuru.danger : Nuru.muted)
                     } else {
                         Text("—").font(.nCaption).foregroundStyle(Nuru.muted)
@@ -275,7 +278,7 @@ struct CellDetailView: View {
             // Fixed-width trailing column so scores + bars line up across rows
             // and under the ENGAGEMENT header.
             VStack(alignment: .trailing, spacing: 4) {
-                Text("\(score)%").font(.inter(12.5, .bold)).foregroundStyle(Nuru.ink)
+                Text("\(score)%").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink)
                 ProgressBar(pct: Double(score), fill: band.color, height: 6)
             }
             .frame(width: 168)
