@@ -24,18 +24,85 @@ private func cellInitials(_ name: String) -> String {
 }
 private func engPct(_ v: Double) -> Int { Int((v).rounded()) }
 
+// MARK: - Page state (mirrors CellEngagement.tsx's load/handleCreate/handleUpdate/
+// toggleFeatured). Refetches the engagement report after every write so the derived
+// metrics + single-featured invariant reflect server truth.
+@MainActor
+private final class CellEngagementViewModel: ObservableObject {
+    @Published var cells: [EngagementCellRow] = []
+    @Published var loading = true
+    @Published var error: String?
+    // EngagementCellRow (shared model) lacks is_featured, so we track which cell is
+    // featured locally, keyed by cell_group_id, refreshed from each homepage write.
+    @Published var featuredId: String?
+    @Published var featuringId: String?
+
+    func load() async {
+        loading = true
+        do {
+            cells = try await PortalAPI.engagement().cells
+            error = nil
+        } catch {
+            self.error = (error as? APIError)?.errorDescription ?? error.localizedDescription
+        }
+        loading = false
+    }
+
+    // Toggle the homepage-featured cell ("This week at Nuru"). The server keeps the
+    // single-featured invariant; we reflect it locally (POST sets, DELETE clears).
+    func toggleFeatured(_ cell: EngagementCellRow) async {
+        guard featuringId == nil else { return }
+        featuringId = cell.cellGroupId
+        error = nil
+        do {
+            if featuredId == cell.cellGroupId {
+                _ = try await APIClient.shared.delete("/admin/cells/\(cell.cellGroupId)/homepage", as: FeaturedResult.self)
+                featuredId = nil
+            } else {
+                _ = try await APIClient.shared.postEmpty("/admin/cells/\(cell.cellGroupId)/homepage", as: FeaturedResult.self)
+                featuredId = cell.cellGroupId
+            }
+        } catch {
+            self.error = "Could not update the homepage-featured cell. " + ((error as? APIError)?.errorDescription ?? error.localizedDescription)
+        }
+        featuringId = nil
+    }
+}
+
+/// Tolerant response for the homepage feature endpoints ({ is_featured: bool }).
+private struct FeaturedResult: Decodable { @DefaultFalse var isFeatured: Bool }
+
 struct CellEngagementView: View {
+    @StateObject private var vm = CellEngagementViewModel()
+    @EnvironmentObject private var router: NavRouter
+    @State private var addOpen = false
+    @State private var editCell: EngagementCellRow?
     private let grid = [GridItem(.adaptive(minimum: 280), spacing: 16)]
 
     var body: some View {
-        AsyncView(PortalAPI.engagement) { report in
-            content(report)
+        Group {
+            if vm.loading && vm.cells.isEmpty {
+                ScrollView { SkeletonList(rows: 6).padding(Nuru.S.screen) }
+            } else if let error = vm.error, vm.cells.isEmpty {
+                ScrollView { ErrorBanner(message: error) { Task { await vm.load() } }.padding(Nuru.S.screen) }
+            } else {
+                content
+            }
         }
+        .background(Nuru.paper)
         .portalPage("Cell Engagement")
+        .task { if vm.cells.isEmpty { await vm.load() } }
+        .refreshable { await vm.load() }
+        .sheet(isPresented: $addOpen) {
+            CellModalSheet(cell: nil) { await vm.load() }
+        }
+        .sheet(item: $editCell) { cell in
+            CellModalSheet(cell: cell) { await vm.load() }
+        }
     }
 
-    private func content(_ report: EngagementReport) -> some View {
-        let cells = report.cells
+    private var content: some View {
+        let cells = vm.cells
         let totalMembers = cells.reduce(0) { $0 + $1.members }
         let totalAtRisk = cells.reduce(0) { $0 + $1.atRisk }
         let overallAvg = totalMembers > 0
@@ -59,14 +126,32 @@ struct CellEngagementView: View {
                     ]
                 ) {
                     HStack(spacing: 8) {
+                        // "Pastoral overview" has no destination in the web (static tag) — leave inert.
                         HeroChip(label: "Pastoral overview", icon: "sparkles", style: .tag)
-                        HeroChip(label: "Action queue", icon: "arrow.up.right", style: .ghost)
-                        HeroChip(label: "New Cell", icon: "plus", style: .gold)
+                        // Web: navigate("/reflection-queue").
+                        HeroChip(label: "Action queue", icon: "arrow.up.right", style: .ghost) { router.go(.reflectionQueue) }
+                        // Web: setAddOpen(true) → CellModal (create).
+                        HeroChip(label: "New Cell", icon: "plus", style: .gold) { addOpen = true }
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 16) {
-                    SectionHeader(overline: "Cell roster", title: "Cells & their disciplers")
+                    HStack(alignment: .bottom) {
+                        SectionHeader(overline: "Cell roster", title: "Cells & their disciplers")
+                        // Web: second "New cell" button next to the section heading.
+                        Button { addOpen = true } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "plus").font(.system(size: 12, weight: .bold))
+                                Text("New cell").font(.inter(12.5, .bold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12).frame(height: 34)
+                            .background(Nuru.gold)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .fixedSize()
+                    }
 
                     if cells.isEmpty {
                         Text("No cells with engagement data yet.")
@@ -75,12 +160,13 @@ struct CellEngagementView: View {
                     } else {
                         LazyVGrid(columns: grid, spacing: 16) {
                             ForEach(cells) { cell in
-                                NavigationLink {
-                                    CellDetailView(cellGroupId: cell.cellGroupId, name: cell.name)
-                                } label: {
-                                    CellCard(cell: cell)
-                                }
-                                .buttonStyle(.plain)
+                                CellCard(
+                                    cell: cell,
+                                    isFeatured: vm.featuredId == cell.cellGroupId,
+                                    isFeaturing: vm.featuringId == cell.cellGroupId,
+                                    onEdit: { editCell = cell },
+                                    onToggleFeatured: { Task { await vm.toggleFeatured(cell) } }
+                                )
                             }
                         }
                     }
@@ -188,6 +274,10 @@ struct CellEngagementView: View {
 
 private struct CellCard: View {
     let cell: EngagementCellRow
+    let isFeatured: Bool
+    let isFeaturing: Bool
+    let onEdit: () -> Void
+    let onToggleFeatured: () -> Void
     var body: some View {
         let tone = toneOf(cell.cellGroupId)
         let avg = engPct(cell.avgEngagement)
@@ -203,24 +293,48 @@ private struct CellCard: View {
                         Text("\(cell.members) members").font(.inter(11.5, .semibold)).foregroundStyle(Nuru.muted)
                     }
                     Spacer(minLength: 0)
-                    HStack(spacing: 3) {
-                        Text("View").font(.inter(11, .bold)).foregroundStyle(Nuru.navy)
-                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(Nuru.navy)
+                    HStack(spacing: 6) {
+                        // Edit cell → CellModal (PATCH /admin/cells/{id}).
+                        Button(action: onEdit) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "pencil").font(.system(size: 9, weight: .bold))
+                                Text("Edit").font(.inter(11, .bold))
+                            }
+                            .foregroundStyle(Nuru.navy)
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                            .overlay(Capsule().stroke(Nuru.border, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        // View → CellDetailView.
+                        NavigationLink {
+                            CellDetailView(cellGroupId: cell.cellGroupId, name: cell.name)
+                        } label: {
+                            HStack(spacing: 3) {
+                                Text("View").font(.inter(11, .bold)).foregroundStyle(Nuru.navy)
+                                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(Nuru.navy)
+                            }
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                            .overlay(Capsule().stroke(Nuru.border, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 8).padding(.vertical, 5)
-                    .overlay(Capsule().stroke(Nuru.border, lineWidth: 1))
                 }
 
-                // "Feature on homepage" pill (matches the web's static state).
-                HStack(spacing: 6) {
-                    Image(systemName: "star").font(.system(size: 10))
-                    Text("Feature on homepage").font(.inter(11, .bold))
+                // "Feature on homepage" toggle (POST/DELETE /admin/cells/{id}/homepage).
+                Button(action: onToggleFeatured) {
+                    HStack(spacing: 6) {
+                        Image(systemName: isFeatured ? "star.fill" : "star").font(.system(size: 10))
+                        Text(isFeatured ? "Homepage · This week" : "Feature on homepage").font(.inter(11, .bold))
+                    }
+                    .foregroundStyle(isFeatured ? .white : Nuru.muted)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(isFeatured ? Nuru.gold : Color.black.opacity(0.03))
+                    .overlay(Capsule().stroke(isFeatured ? Nuru.gold : Nuru.border, lineWidth: 1))
+                    .clipShape(Capsule())
+                    .opacity(isFeaturing ? 0.6 : 1)
                 }
-                .foregroundStyle(Nuru.muted)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(Color.black.opacity(0.03))
-                .overlay(Capsule().stroke(Nuru.border, lineWidth: 1))
-                .clipShape(Capsule())
+                .buttonStyle(.plain)
+                .disabled(isFeaturing)
 
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -250,6 +364,167 @@ private struct CellCard: View {
 
                 ProgressBar(pct: Double(avg), fill: tone, height: 8)
             }
+        }
+    }
+}
+
+// MARK: - Cell create/edit sheet (web CellModal → POST /admin/cells, PATCH /admin/cells/{id})
+
+private let cellRoleOptions = ["Lead discipler", "Discipler", "Assistant discipler"]
+private let cellLevelOptions = [
+    "Level 1 · New Life", "Level 2 · Foundations", "Level 3 · Walking in Faith",
+    "Level 4 · Serving Others", "Level 5 · Multiplier Track",
+]
+private let cellToneOptions: [(key: String, hex: UInt32)] = [
+    ("amber", 0xC89B3C), ("blue", 0x1F3A6B), ("green", 0x16A34A),
+    ("violet", 0x7C3AED), ("rose", 0xDB2777), ("red", 0xDC2626),
+]
+
+/// Request body for POST/PATCH /admin/cells (snake_case via encoder.convertToSnakeCase).
+/// Optional fields omitted when blank, like the web's spread builder.
+private struct CellWriteBody: Encodable {
+    let name: String
+    let disciplerName: String
+    let disciplerRole: String
+    let levelLabel: String
+    let tone: String
+    let focus: String?
+    let meets: String?
+    let room: String?
+    let nextSession: String?
+}
+
+private struct CellModalSheet: View {
+    let cell: EngagementCellRow?          // nil → create
+    let onSaved: () async -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String
+    @State private var discipler: String
+    @State private var disciplerRole: String
+    @State private var level: String
+    @State private var focus = ""
+    @State private var meets = ""
+    @State private var room = ""
+    @State private var nextSession = ""
+    @State private var tone: String
+    @State private var featureOnHomepage = false
+    @State private var saving = false
+    @State private var error: String?
+
+    init(cell: EngagementCellRow?, onSaved: @escaping () async -> Void) {
+        self.cell = cell
+        self.onSaved = onSaved
+        // Prefill what the shared EngagementCellRow carries (name, discipler, level).
+        // role/focus/meets/room/next_session/tone aren't on the slim model, so they
+        // start empty on edit — see NEEDS.
+        _name = State(initialValue: cell?.name ?? "")
+        _discipler = State(initialValue: cell?.disciplerName ?? "")
+        _disciplerRole = State(initialValue: cellRoleOptions[0])
+        _level = State(initialValue: cell?.levelLabel ?? cellLevelOptions[1])
+        _tone = State(initialValue: "amber")
+    }
+
+    private var editing: Bool { cell != nil }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                SwiftUI.Section {
+                    TextField("e.g. Lakeview Cell", text: $name)
+                    TextField("e.g. Mary Wanjiru", text: $discipler)
+                } header: { Text("Cell name & discipler") }
+
+                SwiftUI.Section {
+                    Picker("Discipler role", selection: $disciplerRole) {
+                        ForEach(cellRoleOptions, id: \.self) { Text($0).tag($0) }
+                    }
+                    Picker("Curriculum level", selection: $level) {
+                        ForEach(cellLevelOptions, id: \.self) { Text($0).tag($0) }
+                    }
+                } header: { Text("Assignment") }
+
+                SwiftUI.Section {
+                    TextField("Focus — e.g. New believers", text: $focus)
+                    TextField("Meets — e.g. Tue · 6:30 PM", text: $meets)
+                    TextField("Room / venue — e.g. Hall B", text: $room)
+                    TextField("Next session — e.g. Tue, Jun 24 · 6:30 PM", text: $nextSession)
+                } header: { Text("How it meets") }
+
+                SwiftUI.Section {
+                    Picker("Card colour", selection: $tone) {
+                        ForEach(cellToneOptions, id: \.key) { opt in
+                            HStack {
+                                Circle().fill(Color(hex: opt.hex)).frame(width: 14, height: 14)
+                                Text(opt.key.capitalized)
+                            }.tag(opt.key)
+                        }
+                    }
+                } header: { Text("Appearance") }
+
+                if !editing {
+                    SwiftUI.Section {
+                        Toggle(isOn: $featureOnHomepage) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Feature on homepage").font(.inter(13, .bold))
+                                Text("Show this cell in “This week at Nuru” on members’ home screens.")
+                                    .font(.inter(11.5)).foregroundStyle(Nuru.muted)
+                            }
+                        }
+                    }
+                }
+
+                if let error {
+                    SwiftUI.Section { Text(error).font(.inter(12)).foregroundStyle(Nuru.danger) }
+                }
+            }
+            .navigationTitle(editing ? "Edit cell" : "Register a new cell")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saving ? (editing ? "Saving…" : "Registering…") : (editing ? "Save" : "Register")) {
+                        Task { await submit() }
+                    }
+                    .disabled(saving)
+                }
+            }
+        }
+    }
+
+    private func submit() async {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let trimmedDiscipler = discipler.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else { error = "Cell name is required."; return }
+        guard !trimmedDiscipler.isEmpty else { error = "A discipler is required."; return }
+        func nilIfBlank(_ s: String) -> String? {
+            let t = s.trimmingCharacters(in: .whitespaces); return t.isEmpty ? nil : t
+        }
+        let body = CellWriteBody(
+            name: trimmedName, disciplerName: trimmedDiscipler, disciplerRole: disciplerRole,
+            levelLabel: level, tone: tone,
+            focus: nilIfBlank(focus), meets: nilIfBlank(meets),
+            room: nilIfBlank(room), nextSession: nilIfBlank(nextSession)
+        )
+        error = nil; saving = true
+        do {
+            if let cell {
+                _ = try await APIClient.shared.patch("/admin/cells/\(cell.cellGroupId)", body: body, as: EngagementCellRow.self)
+            } else {
+                let created = try await APIClient.shared.post("/admin/cells", body: body, as: EngagementCellRow.self)
+                if featureOnHomepage {
+                    // Set the new cell featured (server keeps single-featured invariant).
+                    _ = try? await APIClient.shared.postEmpty("/admin/cells/\(created.cellGroupId)/homepage", as: FeaturedResult.self)
+                }
+            }
+            await onSaved()
+            dismiss()
+        } catch {
+            self.error = (editing ? "Could not update the cell. " : "Could not register the cell. ")
+                + ((error as? APIError)?.errorDescription ?? error.localizedDescription)
+            saving = false
         }
     }
 }

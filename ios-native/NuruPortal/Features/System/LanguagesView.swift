@@ -5,22 +5,115 @@
 // web shows (each card: name + Default badge · native name · code · direction +
 // status pills · coverage bar), laid out for iPad as an adaptive grid.
 //
-// The web page also does create/edit, set-default, enable/disable and delete
-// (SystemApi.createLanguage / updateLanguage / deleteLanguage — POST/PUT/DELETE).
-// The shared APIClient exposes only get/post, so the per-card actions are
-// read-only here. See NEEDS in the porting notes.
+// CRUD now wired (parity with the web): the "Add language" hero chip opens a form
+// sheet (POST /admin/languages); each card carries Set-default (PUT with is_default
+// in the body), Edit (PUT /admin/languages/{code}), Enable/Disable (PUT with status
+// in the body) and Delete (DELETE /admin/languages/{code}, with a confirm alert —
+// the default language can't be removed, matching the backend guard). The grid
+// reloads after every write.
 import SwiftUI
 
+// Conditional JSON body (mirrors the web's plain object literal).
+private enum JSONValue: Encodable {
+    case string(String), int(Int), bool(Bool), null
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let v): try c.encode(v)
+        case .int(let v): try c.encode(v)
+        case .bool(let v): try c.encode(v)
+        case .null: try c.encodeNil()
+        }
+    }
+}
+private struct OkResponse: Decodable {}
+private struct LangBox: Identifiable { let id: String }
+
+private enum LanguagesAPI {
+    static func list() async throws -> [Language] {
+        try await APIClient.shared.get("/admin/languages", as: DataList<Language>.self).data
+    }
+    // SystemApi.createLanguage — POST /admin/languages
+    static func create(_ body: [String: JSONValue]) async throws {
+        _ = try await APIClient.shared.post("/admin/languages", body: body, as: OkResponse.self)
+    }
+    // SystemApi.updateLanguage — PUT /admin/languages/{code}
+    static func update(_ code: String, _ body: [String: JSONValue]) async throws {
+        _ = try await APIClient.shared.put("/admin/languages/\(code)", body: body, as: OkResponse.self)
+    }
+    // SystemApi.deleteLanguage — DELETE /admin/languages/{code}
+    static func delete(_ code: String) async throws {
+        _ = try await APIClient.shared.delete("/admin/languages/\(code)", as: OkResponse.self)
+    }
+}
+
+@MainActor
+private final class LanguagesVM: ObservableObject {
+    @Published var list: [Language] = []
+    @Published var error: String?
+    @Published var loading = true
+
+    func load() async {
+        do { list = try await LanguagesAPI.list(); error = nil }
+        catch { self.error = (error as? APIError)?.errorDescription ?? "Could not load languages." }
+        loading = false
+    }
+    // Set-default via update body (mirrors web `setDefault`).
+    func setDefault(_ l: Language) async {
+        do {
+            try await LanguagesAPI.update(l.code, ["is_default": .bool(true), "status": .string("active")])
+            await load()
+        } catch { self.error = (error as? APIError)?.errorDescription ?? "Update failed." }
+    }
+    // Enable/disable via update body (mirrors web `toggle`).
+    func toggle(_ l: Language) async {
+        do {
+            try await LanguagesAPI.update(l.code, ["status": .string(l.status == "active" ? "inactive" : "active")])
+            await load()
+        } catch { self.error = (error as? APIError)?.errorDescription ?? "Update failed." }
+    }
+    func remove(_ l: Language) async {
+        do { try await LanguagesAPI.delete(l.code); await load() }
+        catch { self.error = (error as? APIError)?.errorDescription ?? "Delete failed." }
+    }
+}
+
 struct LanguagesView: View {
+    @StateObject private var vm = LanguagesVM()
     @State private var query = ""
+    @State private var creating = false
+    @State private var editing: LangBox?
+    @State private var deleteTarget: Language?
 
     private let columns = [GridItem(.adaptive(minimum: 300), spacing: Nuru.S.base)]
 
     var body: some View {
-        AsyncView(PortalAPI.languages) { list in
-            content(list)
+        Group {
+            if vm.loading && vm.list.isEmpty {
+                ScrollView { SkeletonList(rows: 6).padding(Nuru.S.screen) }
+            } else {
+                content(vm.list)
+            }
         }
+        .background(Nuru.paper)
         .portalPage("Languages")
+        .task { if vm.list.isEmpty { await vm.load() } }
+        .refreshable { await vm.load() }
+        .sheet(isPresented: $creating) {
+            LanguageFormSheet(initial: nil) { Task { await vm.load() } }
+        }
+        .sheet(item: $editing) { box in
+            LanguageFormSheet(initial: vm.list.first { $0.code == box.id }) { Task { await vm.load() } }
+        }
+        .alert("Remove language?", isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } })) {
+            Button("Cancel", role: .cancel) { deleteTarget = nil }
+            Button("Remove", role: .destructive) {
+                if let l = deleteTarget { Task { await vm.remove(l) } }
+                deleteTarget = nil
+            }
+        } message: {
+            Text("Remove \(deleteTarget?.name ?? "")? This cannot be undone.")
+        }
     }
 
     @ViewBuilder
@@ -44,10 +137,11 @@ struct LanguagesView: View {
                         HeroStat(label: "Avg cover", value: "\(avgCoverage)%", hint: "translated"),
                     ]
                 ) {
-                    HeroChip(label: "Add language", icon: "plus", style: .gold)
+                    HeroChip(label: "Add language", icon: "plus", style: .gold) { creating = true }
                 }
 
                 VStack(spacing: Nuru.S.base) {
+                    if let e = vm.error { ErrorBanner(message: e) { Task { await vm.load() } } }
                     LanguageSearchField(text: $query, placeholder: "Search language…")
 
                     if filtered.isEmpty {
@@ -55,7 +149,11 @@ struct LanguagesView: View {
                     } else {
                         LazyVGrid(columns: columns, spacing: Nuru.S.base) {
                             ForEach(filtered) { l in
-                                LanguageCard(l)
+                                LanguageCard(l,
+                                             onSetDefault: { Task { await vm.setDefault(l) } },
+                                             onEdit: { editing = LangBox(id: l.code) },
+                                             onToggle: { Task { await vm.toggle(l) } },
+                                             onDelete: { deleteTarget = l })
                             }
                         }
                     }
@@ -68,7 +166,15 @@ struct LanguagesView: View {
 
 private struct LanguageCard: View {
     let l: Language
-    init(_ l: Language) { self.l = l }
+    let onSetDefault: () -> Void
+    let onEdit: () -> Void
+    let onToggle: () -> Void
+    let onDelete: () -> Void
+    init(_ l: Language, onSetDefault: @escaping () -> Void, onEdit: @escaping () -> Void,
+         onToggle: @escaping () -> Void, onDelete: @escaping () -> Void) {
+        self.l = l; self.onSetDefault = onSetDefault; self.onEdit = onEdit
+        self.onToggle = onToggle; self.onDelete = onDelete
+    }
     var body: some View {
         let active = l.status == "active"
         VStack(alignment: .leading, spacing: 12) {
@@ -110,6 +216,33 @@ private struct LanguageCard: View {
                 }
                 ProgressBar(pct: l.coverage, fill: Nuru.gold, height: 6)
             }
+
+            Divider().background(Nuru.border)
+
+            HStack(spacing: 4) {
+                if !l.isDefault {
+                    Button(action: onSetDefault) {
+                        HStack(spacing: 4) { Image(systemName: "star").font(.system(size: 12)); Text("Default") }
+                            .font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button(action: onEdit) {
+                    HStack(spacing: 4) { Image(systemName: "pencil").font(.system(size: 12)); Text("Edit") }
+                        .font(.inter(12, .semibold)).foregroundStyle(Nuru.muted)
+                }
+                .buttonStyle(.plain)
+                Button(action: onToggle) {
+                    Text(active ? "Disable" : "Enable").font(.inter(12, .semibold))
+                        .foregroundStyle(active ? Color(hex: 0xDC2626) : Color(hex: 0x16A34A))
+                }
+                .buttonStyle(.plain)
+                if !l.isDefault {
+                    Spacer(minLength: 0)
+                    Button(action: onDelete) { Image(systemName: "trash").font(.system(size: 14)).foregroundStyle(Color(hex: 0xDC2626)) }
+                        .buttonStyle(.plain)
+                }
+            }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -120,6 +253,104 @@ private struct LanguageCard: View {
                 .stroke(l.isDefault ? Nuru.gold : Nuru.border, lineWidth: l.isDefault ? 1.5 : 1)
         )
         .nuruShadow()
+    }
+}
+
+// MARK: - Form sheet (NEW language / EDIT language)
+
+private struct LanguageFormSheet: View {
+    let initial: Language?
+    let onDone: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String
+    @State private var nativeName: String
+    @State private var code: String
+    @State private var direction: String
+    @State private var coverage: Double
+    @State private var isDefault: Bool
+    @State private var status: String
+    @State private var saving = false
+    @State private var error: String?
+
+    init(initial: Language?, onDone: @escaping () -> Void) {
+        self.initial = initial
+        self.onDone = onDone
+        _name = State(initialValue: initial?.name ?? "")
+        _nativeName = State(initialValue: initial?.nativeName ?? "")
+        _code = State(initialValue: initial?.code ?? "")
+        _direction = State(initialValue: initial?.direction ?? "ltr")
+        _coverage = State(initialValue: initial?.coverage ?? 0)
+        _isDefault = State(initialValue: initial?.isDefault ?? false)
+        _status = State(initialValue: initial?.status ?? "active")
+    }
+    private var isEdit: Bool { initial != nil }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
+                SwiftUI.Section("Language") {
+                    field("Name *") { TextField("Swahili", text: $name) }
+                    field("Native *") { TextField("Kiswahili", text: $nativeName) }
+                    field("Code *") {
+                        TextField("sw", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .disabled(isEdit)
+                            .onChange(of: code) { _, v in code = String(v.lowercased().prefix(8)) }
+                    }
+                }
+                SwiftUI.Section("Detail") {
+                    Picker("Direction", selection: $direction) { Text("LTR").tag("ltr"); Text("RTL").tag("rtl") }
+                    HStack {
+                        Text("Coverage").foregroundStyle(Nuru.ink600)
+                        Spacer()
+                        Text("\(Int(coverage.rounded()))%").foregroundStyle(Nuru.navy)
+                    }
+                    Slider(value: $coverage, in: 0...100, step: 1)
+                    Picker("Status", selection: $status) { Text("Active").tag("active"); Text("Inactive").tag("inactive") }
+                    Toggle("Set as the default fallback language", isOn: $isDefault)
+                }
+            }
+            .navigationTitle(isEdit ? "Edit \(initial!.name)" : "Add a language")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isEdit ? "Save" : "Add") { Task { await submit() } }.disabled(saving)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+        HStack { Text(label).foregroundStyle(Nuru.ink600).frame(width: 80, alignment: .leading); content() }
+    }
+
+    private func submit() async {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        let nat = nativeName.trimmingCharacters(in: .whitespaces)
+        let cc = code.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty, !nat.isEmpty, cc.count >= 2 else {
+            error = "Name, native name and a code (2+ chars) are required."; return
+        }
+        saving = true; error = nil
+        let cov = max(0, min(100, Int(coverage.rounded())))
+        var body: [String: JSONValue] = [
+            "name": .string(n),
+            "native_name": .string(nat),
+            "direction": .string(direction),
+            "coverage": .int(cov),
+            "is_default": .bool(isDefault),
+            "status": .string(status),
+        ]
+        do {
+            if isEdit { try await LanguagesAPI.update(initial!.code, body) }
+            else { body["code"] = .string(cc.lowercased()); try await LanguagesAPI.create(body) }
+            onDone(); dismiss()
+        } catch {
+            self.error = (error as? APIError)?.errorDescription ?? "Save failed."
+        }
+        saving = false
     }
 }
 

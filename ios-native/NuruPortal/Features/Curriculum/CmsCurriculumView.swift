@@ -1,5 +1,7 @@
 // CMS — Curriculum: a line-by-line native port of the web make
-// (packages/admin-web/src/components/pages/CmsCurriculum.tsx) plus LevelDetail.tsx.
+// (packages/admin-web/src/components/pages/CmsCurriculum.tsx) plus LevelDetail.tsx,
+// now wired to FUNCTION like the web portal — every interactive element performs the
+// same mutation the web handlers do.
 //
 // CmsCurriculum: navy hero (4 stats + chips) · search + status filter pills ·
 // "Curriculum pipeline" (4 status tiles) · "Pathway report" (Overview/Modules/
@@ -7,13 +9,20 @@
 // "The pathway" vertical timeline of numbered level nodes with level cards. On the
 // iPad canvas a right inspector rail shows the selected level's modules.
 //
-// LevelDetailView ports LevelDetail.tsx — the modules of a level with status,
-// sequence and question counts; tapping a module drills into ModuleQuizView.
+// Wired writes (mirroring CmsCurriculum.tsx + LevelDetail.tsx handlers):
+//  · New Level        → POST   /admin/levels
+//  · Edit Level       → PUT    /admin/levels/{n}   (+ exam: PUT /admin/levels/{n}/exam)
+//  · Review/Publish   → PUT    /admin/levels/{n}   { status }
+//  · Lock / Unlock    → PUT    /admin/levels/{n}   { locked }
+//  · New Module       → POST   /admin/modules
+//  · Open / module    → LevelDetailView / ModuleQuizView (NavigationLink)
+//  · Publish/Unpub.   → POST   /admin/modules/{id}/publish · /unpublish
+//  · Archive module   → DELETE /admin/modules/{id}   (confirmed via .alert)
+//  · Reorder module   → POST   /admin/modules/{id}/reorder { to_sequence }
+//  · Quiz Builder     → router.go(.quizBuilder)   (web's deep-link)
 //
-// Data: PortalAPI.curriculumLevels() (/admin/levels → [AdminLevel]) is the level
-// list; PortalAPI.levels() (/admin/reports/levels → [LevelAnalyticsRow]) supplies
-// per-level learners + the modules-per-level chart. Server-authoritative (§1.1):
-// this is a read/inspect surface — authoring mutations live on the web portal.
+// Server-authoritative (§1.1): the server owns gating/scoring; the client only
+// originates these authoring mutations and refreshes from the server after each.
 import SwiftUI
 import Charts
 
@@ -51,6 +60,25 @@ private enum CmsStatus: String, CaseIterable {
     }
 }
 
+// Web `labelToBe` — the LevelModal status options the portal exposes (no "Archived").
+private enum CmsEditStatus: String, CaseIterable {
+    case published = "Published", draft = "Draft", inReview = "In Review"
+    var be: String {
+        switch self {
+        case .published: return "published"
+        case .draft:     return "draft"
+        case .inReview:  return "in_review"
+        }
+    }
+    static func from(_ be: String) -> CmsEditStatus {
+        switch be {
+        case "published": return .published
+        case "in_review": return .inReview
+        default:          return .draft
+        }
+    }
+}
+
 /// One pathway level resolved for the UI (web UiLevel).
 private struct UiLevel: Identifiable {
     let number: Int
@@ -64,8 +92,98 @@ private struct UiLevel: Identifiable {
     let status: CmsStatus
     let locked: Bool
     let color: Color
+    /// Raw web hex (for round-tripping into the edit form).
+    let colorHex: String
     var id: Int { number }
     var progress: Int { modules > 0 ? Int((Double(completedModules) / Double(modules) * 100).rounded()) : 0 }
+}
+
+// MARK: - CMS write API (mirrors CurriculumApi.* in api/client.ts)
+//
+// PortalAPI is a shared, read-only surface we must not edit, so the authoring
+// mutations live here as a page-local layer over APIClient.shared (the actor with
+// get/post/put/delete/postEmpty; convertTo/FromSnakeCase already configured).
+
+/// Tolerant decode of the fuller level row — the shared AdminLevel omits exam
+/// fields, so the New/Edit Level form needs its own model to round-trip them.
+private struct CmsLevelDetail: Codable {
+    @DefaultZero var levelNumber: Int
+    @DefaultEmpty var title: String
+    let theme: String?
+    let duration: String?
+    @DefaultEmpty var status: String
+    @DefaultFalse var locked: Bool
+    @DefaultEmpty var color: String
+    @DefaultEmpty var requiredExamPassMark: String
+    let examQuestionCount: Int?
+    let examShowAnswers: Bool?
+    let examShowScore: Bool?
+    let examShuffle: Bool?
+}
+
+private enum CmsAPI {
+    private static var api: APIClient { .shared }
+
+    // ── Levels ──
+    struct LevelBody: Encodable {
+        let title: String
+        let theme: String
+        let requiredExamPassMark: Int
+        let duration: String
+        let status: String
+        let locked: Bool
+        let color: String
+    }
+    /// Partial PUT body for status-only / lock-only transitions (web sends a subset).
+    struct LevelPatch: Encodable {
+        var status: String?
+        var locked: Bool?
+    }
+    struct ExamBody: Encodable {
+        let requiredExamPassMark: Int
+        let examQuestionCount: Int?
+        let examShowAnswers: Bool
+        let examShowScore: Bool
+        let examShuffle: Bool
+    }
+
+    static func createLevel(_ body: LevelBody) async throws {
+        _ = try await api.post("/admin/levels", body: body, as: CmsLevelDetail.self)
+    }
+    static func updateLevel(_ n: Int, _ body: LevelBody) async throws {
+        _ = try await api.put("/admin/levels/\(n)", body: body, as: CmsLevelDetail.self)
+    }
+    static func patchLevel(_ n: Int, _ body: LevelPatch) async throws {
+        _ = try await api.put("/admin/levels/\(n)", body: body, as: CmsLevelDetail.self)
+    }
+    static func updateExam(_ n: Int, _ body: ExamBody) async throws {
+        _ = try await api.put("/admin/levels/\(n)/exam", body: body, as: CmsLevelDetail.self)
+    }
+
+    // ── Modules ──
+    struct ModuleBody: Encodable {
+        let levelNumber: Int
+        let title: String
+        let lessonContent: String
+        let evaluationKind: String
+    }
+    static func createModule(_ body: ModuleBody) async throws {
+        _ = try await api.post("/admin/modules", body: body, as: AdminModuleSummary.self)
+    }
+    static func publish(_ id: String) async throws {
+        _ = try await api.postEmpty("/admin/modules/\(id)/publish", as: AdminModuleSummary.self)
+    }
+    static func unpublish(_ id: String) async throws {
+        _ = try await api.postEmpty("/admin/modules/\(id)/unpublish", as: AdminModuleSummary.self)
+    }
+    static func archive(_ id: String) async throws {
+        _ = try await api.delete("/admin/modules/\(id)", as: AdminModuleSummary.self)
+    }
+    struct ReorderBody: Encodable { let toSequence: Int }
+    static func reorder(_ id: String, to toSequence: Int) async throws {
+        // Server returns the re-sequenced list under { data: [...] }; we only need success.
+        _ = try await api.post("/admin/modules/\(id)/reorder", body: ReorderBody(toSequence: toSequence), as: DataList<AdminModuleSummary>.self)
+    }
 }
 
 /// Combined load: levels + the learners-by-level report, merged into [UiLevel].
@@ -93,7 +211,8 @@ private enum CmsLoader {
                 duration: l.duration ?? "—",
                 status: CmsStatus.from(l.status),
                 locked: l.locked,
-                color: cssColor(l.color))
+                color: cssColor(l.color),
+                colorHex: l.color.isEmpty ? "#C89B3C" : l.color)
         }
         return CmsPayload(levels: ui.sorted { $0.number < $1.number })
     }
@@ -104,27 +223,65 @@ private enum CmsLoader {
 struct CmsCurriculumView: View {
     var title = "CMS — Curriculum"
 
+    @State private var levels: [UiLevel] = []
+    @State private var phase: Phase = .loading
+    private enum Phase { case loading, loaded, failed(String) }
+
     var body: some View {
-        AsyncView(CmsLoader.load) { payload in
-            CmsCurriculumContent(levels: payload.levels)
+        Group {
+            switch phase {
+            case .loading:
+                ScrollView { SkeletonList(rows: 6).padding(Nuru.S.screen) }
+                    .background(Nuru.paper)
+            case .failed(let m):
+                ScrollView { ErrorBanner(message: m) { Task { await reload() } }.padding(Nuru.S.screen) }
+                    .background(Nuru.paper)
+            case .loaded:
+                CmsCurriculumContent(levels: levels, reload: reload)
+            }
         }
         .portalPage(title)
+        .task { if case .loading = phase { await reload() } }
+    }
+
+    @MainActor private func reload() async {
+        do {
+            let payload = try await CmsLoader.load()
+            levels = payload.levels
+            phase = .loaded
+        } catch {
+            phase = .failed((error as? APIError)?.errorDescription ?? error.localizedDescription)
+        }
     }
 }
 
-/// Stateful body — holds search / filter / report-tab / selection. Split out so the
-/// AsyncView only owns the fetch.
+/// Stateful body — holds search / filter / report-tab / selection + the modal/sheet
+/// presentation state for the wired authoring actions. Split out so the parent owns
+/// the fetch and exposes a `reload` it can call after every write.
 private struct CmsCurriculumContent: View {
     let levels: [UiLevel]
+    let reload: () async -> Void
     @Environment(\.horizontalSizeClass) private var hSize
+    @EnvironmentObject private var router: NavRouter
 
     @State private var search = ""
     @State private var filter: FilterPill = .all
     @State private var reportTab: ReportTab = .overview
     @State private var selectedNo: Int?
 
+    // Authoring action state.
+    @State private var levelSheet: LevelSheetMode?
+    @State private var actionError: String?
+
     enum FilterPill: String, CaseIterable { case all = "All", published = "Published", inReview = "In Review", draft = "Draft" }
     enum ReportTab: String, CaseIterable { case overview = "Overview", modules = "Modules", engagement = "Engagement" }
+
+    /// New Level vs. Edit Level (carries the level to edit).
+    enum LevelSheetMode: Identifiable {
+        case add
+        case edit(UiLevel)
+        var id: String { switch self { case .add: return "add"; case .edit(let l): return "edit-\(l.number)" } }
+    }
 
     // Derived counts (web aggregates).
     private var published: Int { levels.filter { $0.status == .published }.count }
@@ -161,6 +318,21 @@ private struct CmsCurriculumContent: View {
     }
     private var totalLevels: Int { donutData.reduce(0) { $0 + $1.value } }
 
+    // ── Write actions (mirror the CmsCurriculum.tsx handlers) ──
+
+    private func setLevelStatus(_ n: Int, _ status: CmsEditStatus) {
+        Task {
+            do { try await CmsAPI.patchLevel(n, .init(status: status.be, locked: nil)); await reload() }
+            catch { actionError = (error as? APIError)?.errorDescription ?? "Update failed." }
+        }
+    }
+    private func toggleLock(_ l: UiLevel) {
+        Task {
+            do { try await CmsAPI.patchLevel(l.number, .init(status: nil, locked: !l.locked)); await reload() }
+            catch { actionError = (error as? APIError)?.errorDescription ?? "Update failed." }
+        }
+    }
+
     var body: some View {
         Group {
             if isPad {
@@ -168,7 +340,10 @@ private struct CmsCurriculumContent: View {
                     mainScroll
                     if let sel = selected {
                         Divider()
-                        LevelInspectorRail(level: sel).frame(width: 360)
+                        LevelInspectorRail(level: sel,
+                                           reload: reload,
+                                           onEdit: { levelSheet = .edit(sel) })
+                            .frame(width: 360)
                     }
                 }
             } else {
@@ -176,6 +351,18 @@ private struct CmsCurriculumContent: View {
             }
         }
         .onAppear { if selectedNo == nil { selectedNo = levels.first?.number } }
+        .sheet(item: $levelSheet) { mode in
+            let formMode: LevelFormSheet.Mode = {
+                switch mode {
+                case .add: return .add
+                case .edit(let l): return .edit(l)
+                }
+            }()
+            LevelFormSheet(mode: formMode, nextNumber: levels.count + 1, reload: reload)
+        }
+        .alert("Action failed", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: { Text(actionError ?? "") }
     }
 
     private var mainScroll: some View {
@@ -186,12 +373,14 @@ private struct CmsCurriculumContent: View {
                 pipelineCard
                 reportCard
                 pathwaySection
+                quickActionsCard
             }
             .padding(.horizontal, Nuru.S.screen)
             .padding(.vertical, Nuru.S.lg)
         }
         .frame(maxWidth: .infinity)
         .background(Nuru.paper)
+        .refreshable { await reload() }
     }
 
     // MARK: Hero
@@ -210,8 +399,8 @@ private struct CmsCurriculumContent: View {
         ) {
             HStack(spacing: 8) {
                 HeroChip(label: "\(levels.count)-Level Pathway", icon: "sparkles", style: .tag)
-                HeroChip(label: "Pathway overview", icon: "book", style: .ghost)
-                HeroChip(label: "New Level", icon: "plus", style: .gold)
+                HeroChip(label: "Pathway overview", icon: "book", style: .ghost) { router.go(.curriculumLevels) }
+                HeroChip(label: "New Level", icon: "plus", style: .gold) { levelSheet = .add }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.hero, style: .continuous))
@@ -412,10 +601,13 @@ private struct CmsCurriculumContent: View {
                     Text("Tap any level to inspect its modules.").font(.nCaption).foregroundStyle(Nuru.ink600)
                 }
                 Spacer()
-                HStack(spacing: 3) {
-                    Text("View all").font(.inter(12, .semibold)).foregroundStyle(Nuru.goldLo)
-                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Nuru.goldLo)
+                Button { router.go(.curriculumLevels) } label: {
+                    HStack(spacing: 3) {
+                        Text("View all").font(.inter(12, .semibold)).foregroundStyle(Nuru.goldLo)
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Nuru.goldLo)
+                    }
                 }
+                .buttonStyle(.plain)
             }
 
             // Timeline rail + numbered nodes.
@@ -426,13 +618,57 @@ private struct CmsCurriculumContent: View {
                     .padding(.leading, 27).padding(.vertical, 28)
                 VStack(spacing: 16) {
                     ForEach(filtered) { level in
-                        PathwayRow(level: level, selected: selectedNo == level.number) {
-                            selectedNo = level.number
-                        }
+                        PathwayRow(
+                            level: level,
+                            selected: selectedNo == level.number,
+                            onSelect: { selectedNo = level.number },
+                            onReview: { setLevelStatus(level.number, .inReview) },
+                            onPublish: { setLevelStatus(level.number, .published) },
+                            onUnlock: { toggleLock(level) })
                     }
                 }
             }
         }
+    }
+
+    // MARK: Quick actions (web Quick actions panel — cross-nav + New Level + Refresh)
+
+    private var quickActionsCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "bolt.fill").font(.system(size: 13)).foregroundStyle(Nuru.gold)
+                    Text("Quick actions").font(.inter(13, .bold)).tracking(0.4).foregroundStyle(Nuru.navy)
+                }
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    quickAction("New Level", "plus", Nuru.tint(0)) { levelSheet = .add }
+                    quickAction("Module Editor", "book", Nuru.tint(1)) { router.go(.levelDetail) }
+                    quickAction("Quiz Builder", "questionmark.circle", Nuru.tint(3)) { router.go(.quizBuilder) }
+                    quickAction("Video Library", "play.rectangle", Nuru.tint(2)) { router.go(.videoLibrary) }
+                    quickAction("Reflections", "text.bubble", Nuru.tint(2)) { router.go(.reflectionQueue) }
+                    quickAction("Refresh", "arrow.clockwise", Nuru.tint(4)) { Task { await reload() } }
+                }
+            }
+        }
+    }
+
+    private func quickAction(_ label: String, _ icon: String, _ tint: Nuru.Tint, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.fg.opacity(0.14))
+                    Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(tint.fg)
+                }.frame(width: 28, height: 28)
+                Text(label).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Nuru.white)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -442,6 +678,9 @@ private struct PathwayRow: View {
     let level: UiLevel
     let selected: Bool
     let onSelect: () -> Void
+    let onReview: () -> Void
+    let onPublish: () -> Void
+    let onUnlock: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 18) {
@@ -467,22 +706,21 @@ private struct PathwayRow: View {
     }
 
     private var card: some View {
-        Button(action: onSelect) {
-            VStack(spacing: 0) {
-                Rectangle().fill(level.locked ? Nuru.border : level.color).frame(height: 2)
-                VStack(alignment: .leading, spacing: 0) {
-                    leftPane
-                    Divider()
-                    metricsPane
-                }
+        VStack(spacing: 0) {
+            Rectangle().fill(level.locked ? Nuru.border : level.color).frame(height: 2)
+            VStack(alignment: .leading, spacing: 0) {
+                leftPane
+                Divider()
+                metricsPane
             }
-            .background(Nuru.white)
-            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous)
-                .stroke(selected ? level.color : Nuru.border, lineWidth: selected ? 2 : 1))
-            .nuruShadow(selected ? 1 : 0.4)
         }
-        .buttonStyle(.plain)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous)
+            .stroke(selected ? level.color : Nuru.border, lineWidth: selected ? 2 : 1))
+        .nuruShadow(selected ? 1 : 0.4)
+        .contentShape(Rectangle())
+        .onTapGesture { onSelect() }
     }
 
     private var leftPane: some View {
@@ -502,9 +740,53 @@ private struct PathwayRow: View {
                 Label(level.learners.formatted(), systemImage: "person.2").font(.nMicro).foregroundStyle(Nuru.ink600)
             }
             .padding(.top, 2)
+
+            // Inline level actions (web: Open / Unlock / Review / Publish).
+            HStack(spacing: 8) {
+                NavigationLink {
+                    LevelDetailView(levelNumber: level.number, levelTitle: level.title, accent: level.color)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.up.forward.square").font(.system(size: 11))
+                        Text("Open").font(.inter(11.5, .semibold))
+                    }
+                    .foregroundStyle(level.locked ? Nuru.ink600 : .white)
+                    .padding(.horizontal, 12).frame(height: 30)
+                    .background(level.locked ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(Nuru.navy))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(level.locked)
+
+                if level.locked {
+                    actionPill("Unlock", "lock.open", bg: Nuru.white, fg: Nuru.ink600, bordered: true, action: onUnlock)
+                }
+                if level.status == .draft && !level.locked {
+                    actionPill("Review", "chart.line.uptrend.xyaxis", bg: Nuru.gold, fg: .white, action: onReview)
+                }
+                if level.status == .inReview {
+                    actionPill("Publish", "checkmark.seal", bg: Color(hex: 0x0F6B33), fg: .white, action: onPublish)
+                }
+            }
+            .padding(.top, 4)
         }
         .padding(.horizontal, 16).padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func actionPill(_ label: String, _ icon: String, bg: Color, fg: Color, bordered: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 11))
+                Text(label).font(.inter(11.5, .semibold))
+            }
+            .foregroundStyle(fg)
+            .padding(.horizontal, 10).frame(height: 30)
+            .background(bg)
+            .overlay(bordered ? RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1) : nil)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private var statusBadge: some View {
@@ -559,63 +841,57 @@ private struct PathwayRow: View {
 
 private struct LevelInspectorRail: View {
     let level: UiLevel
+    let reload: () async -> Void
+    let onEdit: () -> Void
+
+    // The rail owns its modules list so "Add" + publish/archive can refresh it.
+    @State private var modules: [AdminModuleSummary] = []
+    @State private var loaded = false
+    @State private var addingModule = false
+    @State private var newTitle = ""
+    @State private var newType: NewModuleType = .text
+    @State private var actionError: String?
+
+    enum NewModuleType: String, CaseIterable { case text = "Text", video = "Video", quiz = "Quiz"
+        /// Web maps "quiz" → evaluation_kind quiz, otherwise none.
+        var evaluationKind: String { self == .quiz ? "quiz" : "none" }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("Level \(level.number) · \(level.status.rawValue)")
-                        .font(.nMicro).foregroundStyle(level.color)
-                    Spacer()
-                    Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(Nuru.ink400)
-                }
-                Text(level.title).font(.fraunces(24, .semibold)).foregroundStyle(Nuru.navy)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(level.theme.isEmpty ? "—" : level.theme).font(.nCaption).foregroundStyle(Nuru.ink600)
-                HStack(spacing: 0) {
-                    railStat("Pass Mark", "\(level.passMark)%")
-                    railStat("Modules", "\(level.modules)")
-                    railStat("Learners", level.learners.formatted())
-                }
-                .padding(.top, 4)
-            }
-            .padding(20)
+            header
             Divider()
 
-            // Modules list (live).
             HStack {
                 Text("MODULES").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.ink600)
                 Spacer()
+                Button { addingModule.toggle() } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                        Text("Add").font(.inter(11, .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10).frame(height: 30)
+                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 20).padding(.vertical, 12)
             Divider()
 
-            AsyncView({ try await PortalAPI.modules(level: level.number) }) { modules in
-                if modules.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "book").font(.system(size: 26)).foregroundStyle(Nuru.ink300)
-                        Text("No modules yet").font(.inter(13, .semibold)).foregroundStyle(Nuru.ink600)
-                    }
-                    .frame(maxWidth: .infinity).padding(.vertical, 40)
-                } else {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            ForEach(modules.sorted { $0.moduleSequenceNumber < $1.moduleSequenceNumber }) { m in
-                                moduleRow(m)
-                                Divider()
-                            }
-                        }
-                    }
-                }
-            }
+            if addingModule { addModuleForm; Divider() }
+
+            modulesList
 
             // Footer actions
             Divider()
             HStack(spacing: 8) {
-                Text("Edit Level").font(.inter(13, .semibold)).foregroundStyle(.white)
-                    .frame(maxWidth: .infinity).frame(height: 44)
-                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                Button(action: onEdit) {
+                    Text("Edit Level").font(.inter(13, .semibold)).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity).frame(height: 44)
+                        .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                }
+                .buttonStyle(.plain)
                 NavigationLink {
                     LevelDetailView(levelNumber: level.number, levelTitle: level.title, accent: level.color)
                 } label: {
@@ -630,6 +906,93 @@ private struct LevelInspectorRail: View {
             .padding(16)
         }
         .background(Nuru.white)
+        .task(id: level.number) { await loadModules() }
+        .alert("Action failed", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: { Text(actionError ?? "") }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Level \(level.number) · \(level.status.rawValue)")
+                    .font(.nMicro).foregroundStyle(level.color)
+                Spacer()
+                Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(Nuru.ink400)
+            }
+            Text(level.title).font(.fraunces(24, .semibold)).foregroundStyle(Nuru.navy)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(level.theme.isEmpty ? "—" : level.theme).font(.nCaption).foregroundStyle(Nuru.ink600)
+            HStack(spacing: 0) {
+                railStat("Pass Mark", "\(level.passMark)%")
+                railStat("Modules", "\(level.modules)")
+                railStat("Learners", level.learners.formatted())
+            }
+            .padding(.top, 4)
+        }
+        .padding(20)
+    }
+
+    private var addModuleForm: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("NEW MODULE").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.navy)
+            TextField("Module title…", text: $newTitle)
+                .font(.inter(13, .regular)).foregroundStyle(Nuru.ink)
+                .padding(.horizontal, 12).frame(height: 36)
+                .background(Nuru.white)
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            HStack(spacing: 8) {
+                Picker("", selection: $newType) {
+                    ForEach(NewModuleType.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.menu).tint(Nuru.navy)
+                Spacer(minLength: 0)
+                Button { Task { await addModule() } } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "checkmark").font(.system(size: 11))
+                        Text("Create").font(.inter(12, .semibold))
+                    }
+                    .foregroundStyle(newTitle.trimmingCharacters(in: .whitespaces).isEmpty ? Nuru.ink600 : .white)
+                    .padding(.horizontal, 12).frame(height: 34)
+                    .background(newTitle.trimmingCharacters(in: .whitespaces).isEmpty ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(Nuru.gold))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(newTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button { addingModule = false } label: {
+                    Image(systemName: "xmark").font(.system(size: 11)).foregroundStyle(Nuru.ink600)
+                        .frame(width: 34, height: 34)
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 12)
+        .background(Nuru.surface)
+    }
+
+    @ViewBuilder private var modulesList: some View {
+        if loaded && modules.isEmpty && !addingModule {
+            VStack(spacing: 8) {
+                Image(systemName: "book").font(.system(size: 26)).foregroundStyle(Nuru.ink300)
+                Text("No modules yet").font(.inter(13, .semibold)).foregroundStyle(Nuru.ink600)
+                Text("Tap “Add” to create the first module.").font(.nMicro).foregroundStyle(Nuru.ink600)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 40)
+        } else if !loaded {
+            ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
+        } else {
+            let sorted = modules.sorted { $0.moduleSequenceNumber < $1.moduleSequenceNumber }
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(sorted.enumerated()), id: \.element.id) { idx, m in
+                        moduleRow(m, index: idx, count: sorted.count)
+                        Divider()
+                    }
+                }
+            }
+        }
     }
 
     private func railStat(_ label: String, _ value: String) -> some View {
@@ -640,7 +1003,7 @@ private struct LevelInspectorRail: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func moduleRow(_ m: AdminModuleSummary) -> some View {
+    private func moduleRow(_ m: AdminModuleSummary, index: Int, count: Int) -> some View {
         HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Nuru.surface)
@@ -657,6 +1020,25 @@ private struct LevelInspectorRail: View {
                 .padding(.horizontal, 8).padding(.vertical, 3)
                 .background(m.status == "published" ? Color(hex: 0xE8F6EE) : Color(hex: 0xEEF1F8))
                 .clipShape(Capsule())
+            // Row context menu — publish/unpublish, reorder up/down, archive (web's per-module actions).
+            Menu {
+                if m.status == "published" {
+                    Button { Task { await runModuleAction { try await CmsAPI.unpublish(m.moduleId) } } } label: { Label("Unpublish", systemImage: "arrow.uturn.backward") }
+                } else {
+                    Button { Task { await runModuleAction { try await CmsAPI.publish(m.moduleId) } } } label: { Label("Publish", systemImage: "checkmark.seal") }
+                }
+                if index > 0 {
+                    Button { Task { await runModuleAction { try await CmsAPI.reorder(m.moduleId, to: m.moduleSequenceNumber - 1) } } } label: { Label("Move up", systemImage: "arrow.up") }
+                }
+                if index < count - 1 {
+                    Button { Task { await runModuleAction { try await CmsAPI.reorder(m.moduleId, to: m.moduleSequenceNumber + 1) } } } label: { Label("Move down", systemImage: "arrow.down") }
+                }
+                Divider()
+                Button(role: .destructive) { Task { await runModuleAction { try await CmsAPI.archive(m.moduleId) } } } label: { Label("Archive", systemImage: "archivebox") }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 13)).foregroundStyle(Nuru.ink400)
+                    .frame(width: 26, height: 26)
+            }
         }
         .padding(.horizontal, 20).padding(.vertical, 11)
     }
@@ -665,6 +1047,31 @@ private struct LevelInspectorRail: View {
         let kind = m.evaluationKind == "none" ? "lesson" : m.evaluationKind
         let q = (Int(m.activeQuestionCount) ?? 0)
         return q > 0 ? "\(kind) · \(q) Q" : kind
+    }
+
+    // ── Rail writes ──
+
+    @MainActor private func loadModules() async {
+        do { modules = try await PortalAPI.modules(level: level.number); loaded = true }
+        catch { loaded = true }
+    }
+    @MainActor private func addModule() async {
+        let t = newTitle.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        do {
+            try await CmsAPI.createModule(.init(
+                levelNumber: level.number, title: t,
+                lessonContent: "Draft content — edit in the module editor.",
+                evaluationKind: newType.evaluationKind))
+            newTitle = ""; newType = .text; addingModule = false
+            await loadModules()
+            await reload()                                   // refresh parent level counts
+        } catch { actionError = (error as? APIError)?.errorDescription ?? "Could not add module." }
+    }
+    /// Run a module mutation then refresh both the rail list and the parent counts.
+    @MainActor private func runModuleAction(_ op: () async throws -> Void) async {
+        do { try await op(); await loadModules(); await reload() }
+        catch { actionError = (error as? APIError)?.errorDescription ?? "Action failed." }
     }
 }
 
@@ -691,6 +1098,16 @@ struct LevelDetailView: View {
     let levelTitle: String
     var accent: Color = Nuru.gold
 
+    @EnvironmentObject private var router: NavRouter
+
+    // Owns its own module list so add / publish / archive / reorder refresh in place.
+    @State private var modules: [AdminModuleSummary] = []
+    @State private var loaded = false
+    @State private var addingModule = false
+    @State private var newTitle = ""
+    @State private var actionError: String?
+    @State private var levelSheet: Bool = false
+
     /// Convenience for call sites that hold a decoded AdminLevel.
     init(level: AdminLevel) {
         self.levelNumber = level.levelNumber
@@ -704,37 +1121,64 @@ struct LevelDetailView: View {
     }
 
     var body: some View {
-        AsyncView({ try await PortalAPI.modules(level: levelNumber) }) { modules in
-            ScrollView {
-                VStack(spacing: 16) {
-                    header(modules: modules)
-                    if modules.isEmpty {
-                        ContentUnavailableView("No modules yet", systemImage: "book",
-                                               description: Text("This level has no modules."))
-                            .padding(.top, 40)
-                    } else {
-                        VStack(spacing: 10) {
-                            ForEach(modules.sorted { $0.moduleSequenceNumber < $1.moduleSequenceNumber }) { m in
-                                NavigationLink { ModuleQuizView(module: m) } label: { moduleCard(m) }
-                                    .buttonStyle(.plain)
-                            }
+        ScrollView {
+            VStack(spacing: 16) {
+                header
+                if loaded && modules.isEmpty && !addingModule {
+                    ContentUnavailableView("No modules yet", systemImage: "book",
+                                           description: Text("Tap “New module” to add the first one."))
+                        .padding(.top, 40)
+                } else if !loaded {
+                    SkeletonList(rows: 5)
+                } else {
+                    if addingModule { addModuleForm }
+                    VStack(spacing: 10) {
+                        let sorted = modules.sorted { $0.moduleSequenceNumber < $1.moduleSequenceNumber }
+                        ForEach(Array(sorted.enumerated()), id: \.element.id) { idx, m in
+                            moduleCard(m, index: idx, count: sorted.count)
                         }
                     }
                 }
-                .padding(Nuru.S.screen)
             }
+            .padding(Nuru.S.screen)
         }
+        .background(Nuru.paper)
         .portalPage(levelTitle.isEmpty ? "Level Detail" : levelTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { addingModule.toggle() } label: { Image(systemName: "plus") }
+            }
+        }
+        .task(id: levelNumber) { await loadModules() }
+        .sheet(isPresented: $levelSheet) {
+            LevelFormSheet(mode: .editNumberOnly(levelNumber), nextNumber: levelNumber, reload: { await loadModules() })
+        }
+        .alert("Action failed", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: { Text(actionError ?? "") }
     }
 
-    private func header(modules: [AdminModuleSummary]) -> some View {
+    private var header: some View {
         let published = modules.filter { $0.status == "published" }.count
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Circle().fill(accent).frame(width: 6, height: 6)
                 Text(levelNumber > 0 ? "L\(levelNumber) · \(levelTitle)" : levelTitle)
                     .font(.inter(11, .bold)).foregroundStyle(accent)
+                Spacer()
+                Button { router.go(.quizBuilder) } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "questionmark.circle").font(.system(size: 11))
+                        Text("Quiz Builder").font(.inter(11.5, .semibold))
+                    }
+                    .foregroundStyle(Nuru.navy)
+                    .padding(.horizontal, 10).frame(height: 28)
+                    .background(Nuru.white)
+                    .overlay(Capsule().stroke(Nuru.border, lineWidth: 1))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
             }
             Text("Levels & Modules").font(.nTitle).foregroundStyle(Nuru.navy)
             HStack(spacing: 10) {
@@ -746,6 +1190,35 @@ struct LevelDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var addModuleForm: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("NEW MODULE").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.navy)
+                TextField("Module title…", text: $newTitle)
+                    .font(.inter(14, .regular)).foregroundStyle(Nuru.ink)
+                    .padding(.horizontal, 12).frame(height: 42)
+                    .background(Nuru.inputBg)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                HStack(spacing: 8) {
+                    Button { Task { await addModule() } } label: {
+                        Text("Create").font(.inter(13, .semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 18).frame(height: 38)
+                            .background(newTitle.trimmingCharacters(in: .whitespaces).isEmpty ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(accent))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(newTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button { addingModule = false; newTitle = "" } label: {
+                        Text("Cancel").font(.inter(13, .semibold)).foregroundStyle(Nuru.ink600)
+                            .padding(.horizontal, 14).frame(height: 38)
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
     private func miniStat(_ label: String, _ value: String) -> some View {
         VStack(spacing: 1) {
             Text(value).font(.fraunces(20, .medium)).foregroundStyle(Nuru.navy)
@@ -755,44 +1228,264 @@ struct LevelDetailView: View {
         .background(Nuru.surface).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    private func moduleCard(_ m: AdminModuleSummary) -> some View {
-        Card {
-            HStack(spacing: 12) {
-                Text("\(m.moduleSequenceNumber)").font(.inter(13, .bold))
-                    .foregroundStyle(.white).frame(width: 28, height: 28)
-                    .background(accent).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(m.title).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
-                    if let s = m.summary, !s.isEmpty {
-                        Text(s).font(.nCaption).foregroundStyle(Nuru.ink600).lineLimit(2)
+    private func moduleCard(_ m: AdminModuleSummary, index: Int, count: Int) -> some View {
+        HStack(spacing: 12) {
+            // Tapping the row drills into the question bank (ModuleQuizView).
+            NavigationLink { ModuleQuizView(module: m) } label: {
+                HStack(spacing: 12) {
+                    Text("\(m.moduleSequenceNumber)").font(.inter(13, .bold))
+                        .foregroundStyle(.white).frame(width: 28, height: 28)
+                        .background(accent).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(m.title).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                        if let s = m.summary, !s.isEmpty {
+                            Text(s).font(.nCaption).foregroundStyle(Nuru.ink600).lineLimit(2)
+                        }
+                        HStack(spacing: 6) {
+                            let st = CmsStatus.from(m.status)
+                            Text(m.status.uppercased()).font(.inter(9.5, .bold))
+                                .foregroundStyle(st.style.fg)
+                                .padding(.horizontal, 7).padding(.vertical, 2)
+                                .background(st.style.bg).clipShape(Capsule())
+                            Pill(text: m.evaluationKind == "none" ? "lesson" : m.evaluationKind, color: Nuru.navy)
+                            let q = Int(m.activeQuestionCount) ?? 0
+                            if q > 0 { Pill(text: "\(q) Q", color: Nuru.gold) }
+                        }
                     }
-                    HStack(spacing: 6) {
-                        let st = CmsStatus.from(m.status)
-                        Text(m.status.uppercased()).font(.inter(9.5, .bold))
-                            .foregroundStyle(st.style.fg)
-                            .padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(st.style.bg).clipShape(Capsule())
-                        Pill(text: m.evaluationKind == "none" ? "lesson" : m.evaluationKind, color: Nuru.navy)
-                        let q = Int(m.activeQuestionCount) ?? 0
-                        if q > 0 { Pill(text: "\(q) Q", color: Nuru.gold) }
-                    }
+                    Spacer()
                 }
-                Spacer()
-                Image(systemName: "chevron.right").font(.nCaption).foregroundStyle(Nuru.ink400)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+
+            // Per-module action menu (web: publish/unpublish, reorder, archive, quiz).
+            Menu {
+                if m.status == "published" {
+                    Button { Task { await runModuleAction { try await CmsAPI.unpublish(m.moduleId) } } } label: { Label("Unpublish", systemImage: "arrow.uturn.backward") }
+                } else {
+                    Button { Task { await runModuleAction { try await CmsAPI.publish(m.moduleId) } } } label: { Label("Publish", systemImage: "checkmark.seal") }
+                }
+                if index > 0 {
+                    Button { Task { await runModuleAction { try await CmsAPI.reorder(m.moduleId, to: m.moduleSequenceNumber - 1) } } } label: { Label("Move up", systemImage: "arrow.up") }
+                }
+                if index < count - 1 {
+                    Button { Task { await runModuleAction { try await CmsAPI.reorder(m.moduleId, to: m.moduleSequenceNumber + 1) } } } label: { Label("Move down", systemImage: "arrow.down") }
+                }
+                Button { router.go(.quizBuilder) } label: { Label("Open Quiz Builder", systemImage: "questionmark.circle") }
+                Divider()
+                Button(role: .destructive) { Task { await runModuleAction { try await CmsAPI.archive(m.moduleId) } } } label: { Label("Archive module", systemImage: "archivebox") }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(Nuru.ink400)
+                    .frame(width: 30, height: 30)
+            }
+        }
+        .padding(Nuru.S.base)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .nuruShadow(0.4)
+    }
+
+    // ── Writes ──
+
+    @MainActor private func loadModules() async {
+        do { modules = try await PortalAPI.modules(level: levelNumber); loaded = true }
+        catch { actionError = (error as? APIError)?.errorDescription ?? "Could not load modules."; loaded = true }
+    }
+    @MainActor private func addModule() async {
+        let t = newTitle.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        do {
+            try await CmsAPI.createModule(.init(
+                levelNumber: levelNumber, title: t,
+                lessonContent: "Draft content — edit here.", evaluationKind: "none"))
+            newTitle = ""; addingModule = false
+            await loadModules()
+        } catch { actionError = (error as? APIError)?.errorDescription ?? "Could not add module." }
+    }
+    @MainActor private func runModuleAction(_ op: () async throws -> Void) async {
+        do { try await op(); await loadModules() }
+        catch { actionError = (error as? APIError)?.errorDescription ?? "Action failed." }
+    }
+}
+
+// MARK: - Level form sheet (web LevelModal — New Level / Edit Level + exam settings)
+
+private struct LevelFormSheet: View {
+    enum Mode {
+        case add
+        case edit(UiLevel)
+        /// Edit-by-number when only the level number is known (LevelDetailView). Fetches the row.
+        case editNumberOnly(Int)
+    }
+
+    let mode: Mode
+    let nextNumber: Int
+    let reload: () async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var title = ""
+    @State private var theme = ""
+    @State private var duration = "8 weeks"
+    @State private var passMark = 70
+    @State private var status: CmsEditStatus = .draft
+    @State private var locked = false
+    @State private var colorHex = "#C89B3C"
+
+    // Exam settings (web LevelModal exam panel → PUT /admin/levels/{n}/exam).
+    @State private var examQuestionCount = 0
+    @State private var examShowAnswers = false
+    @State private var examShowScore = true
+    @State private var examShuffle = false
+
+    @State private var saving = false
+    @State private var prefilled = false
+    @State private var error: String?
+
+    private var isEdit: Bool { if case .add = mode { return false }; return true }
+    private var levelNumber: Int {
+        switch mode {
+        case .add: return nextNumber
+        case .edit(let l): return l.number
+        case .editNumberOnly(let n): return n
+        }
+    }
+
+    // The eight web swatches from the LevelModal palette.
+    private let swatches = ["#C89B3C", "#1F3A6B", "#0F6B33", "#8A2BE2", "#B45309", "#0E7490", "#A8281F", "#5B2BB8"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                SwiftUI.Section("Level") {
+                    TextField("Title", text: $title)
+                    TextField("Theme", text: $theme)
+                    TextField("Duration (e.g. 8 weeks)", text: $duration)
+                    Picker("Status", selection: $status) {
+                        ForEach(CmsEditStatus.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    Toggle("Locked", isOn: $locked)
+                }
+                SwiftUI.Section("Accent color") {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 10) {
+                        ForEach(swatches, id: \.self) { hex in
+                            Circle().fill(cssColor(hex)).frame(width: 28, height: 28)
+                                .overlay(Circle().stroke(Nuru.navy, lineWidth: colorHex.caseInsensitiveCompare(hex) == .orderedSame ? 3 : 0))
+                                .onTapGesture { colorHex = hex }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                SwiftUI.Section("Final exam") {
+                    Stepper("Pass mark: \(passMark)%", value: $passMark, in: 0...100, step: 5)
+                    Stepper("Question count: \(examQuestionCount)", value: $examQuestionCount, in: 0...100)
+                    Toggle("Shuffle questions", isOn: $examShuffle)
+                    Toggle("Show answers after submit", isOn: $examShowAnswers)
+                    Toggle("Show score after submit", isOn: $examShowScore)
+                }
+                if let error { SwiftUI.Section { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) } }
+            }
+            .navigationTitle(isEdit ? "Edit Level \(levelNumber)" : "New Level \(nextNumber)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saving ? "Saving…" : "Save") { Task { await save() } }
+                        .disabled(saving || title.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .task { await prefill() }
+        }
+    }
+
+    /// Seed the form. For `.edit` we already have a UiLevel; for `.editNumberOnly`
+    /// (and to get exam fields generally) we GET the fuller level row.
+    @MainActor private func prefill() async {
+        guard !prefilled else { return }
+        prefilled = true
+        if case .edit(let l) = mode {
+            title = l.title; theme = l.theme; duration = l.duration == "—" ? "8 weeks" : l.duration
+            passMark = l.passMark; status = CmsEditStatus.from(statusToken(l.status)); locked = l.locked
+            colorHex = l.colorHex
+        }
+        // Fetch the full row so exam settings (and pass mark) round-trip accurately.
+        if isEdit {
+            if let row = try? await fetchLevel(levelNumber) {
+                title = row.title
+                theme = row.theme ?? theme
+                duration = row.duration ?? duration
+                passMark = Int(Double(row.requiredExamPassMark) ?? Double(passMark))
+                status = CmsEditStatus.from(row.status)
+                locked = row.locked
+                if !row.color.isEmpty { colorHex = row.color }
+                examQuestionCount = row.examQuestionCount ?? 0
+                examShowAnswers = row.examShowAnswers ?? false
+                examShowScore = row.examShowScore ?? true
+                examShuffle = row.examShuffle ?? false
+            }
+        }
+    }
+
+    private func statusToken(_ s: CmsStatus) -> String {
+        switch s { case .published: return "published"; case .inReview: return "in_review"; default: return "draft" }
+    }
+
+    private func fetchLevel(_ n: Int) async throws -> CmsLevelDetail? {
+        // The list endpoint carries the exam fields per-row; find ours.
+        let rows = try await APIClient.shared.get("/admin/levels", as: DataList<CmsLevelDetail>.self).data
+        return rows.first { $0.levelNumber == n }
+    }
+
+    @MainActor private func save() async {
+        saving = true; error = nil
+        let body = CmsAPI.LevelBody(
+            title: title.trimmingCharacters(in: .whitespaces),
+            theme: theme,
+            requiredExamPassMark: passMark,
+            duration: duration,
+            status: status.be,
+            locked: locked,
+            color: colorHex)
+        do {
+            if isEdit {
+                try await CmsAPI.updateLevel(levelNumber, body)
+                // Persist exam settings via the dedicated endpoint (web's exam PUT).
+                try await CmsAPI.updateExam(levelNumber, .init(
+                    requiredExamPassMark: passMark,
+                    examQuestionCount: examQuestionCount > 0 ? examQuestionCount : nil,
+                    examShowAnswers: examShowAnswers,
+                    examShowScore: examShowScore,
+                    examShuffle: examShuffle))
+            } else {
+                try await CmsAPI.createLevel(body)
+            }
+            await reload()
+            dismiss()
+        } catch {
+            self.error = (error as? APIError)?.errorDescription ?? "Save failed."
+            saving = false
         }
     }
 }
 
-// MARK: - ModuleQuizView (module question bank — unchanged shape)
+// MARK: - ModuleQuizView (module question bank — read-only, links to Quiz Builder)
 
 struct ModuleQuizView: View {
     let module: AdminModuleSummary
+    @EnvironmentObject private var router: NavRouter
+
     var body: some View {
         AsyncView({ try await PortalAPI.questions(moduleId: module.moduleId) }) { questions in
             if questions.isEmpty {
-                ContentUnavailableView("No questions", systemImage: "questionmark.circle",
-                                       description: Text("This module has no quiz questions yet."))
+                ContentUnavailableView {
+                    Label("No questions", systemImage: "questionmark.circle")
+                } description: {
+                    Text("This module has no quiz questions yet.")
+                } actions: {
+                    Button("Open Quiz Builder") { router.go(.quizBuilder) }
+                        .buttonStyle(.borderedProminent).tint(Nuru.gold)
+                }
             } else {
                 ScrollView {
                     VStack(spacing: 10) {
@@ -827,5 +1520,10 @@ struct ModuleQuizView: View {
         }
         .portalPage(module.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { router.go(.quizBuilder) } label: { Label("Quiz Builder", systemImage: "questionmark.circle") }
+            }
+        }
     }
 }

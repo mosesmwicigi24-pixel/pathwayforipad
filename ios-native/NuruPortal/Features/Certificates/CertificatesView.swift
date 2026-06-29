@@ -63,6 +63,11 @@ struct CertificatesView: View {
     @State private var error: String?
     @State private var notice: String?
 
+    // Issue + revoke
+    @State private var issueOpen = false
+    @State private var revoking: CertFull?     // certificate pending a revoke reason
+    @State private var revokeReason = ""
+
     // Public verification panel
     @State private var verifyInput = ""
     @State private var verifying = false
@@ -117,6 +122,24 @@ struct CertificatesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await load(); await loadLevels() }
         .refreshable { await load() }
+        .sheet(isPresented: $issueOpen) {
+            IssueCertificateSheet(levels: levels) { name in
+                issueOpen = false; notice = "Certificate issued to \(name)."; await load()
+            } onError: { error = $0 }
+        }
+        .alert("Revoke certificate?", isPresented: Binding(get: { revoking != nil }, set: { if !$0 { revoking = nil } })) {
+            TextField("Reason", text: $revokeReason)
+            Button("Cancel", role: .cancel) { revoking = nil; revokeReason = "" }
+            Button("Revoke", role: .destructive) {
+                if let c = revoking, !revokeReason.trimmingCharacters(in: .whitespaces).isEmpty {
+                    let reason = revokeReason
+                    Task { await revoke(c, reason: reason) }
+                }
+                revoking = nil; revokeReason = ""
+            }
+        } message: {
+            Text("Revoke \(revoking?.fullName ?? "")'s certificate? Enter a reason.")
+        }
     }
 
     // MARK: Hero
@@ -129,7 +152,7 @@ struct CertificatesView: View {
         ) {
             HStack(spacing: 8) {
                 HeroChip(label: "\(certs.count) issued", icon: "rosette", style: .tag)
-                HeroChip(label: "Issue certificate", icon: "plus", style: .gold)
+                HeroChip(label: "Issue certificate", icon: "plus", style: .gold) { issueOpen = true }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.hero, style: .continuous))
@@ -203,7 +226,7 @@ struct CertificatesView: View {
                     .foregroundStyle(Nuru.ink).lineLimit(1).frame(width: 110, alignment: .leading)
                 Pill(text: c.isValid ? "Valid" : "Revoked", color: c.isValid ? Nuru.success : Nuru.danger)
                 if c.isValid {
-                    Button { Task { await revoke(c) } } label: {
+                    Button { revokeReason = ""; revoking = c } label: {
                         Image(systemName: "arrow.uturn.backward").font(.system(size: 11))
                             .foregroundStyle(Nuru.danger)
                             .padding(7)
@@ -460,12 +483,12 @@ struct CertificatesView: View {
         }
     }
 
-    private func revoke(_ c: CertFull) async {
+    private func revoke(_ c: CertFull, reason: String) async {
         struct Body: Encodable { let reason: String }
         do {
             _ = try await APIClient.shared.post(
                 "/admin/certificates/\(c.certificateId)/revoke",
-                body: Body(reason: "Revoked from iPad portal"), as: EmptyResponse.self)
+                body: Body(reason: reason), as: EmptyResponse.self)
             notice = "Certificate revoked."
             await load()
         } catch {
@@ -474,6 +497,159 @@ struct CertificatesView: View {
     }
 
     private struct EmptyResponse: Decodable { init(from decoder: Decoder) throws {} }
+}
+
+// MARK: - Issue certificate sheet (member picker → POST /admin/certificates)
+
+/// Mirrors the web IssueModal: debounced member search (GET /admin/members),
+/// a level picker (full programme or a specific level), then
+/// POST /admin/certificates { user_id, level_number }.
+private struct IssueCertificateSheet: View {
+    let levels: [AdminLevel]
+    let onDone: (String) async -> Void
+    let onError: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var results: [MemberRow] = []
+    @State private var picked: MemberRow?
+    @State private var level: Int?          // nil = full programme
+    @State private var busy = false
+    @State private var searchTask: Task<Void, Never>?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "rosette").font(.system(size: 11)).foregroundStyle(Nuru.gold)
+                        Text("ISSUE").font(.nOverline).tracking(0.5).foregroundStyle(Nuru.gold)
+                    }
+                    Text("Issue a certificate").font(.fraunces(21, .medium)).foregroundStyle(Nuru.ink)
+
+                    if let m = picked {
+                        HStack(spacing: 12) {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Nuru.navy)
+                                .frame(width: 32, height: 32)
+                                .overlay(Text(certInitials(m.fullName)).font(.inter(12, .bold)).foregroundStyle(.white))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(m.fullName).font(.inter(13.5, .bold)).foregroundStyle(Nuru.navy)
+                                Text("\(m.cellName ?? "—") · L\(m.currentLevel.map(String.init) ?? "—")")
+                                    .font(.nMicro).foregroundStyle(Nuru.muted)
+                            }
+                            Spacer()
+                            Button("Change") { picked = nil }
+                                .font(.inter(12, .semibold)).foregroundStyle(Nuru.gold)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .background(Nuru.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                    } else {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass").font(.system(size: 14)).foregroundStyle(Nuru.muted)
+                            TextField("Search member…", text: $query).font(.nBody)
+                                .textInputAutocapitalization(.words)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 11)
+                        .background(Nuru.inputBg)
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+
+                        VStack(spacing: 6) {
+                            ForEach(results) { m in
+                                Button { picked = m } label: {
+                                    HStack(spacing: 12) {
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Nuru.navy)
+                                            .frame(width: 28, height: 28)
+                                            .overlay(Text(certInitials(m.fullName)).font(.inter(11, .bold)).foregroundStyle(.white))
+                                        Text(m.fullName).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Nuru.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("LEVEL").font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
+                        Menu {
+                            Button("Full programme") { level = nil }
+                            ForEach(levels) { l in
+                                Button("Level \(l.levelNumber) — \(l.title)") { level = l.levelNumber }
+                            }
+                        } label: {
+                            HStack {
+                                Text(level.flatMap { n in levels.first { $0.levelNumber == n }.map { "Level \($0.levelNumber) — \($0.title)" } } ?? "Full programme")
+                                    .font(.nBody).foregroundStyle(Nuru.ink).lineLimit(1)
+                                Spacer()
+                                Image(systemName: "chevron.down").font(.system(size: 11)).foregroundStyle(Nuru.muted)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 11)
+                            .background(Nuru.inputBg)
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .background(Nuru.paper)
+            .navigationTitle("Issue certificate").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button { Task { await issue() } } label: {
+                        HStack(spacing: 6) { Image(systemName: "rosette"); Text("Issue") }
+                    }.disabled(picked == nil || busy)
+                }
+            }
+            .onChange(of: query) { _, q in
+                searchTask?.cancel()
+                let term = q.trimmingCharacters(in: .whitespaces)
+                guard !term.isEmpty else { results = []; return }
+                searchTask = Task {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    if Task.isCancelled { return }
+                    if let page = try? await PortalAPI.members(search: term) {
+                        if !Task.isCancelled { results = Array(page.data.prefix(8)) }
+                    } else if !Task.isCancelled {
+                        results = []
+                    }
+                }
+            }
+        }
+    }
+
+    private func issue() async {
+        guard let m = picked else { return }
+        busy = true; defer { busy = false }
+        // Match the web body exactly: { user_id, level_number } where a full-programme
+        // certificate sends an explicit null (not an omitted key).
+        struct Body: Encodable {
+            let userId: String; let levelNumber: Int?
+            enum CodingKeys: String, CodingKey { case userId, levelNumber }
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(userId, forKey: .userId)
+                try c.encode(levelNumber, forKey: .levelNumber)   // emits null when nil
+            }
+        }
+        struct Ack: Decodable { init(from decoder: Decoder) throws {} }
+        do {
+            _ = try await APIClient.shared.post(
+                "/admin/certificates",
+                body: Body(userId: m.userId, levelNumber: level), as: Ack.self)
+            await onDone(m.fullName)
+        } catch {
+            onError((error as? APIError)?.errorDescription ?? "Could not issue certificate.")
+        }
+    }
 }
 
 // MARK: - Rendered certificate (the gold-bordered CertificateArt, §5.5)

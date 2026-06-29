@@ -64,6 +64,7 @@ private enum CL {
 // MARK: - View
 
 struct CurriculumLevelsView: View {
+    @EnvironmentObject private var router: NavRouter
     @State private var activeId: Int?
 
     var body: some View {
@@ -104,13 +105,17 @@ struct CurriculumLevelsView: View {
                     // Row 4: level cards
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14)], spacing: 14) {
                         ForEach(levels) { lvl in
-                            LevelCard(level: lvl, active: activeId == lvl.levelNumber)
+                            LevelCard(level: lvl, active: activeId == lvl.levelNumber,
+                                      onOpen: { router.go(.cms) })
                                 .onTapGesture { activeId = lvl.levelNumber }
                         }
                     }
 
                     // Row 5: active-level deep-dive
-                    if let active { ActiveLevelDeepDive(level: active, trend: report.trend) }
+                    if let active {
+                        ActiveLevelDeepDive(level: active, trend: report.trend,
+                                            onOpen: { router.go(.cms) })
+                    }
                 }
                 .padding(.horizontal, 20)
             }
@@ -140,7 +145,8 @@ struct CurriculumLevelsView: View {
                           stats: stats) {
             HStack(spacing: 8) {
                 HeroChip(label: "\(levels.count)-level pathway", icon: "sparkles", style: .tag)
-                HeroChip(label: "Open CMS", icon: "square.and.pencil", style: .gold)
+                HeroChip(label: "Video library", icon: "play.rectangle", style: .ghost) { router.go(.videoLibrary) }
+                HeroChip(label: "Open CMS", icon: "square.and.pencil", style: .gold) { router.go(.cms) }
             }
         }
     }
@@ -290,6 +296,7 @@ private struct EnrolmentTrend: View {
 private struct LevelCard: View {
     let level: LevelAnalyticsRow
     let active: Bool
+    let onOpen: () -> Void
     private var color: Color { CL.color(level.levelNumber) }
 
     var body: some View {
@@ -341,10 +348,12 @@ private struct LevelCard: View {
                         Text("\(level.modulesPublished) published").font(.nMicro).foregroundStyle(Nuru.ink600)
                     }
                     Spacer()
-                    HStack(spacing: 4) {
-                        Text("Open").font(.inter(12, .bold)).foregroundStyle(color)
-                        Image(systemName: "arrow.right").font(.system(size: 10, weight: .bold)).foregroundStyle(color)
-                    }
+                    Button(action: onOpen) {
+                        HStack(spacing: 4) {
+                            Text("Open").font(.inter(12, .bold)).foregroundStyle(color)
+                            Image(systemName: "arrow.right").font(.system(size: 10, weight: .bold)).foregroundStyle(color)
+                        }
+                    }.buttonStyle(.plain)
                 }
             }
             .padding(16)
@@ -375,6 +384,7 @@ private struct LevelCard: View {
 private struct ActiveLevelDeepDive: View {
     let level: LevelAnalyticsRow
     let trend: [CL.TrendPoint]
+    let onOpen: () -> Void
     private var color: Color { CL.color(level.levelNumber) }
 
     var body: some View {
@@ -391,7 +401,7 @@ private struct ActiveLevelDeepDive: View {
                         Text(level.title).font(.nTitle).foregroundStyle(Nuru.navy)
                     }
                     Spacer()
-                    HeroChip(label: "Open level", icon: "play.circle.fill", style: .gold)
+                    HeroChip(label: "Open level", icon: "play.circle.fill", style: .gold, action: onOpen)
                 }
                 Text(level.theme ?? "Discipleship pathway level.")
                     .font(.nBody).foregroundStyle(Nuru.foreground).fixedSize(horizontal: false, vertical: true)

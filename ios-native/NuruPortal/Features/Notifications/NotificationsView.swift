@@ -116,6 +116,55 @@ private func dayLabel(_ iso: String) -> String {
 
 struct NotificationsView: View {
     @StateObject private var store = NotificationsStore()
+    @EnvironmentObject private var router: NavRouter
+    @Environment(\.openURL) private var openURL
+
+    // Map a web-route href (e.g. "/members", "/reflection-queue") to a sidebar
+    // Section so a tapped notification cross-navigates in-app — the native
+    // equivalent of the web's navigate(n.href). Query/hash is stripped; unknown
+    // or external hrefs fall through to opening the URL.
+    private func section(for href: String) -> Section? {
+        var path = href
+        if let h = path.firstIndex(where: { $0 == "?" || $0 == "#" }) { path = String(path[..<h]) }
+        path = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let first = path.split(separator: "/").first.map(String.init) ?? path
+        switch first {
+        case "", "dashboard":         return .dashboard
+        case "notifications":         return .notifications
+        case "curriculum-levels":     return .curriculumLevels
+        case "cms":                   return .cms
+        case "level-detail":          return .levelDetail
+        case "quiz-builder":          return .quizBuilder
+        case "video-library":         return .videoLibrary
+        case "content-studio":        return .contentStudio
+        case "cell-engagement":       return .cellEngagement
+        case "members", "member-profile": return .members
+        case "reflection-queue":      return .reflectionQueue
+        case "chat":                  return .chat
+        case "events":                return .events
+        case "finance":               return .finance
+        case "certificates":          return .certificates
+        case "badges":                return .badges
+        case "users":                 return .users
+        case "roles":                 return .roles
+        case "congregations":         return .congregations
+        case "countries":             return .countries
+        case "languages":             return .languages
+        case "profile":               return .profile
+        default:                      return nil
+        }
+    }
+
+    // Port of web openNotif: mark read, then follow the href (cross-nav or URL).
+    private func open(_ n: NotifItem) {
+        if !n.read { store.setRead(n.id, true) }
+        guard let href = n.href, !href.isEmpty else { return }
+        if let sec = section(for: href) {
+            router.go(sec)
+        } else if let url = URL(string: href), url.scheme != nil {
+            openURL(url)
+        }
+    }
 
     private enum Tab { case all, unread }
     private enum CatFilter: String, CaseIterable { case all, info, success, warning, security
@@ -350,7 +399,7 @@ struct NotificationsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(n.read ? Nuru.white : Nuru.gold.opacity(0.045))
         .contentShape(Rectangle())
-        .onTapGesture { if !n.read { store.setRead(n.id, true) } }
+        .onTapGesture { open(n) }
     }
 
     private var emptyState: some View {

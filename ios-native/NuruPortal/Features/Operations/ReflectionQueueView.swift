@@ -3,10 +3,57 @@
 // Deferred / Approved), a searchable + filterable queue list, and a review
 // workspace (member header, growth strip, the reflection text, and the decision
 // panel with Approve & Advance / Return for Revision / Defer). Wired to
-// PortalAPI.reflections(state:) and PortalAPI.memberDetail. The decision actions
-// are presented as the make shows them; the write endpoints aren't in the shared
-// PortalAPI surface, so the buttons present the flow (see NEEDS).
+// PortalAPI.reflections(state:) and PortalAPI.memberDetail for reads, and to the
+// pastoral-review write surface (POST /admin/reflections/{id}/decision +
+// GET /admin/reflections/{id}/history) via APIClient.shared — mirroring the web's
+// OpsApi.decideReflection / OpsApi.reflectionHistory. After a decision the queue
+// refetches and the item drops out of the active tab.
 import SwiftUI
+
+// MARK: - Pastoral-review write surface (page-local, mirrors OpsApi)
+
+/// Conditional JSON body so absent keys are omitted (the web spreads in
+/// feedback_notes / pastoral_note only when present).
+private enum JSONValue: Encodable {
+    case string(String), int(Int), bool(Bool), null
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let v): try c.encode(v)
+        case .int(let v): try c.encode(v)
+        case .bool(let v): try c.encode(v)
+        case .null: try c.encodeNil()
+        }
+    }
+}
+
+private struct DecisionResponse: Decodable { let state: String? }
+
+/// One audit row in the review-history drawer (GET …/history).
+struct ReflectionHistoryItem: Decodable, Identifiable {
+    @DefaultZero var auditId: Int
+    let actorName: String?
+    @DefaultEmpty var action: String
+    @DefaultEmpty var occurredAt: String
+    var id: Int { auditId }
+}
+private struct ReflectionHistoryPage: Decodable { let data: [ReflectionHistoryItem] }
+
+private enum RQApi {
+    /// POST /admin/reflections/{id}/decision { decision, feedback_notes?, pastoral_note? }.
+    static func decide(_ id: String, decision: String, feedback: String, note: String) async throws {
+        var body: [String: JSONValue] = ["decision": .string(decision)]
+        let fb = feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pn = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fb.isEmpty { body["feedback_notes"] = .string(fb) }
+        if !pn.isEmpty { body["pastoral_note"] = .string(pn) }
+        _ = try await APIClient.shared.post("/admin/reflections/\(id)/decision", body: body, as: DecisionResponse.self)
+    }
+    /// GET /admin/reflections/{id}/history.
+    static func history(_ id: String) async throws -> [ReflectionHistoryItem] {
+        try await APIClient.shared.get("/admin/reflections/\(id)/history", as: ReflectionHistoryPage.self).data
+    }
+}
 
 // MARK: - Tabs & filters
 
@@ -52,6 +99,7 @@ private enum RQ {
 // MARK: - View
 
 struct ReflectionQueueView: View {
+    @EnvironmentObject private var router: NavRouter
     @State private var tab = "pending"
     @State private var search = ""
     @State private var statusFilter = "All"
@@ -60,13 +108,23 @@ struct ReflectionQueueView: View {
     @State private var feedback = ""
     @State private var reviewerNote = ""
 
+    // Decision / history state (parent-owned so the workspace stays presentational).
+    @State private var busy = false
+    @State private var notice: String?
+    @State private var actionError: String?
+    @State private var reloadToken = 0
+    @State private var historyOpen = false
+    @State private var history: [ReflectionHistoryItem] = []
+    @State private var historyLoading = false
+
     var body: some View {
         AsyncView({ try await PortalAPI.reflections(state: tab) }) { rows in
             content(rows)
         }
-        // Re-fetch whenever the tab changes by keying the AsyncView on the tab.
-        .id(tab)
+        // Re-fetch whenever the tab OR the reload token changes by keying the AsyncView.
+        .id("\(tab)-\(reloadToken)")
         .portalPage("Reflection Queue")
+        .sheet(isPresented: $historyOpen) { historySheet }
     }
 
     @ViewBuilder
@@ -76,18 +134,30 @@ struct ReflectionQueueView: View {
 
         ScrollView {
             VStack(spacing: 18) {
-                hero(rows)
+                hero(rows, current: current)
 
                 VStack(spacing: 18) {
+                    if let notice {
+                        banner(notice, fg: Color(hex: 0x0F6B33), bg: Color(hex: 0xE8F6EE))
+                    }
                     statStrip(rows)
                     stateTabs
+                    if let actionError {
+                        banner(actionError, fg: Color(hex: 0xA8281F), bg: Color(hex: 0xFDECEC))
+                    }
                     QueueList(rows: filtered, tab: tab,
                               search: $search, statusFilter: $statusFilter,
                               sortOldestFirst: $sortOldestFirst, selId: $selId,
                               current: current)
                     if let current {
                         Workspace(current: current,
-                                  feedback: $feedback, reviewerNote: $reviewerNote)
+                                  feedback: $feedback, reviewerNote: $reviewerNote,
+                                  busy: busy,
+                                  onApprove: { decide(current, "approve") },
+                                  onReturn: { decide(current, "return") },
+                                  onDefer: { decide(current, "defer") },
+                                  onHistory: { openHistory(current) },
+                                  onProfile: { router.go(.members) })
                             .id(current.reflectionId)
                     } else {
                         emptyWorkspace
@@ -98,8 +168,116 @@ struct ReflectionQueueView: View {
             .padding(.bottom, 40)
         }
         .background(Nuru.paper)
-        .onChange(of: tab) { _ in selId = nil; feedback = ""; reviewerNote = "" }
-        .onChange(of: selId) { _ in feedback = ""; reviewerNote = "" }
+        .onChange(of: tab) { _ in selId = nil; feedback = ""; reviewerNote = ""; actionError = nil }
+        .onChange(of: selId) { _ in feedback = ""; reviewerNote = ""; actionError = nil }
+    }
+
+    // Inline notice / error banner (matches the web's toast + error rows).
+    private func banner(_ text: String, fg: Color, bg: Color) -> some View {
+        Text(text)
+            .font(.inter(13, .semibold)).foregroundStyle(fg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(bg)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    // POST a decision, then refetch the queue (the item drops out of the tab).
+    private func decide(_ row: ReflectionRow, _ decision: String) {
+        // Feedback required to return (mirrors the web's ≥10-char guard).
+        if decision == "return", feedback.trimmingCharacters(in: .whitespacesAndNewlines).count < 10 {
+            actionError = "Feedback is required to return a reflection (at least 10 characters)."
+            return
+        }
+        busy = true; actionError = nil
+        Task {
+            do {
+                try await RQApi.decide(row.reflectionId, decision: decision,
+                                       feedback: feedback, note: reviewerNote)
+                let name = row.fullName
+                notice = decision == "approve" ? "\(name) approved & advanced."
+                    : decision == "return" ? "Returned to \(name) with feedback."
+                    : "Deferred \(name)'s review."
+                selId = nil; feedback = ""; reviewerNote = ""
+                reloadToken &+= 1   // re-key AsyncView → refetch the active tab
+                scheduleNoticeDismiss()
+            } catch {
+                actionError = (error as? APIError)?.errorDescription ?? "Decision failed."
+            }
+            busy = false
+        }
+    }
+
+    // Load + present the review-history drawer for the current reflection.
+    private func openHistory(_ row: ReflectionRow) {
+        historyOpen = true; historyLoading = true; history = []
+        Task {
+            history = (try? await RQApi.history(row.reflectionId)) ?? []
+            historyLoading = false
+        }
+    }
+
+    private func scheduleNoticeDismiss() {
+        Task {
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            notice = nil
+        }
+    }
+
+    // History drawer — audit rows for the selected reflection.
+    private var historySheet: some View {
+        NavigationStack {
+            Group {
+                if historyLoading {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if history.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "clock.arrow.circlepath").font(.system(size: 28)).foregroundStyle(Nuru.ink400)
+                        Text("No recorded decisions yet.").font(.nBody).foregroundStyle(Nuru.ink600)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(history) { h in
+                                HStack(alignment: .top, spacing: 12) {
+                                    Circle().fill(historyDot(h.action)).frame(width: 8, height: 8).padding(.top, 5)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(historyLabel(h.action)).font(.inter(13, .semibold)).foregroundStyle(Nuru.foreground)
+                                        Text("\(h.actorName ?? "System") · \(Fmt.date(h.occurredAt))")
+                                            .font(.nMicro).foregroundStyle(Nuru.ink600)
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 12)
+                                Divider().overlay(Nuru.border)
+                            }
+                        }
+                        .padding(.horizontal, 20).padding(.top, 8)
+                    }
+                }
+            }
+            .background(Nuru.paper)
+            .navigationTitle("Review history")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { historyOpen = false }
+                }
+            }
+        }
+    }
+
+    private func historyDot(_ action: String) -> Color {
+        action.contains("approve") ? Color(hex: 0x16A34A)
+            : action.contains("return") ? Nuru.gold : Nuru.navy
+    }
+    private func historyLabel(_ action: String) -> String {
+        action
+            .replacingOccurrences(of: "reflection.", with: "Reflection ")
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: ".", with: " ")
     }
 
     // Filtering (search → status → sort), matching the web's useMemo.
@@ -120,7 +298,7 @@ struct ReflectionQueueView: View {
     }
 
     // Hero — navy banner with breadcrumb + sort/history action chips.
-    private func hero(_ rows: [ReflectionRow]) -> some View {
+    private func hero(_ rows: [ReflectionRow], current: ReflectionRow?) -> some View {
         let pending = rows.filter { $0.state == "pending" }
         return PortalHero(breadcrumb: ["Operations", "Reflection Queue"],
                           title: "Reflection Queue",
@@ -131,7 +309,10 @@ struct ReflectionQueueView: View {
                          icon: "line.3.horizontal.decrease", style: .ghost) {
                     sortOldestFirst.toggle()
                 }
-                HeroChip(label: "History", icon: "clock.arrow.circlepath", style: .gold)
+                HeroChip(label: "History", icon: "clock.arrow.circlepath", style: .gold) {
+                    if let current { openHistory(current) }
+                }
+                .opacity(current == nil ? 0.5 : 1)
             }
         }
     }
@@ -329,6 +510,12 @@ private struct Workspace: View {
     let current: ReflectionRow
     @Binding var feedback: String
     @Binding var reviewerNote: String
+    let busy: Bool
+    let onApprove: () -> Void
+    let onReturn: () -> Void
+    let onDefer: () -> Void
+    let onHistory: () -> Void
+    let onProfile: () -> Void
     @State private var member: MemberDetail?
 
     var body: some View {
@@ -353,7 +540,9 @@ private struct Workspace: View {
             HStack(spacing: 12) {
                 Monogram(name: current.fullName, size: 44)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(current.fullName).font(.fraunces(18, .semibold)).foregroundStyle(Nuru.navy)
+                    Button(action: onProfile) {
+                        Text(current.fullName).font(.fraunces(18, .semibold)).foregroundStyle(Nuru.navy)
+                    }.buttonStyle(.plain)
                     Text("\(current.moduleTitle) · \(Fmt.date(current.submittedAt))" +
                          (member?.cellName.map { " · \($0)" } ?? ""))
                         .font(.nMicro).foregroundStyle(Nuru.ink600)
@@ -362,6 +551,9 @@ private struct Workspace: View {
                 VStack(alignment: .trailing, spacing: 6) {
                     Pill(text: "L\(current.levelNumber - 1) → L\(current.levelNumber)", color: Color(hex: 0x92651B))
                     Pill(text: current.state.capitalized, color: RQ.stateColor(current.state))
+                    Button(action: onHistory) {
+                        Text("History →").font(.inter(11, .semibold)).foregroundStyle(Nuru.gold)
+                    }.buttonStyle(.plain)
                 }
             }
         }
@@ -382,10 +574,12 @@ private struct Workspace: View {
                     inlineMetric("Level", "L\(m.enrollment.currentLevel)",
                                  min(100, Double(m.enrollment.currentLevel) / 7 * 100), Nuru.navy)
                     Spacer(minLength: 0)
-                    HStack(spacing: 4) {
-                        Text("Full profile").font(.inter(11, .bold)).foregroundStyle(Nuru.gold)
-                        Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Nuru.gold)
-                    }
+                    Button(action: onProfile) {
+                        HStack(spacing: 4) {
+                            Text("Full profile").font(.inter(11, .bold)).foregroundStyle(Nuru.gold)
+                            Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Nuru.gold)
+                        }
+                    }.buttonStyle(.plain)
                 }
             } else {
                 Text("Loading member growth…").font(.nCaption).foregroundStyle(Nuru.ink600)
@@ -471,21 +665,27 @@ private struct Workspace: View {
                     decisionCard(title: "Approve & Advance", icon: "checkmark.circle.fill",
                                  desc: "Advance the member to the next level and notify them.",
                                  bg: Color(hex: 0xE8F6EC), border: Color(hex: 0xBBE5C5),
-                                 iconBg: Color(hex: 0x16A34A), titleColor: Color(hex: 0x15803D))
+                                 iconBg: Color(hex: 0x16A34A), titleColor: Color(hex: 0x15803D),
+                                 action: onApprove)
                     decisionCard(title: "Return for Revision", icon: "bubble.left.fill",
                                  desc: "Send kind feedback and allow the member to revise and resubmit.",
                                  bg: Color(hex: 0xFFFBEB), border: Color(hex: 0xF5E0A8),
-                                 iconBg: Color(hex: 0xC89B3C), titleColor: Color(hex: 0x92651B))
+                                 iconBg: Color(hex: 0xC89B3C), titleColor: Color(hex: 0x92651B),
+                                 action: onReturn)
                 }
                 Divider().overlay(Nuru.border)
                 HStack {
-                    HStack(spacing: 8) {
-                        Image(systemName: "calendar").font(.system(size: 13))
-                        Text("Defer review").font(.inter(13, .semibold))
+                    Button(action: onDefer) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "calendar").font(.system(size: 13))
+                            Text("Defer review").font(.inter(13, .semibold))
+                        }
+                        .foregroundStyle(Nuru.foreground)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                     }
-                    .foregroundStyle(Nuru.foreground)
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    .buttonStyle(.plain)
+                    .disabled(busy)
                     Spacer()
                     Text("“Shepherd the flock of God that is among you…” — 1 Peter 5:2")
                         .font(.nMicro).italic().foregroundStyle(Nuru.ink600)
@@ -496,22 +696,28 @@ private struct Workspace: View {
     }
 
     private func decisionCard(title: String, icon: String, desc: String,
-                              bg: Color, border: Color, iconBg: Color, titleColor: Color) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(iconBg).frame(width: 32, height: 32)
-                    Image(systemName: icon).font(.system(size: 15)).foregroundStyle(.white)
+                              bg: Color, border: Color, iconBg: Color, titleColor: Color,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(iconBg).frame(width: 32, height: 32)
+                        Image(systemName: icon).font(.system(size: 15)).foregroundStyle(.white)
+                    }
+                    Text(title).font(.fraunces(18, .semibold)).foregroundStyle(titleColor)
                 }
-                Text(title).font(.fraunces(18, .semibold)).foregroundStyle(titleColor)
+                Text(desc).font(.nCaption).foregroundStyle(titleColor).fixedSize(horizontal: false, vertical: true)
             }
-            Text(desc).font(.nCaption).foregroundStyle(titleColor).fixedSize(horizontal: false, vertical: true)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(bg)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(border, lineWidth: 1))
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(bg)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(border, lineWidth: 1))
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .opacity(busy ? 0.6 : 1)
     }
 
     private func editor(_ text: Binding<String>, placeholder: String, minHeight: CGFloat) -> some View {

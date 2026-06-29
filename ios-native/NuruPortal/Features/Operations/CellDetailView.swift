@@ -127,6 +127,8 @@ struct CellDetailView: View {
                 HeroStat(label: "On watch", value: "\(vm.watch)", hint: "send a nudge"),
             ]
         ) {
+            // "Message cell" has no messaging endpoint — left as a styled affordance
+            // (the web merely cross-navigates to the reflection queue). See NEEDS.
             HeroChip(label: "Message cell", icon: "paperplane.fill", style: .gold)
         }
     }
@@ -213,7 +215,13 @@ struct CellDetailView: View {
                 } else {
                     ForEach(Array(vm.sorted.enumerated()), id: \.element.id) { idx, m in
                         if idx > 0 { Divider().background(Nuru.border) }
-                        memberRow(m)
+                        // Web: row navigate(`/member-profile?id=…`) + "View" action.
+                        NavigationLink {
+                            MemberDetailView(userId: m.userId, name: m.fullName ?? "—")
+                        } label: {
+                            memberRow(m)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }

@@ -53,6 +53,7 @@ struct BadgesView: View {
     @State private var sort = SortMode.mostEarned
     @State private var detail: BadgeRow?
     @State private var createOpen = false
+    @State private var retiring: BadgeRow?     // pending deactivate confirmation
     @State private var notice: String?
     @State private var error: String?
 
@@ -115,6 +116,15 @@ struct BadgesView: View {
             CreateBadgeSheet { name in
                 createOpen = false; notice = "Created \(name)."; await load()
             } onError: { error = $0 }
+        }
+        .alert("Deactivate badge?", isPresented: Binding(get: { retiring != nil }, set: { if !$0 { retiring = nil } })) {
+            Button("Cancel", role: .cancel) { retiring = nil }
+            Button("Deactivate", role: .destructive) {
+                if let b = retiring { Task { await retire(b) } }
+                retiring = nil
+            }
+        } message: {
+            Text("Deactivate \"\(retiring?.name ?? "")\"? It stops being awarded (existing earners keep it).")
         }
     }
 
@@ -272,7 +282,7 @@ struct BadgesView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "eye").font(.system(size: 14)).foregroundStyle(Nuru.muted)
                     Button {
-                        Task { active ? await retire(b) : await reactivate(b) }
+                        if active { retiring = b } else { Task { await reactivate(b) } }
                     } label: {
                         Image(systemName: "power").font(.system(size: 14))
                             .foregroundStyle(active ? Nuru.danger : Nuru.success)
@@ -383,7 +393,7 @@ struct BadgesView: View {
             HStack {
                 Spacer()
                 Button {
-                    Task { active ? await retire(b) : await reactivate(b) }
+                    if active { detail = nil; retiring = b } else { Task { await reactivate(b) } }
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "power").font(.system(size: 12))
@@ -409,10 +419,10 @@ struct BadgesView: View {
         catch { self.error = (error as? APIError)?.errorDescription ?? "Could not load badges." }
     }
     private func retire(_ b: BadgeRow) async {
-        // NEEDS: retire is `DELETE /admin/badges/:code`, but the shared APIClient
-        // (which I must not edit) exposes only get/post. Surfacing rather than
-        // silently hitting a non-existent route. Add APIClient.delete(_:) to wire.
-        self.error = "Deactivating needs a DELETE verb on APIClient (DELETE /admin/badges/\(b.code))."
+        do {
+            _ = try await APIClient.shared.delete("/admin/badges/\(b.code)", as: Ack.self)
+            detail = nil; notice = "Deactivated \(b.name)."; await load()
+        } catch { self.error = (error as? APIError)?.errorDescription ?? "Could not deactivate badge." }
     }
     private func reactivate(_ b: BadgeRow) async {
         do {

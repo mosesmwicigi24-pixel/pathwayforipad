@@ -221,6 +221,14 @@ struct MemberDetailView: View {
     let userId: String
     let name: String
 
+    // Graduation write state (the only mutation on this screen). `reloadToken`
+    // forces AsyncView to refetch after a successful PATCH; `graduatedOverride`
+    // optimistically flips the chips/tag until the refetch lands.
+    @State private var reloadToken = 0
+    @State private var graduatedOverride: Bool?
+    @State private var graduating = false
+    @State private var graduationError: String?
+
     var body: some View {
         AsyncView({ try await APIClient.shared.get("/admin/members/\(userId)", as: MemberFull.self) }) { m in
             ScrollView {
@@ -232,8 +240,27 @@ struct MemberDetailView: View {
             }
             .background(Nuru.background)
         }
+        .id(reloadToken)
         .portalPage(name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // PATCH /admin/members/{id}/graduation { graduated }, then refresh (web setGraduation).
+    private func toggleGraduation(current: Bool) async {
+        guard !graduating else { return }
+        graduating = true
+        graduationError = nil
+        let next = !current
+        struct Body: Encodable { let graduated: Bool }
+        struct Result: Decodable { @DefaultFalse var graduated: Bool }
+        do {
+            let r = try await APIClient.shared.patch("/admin/members/\(userId)/graduation", body: Body(graduated: next), as: Result.self)
+            graduatedOverride = r.graduated
+            reloadToken += 1     // refetch the full member so all derived fields update
+        } catch {
+            graduationError = (error as? APIError)?.errorDescription ?? error.localizedDescription
+        }
+        graduating = false
     }
 
     // MARK: Hero
@@ -268,16 +295,26 @@ struct MemberDetailView: View {
                 Text(m.fullName).font(.nMicro).foregroundStyle(.white).lineLimit(1)
                 Spacer(minLength: 0)
             }
+            let graduated = graduatedOverride ?? m.graduated
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    if m.graduated {
+                    if graduated {
                         HeroChip(label: "Graduated", icon: "graduationcap.fill", style: .tag)
                     }
                     HeroChip(label: "\(m.cellName ?? "Unassigned") · L\(lvl.currentLevel)", icon: "sparkles", style: .tag)
+                    // "Message" has no messaging endpoint — left as a styled affordance.
                     if m.email != nil { HeroChip(label: "Message", icon: "envelope", style: .ghost) }
-                    HeroChip(label: m.graduated ? "Un-graduate" : "Mark graduated", icon: "graduationcap", style: .ghost)
+                    // Mark graduated / Un-graduate → PATCH /admin/members/{id}/graduation.
+                    HeroChip(label: graduating ? "Saving…" : (graduated ? "Un-graduate" : "Mark graduated"),
+                             icon: "graduationcap", style: .ghost) {
+                        Task { await toggleGraduation(current: graduated) }
+                    }
+                    // "Pastoral note" has no endpoint — left as a styled affordance.
                     HeroChip(label: "Pastoral note", icon: "heart.fill", style: .gold)
                 }
+            }
+            if let graduationError {
+                Text(graduationError).font(.inter(11.5)).foregroundStyle(Color(hex: 0xFCA5A5))
             }
 
             // Avatar + name + contact

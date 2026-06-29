@@ -4,16 +4,24 @@
 //
 // Server-authoritative model (§1.9): the "level quiz" is the level's exit-exam
 // module's question bank plus the level's exam settings (pass mark + reveal/shuffle
-// flags). This view is read/toggle UI — it loads levels, resolves each level's
-// exit_exam module, loads that module's questions/options, and surfaces the exam
-// settings. Mutations are out of scope here (see NEEDS), so editors render as
-// display-state controls mirroring the web layout.
+// flags). This view loads levels, resolves each level's exit_exam module, loads
+// that module's questions/options, and surfaces the exam settings — and now
+// FULLY WIRES the mutations, line-by-line from the web ModuleQuizBuilder/QuizBuilder:
+//   • Add question (+ type menu), edit text/options/points/required/active,
+//     mark-correct, delete/duplicate/move, then Save:
+//       POST   /admin/modules/{id}/questions { questions: [toPayload…] }   (new rows)
+//       PUT    /admin/questions/{qid}        { toPayload }                 (edits)
+//       DELETE /admin/questions/{qid}                                      (removals)
+//   • Exam settings (pass-mark slider, time limit, shuffle, show-answers,
+//     show-score) → PUT /admin/levels/{n}/exam
+//   • "Create level exam" → POST /admin/modules (exit_exam module)
 //
 // Layout: navy hero (counts) → 3-pane on iPad (level list | editor | settings),
 // stacked sections when narrow. Uses the shared kit only (NuruTheme/Components/
 // Models/Networking) without editing it; exam-settings + answer-option shapes
 // that the shared AdminLevel/AdminQuestion models don't carry are decoded by
-// PAGE-LOCAL Codable structs fetched via APIClient.shared.get.
+// PAGE-LOCAL Codable structs fetched via APIClient.shared.get, and writes go
+// through the actor post/put/delete with PAGE-LOCAL Encodable bodies.
 import SwiftUI
 
 // MARK: - Page-local API shapes (fields the shared models don't carry)
@@ -143,10 +151,12 @@ private enum QBAnswerOptions: Codable {
 // MARK: - Decoded option model (decode parity with ModuleQuizBuilder.decodeChoices)
 
 private struct QOption: Identifiable {
-    let id: String
-    let text: String
-    let isCorrect: Bool
+    var id: String
+    var text: String
+    var isCorrect: Bool
 }
+
+private func newOptId() -> String { "opt-\(UUID().uuidString.prefix(6))" }
 
 private enum QType: String {
     case multipleChoice = "multiple_choice"
@@ -217,28 +227,32 @@ private enum QType: String {
     static let all: [QType] = [.multipleChoice, .checkbox, .dropdown, .shortAnswer, .paragraph, .linearScale]
 }
 
-/// Decoded, render-ready question (fromApi parity).
+/// Decoded, EDITABLE question (fromApi parity + stable local key like the web `key`).
+/// `questionId` is nil for rows created in this session (POST), set for edits (PUT).
 private struct VModelQuestion: Identifiable {
-    let id: String
-    let type: QType
-    let text: String
-    let options: [QOption]
-    let points: Int
-    let required: Bool
-    let explanation: String
-    let active: Bool
-    let minVal: Int
-    let maxVal: Int
-    let minLabel: String
-    let maxLabel: String
+    let key: String          // stable local identity for ForEach/expanded
+    var questionId: String?  // nil ⇒ new (POST); set ⇒ existing (PUT/DELETE)
+    var type: QType
+    var text: String
+    var options: [QOption]
+    var points: Int
+    var required: Bool
+    var explanation: String
+    var active: Bool
+    var minVal: Int
+    var maxVal: Int
+    var minLabel: String
+    var maxLabel: String
+    var id: String { key }
 
-    /// fromApi(a) — decode a question row into the render model.
+    /// fromApi(a) — decode a question row into the editable model.
     static func from(_ a: QBQuestion) -> VModelQuestion {
         let type = QType.decode(a.qType)
         let options = type.isChoice ? decodeChoices(a) : []
         let scale = decodeScale(a)
         return VModelQuestion(
-            id: a.questionId,
+            key: a.questionId,
+            questionId: a.questionId,
             type: type,
             text: a.questionText,
             options: options,
@@ -249,6 +263,55 @@ private struct VModelQuestion: Identifiable {
             minVal: scale.min, maxVal: scale.max,
             minLabel: scale.minLabel, maxLabel: scale.maxLabel
         )
+    }
+
+    /// blank(type) parity — a fresh local question of the given type.
+    static func blank(_ type: QType) -> VModelQuestion {
+        VModelQuestion(
+            key: "local-\(UUID().uuidString)",
+            questionId: nil,
+            type: type,
+            text: "",
+            options: type.isChoice
+                ? [QOption(id: newOptId(), text: "Option 1", isCorrect: type != .checkbox),
+                   QOption(id: newOptId(), text: "Option 2", isCorrect: false)]
+                : [],
+            points: 1, required: true, explanation: "", active: true,
+            minVal: 1, maxVal: 5, minLabel: "", maxLabel: ""
+        )
+    }
+
+    /// toPayload(q) parity — the create/update body for one question.
+    func toPayload() -> [String: JSONValue] {
+        let trimmedExplanation = explanation.trimmingCharacters(in: .whitespacesAndNewlines)
+        var base: [String: JSONValue] = [
+            "qType": .string(type.rawValue),
+            "questionText": .string(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+            "points": .int(points),
+            "required": .bool(required),
+            "explanation": trimmedExplanation.isEmpty ? .null : .string(trimmedExplanation),
+            "isActive": .bool(active),
+        ]
+        if type.isChoice {
+            let opts = options
+                .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .map { o -> JSONValue in
+                    .object([
+                        "id": .string(o.id),
+                        "text": .string(o.text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                        "isCorrect": .bool(o.isCorrect),
+                    ])
+                }
+            base["options"] = .array(opts)
+        } else if type == .linearScale {
+            base["scaleMin"] = .int(minVal)
+            base["scaleMax"] = .int(maxVal)
+            base["scaleMinLabel"] = minLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .null : .string(minLabel.trimmingCharacters(in: .whitespacesAndNewlines))
+            base["scaleMaxLabel"] = maxLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .null : .string(maxLabel.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else if type == .shortAnswer {
+            base["correctAnswer"] = .string("") // reviewer-scored; no key from this UI
+        }
+        return base
     }
 
     /// isValid(q) parity.
@@ -293,11 +356,11 @@ private struct VModelQuestion: Identifiable {
 /// Exam settings (QuizSettings parity). examSettings(lvl) defaults: passMark 80,
 /// shuffle false, showAnswers false, showScore true, no client time limit.
 private struct ExamSettings {
-    let passMark: Int
-    let shuffleQuestions: Bool
-    let showAnswersAfterSubmit: Bool
-    let showScoreAfterSubmit: Bool
-    let timeLimitMinutes: Int?
+    var passMark: Int
+    var shuffleQuestions: Bool
+    var showAnswersAfterSubmit: Bool
+    var showScoreAfterSubmit: Bool
+    var timeLimitMinutes: Int?
 
     static func from(_ l: QBLevel) -> ExamSettings {
         let pm = Int((l.requiredExamPassMark.flatMap { Double($0) }) ?? 80)
@@ -309,6 +372,68 @@ private struct ExamSettings {
             timeLimitMinutes: nil
         )
     }
+}
+
+// MARK: - JSON write body (nested; encoder is convertToSnakeCase ⇒ camelCase keys snake)
+
+/// Page-local JSON value supporting nested objects/arrays for question payloads.
+/// The actor encoder applies `.convertToSnakeCase`, so dictionary keys are written
+/// camelCase here (qType → q_type, isCorrect → is_correct, scaleMin → scale_min…).
+private indirect enum JSONValue: Encodable {
+    case string(String), int(Int), bool(Bool), null
+    case array([JSONValue]), object([String: JSONValue])
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .string(let v): var c = encoder.singleValueContainer(); try c.encode(v)
+        case .int(let v):    var c = encoder.singleValueContainer(); try c.encode(v)
+        case .bool(let v):   var c = encoder.singleValueContainer(); try c.encode(v)
+        case .null:          var c = encoder.singleValueContainer(); try c.encodeNil()
+        case .array(let a):  var c = encoder.unkeyedContainer(); for v in a { try c.encode(v) }
+        case .object(let o):
+            var c = encoder.container(keyedBy: DynKey.self)
+            for (k, v) in o { try c.encode(v, forKey: DynKey(k)) }
+        }
+    }
+    private struct DynKey: CodingKey {
+        var stringValue: String; var intValue: Int? { nil }
+        init(_ s: String) { stringValue = s }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+}
+
+/// Body for the bulk add: POST /admin/modules/{id}/questions { questions: [...] }.
+private struct AddQuestionsBody: Encodable {
+    let questions: [[String: JSONValue]]
+    enum CodingKeys: String, CodingKey { case questions }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(questions.map { JSONValue.object($0) }, forKey: .questions)
+    }
+}
+
+/// Body for PUT /admin/levels/{n}/exam (updateExam parity).
+private struct UpdateExamBody: Encodable {
+    let requiredExamPassMark: Int
+    let examQuestionCount: Int
+    let examShuffle: Bool
+    let examShowAnswers: Bool
+    let examShowScore: Bool
+}
+
+/// Body for POST /admin/modules (createModule parity — the exit_exam module).
+private struct CreateExamModuleBody: Encodable {
+    let levelNumber: Int
+    let title: String
+    let lessonContent: String
+    let evaluationKind: String
+}
+
+/// Tolerant response decode for writes we don't read back (never plain defaults).
+private struct WriteAck: Codable {
+    var added: Int?
+    var deleted: Bool?
+    var moduleId: String?
 }
 
 // MARK: - Color helper (level.color is a "#RRGGBB" string)
@@ -343,6 +468,7 @@ struct QuizBuilderView: View {
     @State private var resolving = false
     @State private var loadError: String?
     @State private var didLoad = false
+    @State private var creatingExam = false
 
     private var selLevel: QBLevel? { levels.first { $0.levelNumber == selNo } }
     private var publishedCount: Int { levels.filter { $0.status == "published" }.count }
@@ -575,8 +701,14 @@ struct QuizBuilderView: View {
         } else if examMissing {
             examMissingCard
         } else if let moduleId = examModuleId {
-            ModuleQuizEditor(moduleId: moduleId, accent: Color(hexString: lvl.color), settings: ExamSettings.from(lvl))
-                .id(moduleId)
+            ModuleQuizEditor(
+                moduleId: moduleId,
+                levelNo: lvl.levelNumber,
+                accent: Color(hexString: lvl.color),
+                initialSettings: ExamSettings.from(lvl),
+                onSavedSettings: { s in applySavedSettings(lvl.levelNumber, s) }
+            )
+            .id(moduleId)
         }
     }
 
@@ -592,15 +724,23 @@ struct QuizBuilderView: View {
                     Text("No exam for this level yet").font(.fraunces(18, .semibold)).foregroundStyle(Nuru.ink)
                     Text("Create the level's final assessment to start adding questions.")
                         .font(.inter(13)).foregroundStyle(Nuru.ink600).multilineTextAlignment(.center)
-                    // Creating the exam module is a mutation — out of scope here (see NEEDS).
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus").font(.system(size: 12, weight: .bold))
-                        Text("Create level exam").font(.inter(13, .bold))
+                    // createExam() — POST /admin/modules to create the exit_exam module.
+                    Button { Task { await createExam() } } label: {
+                        HStack(spacing: 6) {
+                            if creatingExam {
+                                ProgressView().controlSize(.small).tint(.white)
+                            } else {
+                                Image(systemName: "plus").font(.system(size: 12, weight: .bold))
+                            }
+                            Text(creatingExam ? "Creating…" : "Create level exam").font(.inter(13, .bold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18).frame(height: 40)
+                        .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 18).frame(height: 40)
-                    .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .padding(.top, 8).opacity(0.5)
+                    .buttonStyle(.plain)
+                    .disabled(creatingExam)
+                    .padding(.top, 8)
                 }
                 .frame(maxWidth: 440)
                 .frame(maxWidth: .infinity)
@@ -644,19 +784,70 @@ struct QuizBuilderView: View {
             }
         }
     }
+
+    /// createExam() — POST /admin/modules { level_number, title, lesson_content,
+    /// evaluation_kind: "exit_exam" }, then re-resolve so the editor mounts.
+    private func createExam() async {
+        guard let n = selNo else { return }
+        await MainActor.run { creatingExam = true; loadError = nil }
+        do {
+            _ = try await APIClient.shared.post(
+                "/admin/modules",
+                body: CreateExamModuleBody(
+                    levelNumber: n,
+                    title: "Level \(n) — Final Assessment",
+                    lessonContent: "Level exit exam.",
+                    evaluationKind: "exit_exam"
+                ),
+                as: WriteAck.self
+            )
+            await MainActor.run { creatingExam = false }
+            await resolveExam(n)
+        } catch {
+            await MainActor.run {
+                loadError = (error as? APIError)?.errorDescription ?? "Could not create the level exam."
+                creatingExam = false
+            }
+        }
+    }
+
+    /// Reflect saved exam settings on the level row (setLevels parity) so
+    /// re-selecting the level shows the persisted pass mark / flags.
+    private func applySavedSettings(_ levelNo: Int, _ s: ExamSettings) {
+        guard let i = levels.firstIndex(where: { $0.levelNumber == levelNo }) else { return }
+        levels[i].requiredExamPassMark = String(s.passMark)
+        levels[i].examShuffle = s.shuffleQuestions
+        levels[i].examShowAnswers = s.showAnswersAfterSubmit
+        levels[i].examShowScore = s.showScoreAfterSubmit
+    }
 }
 
 // MARK: - Module quiz editor (ModuleQuizBuilder parity)
 
 private struct ModuleQuizEditor: View {
     let moduleId: String
+    let levelNo: Int
     let accent: Color
-    let settings: ExamSettings
+    let initialSettings: ExamSettings
+    let onSavedSettings: (ExamSettings) -> Void
 
     @State private var questions: [VModelQuestion] = []
+    @State private var settings: ExamSettings
+    @State private var deleted: [String] = []      // questionIds removed this session
     @State private var expanded: String?
     @State private var loading = true
+    @State private var saving = false
+    @State private var notice: String?
     @State private var error: String?
+
+    init(moduleId: String, levelNo: Int, accent: Color, initialSettings: ExamSettings, onSavedSettings: @escaping (ExamSettings) -> Void) {
+        self.moduleId = moduleId
+        self.levelNo = levelNo
+        self.accent = accent
+        self.initialSettings = initialSettings
+        self.onSavedSettings = onSavedSettings
+        _settings = State(initialValue: initialSettings)
+    }
 
     private var active: [VModelQuestion] { questions.filter { $0.active } }
     private var totalPoints: Int { active.reduce(0) { $0 + $1.points } }
@@ -669,6 +860,7 @@ private struct ModuleQuizEditor: View {
                     .frame(maxWidth: .infinity).padding(40)
             } else {
                 VStack(spacing: 16) {
+                    if let notice { Banner(tone: .ok, text: notice) }
                     if let error { Banner(tone: .err, text: error) }
                     summaryCard
                     ViewThatFits(in: .horizontal) {
@@ -727,33 +919,52 @@ private struct ModuleQuizEditor: View {
 
     private var questionsColumn: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Add toolbar — Add question + Save (display-only; mutations out of scope).
+            // Add toolbar — Add question (+type menu) + Save.
             HStack {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus").font(.system(size: 12, weight: .bold))
-                    Text("Add question").font(.inter(13, .semibold))
-                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+                Menu {
+                    ForEach(QType.all, id: \.self) { t in
+                        Button { add(t) } label: {
+                            Label("\(t.label) — \(t.hint)", systemImage: t.icon)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus").font(.system(size: 12, weight: .bold))
+                        Text("Add question").font(.inter(13, .semibold))
+                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14).frame(height: 36)
+                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 14).frame(height: 36)
-                .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .opacity(0.5)
                 Spacer()
-                HStack(spacing: 6) {
-                    Image(systemName: "square.and.arrow.down").font(.system(size: 12, weight: .bold))
-                    Text("Save").font(.inter(13, .bold))
+                Button { Task { await save() } } label: {
+                    HStack(spacing: 6) {
+                        if saving {
+                            ProgressView().controlSize(.small).tint(.white)
+                        } else {
+                            Image(systemName: "square.and.arrow.down").font(.system(size: 12, weight: .bold))
+                        }
+                        Text(saving ? "Saving…" : "Save").font(.inter(13, .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16).frame(height: 36)
+                    .background(accent).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .opacity(saving ? 0.6 : 1)
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16).frame(height: 36)
-                .background(accent).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .opacity(0.5)
+                .buttonStyle(.plain)
+                .disabled(saving)
             }
 
-            ForEach(Array(questions.enumerated()), id: \.element.id) { idx, q in
+            ForEach($questions) { $q in
+                let idx = questions.firstIndex(where: { $0.key == q.key }) ?? 0
                 QuestionCard(
-                    q: q, index: idx, total: questions.count, accent: accent,
-                    expanded: expanded == q.id,
-                    onToggle: { expanded = (expanded == q.id) ? nil : q.id }
+                    q: $q, index: idx, total: questions.count, accent: accent,
+                    expanded: expanded == q.key,
+                    onToggle: { expanded = (expanded == q.key) ? nil : q.key },
+                    onRemove: { remove(q) },
+                    onDuplicate: { duplicate(q.key) },
+                    onMove: { dir in move(q.key, dir) }
                 )
             }
 
@@ -791,8 +1002,13 @@ private struct ModuleQuizEditor: View {
                         Spacer()
                         Text("\(passingPoints) of \(totalPoints) pts").font(.inter(11)).foregroundStyle(Nuru.ink600)
                     }
-                    Slider(value: .constant(Double(settings.passMark)), in: 0...100, step: 5).tint(Nuru.gold)
-                        .disabled(true)
+                    Slider(
+                        value: Binding(
+                            get: { Double(settings.passMark) },
+                            set: { settings.passMark = Int($0) }
+                        ),
+                        in: 0...100, step: 5
+                    ).tint(Nuru.gold)
                     HStack {
                         Text("0%"); Spacer(); Text("Pass mark"); Spacer(); Text("100%")
                     }.font(.inter(10.5)).foregroundStyle(Nuru.ink600)
@@ -802,17 +1018,28 @@ private struct ModuleQuizEditor: View {
                 VStack(alignment: .leading, spacing: 6) {
                     fieldLabel("Time limit")
                     HStack(spacing: 8) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "clock").font(.system(size: 12))
-                            Text(settings.timeLimitMinutes != nil ? "On" : "Off").font(.inter(12, .semibold))
+                        Button {
+                            settings.timeLimitMinutes = settings.timeLimitMinutes == nil ? 15 : nil
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "clock").font(.system(size: 12))
+                                Text(settings.timeLimitMinutes != nil ? "On" : "Off").font(.inter(12, .semibold))
+                            }
+                            .foregroundStyle(settings.timeLimitMinutes != nil ? .white : Nuru.ink600)
+                            .padding(.horizontal, 10).frame(height: 34)
+                            .background(settings.timeLimitMinutes != nil ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.background))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                         }
-                        .foregroundStyle(settings.timeLimitMinutes != nil ? .white : Nuru.ink600)
-                        .padding(.horizontal, 10).frame(height: 34)
-                        .background(settings.timeLimitMinutes != nil ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.background))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
-                        if let m = settings.timeLimitMinutes {
-                            Text("\(m)").font(.inter(13)).foregroundStyle(Nuru.foreground)
+                        .buttonStyle(.plain)
+                        if settings.timeLimitMinutes != nil {
+                            TextField("15", value: Binding(
+                                get: { settings.timeLimitMinutes ?? 15 },
+                                set: { settings.timeLimitMinutes = max(1, min(120, $0)) }
+                            ), format: .number)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.center)
+                                .font(.inter(13)).foregroundStyle(Nuru.foreground)
                                 .frame(width: 64, height: 34)
                                 .background(Nuru.background)
                                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -826,44 +1053,81 @@ private struct ModuleQuizEditor: View {
 
                 // toggles
                 VStack(spacing: 8) {
-                    switchRow("shuffle", "Shuffle questions", settings.shuffleQuestions)
-                    switchRow("eye", "Show answers after submit", settings.showAnswersAfterSubmit)
-                    switchRow("chart.bar", "Show score after submit", settings.showScoreAfterSubmit)
+                    switchRow("shuffle", "Shuffle questions", $settings.shuffleQuestions)
+                    switchRow("eye", "Show answers after submit", $settings.showAnswersAfterSubmit)
+                    switchRow("chart.bar", "Show score after submit", $settings.showScoreAfterSubmit)
                 }
             }
         }
     }
 
-    private func switchRow(_ icon: String, _ label: String, _ on: Bool) -> some View {
-        HStack {
-            HStack(spacing: 8) {
-                Image(systemName: icon).font(.system(size: 12)).foregroundStyle(on ? Nuru.gold : Nuru.ink600)
-                Text(label).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.foreground)
+    private func switchRow(_ icon: String, _ label: String, _ on: Binding<Bool>) -> some View {
+        Button { on.wrappedValue.toggle() } label: {
+            HStack {
+                HStack(spacing: 8) {
+                    Image(systemName: icon).font(.system(size: 12)).foregroundStyle(on.wrappedValue ? Nuru.gold : Nuru.ink600)
+                    Text(label).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.foreground)
+                }
+                Spacer()
+                ZStack(alignment: on.wrappedValue ? .trailing : .leading) {
+                    Capsule().fill(on.wrappedValue ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Color(hex: 0xD1D5DB)))
+                        .frame(width: 32, height: 18)
+                    Circle().fill(.white).frame(width: 14, height: 14).padding(2)
+                }
+                .frame(width: 32, height: 18)
             }
-            Spacer()
-            ZStack(alignment: on ? .trailing : .leading) {
-                Capsule().fill(on ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Color(hex: 0xD1D5DB)))
-                    .frame(width: 32, height: 18)
-                Circle().fill(.white).frame(width: 14, height: 14).padding(2)
-            }
-            .frame(width: 32, height: 18)
+            .padding(.horizontal, 12).frame(height: 42)
+            .background(Nuru.background)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
         }
-        .padding(.horizontal, 12).frame(height: 42)
-        .background(Nuru.background)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Mutations (local; persisted on Save — ModuleQuizBuilder parity)
+
+    private func add(_ type: QType) {
+        let q = VModelQuestion.blank(type)
+        questions.append(q)
+        expanded = q.key
+    }
+    private func duplicate(_ key: String) {
+        guard let idx = questions.firstIndex(where: { $0.key == key }) else { return }
+        var copy = questions[idx]
+        copy = VModelQuestion(
+            key: "local-\(UUID().uuidString)",
+            questionId: nil,
+            type: copy.type,
+            text: copy.text.isEmpty ? "" : "\(copy.text) (copy)",
+            options: copy.options.map { QOption(id: newOptId(), text: $0.text, isCorrect: $0.isCorrect) },
+            points: copy.points, required: copy.required, explanation: copy.explanation,
+            active: copy.active, minVal: copy.minVal, maxVal: copy.maxVal,
+            minLabel: copy.minLabel, maxLabel: copy.maxLabel
+        )
+        questions.insert(copy, at: idx + 1)
+    }
+    private func move(_ key: String, _ dir: Int) {
+        guard let idx = questions.firstIndex(where: { $0.key == key }) else { return }
+        let swap = idx + dir
+        guard swap >= 0, swap < questions.count else { return }
+        questions.swapAt(idx, swap)
+    }
+    private func remove(_ q: VModelQuestion) {
+        if let qid = q.questionId { deleted.append(qid) }
+        questions.removeAll { $0.key == q.key }
+        if expanded == q.key { expanded = nil }
     }
 
     // MARK: Data
 
     private func load() async {
-        await MainActor.run { loading = true; error = nil; expanded = nil }
+        await MainActor.run { loading = true; error = nil; notice = nil; deleted = []; expanded = nil }
         do {
             let list = try await APIClient.shared.get("/admin/modules/\(moduleId)/questions", as: QBQuestionList.self)
             let mapped = list.data.map(VModelQuestion.from)
             await MainActor.run {
                 questions = mapped
-                expanded = mapped.first?.id
+                expanded = mapped.first?.key
                 loading = false
             }
         } catch {
@@ -873,17 +1137,81 @@ private struct ModuleQuizEditor: View {
             }
         }
     }
+
+    /// save() — ModuleQuizBuilder.save parity:
+    ///   1. PUT /admin/levels/{n}/exam (settings + active count)
+    ///   2. DELETE /admin/questions/{qid} for each removed row
+    ///   3. POST /admin/modules/{id}/questions { questions:[…] } for new rows
+    ///   4. PUT /admin/questions/{qid} for each edited row
+    ///   then reload, and surface a skipped-count notice.
+    private func save() async {
+        await MainActor.run { saving = true; error = nil; notice = nil }
+        let snapshotSettings = settings
+        let activeCount = active.count
+        let valid = questions.filter { $0.isValid }
+        let fresh = valid.filter { $0.questionId == nil }
+        let edits = valid.filter { $0.questionId != nil }
+        let toDelete = deleted
+        let skipped = questions.count - valid.count
+        do {
+            // 1. settings → updateExam
+            _ = try await APIClient.shared.put(
+                "/admin/levels/\(levelNo)/exam",
+                body: UpdateExamBody(
+                    requiredExamPassMark: snapshotSettings.passMark,
+                    examQuestionCount: activeCount,
+                    examShuffle: snapshotSettings.shuffleQuestions,
+                    examShowAnswers: snapshotSettings.showAnswersAfterSubmit,
+                    examShowScore: snapshotSettings.showScoreAfterSubmit
+                ),
+                as: WriteAck.self
+            )
+            // 2. deletions
+            for qid in toDelete {
+                _ = try await APIClient.shared.delete("/admin/questions/\(qid)", as: WriteAck.self)
+            }
+            // 3. new rows (bulk)
+            if !fresh.isEmpty {
+                _ = try await APIClient.shared.post(
+                    "/admin/modules/\(moduleId)/questions",
+                    body: AddQuestionsBody(questions: fresh.map { $0.toPayload() }),
+                    as: WriteAck.self
+                )
+            }
+            // 4. edits
+            for q in edits {
+                guard let qid = q.questionId else { continue }
+                _ = try await APIClient.shared.put("/admin/questions/\(qid)", body: q.toPayload(), as: WriteAck.self)
+            }
+            await MainActor.run { onSavedSettings(snapshotSettings) }
+            await load()
+            await MainActor.run {
+                notice = skipped > 0
+                    ? "Saved. \(skipped) question(s) still need a valid answer and were skipped."
+                    : "Saved."
+                saving = false
+            }
+        } catch {
+            await MainActor.run {
+                self.error = (error as? APIError)?.errorDescription ?? "Save failed."
+                saving = false
+            }
+        }
+    }
 }
 
 // MARK: - Question card (QCard parity)
 
 private struct QuestionCard: View {
-    let q: VModelQuestion
+    @Binding var q: VModelQuestion
     let index: Int
     let total: Int
     let accent: Color
     let expanded: Bool
     let onToggle: () -> Void
+    let onRemove: () -> Void
+    let onDuplicate: () -> Void
+    let onMove: (Int) -> Void
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -939,22 +1267,32 @@ private struct QuestionCard: View {
         .buttonStyle(.plain)
     }
 
-    // expanded editor (read-only render of the same controls)
+    // expanded editor (fully editable controls)
     private var expandedBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 Text("\(index + 1).").font(.fraunces(18, .medium)).foregroundStyle(Nuru.ink600)
                     .frame(minWidth: 26, alignment: .leading).padding(.top, 6)
-                Text(q.text.isEmpty ? "Question text" : q.text)
-                    .font(.inter(15, .medium)).foregroundStyle(q.text.isEmpty ? Nuru.ink400 : Nuru.navy)
+                TextField("Question text", text: $q.text, axis: .vertical)
+                    .lineLimit(2...4)
+                    .font(.inter(15, .medium)).foregroundStyle(Nuru.navy)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                Text(q.type.label).font(.inter(12.5)).foregroundStyle(Nuru.foreground)
+                Menu {
+                    ForEach(QType.all, id: \.self) { t in
+                        Button(t.label) { setType(t) }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(q.type.label).font(.inter(12.5)).foregroundStyle(Nuru.foreground)
+                        Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(Nuru.ink600)
+                    }
                     .padding(.horizontal, 12).frame(height: 38)
                     .background(Nuru.background)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                }
             }
             .padding(.bottom, 14)
 
@@ -966,32 +1304,40 @@ private struct QuestionCard: View {
             }
 
             // explanation
-            if !q.explanation.isEmpty {
-                Text(q.explanation).font(.inter(12.5)).foregroundStyle(Nuru.ink600)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 38).padding(.top, 16)
-                    .overlay(Rectangle().fill(Nuru.border).frame(height: 1).padding(.leading, 38), alignment: .bottom)
-            }
+            TextField("Explanation (shown after submit)", text: $q.explanation, axis: .vertical)
+                .lineLimit(1...3)
+                .font(.inter(12.5)).foregroundStyle(Nuru.ink600)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 38).padding(.top, 16)
+                .overlay(Rectangle().fill(Nuru.border).frame(height: 1).padding(.leading, 38), alignment: .bottom)
 
             // footer controls
             HStack {
                 HStack(spacing: 14) {
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles").font(.system(size: 11)).foregroundStyle(Nuru.gold)
+                        Stepper(value: $q.points, in: 1...100) {
+                            Text("\(q.points)").font(.inter(13, .semibold)).foregroundStyle(Nuru.foreground)
+                        }
+                        .labelsHidden()
                         Text("\(q.points)").font(.inter(13, .semibold)).foregroundStyle(Nuru.foreground)
                         Text("pts").font(.inter(11.5)).foregroundStyle(Nuru.ink600)
                     }
-                    Text("Required").font(.inter(12, .semibold))
-                        .foregroundStyle(q.required ? Nuru.navy : Nuru.ink600)
-                    Text(q.active ? "Active" : "Draft").font(.inter(12, .semibold))
-                        .foregroundStyle(q.active ? Nuru.navy : Nuru.ink600)
+                    Button { q.required.toggle() } label: {
+                        Text("Required").font(.inter(12, .semibold))
+                            .foregroundStyle(q.required ? Nuru.navy : Nuru.ink600)
+                    }.buttonStyle(.plain)
+                    Button { q.active.toggle() } label: {
+                        Text(q.active ? "Active" : "Draft").font(.inter(12, .semibold))
+                            .foregroundStyle(q.active ? Nuru.navy : Nuru.ink600)
+                    }.buttonStyle(.plain)
                 }
                 Spacer()
                 HStack(spacing: 4) {
-                    iconBtn("chevron.up", disabled: index == 0)
-                    iconBtn("chevron.down", disabled: index == total - 1)
-                    iconBtn("doc.on.doc")
-                    iconBtn("trash", tone: Color(hex: 0xDC2626))
+                    iconBtn("chevron.up", disabled: index == 0) { onMove(-1) }
+                    iconBtn("chevron.down", disabled: index == total - 1) { onMove(1) }
+                    iconBtn("doc.on.doc") { onDuplicate() }
+                    iconBtn("trash", tone: Color(hex: 0xDC2626)) { onRemove() }
                     Button("Close", action: onToggle).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink600)
                 }
             }
@@ -1001,28 +1347,64 @@ private struct QuestionCard: View {
         .padding(.init(top: 18, leading: 24, bottom: 18, trailing: 20))
     }
 
+    // setType(type) parity — switch type, seeding options for choice types.
+    private func setType(_ type: QType) {
+        q.type = type
+        if type.isChoice {
+            if q.options.isEmpty {
+                q.options = [
+                    QOption(id: newOptId(), text: "Option 1", isCorrect: type != .checkbox),
+                    QOption(id: newOptId(), text: "Option 2", isCorrect: false),
+                ]
+            }
+        } else {
+            q.options = []
+        }
+    }
+    // toggleCorrect(id) parity — radio (single) vs checkbox (multi).
+    private func toggleCorrect(_ id: String) {
+        q.options = q.options.map { o in
+            if q.type.isMulti {
+                return o.id == id ? QOption(id: o.id, text: o.text, isCorrect: !o.isCorrect) : o
+            } else {
+                return QOption(id: o.id, text: o.text, isCorrect: o.id == id)
+            }
+        }
+    }
+
     private var choiceBody: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(q.options) { opt in
+            ForEach($q.options) { $opt in
                 HStack(spacing: 12) {
-                    ZStack {
-                        if opt.isCorrect {
-                            (q.type.isMulti ? MarkerShape(RoundedRectangle(cornerRadius: 4)) : MarkerShape(Circle()))
-                                .fill(Color(hex: 0x16A34A))
-                            Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
-                        } else {
-                            (q.type.isMulti ? MarkerShape(RoundedRectangle(cornerRadius: 4)) : MarkerShape(Circle()))
-                                .stroke(Color(hex: 0xC9CFD6), lineWidth: 2)
-                        }
-                    }.frame(width: 20, height: 20)
-                    Text(opt.text.isEmpty ? "Option text" : opt.text)
-                        .font(.inter(13.5)).foregroundStyle(opt.text.isEmpty ? Nuru.ink400 : Nuru.foreground)
+                    Button { toggleCorrect(opt.id) } label: {
+                        ZStack {
+                            if opt.isCorrect {
+                                (q.type.isMulti ? MarkerShape(RoundedRectangle(cornerRadius: 4)) : MarkerShape(Circle()))
+                                    .fill(Color(hex: 0x16A34A))
+                                Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                            } else {
+                                (q.type.isMulti ? MarkerShape(RoundedRectangle(cornerRadius: 4)) : MarkerShape(Circle()))
+                                    .stroke(Color(hex: 0xC9CFD6), lineWidth: 2)
+                            }
+                        }.frame(width: 20, height: 20)
+                    }.buttonStyle(.plain)
+                    TextField("Option text", text: $opt.text)
+                        .font(.inter(13.5)).foregroundStyle(Nuru.foreground)
                     Spacer(minLength: 0)
+                    if q.options.count > 1 {
+                        Button { q.options.removeAll { $0.id == opt.id } } label: {
+                            Image(systemName: "trash").font(.system(size: 12)).foregroundStyle(Nuru.ink600)
+                        }.buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, 8).padding(.vertical, 6)
             }
-            Text("Add option").font(.inter(13)).foregroundStyle(Nuru.ink600)
-                .padding(.leading, 32).padding(.vertical, 4)
+            Button {
+                q.options.append(QOption(id: newOptId(), text: "Option \(q.options.count + 1)", isCorrect: false))
+            } label: {
+                Text("Add option").font(.inter(13)).foregroundStyle(Nuru.ink600)
+                    .padding(.leading, 32).padding(.vertical, 4)
+            }.buttonStyle(.plain)
         }
         .padding(.leading, 38)
     }
@@ -1046,10 +1428,10 @@ private struct QuestionCard: View {
         let steps = valid ? Array(q.minVal...q.maxVal) : []
         return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                scaleField("From", "\(q.minVal)", width: 72)
-                scaleField("To", "\(q.maxVal)", width: 72)
-                scaleField("Low label", q.minLabel.isEmpty ? "e.g. Strongly disagree" : q.minLabel)
-                scaleField("High label", q.maxLabel.isEmpty ? "e.g. Strongly agree" : q.maxLabel)
+                scaleNum("From", value: $q.minVal)
+                scaleNum("To", value: $q.maxVal)
+                scaleText("Low label", value: $q.minLabel, placeholder: "e.g. Strongly disagree")
+                scaleText("High label", value: $q.maxLabel, placeholder: "e.g. Strongly agree")
             }
             if valid {
                 HStack {
@@ -1079,25 +1461,42 @@ private struct QuestionCard: View {
         .padding(.leading, 38)
     }
 
-    private func scaleField(_ label: String, _ value: String, width: CGFloat? = nil) -> some View {
+    private func scaleNum(_ label: String, value: Binding<Int>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             fieldLabel(label)
-            Text(value).font(.inter(13)).foregroundStyle(Nuru.foreground)
-                .frame(width: width, height: 34)
-                .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
-                .padding(.horizontal, width == nil ? 10 : 0)
-                .multilineTextAlignment(width == nil ? .leading : .center)
+            TextField("", value: value, format: .number)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.center)
+                .font(.inter(13)).foregroundStyle(Nuru.foreground)
+                .frame(width: 72, height: 34)
                 .background(Nuru.background)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         }
-        .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
+    }
+    private func scaleText(_ label: String, value: Binding<String>, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            fieldLabel(label)
+            TextField(placeholder, text: value)
+                .font(.inter(13)).foregroundStyle(Nuru.foreground)
+                .frame(height: 34)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .background(Nuru.background)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func iconBtn(_ name: String, disabled: Bool = false, tone: Color = Nuru.navy) -> some View {
-        Image(systemName: name).font(.system(size: 13))
-            .foregroundStyle(tone).frame(width: 28, height: 28)
-            .opacity(disabled ? 0.3 : 1)
+    private func iconBtn(_ name: String, disabled: Bool = false, tone: Color = Nuru.navy, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name).font(.system(size: 13))
+                .foregroundStyle(tone).frame(width: 28, height: 28)
+                .opacity(disabled ? 0.3 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
     }
 }
 

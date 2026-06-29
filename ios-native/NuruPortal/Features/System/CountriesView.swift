@@ -4,22 +4,91 @@
 // region filter chip + the table the web shows (Country [flag · name · code] ·
 // Region · Currency · Dial code · Status), laid out for iPad.
 //
-// The web page also does create/edit and enable/disable (SystemApi.createCountry /
-// updateCountry — POST/PUT). The shared APIClient exposes only get/post, so the
-// row Edit + Enable/Disable affordances are read-only here. The Country model
-// lacks `subregion`, so the region cell shows region only (matching the fields we
-// actually decode). See NEEDS in the porting notes.
+// CRUD now wired (parity with the web): the "Add country" hero chip opens a form
+// sheet (POST /admin/countries), each row carries Edit (PUT /admin/countries/{code}
+// — code is fixed on edit) and an Enable/Disable toggle that PUTs the new status.
+// The Country model lacks `subregion`, so the row shows region only, but the form
+// still sends subregion (defaulting to the region) to match the web body. The list
+// reloads after every write.
 import SwiftUI
 
+private let REGIONS = ["Africa", "Americas", "Asia", "Europe", "Oceania"]
+
+// Conditional JSON body (mirrors the web's plain object literal).
+private enum JSONValue: Encodable {
+    case string(String), int(Int), bool(Bool), null
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let v): try c.encode(v)
+        case .int(let v): try c.encode(v)
+        case .bool(let v): try c.encode(v)
+        case .null: try c.encodeNil()
+        }
+    }
+}
+private struct OkResponse: Decodable {}
+private struct CountryBox: Identifiable { let id: String }
+
+private enum CountriesAPI {
+    static func list() async throws -> [Country] {
+        try await APIClient.shared.get("/admin/countries", as: DataList<Country>.self).data
+    }
+    // SystemApi.createCountry — POST /admin/countries
+    static func create(_ body: [String: JSONValue]) async throws {
+        _ = try await APIClient.shared.post("/admin/countries", body: body, as: OkResponse.self)
+    }
+    // SystemApi.updateCountry — PUT /admin/countries/{code}
+    static func update(_ code: String, _ body: [String: JSONValue]) async throws {
+        _ = try await APIClient.shared.put("/admin/countries/\(code)", body: body, as: OkResponse.self)
+    }
+}
+
+@MainActor
+private final class CountriesVM: ObservableObject {
+    @Published var list: [Country] = []
+    @Published var error: String?
+    @Published var loading = true
+
+    func load() async {
+        do { list = try await CountriesAPI.list(); error = nil }
+        catch { self.error = (error as? APIError)?.errorDescription ?? "Could not load countries." }
+        loading = false
+    }
+    // Enable/disable via the update body's status (mirrors web `toggle`).
+    func toggle(_ c: Country) async {
+        do {
+            try await CountriesAPI.update(c.code, ["status": .string(c.status == "active" ? "inactive" : "active")])
+            await load()
+        } catch { self.error = (error as? APIError)?.errorDescription ?? "Update failed." }
+    }
+}
+
 struct CountriesView: View {
+    @StateObject private var vm = CountriesVM()
     @State private var query = ""
     @State private var region = "All regions"
+    @State private var creating = false
+    @State private var editing: CountryBox?
 
     var body: some View {
-        AsyncView(PortalAPI.countries) { list in
-            content(list)
+        Group {
+            if vm.loading && vm.list.isEmpty {
+                ScrollView { SkeletonList(rows: 6).padding(Nuru.S.screen) }
+            } else {
+                content(vm.list)
+            }
         }
+        .background(Nuru.paper)
         .portalPage("Countries")
+        .task { if vm.list.isEmpty { await vm.load() } }
+        .refreshable { await vm.load() }
+        .sheet(isPresented: $creating) {
+            CountryFormSheet(initial: nil) { Task { await vm.load() } }
+        }
+        .sheet(item: $editing) { box in
+            CountryFormSheet(initial: vm.list.first { $0.code == box.id }) { Task { await vm.load() } }
+        }
     }
 
     @ViewBuilder
@@ -45,10 +114,11 @@ struct CountriesView: View {
                         HeroStat(label: "Active", value: "\(activeCount)", hint: "enabled"),
                     ]
                 ) {
-                    HeroChip(label: "Add country", icon: "plus", style: .gold)
+                    HeroChip(label: "Add country", icon: "plus", style: .gold) { creating = true }
                 }
 
                 VStack(spacing: Nuru.S.base) {
+                    if let e = vm.error { ErrorBanner(message: e) { Task { await vm.load() } } }
                     HStack(spacing: 12) {
                         CountrySearchField(text: $query, placeholder: "Search country…")
                         Button {
@@ -75,7 +145,8 @@ struct CountriesView: View {
                                 CountryHeaderRow()
                                 ForEach(Array(filtered.enumerated()), id: \.element.id) { i, c in
                                     if i > 0 { Divider().background(Nuru.border) }
-                                    CountryRow(c)
+                                    CountryRow(c, onEdit: { editing = CountryBox(id: c.code) },
+                                               onToggle: { Task { await vm.toggle(c) } })
                                 }
                             }
                         }
@@ -87,6 +158,108 @@ struct CountriesView: View {
     }
 }
 
+// MARK: - Form sheet (NEW country / EDIT country)
+
+private struct CountryFormSheet: View {
+    let initial: Country?
+    let onDone: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var flag: String
+    @State private var name: String
+    @State private var code: String
+    @State private var region: String
+    @State private var subregion: String
+    @State private var dialCode: String
+    @State private var currency: String
+    @State private var status: String
+    @State private var saving = false
+    @State private var error: String?
+
+    init(initial: Country?, onDone: @escaping () -> Void) {
+        self.initial = initial
+        self.onDone = onDone
+        _flag = State(initialValue: initial?.flag ?? "")
+        _name = State(initialValue: initial?.name ?? "")
+        _code = State(initialValue: initial?.code ?? "")
+        _region = State(initialValue: initial?.region ?? "Africa")
+        _subregion = State(initialValue: "")
+        _dialCode = State(initialValue: initial?.dialCode ?? "+")
+        _currency = State(initialValue: initial?.currency ?? "")
+        _status = State(initialValue: initial?.status ?? "active")
+    }
+    private var isEdit: Bool { initial != nil }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
+                SwiftUI.Section("Country") {
+                    field("Flag") { TextField("🇰🇪", text: $flag) }
+                    field("Name *") { TextField("e.g. Kenya", text: $name) }
+                    field("Code *") {
+                        TextField("KE", text: $code).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                            .disabled(isEdit)
+                            .onChange(of: code) { _, v in code = String(v.uppercased().prefix(2)) }
+                    }
+                }
+                SwiftUI.Section("Region") {
+                    Picker("Region", selection: $region) { ForEach(REGIONS, id: \.self) { Text($0).tag($0) } }
+                    field("Sub-region") { TextField("Eastern Africa", text: $subregion) }
+                }
+                SwiftUI.Section("Detail") {
+                    field("Dial code") { TextField("+254", text: $dialCode).keyboardType(.phonePad) }
+                    field("Currency") {
+                        TextField("KES", text: $currency).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                            .onChange(of: currency) { _, v in currency = String(v.uppercased().prefix(3)) }
+                    }
+                    Picker("Status", selection: $status) { Text("Active").tag("active"); Text("Inactive").tag("inactive") }
+                }
+            }
+            .navigationTitle(isEdit ? "Edit \(initial!.name)" : "Add a country")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isEdit ? "Save" : "Add") { Task { await submit() } }.disabled(saving)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+        HStack { Text(label).foregroundStyle(Nuru.ink600).frame(width: 90, alignment: .leading); content() }
+    }
+
+    private func submit() async {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        let cc = code.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty, cc.count == 2 else { error = "Name and a 2-letter code are required."; return }
+        saving = true; error = nil
+        let f = flag.trimmingCharacters(in: .whitespaces)
+        let sub = subregion.trimmingCharacters(in: .whitespaces)
+        let dial = dialCode.trimmingCharacters(in: .whitespaces)
+        let cur = currency.trimmingCharacters(in: .whitespaces).uppercased()
+        var body: [String: JSONValue] = [
+            "name": .string(n),
+            "flag": f.isEmpty ? .null : .string(f),
+            "region": .string(region),
+            "subregion": .string(sub.isEmpty ? region : sub),
+            "dial_code": dial.isEmpty ? .null : .string(dial),
+            "currency": cur.isEmpty ? .null : .string(cur),
+            "status": .string(status),
+        ]
+        do {
+            if isEdit { try await CountriesAPI.update(initial!.code, body) }
+            else { body["code"] = .string(cc.uppercased()); try await CountriesAPI.create(body) }
+            onDone(); dismiss()
+        } catch {
+            self.error = (error as? APIError)?.errorDescription ?? "Save failed."
+        }
+        saving = false
+    }
+}
+
 private struct CountryHeaderRow: View {
     var body: some View {
         HStack(spacing: 12) {
@@ -95,6 +268,7 @@ private struct CountryHeaderRow: View {
             cell("Currency", flex: 1)
             cell("Dial code", flex: 1)
             cell("Status", flex: 1, align: .trailing)
+            cell("", flex: 1, align: .trailing)
         }
         .padding(.horizontal, 18).padding(.vertical, 13)
         .background(Nuru.surface)
@@ -108,7 +282,11 @@ private struct CountryHeaderRow: View {
 
 private struct CountryRow: View {
     let c: Country
-    init(_ c: Country) { self.c = c }
+    let onEdit: () -> Void
+    let onToggle: () -> Void
+    init(_ c: Country, onEdit: @escaping () -> Void, onToggle: @escaping () -> Void) {
+        self.c = c; self.onEdit = onEdit; self.onToggle = onToggle
+    }
     var body: some View {
         let active = c.status == "active"
         HStack(spacing: 12) {
@@ -130,6 +308,17 @@ private struct CountryRow: View {
             HStack {
                 Spacer(minLength: 0)
                 Pill(text: c.status.capitalized, color: active ? Nuru.success : Nuru.muted)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing).layoutPriority(1)
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button(action: onEdit) { Image(systemName: "pencil").font(.system(size: 14)).foregroundStyle(Nuru.muted) }
+                    .buttonStyle(.plain)
+                Button(action: onToggle) {
+                    Text(active ? "Disable" : "Enable").font(.inter(12, .bold))
+                        .foregroundStyle(active ? Color(hex: 0xDC2626) : Color(hex: 0x16A34A))
+                }
+                .buttonStyle(.plain)
             }
             .frame(maxWidth: .infinity, alignment: .trailing).layoutPriority(1)
         }

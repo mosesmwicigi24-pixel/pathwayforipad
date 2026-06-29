@@ -78,6 +78,19 @@ private final class ProfileStore: ObservableObject {
         _ = try await api.post("/me/password", body: Body(currentPassword: current, newPassword: next), as: PwResult.self)
     }
 
+    // PATCH /me { full_name, phone_number, row_version } — mirrors web MeApi.updateMe,
+    // then re-reads /me so the panel and header refresh with the new row_version.
+    struct UpdateResult: Codable { let userId: String?; let rowVersion: Int? }
+    func updateProfile(fullName: String, phoneNumber: String) async throws {
+        struct Body: Encodable { let fullName: String; let phoneNumber: String; let rowVersion: Int }
+        _ = try await api.patch(
+            "/me",
+            body: Body(fullName: fullName, phoneNumber: phoneNumber, rowVersion: profile?.rowVersion ?? 0),
+            as: UpdateResult.self
+        )
+        profile = try await api.get("/me", as: MeFullResponse.self).profile
+    }
+
     func activity() async throws -> [ActivityRow] {
         try await api.get("/me/activity", as: ActivityResponse.self).data
     }
@@ -333,6 +346,30 @@ private struct ProfilePanel: View {
     @State private var last = ""
     @State private var phone = ""
     @State private var primed = false
+    @State private var busy = false
+    @State private var nameError: String?
+
+    private var dirty: Bool {
+        guard let p = store.profile else { return false }
+        let composed = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
+        return composed != p.fullName || phone != p.phoneNumber
+    }
+
+    private func save() async {
+        let f = first.trimmingCharacters(in: .whitespaces)
+        let l = last.trimmingCharacters(in: .whitespaces)
+        if f.isEmpty || l.isEmpty { nameError = "First and last name are required."; store.error = "First and last name are required."; return }
+        nameError = nil
+        busy = true
+        do {
+            try await store.updateProfile(fullName: "\(f) \(l)", phoneNumber: phone.trimmingCharacters(in: .whitespaces))
+            store.error = nil
+            store.showFlash("Profile saved.")
+        } catch {
+            store.error = (error as? APIError)?.errorDescription ?? error.localizedDescription
+        }
+        busy = false
+    }
 
     var body: some View {
         let p = store.profile
@@ -340,8 +377,8 @@ private struct ProfilePanel: View {
             VStack(alignment: .leading, spacing: 16) {
                 PSectionTitle(text: "Personal Information")
                 HStack(spacing: 20) {
-                    PField(label: "First Name", required: true, value: $first)
-                    PField(label: "Last Name", required: true, value: $last)
+                    PField(label: "First Name", required: true, value: $first, error: nameError)
+                    PField(label: "Last Name", required: true, value: $last, error: nameError)
                 }
                 PField(label: "Email Address", value: .constant(p?.email ?? ""), disabled: true,
                        helper: "Contact an administrator to change your email address.")
@@ -358,10 +395,8 @@ private struct ProfilePanel: View {
                 }
             }
             HStack {
-                Text("Editing your name and phone is available in the web portal.")
-                    .font(.inter(11)).foregroundStyle(Nuru.muted)
                 Spacer()
-                PPrimaryButton(title: "Save Profile", disabled: true) {}
+                PPrimaryButton(title: "Save Profile", disabled: !dirty || busy) { Task { await save() } }
             }
         }
         .onAppear {

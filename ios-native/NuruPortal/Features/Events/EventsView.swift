@@ -12,11 +12,12 @@
 //   - "Today's Ministry Flow" timeline panel.
 //   - "Upcoming events" list (date chip + time + location + type) and
 //     "Active event series" list (grouped by title; count + next date; Active pill).
-//     Series pause/resume is server-authoritative on the web — here it is a styled
-//     read view (NEEDS: pause/resume + per-occurrence reschedule/cancel writes).
+//     Series pause/resume is wired (POST /admin/events/series/{id}/pause|resume) and
+//     refetches afterward. (NEEDS: per-occurrence reschedule/cancel — exceptions API.)
 //   - "Announcements" grid (status pill, channels, audience, when, delivered/opened)
 //     and a "Live QR" panel (procedural QR placeholder + rotating secret).
-//   - "Moments" curated gallery (read; NEEDS: post/delete).
+//   - "Moments" curated gallery — post (POST /admin/moments) + delete
+//     (DELETE /admin/moments/{id}) wired. (NEEDS: Cloudinary image picker; URL paste for now.)
 //   - "Event insights" + "Follow-up queue" (display-only on the web too).
 //   - "Recent attendance" table (real, last 8 weeks) + a Charts bar of recent
 //     check-ins.
@@ -24,8 +25,10 @@
 // Tapping a calendar/list/upcoming/today/series row opens an event detail sheet
 // (date chip, time, location, visibility, roster counts, QR, and read-only action
 // rows). Separate sheets browse the RSVP roster, the attendance roster, the QR
-// screen, and an announcement detail. Create/edit event + announcement forms are
-// represented as styled read sheets (NEEDS) — wiring is noted inline.
+// screen, and an announcement detail (with Send now / Cancel / Delete). Create
+// event + create announcement + manual check-in + post moment are working form
+// sheets wired to their POST endpoints. Image upload (Cloudinary) is the one
+// affordance left as a URL-paste field — noted inline.
 //
 // DATA: reuses PortalAPI.calendar(from:to:) → [CalendarOccurrence]; everything
 // else (rosters, RSVPs, recent attendance, announcements, moments) is decoded by
@@ -181,6 +184,108 @@ private struct RsvpRosterData: Codable {
     @DefaultEmpty var noResponseScope: String   // "cell" | "none"
 }
 
+// MARK: - Write bodies (conditional JSON, mirroring the web spreads)
+
+private struct OkResponse: Codable {}
+
+private indirect enum JSONValue: Encodable {
+    case string(String), int(Int), bool(Bool), null
+    case array([JSONValue]), object([String: JSONValue])
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .string(let v): var c = encoder.singleValueContainer(); try c.encode(v)
+        case .int(let v):    var c = encoder.singleValueContainer(); try c.encode(v)
+        case .bool(let v):   var c = encoder.singleValueContainer(); try c.encode(v)
+        case .null:          var c = encoder.singleValueContainer(); try c.encodeNil()
+        case .array(let a):  var c = encoder.unkeyedContainer(); for v in a { try c.encode(v) }
+        case .object(let o):
+            var c = encoder.container(keyedBy: DynKey.self)
+            for (k, v) in o { try c.encode(v, forKey: DynKey(k)) }
+        }
+    }
+    private struct DynKey: CodingKey {
+        var stringValue: String; var intValue: Int? { nil }
+        init(_ s: String) { stringValue = s }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+}
+
+/// Series row echoed by createSeries / pause / resume (PR #127). Tolerant.
+private struct SeriesRowResp: Codable {
+    @DefaultEmpty var seriesId: String
+    @DefaultEmpty var title: String
+    @DefaultFalse var isPaused: Bool
+}
+
+/// All Events writes, mirroring web OpsApi / AnnouncementsApi. Note: the shared
+/// APIClient encoder is convertToSnakeCase; the snake_case keys below pass through
+/// unchanged (no camelCase to convert), exactly as MembersView relies on.
+private enum EventsWrites {
+    // POST /admin/events/series  (Create event/series)
+    static func createSeries(_ body: [String: JSONValue]) async throws -> SeriesRowResp {
+        try await APIClient.shared.post("/admin/events/series", body: body, as: SeriesRowResp.self)
+    }
+    static func setSeriesHomepage(_ id: String) async throws {
+        _ = try await APIClient.shared.post("/admin/events/series/\(id)/homepage", body: [String: JSONValue](), as: OkResponse.self)
+    }
+    // POST /admin/events/series/{id}/pause | resume
+    static func pauseSeries(_ id: String) async throws -> SeriesRowResp {
+        try await APIClient.shared.postEmpty("/admin/events/series/\(id)/pause", as: SeriesRowResp.self)
+    }
+    static func resumeSeries(_ id: String) async throws -> SeriesRowResp {
+        try await APIClient.shared.postEmpty("/admin/events/series/\(id)/resume", as: SeriesRowResp.self)
+    }
+    // POST /admin/events/{id}/checkins  (Manual check-in — member)
+    static func manualCheckIn(_ eventId: String, _ body: [String: JSONValue]) async throws {
+        _ = try await APIClient.shared.post("/admin/events/\(eventId)/checkins", body: body, as: OkResponse.self)
+    }
+    // POST /admin/events/{id}/guests  (Manual check-in — guest)
+    static func addGuest(_ eventId: String, _ body: [String: JSONValue]) async throws {
+        _ = try await APIClient.shared.post("/admin/events/\(eventId)/guests", body: body, as: OkResponse.self)
+    }
+    // POST /admin/announcements  (Create announcement)
+    static func createAnnouncement(_ body: [String: JSONValue]) async throws -> AnnouncementItem {
+        try await APIClient.shared.post("/admin/announcements", body: body, as: AnnouncementItem.self)
+    }
+    static func setAnnouncementHomepage(_ id: String) async throws {
+        _ = try await APIClient.shared.post("/admin/announcements/\(id)/homepage", body: [String: JSONValue](), as: OkResponse.self)
+    }
+    // POST /admin/announcements/{id}/send
+    static func sendAnnouncement(_ id: String) async throws {
+        _ = try await APIClient.shared.postEmpty("/admin/announcements/\(id)/send", as: OkResponse.self)
+    }
+    // POST /admin/announcements/{id}/cancel
+    static func cancelAnnouncement(_ id: String) async throws {
+        _ = try await APIClient.shared.postEmpty("/admin/announcements/\(id)/cancel", as: OkResponse.self)
+    }
+    // DELETE /admin/announcements/{id}
+    static func deleteAnnouncement(_ id: String) async throws {
+        _ = try await APIClient.shared.delete("/admin/announcements/\(id)", as: OkResponse.self)
+    }
+    // POST /admin/moments  (Post moment)
+    static func createMoment(_ body: [String: JSONValue]) async throws {
+        _ = try await APIClient.shared.post("/admin/moments", body: body, as: OkResponse.self)
+    }
+    // DELETE /admin/moments/{id}
+    static func deleteMoment(_ id: String) async throws {
+        _ = try await APIClient.shared.delete("/admin/moments/\(id)", as: OkResponse.self)
+    }
+    /// Member search for the manual check-in picker (GET /admin/members?search=).
+    static func searchMembers(_ q: String) async throws -> [MemberLite] {
+        try await APIClient.shared.get("/admin/members", query: ["search": q], as: MembersLitePage.self).data
+    }
+}
+
+private struct MemberLite: Codable, Identifiable {
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var fullName: String
+    let cellName: String?
+    let currentLevel: Int?
+    var id: String { userId }
+}
+private struct MembersLitePage: Codable { let data: [MemberLite] }
+
 // MARK: - UI occurrence (mapped from EventOcc)
 
 private struct UiOcc: Identifiable {
@@ -287,11 +392,19 @@ struct EventsView: View {
     @State private var announcementSheet: AnnouncementItem?
     @State private var showCreateEvent = false
     @State private var showCreateAnnouncement = false
+    @State private var manualCheckinOcc: UiOcc?
+    @State private var showPostMoment = false
+    @State private var deletingMomentId: String?
 
     // Roster caches (lazy)
     @State private var rosters: [String: Roster] = [:]
     @State private var rsvpRosters: [String: RsvpRosterData] = [:]
     @State private var qrTick = 0
+
+    // Series pause/resume + transient banners
+    @State private var pausedSeries: Set<String> = []
+    @State private var seriesBusy: String?
+    @State private var notice: String?
 
     enum CalView: String, CaseIterable { case month = "Month", week = "Week", list = "List" }
 
@@ -330,6 +443,16 @@ struct EventsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 hero
                 if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
+                if let notice {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color(hex: 0x15803D))
+                        Text(notice).font(.nCaption).foregroundStyle(Color(hex: 0x15803D))
+                        Spacer()
+                        Button { self.notice = nil } label: { Image(systemName: "xmark").font(.system(size: 11)).foregroundStyle(Nuru.muted) }.buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(Color(hex: 0xDCF7E4)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                }
                 alertStrip
 
                 // Calendar + Today panel
@@ -386,15 +509,76 @@ struct EventsView: View {
         .sheet(item: $detailOcc) { o in EventDetailSheet(occ: o, roster: rosters[o.id],
             onQr: { detailOcc = nil; qrOcc = o },
             onAttendance: { detailOcc = nil; attendanceOcc = o },
-            onRsvp: { detailOcc = nil; rsvpOcc = o })
+            onRsvp: { detailOcc = nil; rsvpOcc = o },
+            onManualCheckIn: { detailOcc = nil; manualCheckinOcc = o })
             .task { await loadRoster(o.id) } }
         .sheet(item: dayBinding) { day in DaySheet(iso: day.iso, events: byDay[day.iso] ?? []) { o in dayIso = nil; detailOcc = o } }
         .sheet(item: $rsvpOcc) { o in RsvpSheet(occ: o, roster: rsvpRosters[o.id]).task { await loadRsvp(o.id) } }
-        .sheet(item: $attendanceOcc) { o in AttendanceSheet(occ: o, roster: rosters[o.id]).task { await loadRoster(o.id) } }
+        .sheet(item: $attendanceOcc) { o in AttendanceSheet(occ: o, roster: rosters[o.id],
+            onManualCheckIn: { attendanceOcc = nil; manualCheckinOcc = o }).task { await loadRoster(o.id) } }
         .sheet(item: $qrOcc) { o in QrSheet(occ: o, roster: rosters[o.id], tick: $qrTick).task { await loadRoster(o.id) } }
-        .sheet(item: $announcementSheet) { a in AnnouncementSheet(item: a) }
-        .sheet(isPresented: $showCreateEvent) { CreateEventSheet() }
-        .sheet(isPresented: $showCreateAnnouncement) { CreateAnnouncementSheet() }
+        .sheet(item: $announcementSheet) { a in
+            AnnouncementSheet(item: a,
+                onChanged: { msg in announcementSheet = nil; notice = msg; Task { await reload() } },
+                onError: { msg in error = msg })
+        }
+        .sheet(item: $manualCheckinOcc) { o in
+            ManualCheckinSheet(occ: o, onDone: { name in
+                manualCheckinOcc = nil; notice = "\(name) checked in."
+                rosters[o.id] = nil; Task { await loadRoster(o.id) }
+            }, onError: { msg in error = msg })
+        }
+        .sheet(isPresented: $showCreateEvent) {
+            CreateEventSheet(onCreated: { msg in showCreateEvent = false; notice = msg; Task { await reload() } },
+                             onError: { msg in error = msg })
+        }
+        .sheet(isPresented: $showCreateAnnouncement) {
+            CreateAnnouncementSheet(events: events,
+                onCreated: { msg in showCreateAnnouncement = false; notice = msg; Task { await reload() } },
+                onError: { msg in error = msg })
+        }
+        .sheet(isPresented: $showPostMoment) {
+            PostMomentSheet(onPosted: { showPostMoment = false; notice = "Moment posted."; Task { await reloadMoments() } },
+                            onError: { msg in error = msg })
+        }
+    }
+
+    private func reloadMoments() async {
+        if let mom = try? await APIClient.shared.get("/admin/moments", as: MomentsPage.self) { moments = mom.data }
+    }
+
+    private func deleteMoment(_ id: String) async {
+        deletingMomentId = id
+        defer { deletingMomentId = nil }
+        do { try await EventsWrites.deleteMoment(id); await reloadMoments(); notice = "Moment deleted." }
+        catch { self.error = (error as? APIError)?.errorDescription ?? "Could not delete moment." }
+    }
+
+    // Reload everything and drop roster caches (matches web refetch()).
+    private func reload() async {
+        rosters = [:]; rsvpRosters = [:]
+        await load()
+    }
+
+    // Series pause/resume. Paused series stop projecting future occurrences, so we
+    // refetch to drop/restore them (web toggleSeriesPause, PR #127).
+    private func toggleSeriesPause(_ s: SeriesRow) async {
+        guard !s.seriesId.isEmpty else {
+            error = "This series has no server id yet — pause/resume is unavailable."
+            return
+        }
+        seriesBusy = s.seriesId
+        defer { seriesBusy = nil }
+        let currentlyPaused = pausedSeries.contains(s.seriesId)
+        do {
+            let row = currentlyPaused ? try await EventsWrites.resumeSeries(s.seriesId)
+                                      : try await EventsWrites.pauseSeries(s.seriesId)
+            if row.isPaused { pausedSeries.insert(s.seriesId) } else { pausedSeries.remove(s.seriesId) }
+            await reload()
+            notice = row.isPaused ? "Series paused — future occurrences hidden." : "Series resumed."
+        } catch {
+            self.error = (error as? APIError)?.errorDescription ?? "Could not update series."
+        }
     }
 
     // Wrap dayIso (String?) in an Identifiable for .sheet(item:)
@@ -679,6 +863,7 @@ struct EventsView: View {
                     HStack(spacing: 6) {
                         miniChip("Show QR", "qrcode") { qrOcc = o }
                         miniChip("Attendance", "person.2") { attendanceOcc = o }
+                        miniChip("Check in", "checkmark.circle") { manualCheckinOcc = o }
                     }
                 }
             }
@@ -767,15 +952,24 @@ struct EventsView: View {
     }
 
     private func seriesRowView(_ s: SeriesRow) -> some View {
-        HStack(spacing: 12) {
+        let paused = pausedSeries.contains(s.seriesId)
+        let busy = seriesBusy == s.seriesId
+        return HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 3).fill(s.category.color).frame(width: 4, height: 40)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(s.title).font(.inter(13, .bold)).foregroundStyle(Nuru.ink)
-                    Text("ACTIVE").font(.system(size: 9, weight: .bold)).tracking(0.4)
-                        .foregroundStyle(Color(hex: 0x15803D))
-                        .padding(.horizontal, 8).padding(.vertical, 2)
-                        .background(Color(hex: 0xDCF7E4)).clipShape(Capsule())
+                    if paused {
+                        Text("PAUSED").font(.system(size: 9, weight: .bold)).tracking(0.4)
+                            .foregroundStyle(Color(hex: 0x9A3412))
+                            .padding(.horizontal, 8).padding(.vertical, 2)
+                            .background(Color(hex: 0xFFE6D2)).clipShape(Capsule())
+                    } else {
+                        Text("ACTIVE").font(.system(size: 9, weight: .bold)).tracking(0.4)
+                            .foregroundStyle(Color(hex: 0x15803D))
+                            .padding(.horizontal, 8).padding(.vertical, 2)
+                            .background(Color(hex: 0xDCF7E4)).clipShape(Capsule())
+                    }
                 }
                 HStack(spacing: 6) {
                     Label("\(s.count) upcoming", systemImage: "repeat"); Text("·")
@@ -783,6 +977,15 @@ struct EventsView: View {
                 }.font(.inter(11, .regular)).foregroundStyle(Nuru.muted)
             }
             Spacer()
+            Button { Task { await toggleSeriesPause(s) } } label: {
+                Group {
+                    if busy { ProgressView().controlSize(.mini) }
+                    else { Image(systemName: paused ? "play.fill" : "pause.fill").font(.system(size: 12)) }
+                }
+                .foregroundStyle(Nuru.ink)
+                .padding(7).frame(width: 28, height: 28)
+                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }.buttonStyle(.plain).disabled(busy)
             Button { detailOcc = s.next } label: {
                 Image(systemName: "eye").font(.system(size: 12)).foregroundStyle(Nuru.ink)
                     .padding(7).background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -910,8 +1113,15 @@ struct EventsView: View {
     private var momentsCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
-                cardHeader("Moments", "Curated photo gallery shown in the mobile Events tab carousel")
-                // NEEDS: post / delete moment writes. Read-only here.
+                HStack(alignment: .top) {
+                    cardHeader("Moments", "Curated photo gallery shown in the mobile Events tab carousel")
+                    Spacer()
+                    Button { showPostMoment = true } label: {
+                        Label("Post", systemImage: "plus").font(.inter(12, .semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }.buttonStyle(.plain)
+                }
                 if moments.isEmpty {
                     emptyState(icon: "photo", title: "No moments yet",
                                body: "Post a photo from a recent gathering — it shows in the mobile Events carousel.")
@@ -932,6 +1142,15 @@ struct EventsView: View {
                                     }
                                 }
                                 Spacer()
+                                Button { Task { await deleteMoment(m.id) } } label: {
+                                    Group {
+                                        if deletingMomentId == m.id { ProgressView().controlSize(.mini) }
+                                        else { Image(systemName: "trash").font(.system(size: 12)) }
+                                    }
+                                    .foregroundStyle(Color(hex: 0xB91C1C))
+                                    .padding(8).frame(width: 30, height: 30)
+                                    .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                }.buttonStyle(.plain).disabled(deletingMomentId == m.id)
                             }.padding(.vertical, 12)
                         }
                     }
@@ -1187,6 +1406,7 @@ private struct EventDetailSheet: View {
     var onQr: () -> Void
     var onAttendance: () -> Void
     var onRsvp: () -> Void
+    var onManualCheckIn: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1223,7 +1443,7 @@ private struct EventDetailSheet: View {
                         action("Show QR", "qrcode", primary: true) { dismiss(); onQr() }
                         action("View attendance", "person.2") { dismiss(); onAttendance() }
                         action("View RSVPs", "person.crop.circle.badge.checkmark") { dismiss(); onRsvp() }
-                        action("Manual check-in", "checkmark.circle") {}      // NEEDS write
+                        action("Manual check-in", "checkmark.circle") { dismiss(); onManualCheckIn() }
                         action("Reschedule", "arrow.triangle.2.circlepath") {} // NEEDS write
                         action("Edit event", "pencil") {}                      // NEEDS write
                         action("Cancel occurrence", "xmark", danger: true) {}  // NEEDS write
@@ -1393,6 +1613,7 @@ private struct RsvpSheet: View {
 private struct AttendanceSheet: View {
     let occ: UiOcc
     let roster: Roster?
+    var onManualCheckIn: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1402,7 +1623,15 @@ private struct AttendanceSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Attendance list · \(occ.title)").font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
-                    Text("\(checkedIn.count + guests.count) checked in").font(.fraunces(22, .medium)).foregroundStyle(Nuru.ink)
+                    HStack {
+                        Text("\(checkedIn.count + guests.count) checked in").font(.fraunces(22, .medium)).foregroundStyle(Nuru.ink)
+                        Spacer()
+                        Button { dismiss(); onManualCheckIn() } label: {
+                            Label("Manual check-in", systemImage: "checkmark.circle").font(.inter(12, .semibold)).foregroundStyle(.white)
+                                .padding(.horizontal, 12).padding(.vertical, 7)
+                                .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }.buttonStyle(.plain)
+                    }
 
                     HStack {
                         Text("MEMBER").frame(maxWidth: .infinity, alignment: .leading)
@@ -1526,8 +1755,32 @@ private struct QrSheet: View {
 
 private struct AnnouncementSheet: View {
     let item: AnnouncementItem
+    var onChanged: (String) -> Void
+    var onError: (String) -> Void
     @State private var stats: [AnnouncementStat] = []
+    @State private var busy = false
+    @State private var confirmDelete = false
+    @State private var confirmSend = false
     @Environment(\.dismiss) private var dismiss
+
+    private var canSend: Bool { item.status == "draft" || item.status == "scheduled" }
+    private var canCancel: Bool { item.status == "scheduled" }
+
+    private func send() async {
+        busy = true; defer { busy = false }
+        do { try await EventsWrites.sendAnnouncement(item.announcementId); onChanged("Announcement sent.") }
+        catch { onError((error as? APIError)?.errorDescription ?? "Could not send announcement.") }
+    }
+    private func cancel() async {
+        busy = true; defer { busy = false }
+        do { try await EventsWrites.cancelAnnouncement(item.announcementId); onChanged("Scheduled send cancelled.") }
+        catch { onError((error as? APIError)?.errorDescription ?? "Could not cancel announcement.") }
+    }
+    private func remove() async {
+        busy = true; defer { busy = false }
+        do { try await EventsWrites.deleteAnnouncement(item.announcementId); onChanged("Announcement deleted.") }
+        catch { onError((error as? APIError)?.errorDescription ?? "Could not delete announcement.") }
+    }
 
     var body: some View {
         NavigationStack {
@@ -1563,12 +1816,42 @@ private struct AnnouncementSheet: View {
                             .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                         }
                     }
-                    // NEEDS: send / cancel / edit / delete writes.
+
+                    FlexRow(spacing: 8) {
+                        if canSend {
+                            Button { confirmSend = true } label: {
+                                Label("Send now", systemImage: "paperplane.fill").font(.inter(12, .bold)).foregroundStyle(.white)
+                                    .padding(.horizontal, 14).padding(.vertical, 9)
+                                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }.buttonStyle(.plain).disabled(busy)
+                        }
+                        if canCancel {
+                            Button { Task { await cancel() } } label: {
+                                Text("Cancel scheduled send").font(.inter(12, .semibold)).foregroundStyle(Color(hex: 0xB91C1C))
+                                    .padding(.horizontal, 14).padding(.vertical, 9)
+                                    .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }.buttonStyle(.plain).disabled(busy)
+                        }
+                        Button { confirmDelete = true } label: {
+                            Label("Delete", systemImage: "trash").font(.inter(12, .semibold)).foregroundStyle(Color(hex: 0xB91C1C))
+                                .padding(.horizontal, 14).padding(.vertical, 9)
+                                .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }.buttonStyle(.plain).disabled(busy)
+                    }
+                    // NEEDS: edit announcement (PUT /admin/announcements/{id}) — compose form reused on web.
                 }.padding(24)
             }
             .background(Nuru.paper)
             .navigationTitle("Announcement").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .alert("Send announcement now?", isPresented: $confirmSend) {
+                Button("Cancel", role: .cancel) {}
+                Button("Send") { Task { await send() } }
+            } message: { Text("This dispatches to all selected channels immediately.") }
+            .alert("Delete announcement?", isPresented: $confirmDelete) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) { Task { await remove() } }
+            } message: { Text("This cannot be undone.") }
             .task {
                 if let d = try? await APIClient.shared.get("/admin/announcements/\(item.announcementId)", as: AnnouncementDetail.self) {
                     stats = d.stats ?? []
@@ -1588,46 +1871,534 @@ private struct AnnouncementSheet: View {
     }
 }
 
-// MARK: - Create sheets (styled read views — NEEDS form wiring)
+// MARK: - Create Event sheet → POST /admin/events/series
+
+private struct EventTypeOption: Identifiable { let label: String; let category: String; var id: String { label } }
+private let eventTypeOptions: [EventTypeOption] = [
+    .init(label: "Worship Service", category: "worship"),
+    .init(label: "Cell Gathering", category: "cell"),
+    .init(label: "Discipleship Class", category: "class"),
+    .init(label: "Leadership Meeting", category: "leadership"),
+    .init(label: "Youth Event", category: "youth"),
+    .init(label: "Prayer Meeting", category: "worship"),
+    .init(label: "Special Event", category: "special"),
+    .init(label: "Other", category: "special"),
+]
+private let recurrenceOptions = ["One-time", "Daily", "Weekly", "Monthly", "Custom"]
+private let weekdayRrule = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
 
 private struct CreateEventSheet: View {
+    var onCreated: (String) -> Void
+    var onError: (String) -> Void
     @Environment(\.dismiss) private var dismiss
+
+    @State private var title = ""
+    @State private var typeLabel = eventTypeOptions[0].label
+    @State private var location = ""
+    @State private var startDate = Date()
+    @State private var startTime = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var durationMin = 90
+    @State private var recurrence = "Weekly"
+    @State private var days: Set<Int> = [0]
+    @State private var visibility = "members"
+    @State private var rsvp = true
+    @State private var qr = true
+    @State private var manual = true
+    @State private var featured = false
+    @State private var primaryImageUrl = ""
+    @State private var busy = false
+    @State private var err: String?
+
+    private func rrule() -> String? {
+        switch recurrence {
+        case "One-time": return nil
+        case "Daily": return "FREQ=DAILY"
+        case "Monthly": return "FREQ=MONTHLY"
+        default:
+            let sel = days.sorted().map { weekdayRrule[$0] }
+            return sel.isEmpty ? "FREQ=WEEKLY" : "FREQ=WEEKLY;BYDAY=\(sel.joined(separator: ","))"
+        }
+    }
+
+    private var startDateStr: String {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: startDate)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+    private var startTimeStr: String {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: startTime)
+        return String(format: "%02d:%02d", c.hour ?? 9, c.minute ?? 0)
+    }
+    private var startsAtIso: String {
+        var c = Calendar.current.dateComponents([.year, .month, .day], from: startDate)
+        let t = Calendar.current.dateComponents([.hour, .minute], from: startTime)
+        c.hour = t.hour; c.minute = t.minute; c.second = 0
+        let d = Calendar.current.date(from: c) ?? startDate
+        let f = ISO8601DateFormatter()
+        return f.string(from: d)
+    }
+
+    private func submit(asDraft: Bool) async {
+        err = nil
+        guard !title.trimmingCharacters(in: .whitespaces).isEmpty else { err = "Event title is required."; return }
+        let category = eventTypeOptions.first { $0.label == typeLabel }?.category ?? "special"
+        var body: [String: JSONValue] = [
+            "title": .string(title.trimmingCharacters(in: .whitespaces)),
+            "category": .string(category),
+            "timezone": .string("Africa/Nairobi"),
+            "starts_at": .string(startsAtIso),
+            "start_date": .string(startDateStr),
+            "start_time": .string(startTimeStr),
+            "duration_min": .int(durationMin),
+            "visibility": .string(visibility),
+            "rsvp_enabled": .bool(rsvp),
+            "qr_enabled": .bool(qr),
+            "manual_checkin_enabled": .bool(manual),
+            "status": .string(asDraft ? "draft" : "active"),
+        ]
+        let loc = location.trimmingCharacters(in: .whitespaces)
+        if !loc.isEmpty { body["location"] = .string(loc) }
+        let img = primaryImageUrl.trimmingCharacters(in: .whitespaces)
+        if !img.isEmpty { body["primary_image_url"] = .string(img) }
+        if let r = rrule() { body["rrule"] = .string(r) }
+        busy = true; defer { busy = false }
+        do {
+            let created = try await EventsWrites.createSeries(body)
+            if featured, !created.seriesId.isEmpty { try? await EventsWrites.setSeriesHomepage(created.seriesId) }
+            onCreated(asDraft ? "Event saved as draft." : "Event created.")
+        } catch {
+            let msg = (error as? APIError)?.errorDescription ?? "Could not create event."
+            err = msg; onError(msg)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Create event").font(.fraunces(22, .medium)).foregroundStyle(Nuru.ink)
-                    Text("The full create form (title, type, date/time, recurrence, attendance toggles, visibility, images, featured) ships next — it wires to POST /admin/events/series. Captured here as a read view.")
-                        .font(.nCaption).foregroundStyle(Nuru.muted)
-                    ForEach(["Basic details", "Date & time", "Recurrence", "Attendance", "Visibility & reminders", "Images", "Featured"], id: \.self) { s in
-                        SurfaceTile { Text(s).font(.inter(13, .bold)).foregroundStyle(Nuru.ink) }
+                VStack(alignment: .leading, spacing: 18) {
+                    formField("Event title") {
+                        TextField("Sunday Worship Service", text: $title).textFieldStyle(.plain).font(.inter(13, .regular))
                     }
+                    HStack(spacing: 12) {
+                        formField("Event type") {
+                            Picker("", selection: $typeLabel) {
+                                ForEach(eventTypeOptions) { Text($0.label).tag($0.label) }
+                            }.pickerStyle(.menu).labelsHidden().tint(Nuru.ink)
+                        }
+                        formField("Location") {
+                            TextField("Main Sanctuary", text: $location).textFieldStyle(.plain).font(.inter(13, .regular))
+                        }
+                    }
+                    sectionLabel("Date & time")
+                    HStack(spacing: 12) {
+                        formField("Start date") { DatePicker("", selection: $startDate, displayedComponents: .date).labelsHidden() }
+                        formField("Start time") { DatePicker("", selection: $startTime, displayedComponents: .hourAndMinute).labelsHidden() }
+                    }
+                    formField("Duration") {
+                        Picker("", selection: $durationMin) {
+                            Text("1 hour").tag(60); Text("1h 30m").tag(90); Text("2 hours").tag(120)
+                            Text("2h 30m").tag(150); Text("3 hours").tag(180)
+                        }.pickerStyle(.menu).labelsHidden().tint(Nuru.ink)
+                    }
+                    Text("Events are scheduled in East Africa Time.").font(.nMicro).foregroundStyle(Nuru.muted)
+
+                    sectionLabel("Recurrence")
+                    FlexRow(spacing: 8) {
+                        ForEach(recurrenceOptions, id: \.self) { r in
+                            let active = recurrence == r
+                            Button { recurrence = r } label: {
+                                Label(r, systemImage: "repeat").font(.inter(12, active ? .bold : .medium))
+                                    .foregroundStyle(active ? .white : Nuru.ink)
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .background(active ? Nuru.navy : Nuru.inputBg)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                    if recurrence == "Weekly" || recurrence == "Custom" {
+                        HStack(spacing: 6) {
+                            ForEach(0..<7, id: \.self) { i in
+                                let active = days.contains(i)
+                                Button {
+                                    if days.contains(i) { days.remove(i) } else { days.insert(i) }
+                                } label: {
+                                    Text(["S","M","T","W","T","F","S"][i]).font(.inter(12, .bold))
+                                        .foregroundStyle(active ? .white : Nuru.ink)
+                                        .frame(maxWidth: .infinity).padding(.vertical, 9)
+                                        .background(active ? Nuru.gold : Nuru.inputBg)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    sectionLabel("Attendance")
+                    Toggle(isOn: $rsvp) { Label("Enable RSVP", systemImage: "person.2").font(.inter(13, .regular)) }.tint(Color(hex: 0x16A34A))
+                    Toggle(isOn: $qr) { Label("Enable QR check-in", systemImage: "qrcode").font(.inter(13, .regular)) }.tint(Color(hex: 0x16A34A))
+                    Toggle(isOn: $manual) { Label("Allow manual check-in", systemImage: "checkmark.circle").font(.inter(13, .regular)) }.tint(Color(hex: 0x16A34A))
+
+                    sectionLabel("Visibility")
+                    formField("Visibility") {
+                        Picker("", selection: $visibility) {
+                            Text("Members").tag("members"); Text("Leaders only").tag("leaders"); Text("Public").tag("public")
+                        }.pickerStyle(.menu).labelsHidden().tint(Nuru.ink)
+                    }
+
+                    sectionLabel("Image")
+                    formField("Primary image URL") {
+                        TextField("https://… (Cloudinary)", text: $primaryImageUrl).textFieldStyle(.plain).font(.inter(12, .regular)).autocorrectionDisabled().textInputAutocapitalization(.never)
+                    }
+                    Text("NEEDS: in-app image picker → Cloudinary signed upload (POST /admin/media/images/sign). Paste a hosted URL for now.")
+                        .font(.nMicro).foregroundStyle(Nuru.muted)
+
+                    Toggle(isOn: $featured) { Label("Feature on mobile home + Events hero", systemImage: "star").font(.inter(13, .regular)) }.tint(Nuru.gold)
+
+                    if let err { Text(err).font(.nCaption).foregroundStyle(Nuru.danger) }
                 }.padding(24)
             }
             .background(Nuru.paper)
             .navigationTitle("New event").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Create event") { Task { await submit(asDraft: false) } }
+                        Button("Save as draft") { Task { await submit(asDraft: true) } }
+                    } label: { if busy { ProgressView() } else { Text("Save").bold() } }.disabled(busy)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Create Announcement sheet → POST /admin/announcements
+
+private struct ChannelOption: Identifiable { let key: String; let label: String; let icon: String; var id: String { key } }
+private let channelOptions: [ChannelOption] = [
+    .init(key: "push", label: "App push", icon: "iphone"),
+    .init(key: "email", label: "Email", icon: "envelope"),
+    .init(key: "sms", label: "SMS", icon: "phone"),
+    .init(key: "whatsapp", label: "WhatsApp", icon: "message"),
+    .init(key: "banner", label: "Banner", icon: "megaphone"),
+]
+
+private struct CreateAnnouncementSheet: View {
+    let events: [UiOcc]
+    var onCreated: (String) -> Void
+    var onError: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var title = ""
+    @State private var message = ""
+    @State private var channels: Set<String> = ["push", "email"]
+    @State private var audience = "all"
+    @State private var featured = false
+    @State private var primaryImageUrl = ""
+    @State private var busy = false
+    @State private var err: String?
+
+    // Backend wants a discriminated audience object; only kind is picked here
+    // (no cell/level sub-picker), so cells/level fall back to all (mirrors web).
+    private func audiencePayload() -> JSONValue {
+        if audience == "level" { return .object(["kind": .string("level"), "level_number": .int(1)]) }
+        return .object(["kind": .string("all")])
+    }
+
+    private func submit() async {
+        err = nil
+        guard !title.trimmingCharacters(in: .whitespaces).isEmpty, !message.trimmingCharacters(in: .whitespaces).isEmpty else {
+            err = "Announcement title and body are required."; return
+        }
+        var payload: [String: JSONValue] = [
+            "title": .string(title.trimmingCharacters(in: .whitespaces)),
+            "body": .string(message.trimmingCharacters(in: .whitespaces)),
+            "channels": .array(channels.sorted().map { .string($0) }),
+            "audience": audiencePayload(),
+        ]
+        let img = primaryImageUrl.trimmingCharacters(in: .whitespaces)
+        if !img.isEmpty { payload["primary_image_url"] = .string(img) }
+        busy = true; defer { busy = false }
+        do {
+            let created = try await EventsWrites.createAnnouncement(payload)
+            if featured, !created.announcementId.isEmpty { try? await EventsWrites.setAnnouncementHomepage(created.announcementId) }
+            onCreated("Announcement saved.")
+        } catch {
+            let msg = (error as? APIError)?.errorDescription ?? "Could not create announcement."
+            err = msg; onError(msg)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    sectionLabel("Message details")
+                    formField("Title") {
+                        TextField("Sunday Service Reminder", text: $title).textFieldStyle(.plain).font(.inter(13, .regular))
+                    }
+                    formField("Body") {
+                        TextField("Tomorrow we gather for worship at 9:00 AM…", text: $message, axis: .vertical)
+                            .lineLimit(3...6).textFieldStyle(.plain).font(.inter(13, .regular))
+                    }
+                    if !events.isEmpty {
+                        Text("Attach-to-event is available on the web (optional). Standalone here.").font(.nMicro).foregroundStyle(Nuru.muted)
+                    }
+
+                    sectionLabel("Channels")
+                    FlexRow(spacing: 8) {
+                        ForEach(channelOptions) { c in
+                            let on = channels.contains(c.key)
+                            Button {
+                                if channels.contains(c.key) { channels.remove(c.key) } else { channels.insert(c.key) }
+                            } label: {
+                                Label(c.label, systemImage: c.icon).font(.inter(12, on ? .bold : .medium))
+                                    .foregroundStyle(on ? .white : Nuru.ink)
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .background(on ? Nuru.navy : Nuru.inputBg)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+
+                    sectionLabel("Audience")
+                    HStack(spacing: 8) {
+                        ForEach([("all","All members"),("cells","Specific cells"),("level","Specific level")], id: \.0) { key, label in
+                            let on = audience == key
+                            Button { audience = key } label: {
+                                Text(label).font(.inter(12, on ? .bold : .medium)).foregroundStyle(on ? .white : Nuru.ink)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 9)
+                                    .background(on ? Nuru.gold : Nuru.inputBg)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+
+                    sectionLabel("Image")
+                    formField("Primary image URL") {
+                        TextField("https://… (Cloudinary)", text: $primaryImageUrl).textFieldStyle(.plain).font(.inter(12, .regular)).autocorrectionDisabled().textInputAutocapitalization(.never)
+                    }
+                    Text("NEEDS: in-app image picker → Cloudinary signed upload. Paste a hosted URL for now.")
+                        .font(.nMicro).foregroundStyle(Nuru.muted)
+
+                    Toggle(isOn: $featured) { Label("Feature on the mobile homepage", systemImage: "star").font(.inter(13, .regular)) }.tint(Nuru.gold)
+
+                    sectionLabel("Live preview")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("NURU CHURCH · PUSH NOTIFICATION").font(.system(size: 10, weight: .bold)).tracking(0.5).foregroundStyle(Nuru.onNavyDim)
+                        Text(title.isEmpty ? "Announcement title" : title).font(.inter(14, .bold)).foregroundStyle(.white)
+                        Text(message.isEmpty ? "Your message preview appears here." : message).font(.nCaption).foregroundStyle(Nuru.onNavyDim)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+
+                    if let err { Text(err).font(.nCaption).foregroundStyle(Nuru.danger) }
+                }.padding(24)
+            }
+            .background(Nuru.paper)
+            .navigationTitle("New announcement").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { Task { await submit() } } label: { if busy { ProgressView() } else { Text("Save").bold() } }.disabled(busy)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Manual check-in sheet → POST /admin/events/{id}/checkins | /guests
+
+private struct ManualCheckinSheet: View {
+    let occ: UiOcc
+    var onDone: (String) -> Void
+    var onError: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var tab = "member"
+    @State private var query = ""
+    @State private var results: [MemberLite] = []
+    @State private var note = ""
+    @State private var guestName = ""
+    @State private var guestPhone = ""
+    @State private var firstTime = true
+    @State private var busy = false
+    @State private var searchTask: Task<Void, Never>?
+
+    private func runSearch(_ q: String) {
+        searchTask?.cancel()
+        let trimmed = q.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { results = []; return }
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if Task.isCancelled { return }
+            if let r = try? await EventsWrites.searchMembers(trimmed) {
+                if !Task.isCancelled { results = Array(r.prefix(8)) }
+            }
+        }
+    }
+
+    private func checkIn(_ m: MemberLite) async {
+        busy = true; defer { busy = false }
+        var body: [String: JSONValue] = ["user_id": .string(m.userId)]
+        let n = note.trimmingCharacters(in: .whitespaces)
+        if !n.isEmpty { body["note"] = .string(n) }
+        do { try await EventsWrites.manualCheckIn(occ.id, body); onDone(m.fullName) }
+        catch { onError((error as? APIError)?.errorDescription ?? "Check-in failed.") }
+    }
+
+    private func addGuest() async {
+        let name = guestName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        busy = true; defer { busy = false }
+        var body: [String: JSONValue] = ["guest_name": .string(name), "first_time": .bool(firstTime)]
+        let p = guestPhone.trimmingCharacters(in: .whitespaces)
+        if !p.isEmpty { body["phone"] = .string(p) }
+        do { try await EventsWrites.addGuest(occ.id, body); onDone(name) }
+        catch { onError((error as? APIError)?.errorDescription ?? "Could not add guest.") }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(occ.title).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
+                    Picker("", selection: $tab) {
+                        Text("Member").tag("member"); Text("Guest").tag("guest")
+                    }.pickerStyle(.segmented)
+
+                    if tab == "member" {
+                        formField("Search member") {
+                            HStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass").foregroundStyle(Nuru.muted).font(.system(size: 13))
+                                TextField("Search member name…", text: $query)
+                                    .textFieldStyle(.plain).font(.inter(13, .regular))
+                                    .onChange(of: query) { _, v in runSearch(v) }
+                            }
+                        }
+                        VStack(spacing: 6) {
+                            ForEach(results) { m in
+                                Button { Task { await checkIn(m) } } label: {
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(m.fullName).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
+                                            Text("\(m.cellName ?? "—") · L\(m.currentLevel.map(String.init) ?? "—")").font(.nMicro).foregroundStyle(Nuru.muted)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Nuru.gold)
+                                    }
+                                    .padding(.horizontal, 12).padding(.vertical, 10)
+                                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                                    .contentShape(Rectangle())
+                                }.buttonStyle(.plain).disabled(busy)
+                            }
+                            if !query.trimmingCharacters(in: .whitespaces).isEmpty && results.isEmpty {
+                                Text("No matches.").font(.nCaption).foregroundStyle(Nuru.muted).frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        formField("Note (optional)") {
+                            TextField("e.g. QR scan failed", text: $note).textFieldStyle(.plain).font(.inter(13, .regular))
+                        }
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.shield.fill").foregroundStyle(Color(hex: 0xA87616))
+                            Text("Manual check-ins are audited and visible in the attendance log.").font(.nMicro).foregroundStyle(Color(hex: 0x7A5410))
+                        }
+                        .padding(12).background(Color(hex: 0xFFFBEB)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Color(hex: 0xF5E0A8), lineWidth: 1))
+                    } else {
+                        formField("Guest name") {
+                            TextField("Visitor name", text: $guestName).textFieldStyle(.plain).font(.inter(13, .regular))
+                        }
+                        formField("Phone") {
+                            TextField("+254 …", text: $guestPhone).textFieldStyle(.plain).font(.inter(13, .regular)).keyboardType(.phonePad)
+                        }
+                        Toggle(isOn: $firstTime) { Text("First-time visitor").font(.inter(13, .regular)) }.tint(Color(hex: 0x16A34A))
+                        Button { Task { await addGuest() } } label: {
+                            Label("Add guest", systemImage: "person.badge.plus").font(.inter(13, .bold)).foregroundStyle(.white)
+                                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .background(guestName.trimmingCharacters(in: .whitespaces).isEmpty ? Nuru.muted : Nuru.navy)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }.buttonStyle(.plain).disabled(busy || guestName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }.padding(24)
+            }
+            .background(Nuru.paper)
+            .navigationTitle("Manual check-in").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
         }
     }
 }
 
-private struct CreateAnnouncementSheet: View {
+// MARK: - Post Moment sheet → POST /admin/moments
+
+private struct PostMomentSheet: View {
+    var onPosted: () -> Void
+    var onError: (String) -> Void
     @Environment(\.dismiss) private var dismiss
+
+    @State private var imageUrl = ""
+    @State private var caption = ""
+    @State private var tag = ""
+    @State private var busy = false
+    @State private var err: String?
+
+    private func post() async {
+        let url = imageUrl.trimmingCharacters(in: .whitespaces)
+        guard !url.isEmpty else { err = "An image URL is required."; return }
+        var body: [String: JSONValue] = ["image_url": .string(url)]
+        let c = caption.trimmingCharacters(in: .whitespaces); if !c.isEmpty { body["caption"] = .string(c) }
+        let t = tag.trimmingCharacters(in: .whitespaces); if !t.isEmpty { body["tag"] = .string(t) }
+        busy = true; defer { busy = false }
+        do { try await EventsWrites.createMoment(body); onPosted() }
+        catch { let m = (error as? APIError)?.errorDescription ?? "Could not post moment."; err = m; onError(m) }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Create announcement").font(.fraunces(22, .medium)).foregroundStyle(Nuru.ink)
-                    Text("The full compose form (title, body, attach-to-event, channels, audience, images, homepage feature, live preview) ships next — it wires to POST /admin/announcements. Captured here as a read view.")
-                        .font(.nCaption).foregroundStyle(Nuru.muted)
-                    ForEach(["Message details", "Channels", "Audience", "Images", "Homepage", "Live preview"], id: \.self) { s in
-                        SurfaceTile { Text(s).font(.inter(13, .bold)).foregroundStyle(Nuru.ink) }
+                    formField("Image URL") {
+                        TextField("https://… (Cloudinary)", text: $imageUrl).textFieldStyle(.plain).font(.inter(12, .regular)).autocorrectionDisabled().textInputAutocapitalization(.never)
                     }
+                    Text("NEEDS: in-app image picker → Cloudinary signed upload (folder \"moments\"). Paste a hosted URL for now.")
+                        .font(.nMicro).foregroundStyle(Nuru.muted)
+                    formField("Caption (optional)") {
+                        TextField("A moment from Sunday…", text: $caption).textFieldStyle(.plain).font(.inter(13, .regular))
+                    }
+                    formField("Tag (optional)") {
+                        TextField("e.g. Worship", text: $tag).textFieldStyle(.plain).font(.inter(13, .regular))
+                    }
+                    if !imageUrl.trimmingCharacters(in: .whitespaces).isEmpty {
+                        AsyncImage(url: URL(string: imageUrl.trimmingCharacters(in: .whitespaces))) { img in img.resizable().scaledToFill() } placeholder: { Nuru.inputBg }
+                            .frame(height: 160).frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    }
+                    if let err { Text(err).font(.nCaption).foregroundStyle(Nuru.danger) }
                 }.padding(24)
             }
             .background(Nuru.paper)
-            .navigationTitle("New announcement").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .navigationTitle("Post moment").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { Task { await post() } } label: { if busy { ProgressView() } else { Text("Post").bold() } }.disabled(busy)
+                }
+            }
         }
+    }
+}
+
+// MARK: - Shared form helpers (page-local)
+
+private func sectionLabel(_ text: String) -> some View {
+    Text(text.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
+}
+
+private func formField<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+        Text(label.uppercased()).font(.system(size: 10, weight: .bold)).tracking(0.5).foregroundStyle(Nuru.muted)
+        content()
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 }

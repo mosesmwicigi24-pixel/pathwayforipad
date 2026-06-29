@@ -1,31 +1,71 @@
 // Roles & Permissions — System page, a SwiftUI port of the web admin portal's
-// Roles.tsx (packages/admin-web/src/components/pages/Roles.tsx). Read view over
-// the RBAC role API (/admin/roles): navy hero, a "Key roles in the pathway" grid
-// of access tiers, a searchable table of all configured roles (name/key, type,
-// permission count, users, status), and a PERMISSIONS matrix drawer (16 modules ×
-// 6 capabilities) showing exactly which capabilities each role holds. The web
-// page's create/edit/save mutations are out of scope here — this is the read
-// surface, so the matrix is presented read-only.
+// Roles.tsx (packages/admin-web/src/components/pages/Roles.tsx). Navy hero, a
+// "Key roles in the pathway" grid of access tiers, a searchable list of all
+// configured roles (name/key, type, permission count, users, status), and an
+// editable PERMISSIONS matrix (17 modules × 6 capabilities).
 //
-// The shared SystemRole model does NOT carry `permissions`, so this page defines
-// a page-local LocalRolesPage/LocalRole that includes them and fetches via
-// APIClient.shared.get("/admin/roles", as:). The decoder is convertFromSnakeCase,
-// so camelCase property names map from the snake_case wire fields.
+// Fully wired to the RBAC role API, mirroring SystemApi in api/client.ts:
+//   • Create role      → POST   /admin/roles                  { name, role_type, description, copy_from }
+//   • Edit role        → PUT    /admin/roles/{key}            { name, role_type, description }
+//   • Delete role      → DELETE /admin/roles/{key}            (confirm alert; built-ins blocked)
+//   • Save permissions → PUT    /admin/roles/{key}/permissions { permissions: [{ module_id, capability }] }
+// The matrix checkboxes toggle locally and Save persists; every write refreshes
+// the list. The shared SystemRole model does NOT carry `permissions`/`is_system`,
+// so this page decodes a local LocalRole that includes them.
 import SwiftUI
 
 struct RolesView: View {
+    @EnvironmentObject private var router: NavRouter
     @State private var query = ""
     @State private var openRole: LocalRole?
+    @State private var editRole: LocalRole?
+    @State private var createOpen = false
+    @State private var pendingDelete: LocalRole?
+    @State private var actionError: String?
+    @State private var reloadToken = 0
 
     var body: some View {
         AsyncView({ try await APIClient.shared.get("/admin/roles", as: LocalRolesPage.self) }) { page in
             content(page.data)
         }
+        .id(reloadToken)
         .portalPage("Roles & Permissions")
         .sheet(item: $openRole) { role in
-            PermissionsMatrixSheet(role: role)
+            PermissionsMatrixSheet(role: role) { refresh() }
+        }
+        .sheet(item: $editRole) { role in
+            RoleForm(mode: .edit(role), allRoles: [], onSaved: { _ in refresh() })
+        }
+        .sheet(isPresented: $createOpen) {
+            RoleForm(mode: .create, allRoles: createRoles, onSaved: { key in
+                createOpen = false
+                refresh()
+                // Open the new role's matrix so the user can fine-tune it (web onCreated).
+                Task {
+                    if let created = try? await APIClient.shared.get("/admin/roles", as: LocalRolesPage.self).data.first(where: { $0.roleKey == key }) {
+                        openRole = created
+                    }
+                }
+            })
+        }
+        .alert("Delete role", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let r = pendingDelete { delete(r) }
+                pendingDelete = nil
+            }
+        } message: {
+            Text("Delete the role \"\(pendingDelete?.name ?? "")\"? This cannot be undone.")
+        }
+        .alert("Something went wrong", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
         }
     }
+
+    // The web Create modal lists every role except super_admin as a "copy from" source.
+    @State private var createRoles: [LocalRole] = []
 
     @ViewBuilder
     private func content(_ roles: [LocalRole]) -> some View {
@@ -63,7 +103,12 @@ struct RolesView: View {
                         } else {
                             VStack(spacing: 10) {
                                 ForEach(filtered) { role in
-                                    RoleRowCard(role: role) { openRole = role }
+                                    RoleRowCard(
+                                        role: role,
+                                        onOpen: { openRole = role },
+                                        onEdit: { editRole = role },
+                                        onDelete: { if !role.isSystem { pendingDelete = role } }
+                                    )
                                 }
                             }
                         }
@@ -74,6 +119,7 @@ struct RolesView: View {
                 .padding(.bottom, Nuru.S.xxl)
             }
         }
+        .onAppear { createRoles = roles }
     }
 
     private var hero: some View {
@@ -83,7 +129,7 @@ struct RolesView: View {
             title: "Roles & Permissions",
             subtitle: "Define what each kind of user can do. Super Admin has full access; field and staff roles are scoped."
         ) {
-            HeroChip(label: "Create role", icon: "plus", style: .gold)
+            HeroChip(label: "Create role", icon: "plus", style: .gold) { createOpen = true }
         }
     }
 
@@ -98,6 +144,53 @@ struct RolesView: View {
         .background(Nuru.white)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+    }
+
+    // MARK: Writes
+
+    private func refresh() { reloadToken &+= 1 }
+
+    private func delete(_ role: LocalRole) {
+        guard !role.isSystem else { return }
+        Task {
+            do { try await RolesAPI.delete(role.roleKey); refresh() }
+            catch { actionError = (error as? APIError)?.errorDescription ?? "Delete failed." }
+        }
+    }
+}
+
+// MARK: - Write API (mirrors SystemApi.createRole / updateRole / setRolePermissions / deleteRole)
+
+private struct RoleOk: Codable {}
+
+private enum RolesAPI {
+    struct CreateBody: Encodable {
+        let name: String
+        let roleType: String
+        let description: String
+        let copyFrom: String?
+        enum CodingKeys: String, CodingKey { case name, roleType, description, copyFrom }
+    }
+    struct UpdateBody: Encodable {
+        let name: String
+        let roleType: String
+        let description: String
+    }
+    struct PermItem: Encodable { let moduleId: String; let capability: String }
+    struct PermsBody: Encodable { let permissions: [PermItem] }
+
+    static func create(_ body: CreateBody) async throws -> String {
+        struct Created: Codable { @DefaultEmpty var roleKey: String }
+        return try await APIClient.shared.post("/admin/roles", body: body, as: Created.self).roleKey
+    }
+    static func update(_ key: String, _ body: UpdateBody) async throws {
+        _ = try await APIClient.shared.put("/admin/roles/\(key)", body: body, as: RoleOk.self)
+    }
+    static func setPermissions(_ key: String, _ perms: [PermItem]) async throws {
+        _ = try await APIClient.shared.put("/admin/roles/\(key)/permissions", body: PermsBody(permissions: perms), as: RoleOk.self)
+    }
+    static func delete(_ key: String) async throws {
+        _ = try await APIClient.shared.delete("/admin/roles/\(key)", as: RoleOk.self)
     }
 }
 
@@ -224,11 +317,13 @@ private struct KeyRoleCard: View {
     }
 }
 
-// MARK: - Role row card (table row → card: name/key, type, perms, users, status)
+// MARK: - Role row card (name/key, type, perms, users, status, edit/delete)
 
 private struct RoleRowCard: View {
     let role: LocalRole
     let onOpen: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         Card {
@@ -265,6 +360,36 @@ private struct RoleRowCard: View {
                     .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
                 }
                 .buttonStyle(.plain)
+
+                // Edit / Delete actions (web row buttons).
+                HStack(spacing: 8) {
+                    Button(action: onEdit) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "pencil").font(.system(size: 12, weight: .semibold))
+                            Text("Edit").font(.inter(12, .semibold))
+                        }
+                        .foregroundStyle(Nuru.navy)
+                        .padding(.horizontal, 11).padding(.vertical, 7)
+                        .background(Nuru.navy.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer(minLength: 0)
+
+                    Button(action: onDelete) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "trash").font(.system(size: 12, weight: .semibold))
+                            Text(role.isSystem ? "Built-in" : "Delete").font(.inter(12, .semibold))
+                        }
+                        .foregroundStyle(role.isSystem ? Nuru.ink400 : Color(hex: 0xDC2626))
+                        .padding(.horizontal, 11).padding(.vertical, 7)
+                        .background((role.isSystem ? Nuru.ink400 : Color(hex: 0xDC2626)).opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(role.isSystem)
+                }
             }
         }
     }
@@ -290,21 +415,129 @@ private struct RoleRowCard: View {
     }
 }
 
-// MARK: - Permissions matrix sheet (module × capability, read-only)
+// MARK: - Create / Edit role form (web CreateRoleModal + the edit path)
+
+private struct RoleForm: View {
+    enum Mode { case create, edit(LocalRole) }
+    let mode: Mode
+    let allRoles: [LocalRole]            // copy-from sources (create only)
+    var onSaved: (String) -> Void = { _ in }   // create passes the new key
+    @Environment(\.dismiss) private var dismiss
+
+    private var isEdit: Bool { if case .edit = mode { return true }; return false }
+    private var existing: LocalRole? { if case .edit(let r) = mode { return r }; return nil }
+
+    @State private var name = ""
+    @State private var roleType = "staff"
+    @State private var description = ""
+    @State private var copyFrom = ""
+    @State private var saving = false
+    @State private var error: String?
+
+    private var slug: String {
+        let lowered = name.trimmingCharacters(in: .whitespaces).lowercased()
+        let mapped = lowered.map { ($0.isLetter || $0.isNumber) ? $0 : "_" }
+        var s = String(mapped)
+        while s.contains("__") { s = s.replacingOccurrences(of: "__", with: "_") }
+        return s.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
+                SwiftUI.Section {
+                    HStack {
+                        Text("Name *").foregroundStyle(Nuru.ink600).frame(width: 110, alignment: .leading)
+                        TextField("e.g. Cell Coordinator", text: $name)
+                    }
+                    if !isEdit, !slug.isEmpty {
+                        HStack {
+                            Text("Key").foregroundStyle(Nuru.ink600).frame(width: 110, alignment: .leading)
+                            Text(slug).font(.system(size: 13, design: .monospaced)).foregroundStyle(Nuru.navy)
+                        }
+                    }
+                    Picker("Type", selection: $roleType) {
+                        Text("Staff — office / ministry").tag("staff")
+                        Text("Field — front-line disciple-maker").tag("field")
+                        if existing?.roleType == "system" { Text("System").tag("system") }
+                    }
+                } header: {
+                    Text(isEdit ? "Role" : "New role")
+                }
+
+                SwiftUI.Section("Description") {
+                    TextEditor(text: $description).frame(minHeight: 72).font(.inter(14))
+                }
+
+                if !isEdit {
+                    SwiftUI.Section {
+                        Picker("Starting permissions", selection: $copyFrom) {
+                            Text("Blank — no permissions").tag("")
+                            ForEach(allRoles.filter { $0.roleKey != "super_admin" }) { r in
+                                Text("Copy from: \(r.name)").tag(r.roleKey)
+                            }
+                        }
+                    } footer: {
+                        Text("You can adjust every capability in the permissions matrix next.")
+                    }
+                }
+            }
+            .navigationTitle(isEdit ? "Edit role" : "Create role")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isEdit ? "Save" : "Create") { Task { await submit() } }.disabled(saving)
+                }
+            }
+            .task {
+                if let r = existing { name = r.name; roleType = r.roleType; description = r.description }
+            }
+        }
+    }
+
+    private func submit() async {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { error = "Please enter a role name."; return }
+        saving = true; error = nil
+        let desc = description.trimmingCharacters(in: .whitespaces).isEmpty ? "Custom role." : description.trimmingCharacters(in: .whitespaces)
+        do {
+            if let r = existing {
+                try await RolesAPI.update(r.roleKey, .init(name: n, roleType: roleType, description: desc))
+                saving = false; onSaved(r.roleKey); dismiss()
+            } else {
+                let key = try await RolesAPI.create(.init(name: n, roleType: roleType, description: desc, copyFrom: copyFrom.isEmpty ? nil : copyFrom))
+                saving = false; onSaved(key); dismiss()
+            }
+        } catch {
+            saving = false
+            self.error = (error as? APIError)?.errorDescription ?? "Save failed."
+        }
+    }
+}
+
+// MARK: - Permissions matrix sheet (module × capability — editable + Save)
 
 private struct PermissionsMatrixSheet: View {
     let role: LocalRole
+    let onSaved: () -> Void
+    @Environment(\.dismiss) private var dismiss
 
     private var locked: Bool { role.roleKey == "super_admin" }
-    private var granted: Set<String> {       // "moduleId|capability"
-        Set(role.permissions.map { "\($0.moduleId)|\($0.capability)" })
-    }
-    private var total: Int { granted.count }
     private var capacity: Int { RolePerm.modules.count * RolePerm.capabilities.count }
+
+    @State private var working: Set<String> = []        // "moduleId|capability"
+    @State private var saving = false
+    @State private var error: String?
+
+    private func cellKey(_ mod: String, _ cap: String) -> String { "\(mod)|\(cap)" }
+    private var total: Int { working.count }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger).padding(.horizontal, 22).padding(.top, 8) }
             ScrollView([.vertical, .horizontal]) {
                 matrix.padding(.horizontal, 18).padding(.vertical, 14)
             }
@@ -312,6 +545,48 @@ private struct PermissionsMatrixSheet: View {
             footer
         }
         .background(Nuru.paper)
+        .onAppear { working = Set(role.permissions.map { cellKey($0.moduleId, $0.capability) }) }
+    }
+
+    // MARK: Toggles (web setCell / toggleRow / toggleColumn)
+
+    private func toggleCell(_ mod: String, _ cap: String) {
+        guard !locked else { return }
+        let k = cellKey(mod, cap)
+        if working.contains(k) { working.remove(k) } else { working.insert(k) }
+    }
+    private func toggleRow(_ mod: String) {
+        guard !locked else { return }
+        let allOn = RolePerm.capabilities.allSatisfy { working.contains(cellKey(mod, $0.key)) }
+        for c in RolePerm.capabilities {
+            let k = cellKey(mod, c.key)
+            if allOn { working.remove(k) } else { working.insert(k) }
+        }
+    }
+    private func toggleColumn(_ cap: String) {
+        guard !locked else { return }
+        let allOn = RolePerm.modules.allSatisfy { working.contains(cellKey($0.id, cap)) }
+        for m in RolePerm.modules {
+            let k = cellKey(m.id, cap)
+            if allOn { working.remove(k) } else { working.insert(k) }
+        }
+    }
+
+    private func save() {
+        guard !locked else { return }
+        saving = true; error = nil
+        let perms: [RolesAPI.PermItem] = RolePerm.modules.flatMap { m in
+            RolePerm.capabilities.compactMap { c in
+                working.contains(cellKey(m.id, c.key)) ? RolesAPI.PermItem(moduleId: m.id, capability: c.key) : nil
+            }
+        }
+        Task {
+            do { try await RolesAPI.setPermissions(role.roleKey, perms); saving = false; onSaved(); dismiss() }
+            catch {
+                saving = false
+                self.error = (error as? APIError)?.errorDescription ?? "Save failed."
+            }
+        }
     }
 
     // Navy drawer header (web PermissionsDrawer head)
@@ -330,6 +605,10 @@ private struct PermissionsMatrixSheet: View {
                     }.foregroundStyle(Nuru.onNavyDim)
                 }
                 Spacer(minLength: 0)
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                        .padding(8).background(Color.white.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 8))
+                }
             }
             if locked {
                 HStack(spacing: 6) {
@@ -351,13 +630,16 @@ private struct PermissionsMatrixSheet: View {
 
     private var matrix: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Column header row
+            // Column header row — tapping a capability label toggles the whole column.
             HStack(spacing: 0) {
                 Text("MODULE").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600)
                     .frame(width: 190, alignment: .leading).padding(.vertical, 8)
                 ForEach(RolePerm.capabilities) { cap in
-                    Text(cap.label.uppercased()).font(.inter(10.5, .bold)).tracking(0.3).foregroundStyle(Nuru.navy)
-                        .frame(width: 60).padding(.vertical, 8)
+                    Button { toggleColumn(cap.key) } label: {
+                        Text(cap.label.uppercased()).font(.inter(10.5, .bold)).tracking(0.3).foregroundStyle(Nuru.navy)
+                            .frame(width: 60).padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain).disabled(locked)
                 }
             }
 
@@ -369,11 +651,18 @@ private struct PermissionsMatrixSheet: View {
 
                 ForEach(RolePerm.modules.filter { $0.group == group }) { mod in
                     HStack(spacing: 0) {
-                        Text(mod.label).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
-                            .frame(width: 190, alignment: .leading).padding(.vertical, 8)
+                        // Tapping the module label toggles the whole row.
+                        Button { toggleRow(mod.id) } label: {
+                            Text(mod.label).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
+                                .frame(width: 190, alignment: .leading).padding(.vertical, 8)
+                        }
+                        .buttonStyle(.plain).disabled(locked)
                         ForEach(RolePerm.capabilities) { cap in
-                            MatrixBox(on: granted.contains("\(mod.id)|\(cap.key)"))
-                                .frame(width: 60).padding(.vertical, 6)
+                            Button { toggleCell(mod.id, cap.key) } label: {
+                                MatrixBox(on: working.contains(cellKey(mod.id, cap.key)))
+                                    .frame(width: 60).padding(.vertical, 6)
+                            }
+                            .buttonStyle(.plain).disabled(locked)
                         }
                     }
                     .overlay(Rectangle().fill(Nuru.border).frame(height: 1), alignment: .top)
@@ -382,13 +671,39 @@ private struct PermissionsMatrixSheet: View {
         }
     }
 
-    // Footer: read-only port — Reset is non-functional, so present a Done-only bar
-    // (the web Reset/Cancel/Save buttons drive mutations that aren't in scope).
+    // Footer: Reset (restore from server) + Cancel + Save.
     private var footer: some View {
-        HStack {
-            Text("\(total) of \(capacity) capabilities granted")
-                .font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink600)
-            Spacer()
+        HStack(spacing: 10) {
+            Button {
+                working = Set(role.permissions.map { cellKey($0.moduleId, $0.capability) })
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.counterclockwise").font(.system(size: 12, weight: .semibold))
+                    Text("Reset").font(.inter(12.5, .semibold))
+                }.foregroundStyle(Nuru.ink600)
+            }
+            .buttonStyle(.plain).disabled(locked)
+
+            Spacer(minLength: 0)
+
+            Button("Cancel") { dismiss() }
+                .font(.inter(13, .semibold)).foregroundStyle(Nuru.ink)
+                .padding(.horizontal, 16).padding(.vertical, 9)
+                .background(Nuru.white)
+                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+            Button { save() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
+                    Text("Save changes").font(.inter(13, .semibold))
+                }
+                .foregroundStyle(locked ? Nuru.ink400 : .white)
+                .padding(.horizontal, 18).padding(.vertical, 9)
+                .background(locked ? Nuru.inputBg : Nuru.gold)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            }
+            .buttonStyle(.plain).disabled(locked || saving)
         }
         .padding(.horizontal, 22).padding(.vertical, 14)
         .frame(maxWidth: .infinity)

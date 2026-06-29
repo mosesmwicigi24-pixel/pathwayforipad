@@ -191,6 +191,46 @@ private func shortRef(_ id: String) -> String {
     id.count > 12 ? "\(id.prefix(8))…\(id.suffix(4))" : id
 }
 
+// MARK: - CSV export (presentational in the web — window.print; here a native
+// ShareLink over the current read-only rows. No write endpoints are involved.)
+
+/// RFC-4180 quote: wrap in quotes and double any embedded quote.
+private func csvCell(_ s: String) -> String {
+    "\"\(s.replacingOccurrences(of: "\"", with: "\"\""))\""
+}
+private func csvRow(_ cols: [String]) -> String {
+    cols.map(csvCell).joined(separator: ",") + "\n"
+}
+
+/// Whole-units amount for CSV (mirrors the web `money` rounding to major units).
+private func csvAmount(_ minor: Int, _ currency: String) -> String {
+    "\(currency) \(Int((Double(minor) / 100).rounded()))"
+}
+
+private func transactionsCSV(_ rows: [TransactionRow]) -> String {
+    var out = csvRow(["Date", "Member", "Fund", "Amount", "Payment Status", "Ledger Status", "Reference"])
+    for t in rows {
+        out += csvRow([
+            fmtDate(t.createdAt),
+            t.fullName ?? "Anonymous",
+            t.fund ?? "—",
+            csvAmount(t.amountMinor, t.currency),
+            statusTitle(t.status),
+            ledgerStatus(t.status).label,
+            t.transactionId,
+        ])
+    }
+    return out
+}
+
+private func ledgerCSV(_ rows: [LedgerRow]) -> String {
+    var out = csvRow(["Account", "Side", "Amount", "When"])
+    for l in rows {
+        out += csvRow([l.account, l.side, csvAmount(l.amountMinor, l.currency), fmtDateTime(l.createdAt)])
+    }
+    return out
+}
+
 private func fmtDate(_ iso: String?) -> String {
     guard let iso, !iso.isEmpty else { return "—" }
     return Fmt.date(iso, style: .dateTime.day().month(.abbreviated).year())
@@ -309,6 +349,16 @@ struct FinanceView: View {
     private var debitTotal: Int { ledger.filter { $0.side == "debit" }.reduce(0) { $0 + $1.amountMinor } }
     private var creditTotal: Int { ledger.filter { $0.side == "credit" }.reduce(0) { $0 + $1.amountMinor } }
 
+    // Export Report (hero): the web window.print()s the page; here we share a CSV of
+    // whatever the current tab is showing — Ledger on the ledger tab, otherwise the
+    // (filtered/searched) transactions. Read-only: no write endpoint is touched.
+    private var heroExportCSV: String {
+        tab == .ledger ? ledgerCSV(ledger) : transactionsCSV(visibleTxns)
+    }
+    private var heroExportName: String {
+        tab == .ledger ? "Nuru Pathway — Ledger.csv" : "Nuru Pathway — Transactions.csv"
+    }
+
     // MARK: body
 
     var body: some View {
@@ -353,7 +403,16 @@ struct FinanceView: View {
                 HeroChip(label: "Audit-protected", icon: "checkmark.shield.fill", style: .tag)
                 Spacer(minLength: 0)
                 HeroChip(label: "Reconcile", icon: "arrow.triangle.2.circlepath", style: .ghost) { reconcileOpen = true }
-                HeroChip(label: "Export Report", icon: "square.and.arrow.down", style: .gold)
+                ShareLink(item: heroExportCSV, preview: SharePreview(heroExportName)) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.arrow.down").font(.system(size: 11, weight: .semibold))
+                        Text("Export Report").font(.inter(11.5, .semibold))
+                    }
+                    .padding(.horizontal, 12).frame(height: 32)
+                    .foregroundStyle(.white)
+                    .background(Nuru.gold)
+                    .clipShape(Capsule())
+                }
             }
             Text("Finance").font(.nDisplay).foregroundStyle(.white)
             heroStatStrip
@@ -660,6 +719,20 @@ private struct TransactionsTab: View {
                             filterLabel("Status: \(statusFilters.first { $0.value == statusFilter }?.label ?? "All")")
                         }
                         Spacer(minLength: 0)
+                        // Export (web window.print) → native CSV ShareLink of the
+                        // currently visible (filtered + searched) transactions.
+                        ShareLink(item: transactionsCSV(txns),
+                                  preview: SharePreview("Nuru Pathway — Transactions.csv")) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "square.and.arrow.down").font(.system(size: 11, weight: .semibold))
+                                Text("Export").font(.inter(13, .semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12).frame(height: 34)
+                            .background(Nuru.navy)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                        .disabled(txns.isEmpty)
                     }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 16)
