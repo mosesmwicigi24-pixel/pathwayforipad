@@ -101,40 +101,49 @@ struct RootView: View {
     }
 
     private var sidebar: some View {
-        List(selection: $selection) {
-            ForEach(navGroups) { group in
-                SwiftUI.Section {
-                    ForEach(group.items) { item in
-                        Label(item.title, systemImage: item.icon).tag(item)
+        ZStack {
+            Nuru.navyGradient.ignoresSafeArea()
+            VStack(spacing: 0) {
+                brandHeader
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        ForEach(navGroups) { group in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(group.label.uppercased())
+                                    .font(.caption2.weight(.bold)).tracking(1.2)
+                                    .foregroundStyle(.white.opacity(0.34))
+                                    .padding(.horizontal, 14).padding(.bottom, 2)
+                                ForEach(group.items) { item in
+                                    NavRow(item: item, selected: selection == item) {
+                                        withAnimation(.easeOut(duration: 0.18)) { selection = item }
+                                    }
+                                }
+                            }
+                        }
                     }
-                } header: {
-                    Text(group.label.uppercased())
-                        .font(.caption2).fontWeight(.bold)
-                        .foregroundStyle(.white.opacity(0.4))
+                    .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 16)
                 }
+                profileFooter
             }
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
-        .background(Nuru.navy)
-        .tint(Nuru.gold)
         .navigationTitle("Nuru Pathway")
-        .safeAreaInset(edge: .top) { brandHeader }
-        .safeAreaInset(edge: .bottom) { profileFooter }
         .toolbar(removing: .sidebarToggle)
+        .toolbarBackground(.hidden, for: .navigationBar)
     }
 
     private var brandHeader: some View {
         HStack(spacing: 12) {
-            BrandMark(size: 34)
+            BrandMark(size: 38)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Nuru Pathway").font(.headline).foregroundStyle(.white)
+                Text("Nuru Pathway").font(.nuruDisplay(18)).foregroundStyle(.white)
                 Text("Portal Admin").font(.caption2).foregroundStyle(.white.opacity(0.45))
             }
             Spacer()
         }
-        .padding(.horizontal, 18).padding(.vertical, 14)
-        .background(Nuru.navy)
+        .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 16)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(.white.opacity(0.08)).frame(height: 1).padding(.horizontal, 14)
+        }
     }
 
     private var profileFooter: some View {
@@ -147,20 +156,20 @@ struct RootView: View {
             }
         } label: {
             HStack(spacing: 10) {
-                Monogram(name: name, size: 34, fill: Nuru.gold)
+                Monogram(name: name, size: 36, gradient: Nuru.goldGradient)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(name).font(.subheadline).fontWeight(.semibold).foregroundStyle(.white).lineLimit(1)
-                    Text(role).font(.caption2).fontWeight(.bold).foregroundStyle(Nuru.gold)
+                    Text(role).font(.caption2).fontWeight(.bold).foregroundStyle(Nuru.goldLight)
                 }
                 Spacer()
                 Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.white.opacity(0.5))
             }
             .padding(12)
-            .background(.white.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .padding(.horizontal, 12).padding(.bottom, 12)
+            .background(.white.opacity(0.07))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+            .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 14)
         }
-        .background(Nuru.navy)
     }
 
     @ViewBuilder
@@ -189,5 +198,35 @@ struct RootView: View {
         case .languages:        LanguagesView()
         case .profile:          ProfileView()
         }
+    }
+}
+
+/// A sidebar navigation row — gold gradient pill + shadow when selected.
+private struct NavRow: View {
+    let item: Section
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: item.icon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 22)
+                Text(item.title)
+                    .font(.system(size: 14, weight: selected ? .semibold : .regular))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(selected ? .white : Color.white.opacity(0.7))
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(Nuru.goldGradient)
+                        .shadow(color: Nuru.gold.opacity(0.45), radius: 8, y: 3)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

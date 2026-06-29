@@ -13,7 +13,7 @@ struct CertificatesView: View {
                         ForEach(certs) { c in
                             Card {
                                 HStack(spacing: 14) {
-                                    Monogram(name: c.fullName, size: 40, fill: Nuru.gold)
+                                    Monogram(name: c.fullName, size: 40, gradient: Nuru.goldGradient)
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(c.fullName).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
                                         Text(c.levelTitle ?? (c.levelNumber.map { "Level \($0)" } ?? "Certificate"))

@@ -10,7 +10,7 @@ struct ProfileView: View {
                 if let p = auth.profile {
                     Card {
                         VStack(spacing: 12) {
-                            Monogram(name: p.fullName, size: 72, fill: Nuru.gold)
+                            Monogram(name: p.fullName, size: 72, gradient: Nuru.goldGradient)
                             Text(p.fullName).font(.title2.bold()).foregroundStyle(Nuru.navy)
                             Pill(text: p.role.uppercased(), color: Nuru.gold)
                         }
