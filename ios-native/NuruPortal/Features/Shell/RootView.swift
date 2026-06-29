@@ -84,9 +84,16 @@ private let navGroups: [NavGroup] = [
     .init(label: "System", items: [.users, .roles, .congregations, .countries, .languages]),
 ]
 
+/// App-wide navigation router — lets any detail screen jump to another top-level
+/// sidebar section (the iPad equivalent of the web portal's cross-page links).
+@MainActor final class NavRouter: ObservableObject {
+    @Published var section: Section? = .dashboard
+    func go(_ s: Section) { withAnimation(.easeOut(duration: 0.18)) { section = s } }
+}
+
 struct RootView: View {
     @EnvironmentObject private var auth: AuthStore
-    @State private var selection: Section? = .dashboard
+    @StateObject private var router = NavRouter()
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
@@ -94,10 +101,11 @@ struct RootView: View {
             sidebar
         } detail: {
             NavigationStack {
-                detail(for: selection ?? .dashboard)
+                detail(for: router.section ?? .dashboard)
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .environmentObject(router)
     }
 
     private var sidebar: some View {
@@ -114,8 +122,8 @@ struct RootView: View {
                                     .foregroundStyle(.white.opacity(0.34))
                                     .padding(.horizontal, 14).padding(.bottom, 2)
                                 ForEach(group.items) { item in
-                                    NavRow(item: item, selected: selection == item) {
-                                        withAnimation(.easeOut(duration: 0.18)) { selection = item }
+                                    NavRow(item: item, selected: router.section == item) {
+                                        router.go(item)
                                     }
                                 }
                             }
@@ -150,7 +158,7 @@ struct RootView: View {
         let name = auth.profile?.fullName ?? "Account"
         let role = (auth.profile?.role ?? "member").uppercased()
         return Menu {
-            Button { selection = .profile } label: { Label("My Profile", systemImage: "person.crop.circle") }
+            Button { router.go(.profile) } label: { Label("My Profile", systemImage: "person.crop.circle") }
             Button(role: .destructive) { auth.signOut() } label: {
                 Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
             }

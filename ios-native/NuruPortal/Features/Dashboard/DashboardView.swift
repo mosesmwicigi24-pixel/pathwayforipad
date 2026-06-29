@@ -60,6 +60,7 @@ private let todayLabel: String = Date().formatted(.dateTime.weekday(.wide).day()
 
 struct DashboardView: View {
     @StateObject private var vm = DashboardViewModel()
+    @EnvironmentObject private var router: NavRouter
     private let grid = [GridItem(.adaptive(minimum: 230), spacing: 14)]
 
     var body: some View {
@@ -96,19 +97,21 @@ struct DashboardView: View {
         return PortalHero(breadcrumb: ["Nuru Pathway", "Dashboard"], title: vm.greeting, stats: stats) {
             HStack(spacing: 8) {
                 HeroChip(label: todayLabel, icon: "sparkles", style: .tag)
-                HeroChip(label: "Members", trailingIcon: "arrow.right", style: .gold)
+                HeroChip(label: "Review queue", icon: "checklist", style: .ghost) { router.go(.reflectionQueue) }
+                HeroChip(label: "Curriculum", icon: "book", style: .ghost) { router.go(.cms) }
+                HeroChip(label: "Members", trailingIcon: "arrow.right", style: .gold) { router.go(.members) }
             }
         }
     }
 
     @ViewBuilder private var kpiTiles: some View {
         let o = vm.overview
-        KpiTile(label: "Modules published", value: "\(o?.modulesPublished ?? 0)", icon: "book.fill", tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F)))
-        KpiTile(label: "Pending reviews", value: "\(o?.pendingReviews ?? 0)", icon: "checklist", tint: .init(bg: Color(hex: 0xFDECEC), fg: Color(hex: 0xA8281F)))
-        KpiTile(label: "Certificates (mo.)", value: "\(o?.certificatesThisMonth ?? 0)", icon: "rosette", tint: .init(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33)))
-        KpiTile(label: "Members at risk", value: "\(o?.membersAtRisk ?? 0)", icon: "exclamationmark.triangle.fill", tint: .init(bg: Color(hex: 0xEEF1F8), fg: Color(hex: 0x1F3A6B)))
-        KpiTile(label: "Countries", value: "\(vm.countriesActive)", icon: "globe", tint: .init(bg: Color(hex: 0xEEF1F8), fg: Color(hex: 0x1F3A6B)))
-        KpiTile(label: "Languages", value: "\(vm.languagesActive)", icon: "character.bubble", tint: .init(bg: Color(hex: 0xF3E8FF), fg: Color(hex: 0x7C3AED)))
+        KpiTile(label: "Modules published", value: "\(o?.modulesPublished ?? 0)", icon: "book.fill", tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F))) { router.go(.cms) }
+        KpiTile(label: "Pending reviews", value: "\(o?.pendingReviews ?? 0)", icon: "checklist", tint: .init(bg: Color(hex: 0xFDECEC), fg: Color(hex: 0xA8281F))) { router.go(.reflectionQueue) }
+        KpiTile(label: "Certificates (mo.)", value: "\(o?.certificatesThisMonth ?? 0)", icon: "rosette", tint: .init(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33))) { router.go(.certificates) }
+        KpiTile(label: "Members at risk", value: "\(o?.membersAtRisk ?? 0)", icon: "exclamationmark.triangle.fill", tint: .init(bg: Color(hex: 0xEEF1F8), fg: Color(hex: 0x1F3A6B))) { router.go(.cellEngagement) }
+        KpiTile(label: "Countries", value: "\(vm.countriesActive)", icon: "globe", tint: .init(bg: Color(hex: 0xEEF1F8), fg: Color(hex: 0x1F3A6B))) { router.go(.countries) }
+        KpiTile(label: "Languages", value: "\(vm.languagesActive)", icon: "character.bubble", tint: .init(bg: Color(hex: 0xF3E8FF), fg: Color(hex: 0x7C3AED))) { router.go(.languages) }
     }
 
     private var bottomRow: some View {
@@ -126,6 +129,7 @@ func Pctf(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
 
 private struct PipelineSection: View {
     let levels: [AdminLevel]
+    @EnvironmentObject private var router: NavRouter
     private func sum(_ pick: (AdminLevel) -> String) -> Int { levels.reduce(0) { $0 + (Int(pick($1)) ?? 0) } }
     var body: some View {
         let inReview = levels.filter { $0.status == "in_review" }.count
@@ -143,7 +147,10 @@ private struct PipelineSection: View {
                     Text("Curriculum pipeline").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
                     Text("· \(total) items").font(.nCaption).foregroundStyle(Nuru.ink600)
                     Spacer()
-                    Text("View all").font(.inter(12, .semibold)).foregroundStyle(Nuru.goldLo)
+                    Button { router.go(.cms) } label: {
+                        HStack(spacing: 3) { Text("View all").font(.inter(12, .semibold)); Image(systemName: "chevron.right").font(.system(size: 10)) }
+                            .foregroundStyle(Nuru.goldLo)
+                    }.buttonStyle(.plain)
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
                     ForEach(items, id: \.0) { it in
@@ -332,6 +339,7 @@ private struct AttendancePanel: View {
 
 private struct ActivityCard: View {
     let activity: [AuditRow]
+    @EnvironmentObject private var router: NavRouter
     private func humanize(_ a: String) -> String {
         let s = a.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: ".", with: " ")
         return s.prefix(1).uppercased() + s.dropFirst()
@@ -339,7 +347,11 @@ private struct ActivityCard: View {
     var body: some View {
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Recent activity").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
+                HStack {
+                    Text("Recent activity").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
+                    Spacer()
+                    Button("View all") { router.go(.cellEngagement) }.font(.inter(12, .semibold)).tint(Nuru.goldLo)
+                }
                 if activity.isEmpty {
                     Text("No recent activity recorded.").font(.nCaption).foregroundStyle(Nuru.ink600)
                 } else {
@@ -367,10 +379,15 @@ private struct ActivityCard: View {
 
 private struct UpcomingCard: View {
     let events: [CalendarOccurrence]
+    @EnvironmentObject private var router: NavRouter
     var body: some View {
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Upcoming events").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
+                HStack {
+                    Text("Upcoming events").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
+                    Spacer()
+                    Button("Calendar") { router.go(.events) }.font(.inter(12, .semibold)).tint(Nuru.goldLo)
+                }
                 if events.isEmpty {
                     Text("No events scheduled in the next 60 days.").font(.nCaption).foregroundStyle(Nuru.ink600)
                 } else {
