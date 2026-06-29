@@ -179,63 +179,69 @@ private struct LanguageCard: View {
     }
     var body: some View {
         let active = l.status == "active"
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header — language name + native name, with the code as a quiet chip.
+            HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(l.name).font(.fraunces(15.5, .semibold)).foregroundStyle(Nuru.foreground).lineLimit(1).minimumScaleFactor(0.85)
-                        if l.isDefault {
-                            HStack(spacing: 3) {
-                                Image(systemName: "star.fill").font(.system(size: 7.5))
-                                Text("Default").font(.inter(9.5, .bold)).tracking(0.4)
-                            }
-                            .textCase(.uppercase)
-                            .foregroundStyle(Nuru.gold)
-                            .padding(.horizontal, 7).padding(.vertical, 2.5)
-                            .background(Nuru.gold.opacity(0.14))
-                            .clipShape(Capsule())
-                        }
-                    }
+                    Text(l.name).font(.fraunces(16, .semibold)).foregroundStyle(Nuru.foreground)
+                        .lineLimit(1).minimumScaleFactor(0.85)
                     Text(l.nativeName).font(.inter(12.5)).foregroundStyle(Nuru.muted).lineLimit(1)
                 }
-                Spacer(minLength: 8)
-                Text(l.code.uppercased()).font(.system(.caption, design: .monospaced)).foregroundStyle(Nuru.muted)
+                Spacer(minLength: 6)
+                Text(l.code.uppercased())
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Nuru.ink600)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Nuru.surface).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
 
-            HStack(spacing: 8) {
-                Text(l.direction.uppercased()).font(.inter(10.5, .semibold))
-                    .foregroundStyle(Nuru.muted)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Nuru.surface).clipShape(Capsule())
+            // Status row — Default / Active / direction pills, aligned on one line.
+            HStack(spacing: 6) {
+                if l.isDefault {
+                    HStack(spacing: 3) {
+                        Image(systemName: "star.fill").font(.system(size: 7.5))
+                        Text("Default").font(.inter(9.5, .bold)).tracking(0.4)
+                    }
+                    .textCase(.uppercase).foregroundStyle(Nuru.gold)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Nuru.gold.opacity(0.14)).clipShape(Capsule())
+                }
                 Pill(text: l.status.capitalized, color: active ? Nuru.success : Nuru.muted)
+                Spacer(minLength: 0)
+                Text(l.direction.uppercased()).font(.inter(9.5, .semibold)).tracking(0.4)
+                    .foregroundStyle(Nuru.muted)
             }
+            .padding(.top, 12)
 
-            VStack(spacing: 4) {
+            // Coverage — a clean labelled fill.
+            VStack(spacing: 5) {
                 HStack {
-                    Text("Coverage").font(.inter(11)).foregroundStyle(Nuru.muted)
+                    Text("Coverage").font(.inter(10.5, .medium)).tracking(0.3).textCase(.uppercase).foregroundStyle(Nuru.muted)
                     Spacer()
-                    Text("\(Int(l.coverage.rounded()))%").font(.inter(11, .bold)).foregroundStyle(Nuru.foreground)
+                    Text("\(Int(l.coverage.rounded()))%").font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
                 }
                 ProgressBar(pct: l.coverage, fill: Nuru.gold, height: 6)
             }
+            .padding(.top, 14)
 
-            Divider().background(Nuru.border)
+            Divider().background(Nuru.border).padding(.top, 14)
 
-            HStack(spacing: 9) {
+            // Action row — calm, evenly spaced.
+            HStack(spacing: 14) {
                 if !l.isDefault {
                     Button(action: onSetDefault) {
                         HStack(spacing: 3) { Image(systemName: "star").font(.system(size: 11)); Text("Default") }
-                            .font(.inter(11, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                            .font(.inter(11, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
                     }
                     .buttonStyle(.plain)
                 }
                 Button(action: onEdit) {
                     HStack(spacing: 3) { Image(systemName: "pencil").font(.system(size: 11)); Text("Edit") }
-                        .font(.inter(11, .semibold)).foregroundStyle(Nuru.muted).lineLimit(1)
+                        .font(.inter(11, .medium)).foregroundStyle(Nuru.ink600).lineLimit(1)
                 }
                 .buttonStyle(.plain)
                 Button(action: onToggle) {
-                    Text(active ? "Disable" : "Enable").font(.inter(11, .semibold)).lineLimit(1)
+                    Text(active ? "Disable" : "Enable").font(.inter(11, .medium)).lineLimit(1)
                         .foregroundStyle(active ? Color(hex: 0xDC2626) : Color(hex: 0x16A34A))
                 }
                 .buttonStyle(.plain)
@@ -245,6 +251,7 @@ private struct LanguageCard: View {
                         .buttonStyle(.plain)
                 }
             }
+            .padding(.top, 12)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

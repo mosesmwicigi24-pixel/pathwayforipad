@@ -691,39 +691,114 @@ private let PLAN_CATEGORIES = ["Foundations", "Growth", "Prayer", "Devotion", "T
 private let RESOURCE_KINDS = ["book", "audio", "video", "article"]
 private let SEGMENT_KINDS = ["devotional", "scripture", "video", "talk", "reading"]
 
-// MARK: - Card shell (web RowShell: 4px accent bar + white card + actions)
+// MARK: - Premium card shell
+//
+// Rebuilt for the iPad portrait redesign (Pass v3 → Content Studio): each section
+// card is now an OUTSTANDING premium card rather than a flat accent-bar row. The
+// shell composes a header (tinted icon chip + title/subtitle + status pill), an
+// optional rich body, and a footer rail of real styled buttons (a primary Edit
+// CTA + a secondary delete) — never an underlined text link. A soft accent wash
+// on the icon and a thin accent top-rule give each section its identity while the
+// card stays cohesive with the shared kit (Card, Pill, TintedIcon, Nuru tokens).
 
-private struct RowShell<Content: View>: View {
-    let accent: Color
-    var onEdit: (() -> Void)?
-    var onDelete: (() -> Void)?
-    @ViewBuilder var content: Content
+// A pill-shaped, filled or bordered button for a card CTA (NOT an underlined link).
+private struct CardButton: View {
+    let title: String
+    var icon: String? = nil
+    var tint: Color = Nuru.navy
+    var style: Style = .fill
+    let action: () -> Void
+    enum Style { case fill, outline }
+
     var body: some View {
-        HStack(spacing: 0) {
-            Rectangle().fill(accent).frame(width: 4)
-            HStack(alignment: .top, spacing: 12) {
-                content.frame(maxWidth: .infinity, alignment: .leading)
-                if onEdit != nil || onDelete != nil {
-                    HStack(spacing: 6) {
-                        if let onEdit {
-                            Button(action: onEdit) {
-                                Image(systemName: "pencil").font(.system(size: 13)).foregroundStyle(Nuru.navy)
-                                    .frame(width: 32, height: 32)
-                                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                            }.buttonStyle(.plain)
-                        }
-                        if let onDelete {
-                            Button(action: onDelete) {
-                                Image(systemName: "trash").font(.system(size: 13)).foregroundStyle(Nuru.danger)
-                                    .frame(width: 32, height: 32)
-                                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                            }.buttonStyle(.plain)
-                        }
-                    }
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if let icon { Image(systemName: icon).font(.system(size: 12, weight: .semibold)) }
+                Text(title).font(.inter(12.5, .semibold))
+            }
+            .foregroundStyle(style == .fill ? AnyShapeStyle(Color.white) : AnyShapeStyle(tint))
+            .padding(.horizontal, 14).frame(height: 34)
+            .background(style == .fill ? AnyShapeStyle(tint) : AnyShapeStyle(Color.clear))
+            .overlay {
+                if style == .outline {
+                    Capsule().stroke(tint.opacity(0.45), lineWidth: 1.2)
                 }
             }
-            .padding(.horizontal, 16).padding(.vertical, 14)
+            .clipShape(Capsule())
         }
+        .buttonStyle(.plain)
+    }
+}
+
+// A compact icon-only capsule button for secondary destructive actions.
+private struct CardIconButton: View {
+    let icon: String
+    var tint: Color = Nuru.ink600
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.10))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// The premium card: tinted accent identity + content + a footer button rail.
+private struct PremiumCard<Body: View>: View {
+    let accent: Color
+    let icon: String
+    let title: String
+    var subtitle: String? = nil
+    var status: (on: Bool, onLabel: String, offLabel: String, onTap: () -> Void)?
+    @ViewBuilder var bodyContent: Body
+    var editTitle: String = "Edit"
+    let onEdit: () -> Void
+    var onDelete: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Thin accent rule across the top for section identity.
+            Rectangle().fill(accent).frame(height: 3)
+
+            VStack(alignment: .leading, spacing: 12) {
+                // Header: icon chip + title/subtitle + status pill.
+                HStack(alignment: .top, spacing: 12) {
+                    TintedIcon(systemName: icon, color: accent, size: 44)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title)
+                            .font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                            .lineLimit(2)
+                        if let subtitle, !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.inter(12.5)).foregroundStyle(Nuru.ink600)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if let status {
+                        StatusPill(on: status.on, onLabel: status.onLabel,
+                                   offLabel: status.offLabel, onTap: status.onTap)
+                    }
+                }
+
+                bodyContent
+
+                // Footer rail: primary Edit CTA + secondary delete, real buttons.
+                HStack(spacing: 8) {
+                    CardButton(title: editTitle, icon: "pencil", tint: accent, style: .fill, action: onEdit)
+                    if let onDelete {
+                        CardIconButton(icon: "trash", tint: Nuru.danger, action: onDelete)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            .padding(16)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.white)
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
@@ -731,14 +806,20 @@ private struct RowShell<Content: View>: View {
     }
 }
 
-// A square index/icon badge with a tinted fill (web's leading 40–56px tile).
-private struct LeadBadge<Content: View>: View {
-    var size: CGFloat = 46
-    let bg: Color
-    @ViewBuilder var content: Content
+// A small metric chip used inside card bodies (icon + value, tinted).
+private struct MetricChip: View {
+    let icon: String
+    let text: String
+    var color: Color = Nuru.ink600
     var body: some View {
-        ZStack { RoundedRectangle(cornerRadius: 12, style: .continuous).fill(bg); content }
-            .frame(width: size, height: size)
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 10.5, weight: .semibold))
+            Text(text).font(.inter(11.5, .medium)).lineLimit(1)
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 9).padding(.vertical, 5)
+        .background(color.opacity(0.10))
+        .clipShape(Capsule())
     }
 }
 
@@ -764,33 +845,28 @@ private struct DevotionalCard: View {
     var onEdit: () -> Void
     var onDelete: () -> Void
     var onToggle: () -> Void
+    private let accent = Color(hex: 0x0B84E8)
     var body: some View {
-        RowShell(accent: Color(hex: 0x0B84E8), onEdit: onEdit, onDelete: onDelete) {
-            HStack(alignment: .top, spacing: 14) {
-                LeadBadge(bg: Color(hex: 0x0B84E8).opacity(0.10)) {
-                    VStack(spacing: 0) {
-                        Text("DAY").font(.inter(8.5, .bold)).tracking(0.5).opacity(0.7)
-                        Text("\(d.dayNumber)").font(.fraunces(18, .medium))
-                    }
-                    .foregroundStyle(Color(hex: 0x0B84E8))
-                }
-                VStack(alignment: .leading, spacing: 6) {
+        PremiumCard(
+            accent: accent, icon: "book.fill",
+            title: d.title.isEmpty ? "Untitled devotional" : d.title,
+            subtitle: d.series,
+            status: (d.isPublished, "Published", "Draft", onToggle),
+            bodyContent: {
+                VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
-                        Text(d.title.isEmpty ? "Untitled devotional" : d.title)
-                            .font(.inter(14.5, .bold)).foregroundStyle(Nuru.navy)
-                        StatusPill(on: d.isPublished, onLabel: "Published", offLabel: "Draft", onTap: onToggle)
-                    }
-                    HStack(spacing: 8) {
-                        if let s = d.series, !s.isEmpty { Text(s).font(.nCaption).foregroundStyle(Nuru.ink600) }
-                        if let r = d.scriptureRef, !r.isEmpty { Pill(text: r, color: Nuru.gold) }
+                        MetricChip(icon: "calendar", text: "Day \(d.dayNumber)", color: accent)
+                        if let r = d.scriptureRef, !r.isEmpty {
+                            MetricChip(icon: "text.quote", text: r, color: Nuru.gold)
+                        }
                     }
                     if !d.body.isEmpty {
-                        Text(d.body).font(.inter(12.5)).foregroundStyle(Nuru.ink600).lineLimit(2)
+                        Text(d.body).font(.inter(12.5)).foregroundStyle(Nuru.ink600)
+                            .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                Spacer(minLength: 0)
-            }
-        }
+            },
+            onEdit: onEdit, onDelete: onDelete)
     }
 }
 
@@ -799,28 +875,27 @@ private struct VerseCard: View {
     var onEdit: () -> Void
     var onDelete: () -> Void
     var onToggle: () -> Void
+    private let accent = Color(hex: 0x7C3AED)
     var body: some View {
-        RowShell(accent: Color(hex: 0x7C3AED), onEdit: onEdit, onDelete: onDelete) {
-            HStack(alignment: .top, spacing: 14) {
-                LeadBadge(size: 40, bg: Color(hex: 0x7C3AED).opacity(0.10)) {
-                    Image(systemName: "quote.bubble.fill").font(.system(size: 17)).foregroundStyle(Color(hex: 0x7C3AED))
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(v.reference.isEmpty ? "Untitled verse" : v.reference)
-                            .font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
-                        if !v.version.isEmpty { Pill(text: v.version, color: Color(hex: 0x7C3AED)) }
-                        if let w = v.weekNumber { Pill(text: "Week \(w)", color: Nuru.ink600) }
-                        StatusPill(on: v.isActive, onTap: onToggle)
-                    }
+        PremiumCard(
+            accent: accent, icon: "quote.bubble.fill",
+            title: v.reference.isEmpty ? "Untitled verse" : v.reference,
+            subtitle: v.version.isEmpty ? "Memory verse" : "\(v.version) · to memorise",
+            status: (v.isActive, "Active", "Inactive", onToggle),
+            bodyContent: {
+                VStack(alignment: .leading, spacing: 10) {
                     if !v.verseText.isEmpty {
                         Text("“\(v.verseText)”").font(.fraunces(14.5, .regular)).italic()
                             .foregroundStyle(Nuru.navy).lineLimit(4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    HStack(spacing: 8) {
+                        if !v.version.isEmpty { MetricChip(icon: "book.closed", text: v.version, color: accent) }
+                        if let w = v.weekNumber { MetricChip(icon: "calendar", text: "Week \(w)", color: Nuru.ink600) }
                     }
                 }
-                Spacer(minLength: 0)
-            }
-        }
+            },
+            onEdit: onEdit, onDelete: onDelete)
     }
 }
 
@@ -832,34 +907,28 @@ private struct DailyVerseCard: View {
         guard let date = f.date(from: d.dayDate) else { return d.dayDate }
         return date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).year())
     }
+    private let accent = Color(hex: 0x0EA5A0)
     var body: some View {
-        // Daily verses are edit-only (no delete) — onEdit only.
-        RowShell(accent: Color(hex: 0x0EA5A0), onEdit: onEdit) {
-            HStack(alignment: .top, spacing: 14) {
-                LeadBadge(size: 44, bg: Color(hex: 0x0EA5A0).opacity(0.10)) {
-                    VStack(spacing: 0) {
-                        Text("DAY").font(.inter(8.5, .bold)).tracking(0.4)
-                        Text("\(d.dayIndex)").font(.fraunces(16, .medium))
-                    }
-                    .foregroundStyle(Color(hex: 0x0E7C77))
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(d.reference).font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
-                        if !d.version.isEmpty { Pill(text: d.version, color: Color(hex: 0x0E7C77)) }
-                        if let t = d.theme, !t.isEmpty { Pill(text: t, color: Nuru.ink600) }
-                    }
-                    if !d.dayDate.isEmpty {
-                        Label(dateLabel, systemImage: "calendar").font(.nMicro).foregroundStyle(Nuru.ink600)
-                    }
+        // Daily verses are edit-only (no delete, no toggle) — onEdit only.
+        PremiumCard(
+            accent: accent, icon: "calendar",
+            title: d.reference.isEmpty ? "Day \(d.dayIndex)" : d.reference,
+            subtitle: d.dayDate.isEmpty ? "Day \(d.dayIndex)" : "Day \(d.dayIndex) · \(dateLabel)",
+            status: nil,
+            bodyContent: {
+                VStack(alignment: .leading, spacing: 10) {
                     if !d.verseText.isEmpty {
                         Text("“\(d.verseText)”").font(.fraunces(14.5, .regular)).italic()
                             .foregroundStyle(Nuru.navy).lineLimit(4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    HStack(spacing: 8) {
+                        if !d.version.isEmpty { MetricChip(icon: "book.closed", text: d.version, color: accent) }
+                        if let t = d.theme, !t.isEmpty { MetricChip(icon: "sparkles", text: t, color: Nuru.ink600) }
                     }
                 }
-                Spacer(minLength: 0)
-            }
-        }
+            },
+            onEdit: onEdit)
     }
 }
 
@@ -868,34 +937,26 @@ private struct PlanCard: View {
     var onEdit: () -> Void
     var onDelete: () -> Void
     var onToggle: () -> Void
+    private let accent = Color(hex: 0x16A34A)
     var body: some View {
-        RowShell(accent: Color(hex: 0x16A34A), onEdit: onEdit, onDelete: onDelete) {
-            HStack(alignment: .top, spacing: 14) {
-                LeadBadge(size: 56, bg: Color(hex: 0x16A34A).opacity(0.10)) {
-                    Image(systemName: "calendar.badge.clock").font(.system(size: 20)).foregroundStyle(Color(hex: 0x16A34A))
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(p.title.isEmpty ? "Untitled plan" : p.title)
-                            .font(.inter(14.5, .bold)).foregroundStyle(Nuru.navy)
-                        if let c = p.category, !c.isEmpty { Pill(text: c, color: Color(hex: 0x0F6B33)) }
-                        StatusPill(on: p.isActive, onTap: onToggle)
+        PremiumCard(
+            accent: accent, icon: "calendar.badge.clock",
+            title: p.title.isEmpty ? "Untitled plan" : p.title,
+            subtitle: p.subtitle,
+            status: (p.isActive, "Active", "Inactive", onToggle),
+            bodyContent: {
+                HStack(spacing: 8) {
+                    MetricChip(icon: "list.bullet.rectangle",
+                               text: "\(p.dayCount) day\(p.dayCount == 1 ? "" : "s")", color: accent)
+                    if let c = p.category, !c.isEmpty {
+                        MetricChip(icon: "folder", text: c, color: Color(hex: 0x0F6B33))
                     }
-                    if let s = p.subtitle, !s.isEmpty {
-                        Text(s).font(.inter(12.5)).foregroundStyle(Nuru.ink600)
-                    }
-                    HStack(spacing: 8) {
-                        if !p.code.isEmpty {
-                            Text(p.code).font(.system(.caption, design: .monospaced)).foregroundStyle(Nuru.ink600)
-                        }
-                        Text("·").foregroundStyle(Nuru.ink400)
-                        Text("\(p.dayCount) day\(p.dayCount == 1 ? "" : "s")")
-                            .font(.inter(11.5)).foregroundStyle(Nuru.ink600)
+                    if !p.code.isEmpty {
+                        MetricChip(icon: "number", text: p.code, color: Nuru.ink600)
                     }
                 }
-                Spacer(minLength: 0)
-            }
-        }
+            },
+            onEdit: onEdit, onDelete: onDelete)
     }
 }
 
@@ -913,34 +974,25 @@ private struct ResourceCard: View {
         default:        return "doc.text"
         }
     }
+    private let accent = Color(hex: 0xC89B3C)
     var body: some View {
-        RowShell(accent: Color(hex: 0xC89B3C), onEdit: onEdit, onDelete: onDelete) {
-            HStack(alignment: .center, spacing: 14) {
-                LeadBadge(size: 40, bg: Color(hex: 0xC89B3C).opacity(0.12)) {
-                    Image(systemName: icon).font(.system(size: 17)).foregroundStyle(Color(hex: 0x8B6914))
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(r.title.isEmpty ? "Untitled resource" : r.title)
-                            .font(.inter(14.5, .bold)).foregroundStyle(Nuru.navy)
-                        Pill(text: r.kind, color: Color(hex: 0x8B6914))
-                        StatusPill(on: r.isActive, onTap: onToggle)
+        PremiumCard(
+            accent: accent, icon: icon,
+            title: r.title.isEmpty ? "Untitled resource" : r.title,
+            subtitle: (r.author?.isEmpty == false ? r.author : r.kind.capitalized),
+            status: (r.isActive, "Active", "Inactive", onToggle),
+            bodyContent: {
+                HStack(spacing: 8) {
+                    MetricChip(icon: icon, text: r.kind.capitalized, color: accent)
+                    if let dur = r.durationLabel, !dur.isEmpty {
+                        MetricChip(icon: "clock", text: dur, color: Nuru.ink600)
                     }
-                    HStack(spacing: 8) {
-                        if let a = r.author, !a.isEmpty { Text(a).font(.nCaption).foregroundStyle(Nuru.ink600) }
-                        if let dur = r.durationLabel, !dur.isEmpty {
-                            Text("·").foregroundStyle(Nuru.ink400)
-                            Label(dur, systemImage: "clock").font(.nMicro).foregroundStyle(Nuru.ink600)
-                        }
-                        if let u = r.url, !u.isEmpty {
-                            Text("·").foregroundStyle(Nuru.ink400)
-                            Label("link", systemImage: "link").font(.nMicro).foregroundStyle(Nuru.gold)
-                        }
+                    if r.url?.isEmpty == false {
+                        MetricChip(icon: "link", text: "Link", color: Nuru.gold)
                     }
                 }
-                Spacer(minLength: 0)
-            }
-        }
+            },
+            onEdit: onEdit, onDelete: onDelete)
     }
 }
 
@@ -952,10 +1004,8 @@ private struct EmptyStateView: View {
     var onNew: (() -> Void)?
     var body: some View {
         VStack(spacing: 8) {
-            LeadBadge(size: 56, bg: tab.accent.opacity(0.10)) {
-                Image(systemName: tab.icon).font(.system(size: 26, weight: .semibold)).foregroundStyle(tab.accent)
-            }
-            .padding(.bottom, 6)
+            TintedIcon(systemName: tab.icon, color: tab.accent, size: 56)
+                .padding(.bottom, 6)
             Text("No \(tab.label.lowercased()) yet").font(.inter(16, .bold)).foregroundStyle(Nuru.navy)
             Text("Create your first \(tab.singular) to publish it to the mobile app.")
                 .font(.nCaption).foregroundStyle(Nuru.ink600).multilineTextAlignment(.center).frame(maxWidth: 340)

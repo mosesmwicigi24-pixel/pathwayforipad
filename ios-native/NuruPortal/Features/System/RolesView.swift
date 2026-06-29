@@ -80,7 +80,9 @@ struct RolesView: View {
                     if !keyRoles.isEmpty {
                         VStack(alignment: .leading, spacing: 14) {
                             SectionHeader(overline: "Access tiers", title: "Key roles in the pathway")
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 14)], spacing: 14) {
+                            // ~740pt usable: minimum 165 → 4 fit on the top row, the
+                            // remaining 2 of 6 wrap naturally to the next row.
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 165), spacing: 12)], spacing: 12) {
                                 ForEach(Array(keyRoles)) { KeyRoleCard(role: $0) }
                             }
                         }
@@ -304,20 +306,52 @@ private struct KeyRoleCard: View {
     let role: LocalRole
     var body: some View {
         let ic = RolePerm.keyIcons[role.roleKey] ?? RolePerm.typeIcon(role.roleType)
-        Card {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous).fill(ic.bg)
-                    Image(systemName: ic.icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(ic.tone)
-                }.frame(width: 36, height: 36)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(role.name).font(.inter(13.5, .bold)).foregroundStyle(Nuru.navy)
-                    Text(role.description).font(.nCaption).foregroundStyle(Nuru.ink600)
-                        .fixedSize(horizontal: false, vertical: true)
+        Card(padding: 14) {
+            VStack(alignment: .leading, spacing: 9) {
+                // Tinted icon chip + a quiet type tag on the same baseline.
+                HStack(alignment: .top, spacing: 0) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous).fill(ic.bg)
+                        Image(systemName: ic.icon).font(.system(size: 17, weight: .semibold)).foregroundStyle(ic.tone)
+                    }.frame(width: 38, height: 38)
+                    Spacer(minLength: 8)
+                    Text(role.roleType.isEmpty ? "—" : role.roleType.capitalized)
+                        .font(.inter(9.5, .semibold)).tracking(0.4)
+                        .foregroundStyle(ic.tone)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(ic.bg).clipShape(Capsule())
+                        .lineLimit(1)
                 }
-                Spacer(minLength: 0)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(role.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
+                        .lineLimit(1).minimumScaleFactor(0.85)
+                    Text(role.description.isEmpty ? "Scoped access tier." : role.description)
+                        .font(.inter(11, .regular)).foregroundStyle(Nuru.ink600)
+                        .lineLimit(2).minimumScaleFactor(0.9)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Divider().overlay(Nuru.border)
+
+                // Real-field stats: permissions granted + members holding the role.
+                HStack(spacing: 12) {
+                    stat(icon: "shield.lefthalf.filled", value: "\(role.permissions.count)", label: "perms", tone: ic.tone)
+                    stat(icon: "person.2.fill", value: "\(role.userCount)", label: "members", tone: Nuru.ink400)
+                    Spacer(minLength: 0)
+                }
             }
         }
+    }
+
+    private func stat(icon: String, value: String, label: String, tone: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 9.5, weight: .semibold)).foregroundStyle(tone)
+            Text(value).font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
+            Text(label).font(.inter(10, .regular)).foregroundStyle(Nuru.ink600)
+        }
+        .lineLimit(1).minimumScaleFactor(0.8)
     }
 }
 
@@ -325,22 +359,24 @@ private struct KeyRoleCard: View {
 // Columns mirror the web Roles.tsx table: Role · Type · Permissions · Users ·
 // Status · ⋯, width-aligned across rows.
 
-// Tuned for PORTRAIT (usable row ≈ 692pt): fixed 432 + 5×12 gaps + name flex
-// ≈ 200 → fits without clipping.
+// Tuned for PORTRAIT (usable row ≈ 692pt): icon 38 + fixed 348 + 6×10 gaps +
+// name flex ≈ 200 → fits without clipping.
 private enum RoleCol {
-    static let type: CGFloat = 84
-    static let perms: CGFloat = 104
-    static let users: CGFloat = 64
-    static let status: CGFloat = 96
-    static let actions: CGFloat = 84
+    static let icon: CGFloat = 38
+    static let type: CGFloat = 74
+    static let perms: CGFloat = 76
+    static let users: CGFloat = 56
+    static let status: CGFloat = 84
+    static let actions: CGFloat = 78
 }
 
 private struct RoleHeaderRow: View {
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
+            Color.clear.frame(width: RoleCol.icon)
             head("Role").frame(maxWidth: .infinity, alignment: .leading)
             head("Type").frame(width: RoleCol.type, alignment: .leading)
-            head("Perms").frame(width: RoleCol.perms, alignment: .leading)
+            head("Perms").frame(width: RoleCol.perms, alignment: .trailing)
             head("Users").frame(width: RoleCol.users, alignment: .trailing)
             head("Status").frame(width: RoleCol.status, alignment: .leading)
             head("").frame(width: RoleCol.actions, alignment: .trailing)
@@ -360,11 +396,19 @@ private struct RoleTableRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        let ic = RolePerm.keyIcons[role.roleKey] ?? RolePerm.typeIcon(role.roleType)
+        HStack(spacing: 10) {
+            // Leading tinted icon tile — gives the row weight and a quick visual cue.
+            ZStack {
+                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(ic.bg)
+                Image(systemName: ic.icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(ic.tone)
+            }
+            .frame(width: RoleCol.icon, height: RoleCol.icon)
+
             // Role — name + monospaced key
             VStack(alignment: .leading, spacing: 2) {
                 Text(role.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.85)
-                Text(role.roleKey).font(.system(size: 11, design: .monospaced)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.8)
+                Text(role.roleKey).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Nuru.ink400).lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -374,18 +418,22 @@ private struct RoleTableRow: View {
             // Permissions — tap opens the matrix sheet
             Button(action: onOpen) {
                 HStack(spacing: 4) {
-                    Image(systemName: "shield.lefthalf.filled").font(.system(size: 10.5, weight: .semibold))
-                    Text("\(role.permissions.count) perms").font(.inter(11.5, .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                    Image(systemName: "shield.lefthalf.filled").font(.system(size: 10, weight: .semibold))
+                    Text("\(role.permissions.count)").font(.inter(12.5, .semibold))
                 }
                 .foregroundStyle(Nuru.gold)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .frame(width: RoleCol.perms, alignment: .leading)
+            .frame(width: RoleCol.perms, alignment: .trailing)
 
             // Users
             HStack(spacing: 4) {
+                Spacer(minLength: 0)
                 Image(systemName: "person.2.fill").font(.system(size: 9)).foregroundStyle(Nuru.ink400)
-                Text("\(role.userCount)").font(.inter(12, .semibold)).foregroundStyle(Nuru.ink600)
+                Text("\(role.userCount)").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink)
             }
             .frame(width: RoleCol.users, alignment: .trailing)
 
@@ -398,7 +446,7 @@ private struct RoleTableRow: View {
                 Button(action: onEdit) {
                     Image(systemName: "pencil").font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(Nuru.navy)
-                        .frame(width: 30, height: 28)
+                        .frame(width: 32, height: 30)
                         .background(Nuru.navy.opacity(0.08))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
@@ -406,7 +454,7 @@ private struct RoleTableRow: View {
                 Button(action: onDelete) {
                     Image(systemName: "trash").font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(role.isSystem ? Nuru.ink400 : Color(hex: 0xDC2626))
-                        .frame(width: 30, height: 28)
+                        .frame(width: 32, height: 30)
                         .background((role.isSystem ? Nuru.ink400 : Color(hex: 0xDC2626)).opacity(0.10))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
@@ -415,14 +463,15 @@ private struct RoleTableRow: View {
             }
             .frame(width: RoleCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 16).padding(.vertical, 9)
-        .frame(minHeight: 50)
+        .padding(.horizontal, 16).padding(.vertical, 11)
+        .frame(minHeight: 58)
     }
 
     private var typePill: some View {
         let tone = RolePerm.typeChip(role.roleType)
-        return Text(role.roleType.capitalized)
-            .font(.inter(11, .semibold)).foregroundStyle(tone.fg)
+        return Text(role.roleType.isEmpty ? "—" : role.roleType.capitalized)
+            .font(.inter(10.5, .semibold)).foregroundStyle(tone.fg)
+            .lineLimit(1).minimumScaleFactor(0.8)
             .padding(.horizontal, 9).padding(.vertical, 3)
             .background(tone.bg).clipShape(Capsule())
     }

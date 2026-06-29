@@ -295,22 +295,33 @@ private struct CongregationRow: View {
     }
     var body: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "building.columns")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Nuru.navy)
-                    .frame(width: 28, height: 28).background(Nuru.navy.opacity(0.10))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                Text(c.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
+            HStack(spacing: 11) {
+                // Tinted building chip — substantial leading accent.
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Nuru.gold.opacity(0.14))
+                    Image(systemName: "building.columns.fill")
+                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(Nuru.gold)
+                }
+                .frame(width: 36, height: 36)
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.gold.opacity(0.22), lineWidth: 1))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(c.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                    Text("Branch").font(.inter(10.5, .medium)).tracking(0.4).foregroundStyle(Nuru.muted)
+                        .textCase(.uppercase)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(c.country).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Nuru.foreground).lineLimit(1)
-                .frame(width: CongCol.country, alignment: .leading)
-            Text(c.timezone).font(.inter(12.5)).foregroundStyle(Nuru.foreground).lineLimit(1).minimumScaleFactor(0.8)
+            HStack(spacing: 6) {
+                Image(systemName: "globe").font(.system(size: 10)).foregroundStyle(Nuru.muted)
+                Text(c.country).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Nuru.foreground).lineLimit(1)
+            }
+            .frame(width: CongCol.country, alignment: .leading)
+            Text(c.timezone).font(.inter(12)).foregroundStyle(Nuru.muted).lineLimit(1).minimumScaleFactor(0.8)
                 .frame(width: CongCol.timezone, alignment: .leading)
-            Text("\(c.cellCount)").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.foreground)
+            CongStat(value: c.cellCount, label: "cells")
                 .frame(width: CongCol.cells, alignment: .trailing)
-            Text("\(c.memberCount)").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.foreground)
+            CongStat(value: c.memberCount, label: "people")
                 .frame(width: CongCol.members, alignment: .trailing)
             HStack(spacing: 10) {
                 Spacer(minLength: 0)
@@ -321,7 +332,20 @@ private struct CongregationRow: View {
             }
             .frame(width: CongCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-        .frame(minHeight: 50)
+        .padding(.horizontal, 16).padding(.vertical, 11)
+        .frame(minHeight: 56)
+    }
+}
+
+// Small labelled stat — a number over a tiny overline caption (right-aligned).
+private struct CongStat: View {
+    let value: Int
+    let label: String
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            Text("\(value)").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+            Text(label).font(.inter(9, .medium)).tracking(0.3).foregroundStyle(Nuru.muted)
+                .textCase(.uppercase).lineLimit(1).minimumScaleFactor(0.8)
+        }
     }
 }

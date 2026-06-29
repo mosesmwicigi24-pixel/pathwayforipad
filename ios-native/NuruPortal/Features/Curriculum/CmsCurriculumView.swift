@@ -474,13 +474,13 @@ private struct CmsCurriculumContent: View {
 
     private var mainScroll: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: 18) {
                 hero
                 filtersCard
-                pipelineCard
-                reportCard
-                pathwaySection
-                quickActionsCard
+                pipelineCard          // 1. compact pipeline stat strip
+                quickActionsCard      // 2. Quick actions moved up — before the report
+                reportCard            // 3. report panels in a 2-up grid
+                pathwaySection        // 4. level list as a 3-up grid of compact cards
             }
             .padding(.horizontal, Nuru.S.screen)
             .padding(.vertical, Nuru.S.lg)
@@ -557,21 +557,45 @@ private struct CmsCurriculumContent: View {
 
     private var pipelineCard: some View {
         Card {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
-                    Text("Curriculum pipeline").font(.inter(13, .bold)).tracking(0.4).foregroundStyle(Nuru.navy)
+                    Text("Curriculum pipeline").font(.inter(12.5, .bold)).tracking(0.4).foregroundStyle(Nuru.navy)
                     Text("LIVE").font(.nMicro).foregroundStyle(Nuru.goldLo)
                         .padding(.horizontal, 7).padding(.vertical, 2)
                         .background(Nuru.gold.opacity(0.14)).clipShape(Capsule())
+                    Spacer(minLength: 0)
                 }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                    PipelineTile(label: "Drafts", value: "\(drafts)", icon: "pencil.line", tint: Nuru.tint(0))
-                    PipelineTile(label: "In review", value: "\(inReview)", icon: "eye", tint: Nuru.tint(1))
-                    PipelineTile(label: "Locked", value: "\(lockedCount)", icon: "paperplane", tint: Nuru.tint(4))
-                    PipelineTile(label: "Live", value: "\(published)", icon: "rosette", tint: Nuru.tint(2))
+                // One compact row of small tiles (was a 2×2 grid of large tiles).
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 10)], spacing: 10) {
+                    pipelineTile("Drafts", "\(drafts)", "pencil.line", Nuru.tint(0))
+                    pipelineTile("In review", "\(inReview)", "eye", Nuru.tint(1))
+                    pipelineTile("Locked", "\(lockedCount)", "lock", Nuru.tint(4))
+                    pipelineTile("Live", "\(published)", "rosette", Nuru.tint(2))
                 }
             }
         }
+    }
+
+    /// Compact pipeline tile — small icon, value, one-line label. Sized for a single
+    /// 4-up row at portrait width (~740pt).
+    private func pipelineTile(_ label: String, _ value: String, _ icon: String, _ tint: Nuru.Tint) -> some View {
+        HStack(spacing: 9) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.fg.opacity(0.14))
+                Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(tint.fg)
+            }.frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(value).font(.fraunces(18, .semibold)).foregroundStyle(Nuru.navy)
+                Text(label).font(.inter(10.5, .medium)).foregroundStyle(Nuru.ink600)
+                    .lineLimit(1).minimumScaleFactor(0.85)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 11).padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     // MARK: Pathway report
@@ -604,8 +628,9 @@ private struct CmsCurriculumContent: View {
                 .background(Nuru.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-                // Panels — donut, breakdown, modules-per-level bars.
-                VStack(spacing: 14) {
+                // Panels — donut, breakdown, modules-per-level bars — laid out as
+                // smaller cards in a 2-up grid (top-aligned), not giant stacked blocks.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 12, alignment: .top)], spacing: 12) {
                     statusMixTile
                     breakdownTile
                     modulesPerLevelTile
@@ -627,9 +652,9 @@ private struct CmsCurriculumContent: View {
                         SectorMark(angle: .value("Levels", s.value), innerRadius: .ratio(0.62), angularInset: 2)
                             .foregroundStyle(s.color).cornerRadius(3)
                     }
-                    .frame(height: 160)
+                    .frame(height: 132)
                     VStack(spacing: 2) {
-                        Text("\(totalLevels)").font(.fraunces(26, .semibold)).foregroundStyle(Nuru.navy)
+                        Text("\(totalLevels)").font(.fraunces(24, .semibold)).foregroundStyle(Nuru.navy)
                         Text("LEVELS").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
                     }
                 }
@@ -693,15 +718,15 @@ private struct CmsCurriculumContent: View {
                         AxisValueLabel().font(.inter(10.5, .regular)).foregroundStyle(Nuru.ink600)
                     }
                 }
-                .frame(height: 160)
+                .frame(height: 132)
             }
         }
     }
 
-    // MARK: The pathway (vertical timeline)
+    // MARK: The pathway (level grid)
 
     private var pathwaySection: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("The pathway").font(.nTitle).foregroundStyle(Nuru.navy)
@@ -717,27 +742,21 @@ private struct CmsCurriculumContent: View {
                 .buttonStyle(.plain)
             }
 
-            // Timeline rail + numbered nodes.
-            ZStack(alignment: .topLeading) {
-                Rectangle()
-                    .fill(LinearGradient(colors: [Nuru.gold, Nuru.gold.opacity(0.2)], startPoint: .top, endPoint: .bottom))
-                    .frame(width: 2)
-                    .padding(.leading, 27).padding(.vertical, 28)
-                VStack(spacing: 16) {
-                    ForEach(filtered) { level in
-                        PathwayRow(
-                            level: level,
-                            selected: selectedNo == level.number,
-                            onSelect: {
-                                selectedNo = level.number
-                                // Portrait: surface the module inspector as a sheet
-                                // since there's no room to dock it beside the page.
-                                if !docked { inspectorSheet = true }
-                            },
-                            onReview: { setLevelStatus(level.number, .inReview) },
-                            onPublish: { setLevelStatus(level.number, .published) },
-                            onUnlock: { toggleLock(level) })
-                    }
+            // Level list as small cards in a 3-up grid (≈3 columns at portrait width).
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12, alignment: .top)], spacing: 12) {
+                ForEach(filtered) { level in
+                    PathwayLevelCard(
+                        level: level,
+                        selected: selectedNo == level.number,
+                        onSelect: {
+                            selectedNo = level.number
+                            // Portrait: surface the module inspector as a sheet
+                            // since there's no room to dock it beside the page.
+                            if !docked { inspectorSheet = true }
+                        },
+                        onReview: { setLevelStatus(level.number, .inReview) },
+                        onPublish: { setLevelStatus(level.number, .published) },
+                        onUnlock: { toggleLock(level) })
                 }
             }
         }
@@ -749,10 +768,12 @@ private struct CmsCurriculumContent: View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
-                    Image(systemName: "bolt.fill").font(.system(size: 13)).foregroundStyle(Nuru.gold)
-                    Text("Quick actions").font(.inter(13, .bold)).tracking(0.4).foregroundStyle(Nuru.navy)
+                    Image(systemName: "bolt.fill").font(.system(size: 12)).foregroundStyle(Nuru.gold)
+                    Text("Quick actions").font(.inter(12.5, .bold)).tracking(0.4).foregroundStyle(Nuru.navy)
+                    Spacer(minLength: 0)
                 }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                // 3-up adaptive grid of compact actions (denser than the old 2-up).
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 10)], spacing: 10) {
                     quickAction("New Level", "plus", Nuru.tint(0)) { levelSheet = .add }
                     quickAction("Module Editor", "book", Nuru.tint(1)) { router.go(.levelDetail) }
                     quickAction("Quiz Builder", "questionmark.circle", Nuru.tint(3)) { router.go(.quizBuilder) }
@@ -784,9 +805,9 @@ private struct CmsCurriculumContent: View {
     }
 }
 
-// MARK: - Pathway timeline row
+// MARK: - Pathway level card (compact — for the 3-up grid)
 
-private struct PathwayRow: View {
+private struct PathwayLevelCard: View {
     let level: UiLevel
     let selected: Bool
     let onSelect: () -> Void
@@ -795,77 +816,53 @@ private struct PathwayRow: View {
     let onUnlock: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 18) {
-            node
-            card
-        }
-    }
-
-    private var node: some View {
-        ZStack {
-            Circle()
-                .fill(level.locked ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(level.color))
-                .frame(width: 56, height: 56)
-                .overlay(level.locked
-                         ? Circle().strokeBorder(Nuru.border, style: StrokeStyle(lineWidth: 2, dash: [4])) : nil)
-                .shadow(color: level.locked ? .clear : level.color.opacity(0.27), radius: 7, y: 4)
-            if level.locked {
-                Image(systemName: "lock.fill").font(.system(size: 16)).foregroundStyle(Nuru.ink600)
-            } else {
-                Text("\(level.number)").font(.fraunces(22, .medium)).foregroundStyle(.white)
-            }
-        }
-    }
-
-    private var card: some View {
-        VStack(spacing: 0) {
-            Rectangle().fill(level.locked ? Nuru.border : level.color).frame(height: 2)
-            VStack(alignment: .leading, spacing: 0) {
-                leftPane
-                Divider()
-                metricsPane
-            }
-        }
-        .background(Nuru.white)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous)
-            .stroke(selected ? level.color : Nuru.border, lineWidth: selected ? 2 : 1))
-        .nuruShadow(selected ? 1 : 0.4)
-        .contentShape(Rectangle())
-        .onTapGesture { onSelect() }
-    }
-
-    private var leftPane: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                HStack(spacing: 5) {
-                    Text("LEVEL \(level.number)").font(.inter(10, .bold)).tracking(1).foregroundStyle(level.color)
-                    if level.locked { Image(systemName: "lock.fill").font(.system(size: 8)).foregroundStyle(Nuru.ink600) }
+        VStack(alignment: .leading, spacing: 10) {
+            // Header: number monogram + level eyebrow, status pill trailing.
+            HStack(alignment: .top, spacing: 10) {
+                node
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text("LEVEL \(level.number)").font(.inter(9.5, .bold)).tracking(0.8).foregroundStyle(level.color)
+                        if level.locked { Image(systemName: "lock.fill").font(.system(size: 8)).foregroundStyle(Nuru.ink600) }
+                    }
+                    Text(level.title).font(.fraunces(15, .medium)).foregroundStyle(Nuru.navy)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
+                Spacer(minLength: 0)
                 statusBadge
             }
-            Text(level.title).font(.fraunces(18, .medium)).foregroundStyle(Nuru.navy).fixedSize(horizontal: false, vertical: true)
-            Text(level.theme.isEmpty ? "—" : level.theme).font(.nCaption).foregroundStyle(Nuru.ink600)
-            HStack(spacing: 14) {
-                Label(level.duration, systemImage: "clock").font(.nMicro).foregroundStyle(Nuru.ink600)
-                Label(level.learners.formatted(), systemImage: "person.2").font(.nMicro).foregroundStyle(Nuru.ink600)
-            }
-            .padding(.top, 2)
 
-            // Inline level actions (web: Open / Unlock / Review / Publish).
-            HStack(spacing: 8) {
+            if !level.theme.isEmpty {
+                Text(level.theme).font(.inter(11, .regular)).foregroundStyle(Nuru.ink600).lineLimit(1)
+            }
+
+            // One compact stat row: modules + learners.
+            HStack(spacing: 12) {
+                Label("\(level.completedModules)/\(level.modules)", systemImage: "book")
+                    .font(.inter(10.5, .medium)).foregroundStyle(Nuru.ink600).labelStyle(.titleAndIcon)
+                Label(level.learners.formatted(), systemImage: "person.2")
+                    .font(.inter(10.5, .medium)).foregroundStyle(Nuru.ink600).labelStyle(.titleAndIcon)
+            }
+
+            // Progress.
+            HStack(spacing: 6) {
+                ProgressBar(pct: Double(level.progress), fill: level.locked ? Nuru.border : level.color, height: 4)
+                Text("\(level.progress)%").font(.fraunces(10.5, .medium)).foregroundStyle(Nuru.navy)
+            }
+
+            // Actions: Open + contextual Unlock / Review / Publish.
+            HStack(spacing: 6) {
                 NavigationLink {
                     LevelDetailView(levelNumber: level.number, levelTitle: level.title, accent: level.color)
                 } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.up.forward.square").font(.system(size: 11))
-                        Text("Open").font(.inter(11.5, .semibold))
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.forward.square").font(.system(size: 10))
+                        Text("Open").font(.inter(11, .semibold))
                     }
                     .foregroundStyle(level.locked ? Nuru.ink600 : .white)
-                    .padding(.horizontal, 12).frame(height: 30)
+                    .padding(.horizontal, 10).frame(height: 28)
                     .background(level.locked ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(Nuru.navy))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(level.locked)
@@ -879,73 +876,55 @@ private struct PathwayRow: View {
                 if level.status == .inReview {
                     actionPill("Publish", "checkmark.seal", bg: Color(hex: 0x0F6B33), fg: .white, action: onPublish)
                 }
+                Spacer(minLength: 0)
             }
-            .padding(.top, 4)
         }
-        .padding(.horizontal, 16).padding(.vertical, 14)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous)
+            .stroke(selected ? level.color : Nuru.border, lineWidth: selected ? 2 : 1))
+        .nuruShadow(selected ? 1 : 0.4)
+        .contentShape(Rectangle())
+        .onTapGesture { onSelect() }
+    }
+
+    private var node: some View {
+        ZStack {
+            Circle()
+                .fill(level.locked ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(level.color))
+                .frame(width: 36, height: 36)
+                .overlay(level.locked
+                         ? Circle().strokeBorder(Nuru.border, style: StrokeStyle(lineWidth: 1.5, dash: [3])) : nil)
+            if level.locked {
+                Image(systemName: "lock.fill").font(.system(size: 12)).foregroundStyle(Nuru.ink600)
+            } else {
+                Text("\(level.number)").font(.fraunces(16, .medium)).foregroundStyle(.white)
+            }
+        }
     }
 
     private func actionPill(_ label: String, _ icon: String, bg: Color, fg: Color, bordered: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 11))
-                Text(label).font(.inter(11.5, .semibold))
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 10))
+                Text(label).font(.inter(11, .semibold))
             }
             .foregroundStyle(fg)
-            .padding(.horizontal, 10).frame(height: 30)
+            .padding(.horizontal, 9).frame(height: 28)
             .background(bg)
-            .overlay(bordered ? RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1) : nil)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(bordered ? RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1) : nil)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
     }
 
     private var statusBadge: some View {
-        Text(level.status.rawValue).font(.inter(10, .bold))
+        Text(level.status.rawValue).font(.inter(9, .bold))
             .foregroundStyle(level.status.style.fg)
-            .padding(.horizontal, 8).padding(.vertical, 3)
+            .padding(.horizontal, 7).padding(.vertical, 2)
             .background(level.status.style.bg).clipShape(Capsule())
-    }
-
-    private var metricsPane: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Text("PUBLISHED METRICS").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                Text("LIVE").font(.nMicro).foregroundStyle(Nuru.goldLo)
-            }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                metric("Pass mark", "\(level.passMark)%", "checkmark.seal", Nuru.tint(2))
-                metric("Modules", "\(level.completedModules)/\(level.modules)", "book", Nuru.tint(1))
-                metric("Duration", level.duration, "clock", Nuru.tint(0))
-                metric("Learners", level.learners.formatted(), "person.2", Nuru.tint(3))
-            }
-            HStack(spacing: 8) {
-                ProgressBar(pct: Double(level.progress), fill: level.locked ? Nuru.border : level.color, height: 5)
-                Text("\(level.progress)%").font(.fraunces(11, .medium)).foregroundStyle(Nuru.navy)
-            }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Nuru.surface)
-    }
-
-    private func metric(_ label: String, _ value: String, _ icon: String, _ tint: Nuru.Tint) -> some View {
-        HStack(spacing: 8) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tint.fg.opacity(0.14))
-                Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint.fg)
-            }.frame(width: 26, height: 26)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label.uppercased()).font(.inter(9, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
-                Text(value).font(.fraunces(14, .medium)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.7)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(Nuru.white)
-        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 }
 
@@ -1244,12 +1223,18 @@ struct LevelDetailView: View {
                     SkeletonList(rows: 5)
                 } else {
                     if addingModule { addModuleForm }
-                    VStack(spacing: 10) {
+                    // Clean compact list (was tall stacked cards).
+                    VStack(spacing: 0) {
                         let sorted = modules.sorted { $0.moduleSequenceNumber < $1.moduleSequenceNumber }
                         ForEach(Array(sorted.enumerated()), id: \.element.id) { idx, m in
                             moduleCard(m, index: idx, count: sorted.count)
+                            if idx < sorted.count - 1 { Divider() }
                         }
                     }
+                    .background(Nuru.white)
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    .nuruShadow(0.4)
                 }
             }
             .padding(Nuru.S.screen)
@@ -1293,10 +1278,11 @@ struct LevelDetailView: View {
                 .buttonStyle(.plain)
             }
             Text("Levels & Modules").font(.nTitle).foregroundStyle(Nuru.navy)
+            // Compact stat tiles in one row.
             HStack(spacing: 10) {
-                miniStat("Modules", "\(modules.count)")
-                miniStat("Published", "\(published)")
-                miniStat("Draft", "\(modules.count - published)")
+                miniStat("Modules", "\(modules.count)", "book", Nuru.tint(1))
+                miniStat("Published", "\(published)", "rosette", Nuru.tint(2))
+                miniStat("Draft", "\(modules.count - published)", "pencil.line", Nuru.tint(0))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1331,33 +1317,44 @@ struct LevelDetailView: View {
         }
     }
 
-    private func miniStat(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 1) {
-            Text(value).font(.fraunces(20, .medium)).foregroundStyle(Nuru.navy)
-            Text(label.uppercased()).font(.inter(9.5, .semibold)).tracking(0.8).foregroundStyle(Nuru.ink600)
+    private func miniStat(_ label: String, _ value: String, _ icon: String, _ tint: Nuru.Tint) -> some View {
+        HStack(spacing: 9) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.fg.opacity(0.14))
+                Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(tint.fg)
+            }.frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(value).font(.fraunces(18, .semibold)).foregroundStyle(Nuru.navy)
+                Text(label.uppercased()).font(.inter(9, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                    .lineLimit(1).minimumScaleFactor(0.85)
+            }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16).padding(.vertical, 8)
-        .background(Nuru.surface).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 11).padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     private func moduleCard(_ m: AdminModuleSummary, index: Int, count: Int) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             // Tapping the row drills into the question bank (ModuleQuizView).
             NavigationLink { ModuleQuizView(module: m) } label: {
-                HStack(spacing: 12) {
-                    Text("\(m.moduleSequenceNumber)").font(.inter(13, .bold))
-                        .foregroundStyle(.white).frame(width: 28, height: 28)
+                HStack(spacing: 10) {
+                    Text("\(m.moduleSequenceNumber)").font(.inter(12, .bold))
+                        .foregroundStyle(.white).frame(width: 26, height: 26)
                         .background(accent).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(m.title).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                        Text(m.title).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
                         if let s = m.summary, !s.isEmpty {
-                            Text(s).font(.nCaption).foregroundStyle(Nuru.ink600).lineLimit(2)
+                            Text(s).font(.inter(11, .regular)).foregroundStyle(Nuru.ink600).lineLimit(1)
                         }
                         HStack(spacing: 6) {
                             let st = CmsStatus.from(m.status)
-                            Text(m.status.uppercased()).font(.inter(9.5, .bold))
+                            Text(m.status.uppercased()).font(.inter(9, .bold))
                                 .foregroundStyle(st.style.fg)
-                                .padding(.horizontal, 7).padding(.vertical, 2)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
                                 .background(st.style.bg).clipShape(Capsule())
                             Pill(text: m.evaluationKind == "none" ? "lesson" : m.evaluationKind, color: Nuru.navy)
                             let q = Int(m.activeQuestionCount) ?? 0
@@ -1387,15 +1384,11 @@ struct LevelDetailView: View {
                 Divider()
                 Button(role: .destructive) { Task { await runModuleAction { try await CmsAPI.archive(m.moduleId) } } } label: { Label("Archive module", systemImage: "archivebox") }
             } label: {
-                Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(Nuru.ink400)
-                    .frame(width: 30, height: 30)
+                Image(systemName: "ellipsis").font(.system(size: 13)).foregroundStyle(Nuru.ink400)
+                    .frame(width: 28, height: 28)
             }
         }
-        .padding(Nuru.S.base)
-        .background(Nuru.white)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-        .nuruShadow(0.4)
+        .padding(.horizontal, 14).padding(.vertical, 11)
     }
 
     // ── Writes ──

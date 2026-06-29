@@ -100,7 +100,14 @@ struct CurriculumLevelsView: View {
                     // Row 2: enrolment trend
                     EnrolmentTrend(levels: levels, trend: report.trend)
 
-                    // Row 3: section heading
+                    // Row 3: active-level deep-dive — sits after the enrolment trend
+                    // and before the levels grid (per v3 reorder).
+                    if let active {
+                        ActiveLevelDeepDive(level: active, trend: report.trend,
+                                            onOpen: { router.openLevel(active.levelNumber) })
+                    }
+
+                    // Row 4: section heading
                     HStack(alignment: .bottom) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("The levels").font(.nTitle).foregroundStyle(Nuru.navy)
@@ -111,19 +118,13 @@ struct CurriculumLevelsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    // Row 4: level cards — denser grid (4-up on the wide canvas)
+                    // Row 5: level cards — denser grid (4-up on the wide canvas)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 14)], spacing: 14) {
                         ForEach(levels) { lvl in
                             LevelCard(level: lvl, active: activeId == lvl.levelNumber,
                                       onOpen: { router.openLevel(lvl.levelNumber) })
                                 .onTapGesture { activeId = lvl.levelNumber }
                         }
-                    }
-
-                    // Row 5: active-level deep-dive
-                    if let active {
-                        ActiveLevelDeepDive(level: active, trend: report.trend,
-                                            onOpen: { router.openLevel(active.levelNumber) })
                     }
                 }
                 .padding(.horizontal, 20)
@@ -234,10 +235,28 @@ private struct CompletionByLevel: View {
                             .cornerRadius(6)
                     }
                     .chartYScale(domain: 0...100)
-                    .chartYAxis { AxisMarks(values: [0, 25, 50, 75, 100]) { value in
-                        AxisGridLine()
-                        AxisValueLabel { if let v = value.as(Int.self) { Text("\(v)%") } }
-                    } }
+                    .chartXAxis {
+                        AxisMarks { value in
+                            AxisGridLine().foregroundStyle(Nuru.border)
+                            AxisTick().foregroundStyle(Nuru.border)
+                            AxisValueLabel {
+                                if let s = value.as(String.self) {
+                                    Text(s).font(.inter(10, .medium)).foregroundStyle(Nuru.ink600)
+                                }
+                            }
+                        }
+                    }
+                    .chartYAxis {
+                        AxisMarks(values: [0, 25, 50, 75, 100]) { value in
+                            AxisGridLine().foregroundStyle(Nuru.border)
+                            AxisTick().foregroundStyle(Nuru.border)
+                            AxisValueLabel {
+                                if let v = value.as(Int.self) {
+                                    Text("\(v)%").font(.inter(10, .medium)).foregroundStyle(Nuru.ink600)
+                                }
+                            }
+                        }
+                    }
                     .frame(height: 220)
                 }
             }
@@ -293,6 +312,28 @@ private struct EnrolmentTrend: View {
                     .chartForegroundStyleScale(domain: levels.map { "L\($0.levelNumber)" },
                                                range: levels.map { CL.color($0.levelNumber) })
                     .chartLegend(.hidden)
+                    .chartXAxis {
+                        AxisMarks { value in
+                            AxisGridLine().foregroundStyle(Nuru.border)
+                            AxisTick().foregroundStyle(Nuru.border)
+                            AxisValueLabel {
+                                if let s = value.as(String.self) {
+                                    Text(s).font(.inter(10, .medium)).foregroundStyle(Nuru.ink600)
+                                }
+                            }
+                        }
+                    }
+                    .chartYAxis {
+                        AxisMarks { value in
+                            AxisGridLine().foregroundStyle(Nuru.border)
+                            AxisTick().foregroundStyle(Nuru.border)
+                            AxisValueLabel {
+                                if let v = value.as(Int.self) {
+                                    Text("\(v)").font(.inter(10, .medium)).foregroundStyle(Nuru.ink600)
+                                }
+                            }
+                        }
+                    }
                     .frame(height: 230)
                 }
             }

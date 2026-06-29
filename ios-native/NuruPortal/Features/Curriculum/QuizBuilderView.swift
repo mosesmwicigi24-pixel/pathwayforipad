@@ -890,16 +890,10 @@ private struct ModuleQuizEditor: View {
                     if let notice { Banner(tone: .ok, text: notice) }
                     if let error { Banner(tone: .err, text: error) }
                     summaryCard
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .top, spacing: 18) {
-                            questionsColumn.frame(maxWidth: .infinity)
-                            settingsPanel.frame(width: 300)
-                        }
-                        VStack(spacing: 18) {
-                            questionsColumn
-                            settingsPanel
-                        }
-                    }
+                    // Exam Settings relocated to the TOP — a row of small setting
+                    // cards (columns) instead of a stacked side panel. Same bindings.
+                    examSettingsBar
+                    questionsColumn
                 }
             }
         }
@@ -1014,99 +1008,123 @@ private struct ModuleQuizEditor: View {
         }
     }
 
-    // MARK: Settings panel (SettingsPanel parity)
+    // MARK: Exam settings bar (relocated to TOP; small setting CARDS in columns)
 
-    private var settingsPanel: some View {
-        Card(padding: 18) {
-            VStack(alignment: .leading, spacing: 16) {
+    /// Exam Settings as a row of compact column tiles (was a stacked side panel).
+    /// Same bound `settings` state and same Save call — only the layout changed:
+    /// Pass mark · Time limit · Shuffle · Show answers · Show score, each its own
+    /// small card. A LazyVGrid lays them as 3–4 columns at portrait width (~740pt).
+    private var examSettingsBar: some View {
+        Card(padding: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 Text("EXAM SETTINGS").font(.inter(10.5, .heavy)).tracking(0.9)
                     .foregroundStyle(Nuru.navy)
-
-                // pass mark
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("\(settings.passMark)%").font(.fraunces(24, .medium)).foregroundStyle(Nuru.navy)
-                        Spacer()
-                        Text("\(passingPoints) of \(totalPoints) pts").font(.inter(11)).foregroundStyle(Nuru.ink600)
-                    }
-                    Slider(
-                        value: Binding(
-                            get: { Double(settings.passMark) },
-                            set: { settings.passMark = Int($0) }
-                        ),
-                        in: 0...100, step: 5
-                    ).tint(Nuru.gold)
-                    HStack {
-                        Text("0%"); Spacer(); Text("Pass mark"); Spacer(); Text("100%")
-                    }.font(.inter(10.5)).foregroundStyle(Nuru.ink600)
-                }
-
-                // time limit
-                VStack(alignment: .leading, spacing: 6) {
-                    fieldLabel("Time limit")
-                    HStack(spacing: 8) {
-                        Button {
-                            settings.timeLimitMinutes = settings.timeLimitMinutes == nil ? 15 : nil
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "clock").font(.system(size: 12))
-                                Text(settings.timeLimitMinutes != nil ? "On" : "Off").font(.inter(12, .semibold))
-                            }
-                            .foregroundStyle(settings.timeLimitMinutes != nil ? .white : Nuru.ink600)
-                            .padding(.horizontal, 10).frame(height: 34)
-                            .background(settings.timeLimitMinutes != nil ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.background))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
-                        }
-                        .buttonStyle(.plain)
-                        if settings.timeLimitMinutes != nil {
-                            TextField("15", value: Binding(
-                                get: { settings.timeLimitMinutes ?? 15 },
-                                set: { settings.timeLimitMinutes = max(1, min(120, $0)) }
-                            ), format: .number)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.center)
-                                .font(.inter(13)).foregroundStyle(Nuru.foreground)
-                                .frame(width: 64, height: 34)
-                                .background(Nuru.background)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
-                            Text("min").font(.inter(12)).foregroundStyle(Nuru.ink600)
-                        } else {
-                            Text("No limit").font(.inter(12)).foregroundStyle(Nuru.ink600)
-                        }
-                    }
-                }
-
-                // toggles
-                VStack(spacing: 8) {
-                    switchRow("shuffle", "Shuffle questions", $settings.shuffleQuestions)
-                    switchRow("eye", "Show answers after submit", $settings.showAnswersAfterSubmit)
-                    switchRow("chart.bar", "Show score after submit", $settings.showScoreAfterSubmit)
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 168), spacing: 12)],
+                    alignment: .leading, spacing: 12
+                ) {
+                    passMarkTile
+                    timeLimitTile
+                    toggleTile("shuffle", "Shuffle questions", $settings.shuffleQuestions)
+                    toggleTile("eye", "Show answers after submit", $settings.showAnswersAfterSubmit)
+                    toggleTile("chart.bar", "Show score after submit", $settings.showScoreAfterSubmit)
                 }
             }
         }
     }
 
-    private func switchRow(_ icon: String, _ label: String, _ on: Binding<Bool>) -> some View {
-        Button { on.wrappedValue.toggle() } label: {
-            HStack {
-                HStack(spacing: 8) {
-                    Image(systemName: icon).font(.system(size: 12)).foregroundStyle(on.wrappedValue ? Nuru.gold : Nuru.ink600)
-                    Text(label).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.foreground)
-                }
-                Spacer()
-                ZStack(alignment: on.wrappedValue ? .trailing : .leading) {
-                    Capsule().fill(on.wrappedValue ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Color(hex: 0xD1D5DB)))
-                        .frame(width: 32, height: 18)
-                    Circle().fill(.white).frame(width: 14, height: 14).padding(2)
-                }
-                .frame(width: 32, height: 18)
+    /// Wrapper that gives each setting tile the same card chrome + fixed height.
+    private func settingTile<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            content()
+        }
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+        .padding(.horizontal, 12).padding(.vertical, 11)
+        .background(Nuru.background)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+    }
+
+    // Pass-mark tile — keeps the bound slider (load-bearing for Save).
+    private var passMarkTile: some View {
+        settingTile {
+            fieldLabel("Pass mark")
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\(settings.passMark)%").font(.fraunces(22, .medium)).foregroundStyle(Nuru.navy)
+                Spacer(minLength: 0)
+                Text("\(passingPoints)/\(totalPoints) pts").font(.inter(10)).foregroundStyle(Nuru.ink600)
+                    .lineLimit(1).minimumScaleFactor(0.85)
             }
-            .padding(.horizontal, 12).frame(height: 42)
-            .background(Nuru.background)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+            Slider(
+                value: Binding(
+                    get: { Double(settings.passMark) },
+                    set: { settings.passMark = Int($0) }
+                ),
+                in: 0...100, step: 5
+            ).tint(Nuru.gold)
+        }
+    }
+
+    // Time-limit tile — on/off toggle + minutes field.
+    private var timeLimitTile: some View {
+        settingTile {
+            fieldLabel("Time limit")
+            HStack(spacing: 8) {
+                Button {
+                    settings.timeLimitMinutes = settings.timeLimitMinutes == nil ? 15 : nil
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock").font(.system(size: 12))
+                        Text(settings.timeLimitMinutes != nil ? "On" : "Off").font(.inter(12, .semibold))
+                    }
+                    .foregroundStyle(settings.timeLimitMinutes != nil ? .white : Nuru.ink600)
+                    .padding(.horizontal, 10).frame(height: 32)
+                    .background(settings.timeLimitMinutes != nil ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.white))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                }
+                .buttonStyle(.plain)
+                if settings.timeLimitMinutes != nil {
+                    TextField("15", value: Binding(
+                        get: { settings.timeLimitMinutes ?? 15 },
+                        set: { settings.timeLimitMinutes = max(1, min(120, $0)) }
+                    ), format: .number)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .font(.inter(13)).foregroundStyle(Nuru.foreground)
+                        .frame(width: 52, height: 32)
+                        .background(Nuru.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                    Text("min").font(.inter(11)).foregroundStyle(Nuru.ink600)
+                } else {
+                    Text("No limit").font(.inter(11)).foregroundStyle(Nuru.ink600)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// One boolean setting as its own small column tile (label + Toggle-style switch).
+    private func toggleTile(_ icon: String, _ label: String, _ on: Binding<Bool>) -> some View {
+        Button { on.wrappedValue.toggle() } label: {
+            settingTile {
+                HStack(spacing: 6) {
+                    Image(systemName: icon).font(.system(size: 12))
+                        .foregroundStyle(on.wrappedValue ? Nuru.gold : Nuru.ink600)
+                    Spacer(minLength: 0)
+                    ZStack(alignment: on.wrappedValue ? .trailing : .leading) {
+                        Capsule().fill(on.wrappedValue ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Color(hex: 0xD1D5DB)))
+                            .frame(width: 32, height: 18)
+                        Circle().fill(.white).frame(width: 14, height: 14).padding(2)
+                    }
+                    .frame(width: 32, height: 18)
+                }
+                Spacer(minLength: 0)
+                Text(label).font(.inter(12, .semibold)).foregroundStyle(Nuru.foreground)
+                    .lineLimit(2).multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .buttonStyle(.plain)
     }

@@ -300,6 +300,18 @@ private struct CountryHead: ViewModifier {
     }
 }
 
+// Stable tinted accent per region, so each row carries a quiet colour cue.
+private func regionTint(_ region: String?) -> Color {
+    switch region {
+    case "Africa":   return Nuru.gold
+    case "Americas": return Color(hex: 0x1B5FAE)
+    case "Asia":     return Color(hex: 0x7A4FB0)
+    case "Europe":   return Nuru.success
+    case "Oceania":  return Color(hex: 0x0E8C9B)
+    default:         return Nuru.ink600
+    }
+}
+
 private struct CountryRow: View {
     let c: Country
     let onEdit: () -> Void
@@ -309,9 +321,15 @@ private struct CountryRow: View {
     }
     var body: some View {
         let active = c.status == "active"
+        let tint = regionTint(c.region)
         HStack(spacing: 12) {
             HStack(spacing: 10) {
-                Text(c.flag ?? "🏳️").font(.system(size: 18))
+                // Tinted flag chip — a premium leading accent.
+                Text(c.flag ?? "🏳️").font(.system(size: 17))
+                    .frame(width: 34, height: 34)
+                    .background(tint.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(tint.opacity(0.22), lineWidth: 1))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(c.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
                     Text(c.code).font(.system(.caption2, design: .monospaced)).foregroundStyle(Nuru.muted)
@@ -319,11 +337,14 @@ private struct CountryRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(c.region ?? "—").font(.inter(12.5)).foregroundStyle(Nuru.foreground).lineLimit(1).minimumScaleFactor(0.85)
-                .frame(width: CountryCol.region, alignment: .leading)
+            HStack(spacing: 7) {
+                Circle().fill(tint).frame(width: 6, height: 6)
+                Text(c.region ?? "—").font(.inter(12.5)).foregroundStyle(Nuru.foreground).lineLimit(1).minimumScaleFactor(0.85)
+            }
+            .frame(width: CountryCol.region, alignment: .leading)
             Text(c.currency ?? "—").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.foreground).lineLimit(1)
                 .frame(width: CountryCol.currency, alignment: .leading)
-            Text(c.dialCode ?? "—").font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Nuru.foreground).lineLimit(1)
+            Text(c.dialCode ?? "—").font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Nuru.muted).lineLimit(1)
                 .frame(width: CountryCol.dial, alignment: .leading)
             HStack {
                 Pill(text: active ? "Active" : "Inactive", color: active ? Nuru.success : Nuru.muted)
@@ -343,8 +364,9 @@ private struct CountryRow: View {
             }
             .frame(width: CountryCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-        .frame(minHeight: 50)
+        .padding(.horizontal, 16).padding(.vertical, 11)
+        .frame(minHeight: 54)
+        .background(active ? Color.clear : Nuru.surface.opacity(0.5))
     }
 }
 

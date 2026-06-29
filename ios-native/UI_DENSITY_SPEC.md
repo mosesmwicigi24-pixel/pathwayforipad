@@ -112,3 +112,46 @@ follows. Critical constraints:
   organization wisdom — clean cards, right column counts for portrait, thinner fonts.
 - **System (Countries, Languages, Congregations, Users, Roles):** refine presentation for
   portrait width; keep the dense tables but make sure nothing overflows at ~740pt.
+
+---
+
+## Pass v3 — targeted polish (portrait, product-owner notes)
+
+Still iPad Pro 13" M5 PORTRAIT (~720–760pt content). Presentation only; keep ALL wiring.
+
+- **Badges:** the filter controls (Search field, Category picker, Status filter, Sort) are
+  **not visible** — they're rendered too faint/low-contrast or on a background that hides
+  them. Make them clearly visible: solid field/segmented backgrounds, visible borders,
+  readable text. Keep the enriched tiles from v2.
+- **Curriculum Levels:** the charts' **axis labels are invisible** — "Learners by level",
+  "Completion by level", and "Enrollment trend" need visible X and Y axis ticks/labels
+  (`.chartXAxis`/`.chartYAxis` with `AxisValueLabel` in a readable color like `Nuru.ink600`,
+  not near-white). Also **reorder**: the "Now viewing Level 1" detail block should come
+  **after the Enrollment trend chart and BEFORE the level cards grid**.
+- **CMS Curriculum (CmsCurriculumView + the LevelDetailView in the same file):** cards are too
+  big. (1) The pipeline stat cards ("Curriculum pipeline / Live / 0 Drafts") → **one compact
+  row** of small tiles. (2) **Quick Actions** should move **up — directly after the pipeline
+  stats, before the Pathway report**. (3) "Pathway report", "Status mix", "Modules per level",
+  and the engagement panel → **smaller cards laid out in columns** (2-up), not huge full-width
+  blocks. (4) The pathway **level list (Level 1/2/3…) → small cards in a 3-up grid** (3 columns),
+  well represented, not tall rows. Apply the SAME treatment to **LevelDetailView**.
+- **Quiz Builder** (liked overall — minimal change): move **Exam Settings to the TOP**, right
+  after the "Levels 7 / Published 7" stat strip, rendered as **small cards, not stacked rows**:
+  Time limit as a compact toggle/stepper tile; Shuffle, Show answers after submit, and Show
+  score after submit each as their own **small column tile** (a row of compact setting cards).
+  Leave "Select a level" and the Questions editor as-is.
+- **Video Library:** liked — leave as-is.
+- **Content Studio:** make the cards **premium and clean** — Devotions, Memory verse, Daily
+  reading plans, Sources are currently plain/underlined-looking; rebuild them as **outstanding
+  cards** with a tinted icon, clear title + subtitle, a count/metric, and a proper button/CTA
+  (not a plain underlined link). Cohesive, premium feel.
+- **Users:** liked — leave as-is.
+- **Roles:** the "configured roles" rows look **flat/empty**. Enrich them. **Key roles**:
+  arrange as **4 cards on top + 2 below** (6 total), visually richer (icon, role name,
+  description, a stat or member count) — not flat strips.
+- **Congregations:** enhance the row/card **fill** — make rows feel premium (icon tile, clear
+  hierarchy, subtle accents), not empty.
+- **Countries:** enhance the table **rows** so they feel **premium** (flag/region accent,
+  clean aligned values), not bare.
+- **Languages:** the cards look **noisy / not clean** — reorganize into clean, organized cards
+  with clear hierarchy and a proper coverage fill.

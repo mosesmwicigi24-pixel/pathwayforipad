@@ -174,28 +174,52 @@ struct BadgesView: View {
     }
 
     // MARK: Filter bar
+    //
+    // The controls must read as obvious interactive fields on the paper page:
+    // each gets a solid WHITE surface, a clearly visible 1pt navy border, dark
+    // readable text, and a ~38pt control height. Laid out in a tidy wrapping row
+    // (search grows; the three pickers sit beside it, wrapping under at portrait
+    // width). No Card wrapper — these sit directly on the page so they don't
+    // blend a pale field into a near-white card.
+
+    private static let controlBorder = Color(hex: 0x0A2540, alpha: 0.22)
+    private static let controlMinHeight: CGFloat = 38
 
     private var filterBar: some View {
-        Card(padding: 12) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { filterControls }
-                VStack(spacing: 12) { filterControls }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 12) {
+                searchField
+                pickerRow
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                searchField
+                pickerRow
             }
         }
     }
 
-    @ViewBuilder private var filterControls: some View {
+    private var searchField: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").font(.system(size: 14)).foregroundStyle(Nuru.muted)
-            TextField("Search badges by name or description", text: $query).font(.nCaption)
+            Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .medium)).foregroundStyle(Nuru.ink600)
+            TextField("Search badges by name or description", text: $query)
+                .font(.inter(14, .regular)).foregroundStyle(Nuru.ink)
+                .textFieldStyle(.plain)
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 14)).foregroundStyle(Nuru.ink400)
+                }.buttonStyle(.plain)
+            }
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .frame(minHeight: Self.controlMinHeight)
         .frame(maxWidth: .infinity)
-        .background(Nuru.inputBg)
+        .background(Nuru.white)
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Self.controlBorder, lineWidth: 1))
+    }
 
-        HStack(spacing: 8) {
+    private var pickerRow: some View {
+        HStack(spacing: 10) {
             categoryMenu
             statusMenu
             sortMenu
@@ -227,15 +251,18 @@ struct BadgesView: View {
 
     private func selectLabel(_ label: String, _ value: String, leadingIcon: String? = nil) -> some View {
         HStack(spacing: 8) {
-            if let leadingIcon { Image(systemName: leadingIcon).font(.system(size: 11)).foregroundStyle(Nuru.muted) }
-            Text(label.uppercased()).font(.nOverline).tracking(0.5).foregroundStyle(Nuru.muted)
-            Text(value).font(.inter(13, .semibold)).foregroundStyle(Nuru.ink).lineLimit(1)
-            Image(systemName: "chevron.down").font(.system(size: 10)).foregroundStyle(Nuru.muted)
+            if let leadingIcon { Image(systemName: leadingIcon).font(.system(size: 12, weight: .medium)).foregroundStyle(Nuru.ink600) }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label.uppercased()).font(.nOverline).tracking(0.5).foregroundStyle(Nuru.ink600).lineLimit(1)
+                Text(value).font(.inter(14, .semibold)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.85)
+            }
+            Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(Nuru.ink600)
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(Nuru.inputBg)
+        .padding(.horizontal, 14)
+        .frame(minHeight: Self.controlMinHeight)
+        .background(Nuru.white)
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Self.controlBorder, lineWidth: 1))
     }
 
     // MARK: Grid
