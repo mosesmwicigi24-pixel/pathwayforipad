@@ -15,11 +15,11 @@ struct CertificatesView: View {
                                 HStack(spacing: 14) {
                                     Monogram(name: c.fullName, size: 40, gradient: Nuru.goldGradient)
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(c.fullName).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
+                                        Text(c.fullName).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                                         Text(c.levelTitle ?? (c.levelNumber.map { "Level \($0)" } ?? "Certificate"))
-                                            .font(.caption).foregroundStyle(Nuru.muted)
+                                            .font(.nCaption).foregroundStyle(Nuru.muted)
                                         Text("Issued \(Fmt.date(c.issuedAt)) · \(c.verificationCode)")
-                                            .font(.caption2).foregroundStyle(Nuru.muted)
+                                            .font(.nMicro).foregroundStyle(Nuru.muted)
                                     }
                                     Spacer()
                                     if c.revokedAt != nil { Pill(text: "Revoked", color: Nuru.danger) }

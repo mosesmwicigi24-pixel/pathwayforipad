@@ -7,7 +7,10 @@ import UIKit
 struct NuruPortalApp: App {
     @StateObject private var auth = AuthStore()
 
-    init() { Self.configureAppearance() }
+    init() {
+        Nuru.registerFonts()
+        Self.configureAppearance()
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -28,18 +31,20 @@ struct NuruPortalApp: App {
     /// App-wide chrome: elegant serif navigation titles in brand navy, warm
     /// translucent bars — so every page's title reads as designed, not default.
     static func configureAppearance() {
-        func serif(_ size: CGFloat, _ weight: UIFont.Weight) -> UIFont {
-            let base = UIFont.systemFont(ofSize: size, weight: weight)
-            if let d = base.fontDescriptor.withDesign(.serif) { return UIFont(descriptor: d, size: size) }
-            return base
+        // Fraunces display face for nav titles, falling back to a serif system
+        // font if registration hasn't resolved the bundled face.
+        func display(_ name: String, _ size: CGFloat, _ fallbackWeight: UIFont.Weight) -> UIFont {
+            if let f = UIFont(name: name, size: size) { return f }
+            let base = UIFont.systemFont(ofSize: size, weight: fallbackWeight)
+            return base.fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: size) } ?? base
         }
         let navy = UIColor(Nuru.navy)
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = UIColor(Nuru.background)
+        appearance.backgroundColor = UIColor(Nuru.paper)
         appearance.shadowColor = .clear
-        appearance.largeTitleTextAttributes = [.foregroundColor: navy, .font: serif(32, .semibold)]
-        appearance.titleTextAttributes = [.foregroundColor: navy, .font: serif(17, .semibold)]
+        appearance.largeTitleTextAttributes = [.foregroundColor: navy, .font: display("Fraunces-SemiBold", 32, .semibold)]
+        appearance.titleTextAttributes = [.foregroundColor: navy, .font: display("Fraunces-SemiBold", 18, .semibold)]
         UINavigationBar.appearance().standardAppearance = appearance
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
         UINavigationBar.appearance().compactAppearance = appearance

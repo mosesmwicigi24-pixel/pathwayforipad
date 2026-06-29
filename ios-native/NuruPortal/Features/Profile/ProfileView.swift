@@ -11,7 +11,7 @@ struct ProfileView: View {
                     Card {
                         VStack(spacing: 12) {
                             Monogram(name: p.fullName, size: 72, gradient: Nuru.goldGradient)
-                            Text(p.fullName).font(.title2.bold()).foregroundStyle(Nuru.navy)
+                            Text(p.fullName).font(.fraunces(26, .semibold)).foregroundStyle(Nuru.navy)
                             Pill(text: p.role.uppercased(), color: Nuru.gold)
                         }
                         .frame(maxWidth: .infinity)
@@ -45,9 +45,9 @@ struct ProfileView: View {
 
     private func row(_ label: String, _ value: String) -> some View {
         HStack {
-            Text(label).font(.subheadline).foregroundStyle(Nuru.muted)
+            Text(label).font(.nBody).foregroundStyle(Nuru.muted)
             Spacer()
-            Text(value).font(.subheadline.weight(.medium)).foregroundStyle(Nuru.navy)
+            Text(value).font(.inter(15, .medium)).foregroundStyle(Nuru.navy)
         }
     }
 }

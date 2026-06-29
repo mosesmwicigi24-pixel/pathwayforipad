@@ -13,7 +13,7 @@ struct CellEngagementView: View {
                                 Card {
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text("\(count)").font(.nuruDisplay(26)).foregroundStyle(Nuru.bandColor(band))
-                                        Text(band.capitalized).font(.footnote).foregroundStyle(Nuru.muted)
+                                        Text(band.capitalized).font(.nCaption).foregroundStyle(Nuru.muted)
                                     }
                                 }
                             }
@@ -24,15 +24,15 @@ struct CellEngagementView: View {
                         Card {
                             HStack(spacing: 14) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(cell.name).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
+                                    Text(cell.name).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                                     Text("\(cell.members) members · \(cell.disciplerName ?? "Unassigned")")
-                                        .font(.caption).foregroundStyle(Nuru.muted)
+                                        .font(.nCaption).foregroundStyle(Nuru.muted)
                                     if let level = cell.levelLabel { Pill(text: level, color: Nuru.navy) }
                                 }
                                 Spacer()
                                 if cell.atRisk > 0 { Pill(text: "\(cell.atRisk) at risk", color: Nuru.danger) }
                                 Text(String(format: "%.0f", cell.avgEngagement))
-                                    .font(.title3.bold()).foregroundStyle(Nuru.gold)
+                                    .font(.fraunces(22, .semibold)).foregroundStyle(Nuru.gold)
                             }
                         }
                     }

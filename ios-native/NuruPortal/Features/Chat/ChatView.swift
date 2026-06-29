@@ -24,11 +24,11 @@ struct ChatView: View {
                                     HStack {
                                         Image(systemName: "number").foregroundStyle(Nuru.gold)
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(s.title ?? "Space").font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
-                                            if let t = s.topic { Text(t).font(.caption).foregroundStyle(Nuru.muted) }
+                                            Text(s.title ?? "Space").font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                                            if let t = s.topic { Text(t).font(.nCaption).foregroundStyle(Nuru.muted) }
                                         }
                                         Spacer()
-                                        Text("\(s.memberCount)").font(.caption).foregroundStyle(Nuru.muted)
+                                        Text("\(s.memberCount)").font(.nCaption).foregroundStyle(Nuru.muted)
                                     }
                                 }
                             }
@@ -60,17 +60,17 @@ private struct ConversationRow: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(c.displayName).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
+                    Text(c.displayName).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                     if let body = c.lastBody {
                         Text("\(c.lastAuthor.map { "\($0): " } ?? "")\(body)")
-                            .font(.caption).foregroundStyle(Nuru.muted).lineLimit(1)
+                            .font(.nCaption).foregroundStyle(Nuru.muted).lineLimit(1)
                     }
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
-                    if let at = c.lastAt { Text(Fmt.relative(at)).font(.caption2).foregroundStyle(Nuru.muted) }
+                    if let at = c.lastAt { Text(Fmt.relative(at)).font(.nMicro).foregroundStyle(Nuru.muted) }
                     if c.unread > 0 {
-                        Text("\(c.unread)").font(.caption2.weight(.bold)).foregroundStyle(.white)
+                        Text("\(c.unread)").font(.inter(11.5, .bold)).foregroundStyle(.white)
                             .padding(.horizontal, 7).padding(.vertical, 2)
                             .background(Nuru.gold).clipShape(Capsule())
                     }
@@ -105,20 +105,20 @@ private struct MessageBubble: View {
             if m.mine { Spacer(minLength: 40) }
             VStack(alignment: m.mine ? .trailing : .leading, spacing: 3) {
                 if !m.mine {
-                    Text(m.authorName).font(.caption2.weight(.semibold)).foregroundStyle(Nuru.gold)
+                    Text(m.authorName).font(.inter(11.5, .semibold)).foregroundStyle(Nuru.gold)
                 }
                 if let rb = m.replyBody {
                     Text("↳ \(m.replyAuthor.map { "\($0): " } ?? "")\(rb)")
-                        .font(.caption2).foregroundStyle(Nuru.muted).lineLimit(1)
+                        .font(.nMicro).foregroundStyle(Nuru.muted).lineLimit(1)
                 }
                 Text(m.body)
-                    .font(.subheadline)
+                    .font(.nBody)
                     .foregroundStyle(m.mine ? .white : Nuru.foreground)
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(m.mine ? Nuru.navy : Color.white)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(Nuru.border, lineWidth: m.mine ? 0 : 1))
-                Text(Fmt.relative(m.createdAt)).font(.caption2).foregroundStyle(Nuru.muted)
+                Text(Fmt.relative(m.createdAt)).font(.nMicro).foregroundStyle(Nuru.muted)
             }
             if !m.mine { Spacer(minLength: 40) }
         }

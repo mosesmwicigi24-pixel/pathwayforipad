@@ -59,12 +59,12 @@ struct ContentStudioView: View {
         Card {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
+                    Text(title).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                     Spacer()
                     Pill(text: active ? activeLabel : "Hidden", color: active ? Nuru.success : Nuru.muted)
                 }
-                if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(Nuru.gold) }
-                if !body.isEmpty { Text(body).font(.caption).foregroundStyle(Nuru.muted).lineLimit(3) }
+                if !subtitle.isEmpty { Text(subtitle).font(.nCaption).foregroundStyle(Nuru.gold) }
+                if !body.isEmpty { Text(body).font(.nCaption).foregroundStyle(Nuru.muted).lineLimit(3) }
             }
         }
     }

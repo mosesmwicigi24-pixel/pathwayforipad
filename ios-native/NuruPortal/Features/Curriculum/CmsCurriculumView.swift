@@ -16,11 +16,11 @@ struct CmsCurriculumView: View {
                                 HStack(spacing: 14) {
                                     ZStack {
                                         Circle().fill(Nuru.gold.opacity(0.15)).frame(width: 44, height: 44)
-                                        Text("\(level.levelNumber)").font(.headline).foregroundStyle(Nuru.gold)
+                                        Text("\(level.levelNumber)").font(.nHeading).foregroundStyle(Nuru.gold)
                                     }
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(level.title).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
-                                        if let theme = level.theme { Text(theme).font(.caption).foregroundStyle(Nuru.muted) }
+                                        Text(level.title).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                                        if let theme = level.theme { Text(theme).font(.nCaption).foregroundStyle(Nuru.muted) }
                                         HStack(spacing: 6) {
                                             Pill(text: "\(level.publishedCount) live", color: Nuru.success)
                                             Pill(text: "\(level.draftCount) draft", color: Nuru.warning)
@@ -28,7 +28,7 @@ struct CmsCurriculumView: View {
                                     }
                                     Spacer()
                                     if level.locked { Image(systemName: "lock.fill").foregroundStyle(Nuru.muted) }
-                                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(Nuru.muted)
+                                    Image(systemName: "chevron.right").font(.nCaption).foregroundStyle(Nuru.muted)
                                 }
                             }
                         }
@@ -54,11 +54,11 @@ struct LevelDetailView: View {
                         } label: {
                             Card {
                                 HStack(spacing: 12) {
-                                    Text("\(m.moduleSequenceNumber)").font(.subheadline.weight(.bold))
+                                    Text("\(m.moduleSequenceNumber)").font(.inter(15, .bold))
                                         .foregroundStyle(Nuru.muted).frame(width: 26)
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(m.title).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
-                                        if let s = m.summary { Text(s).font(.caption).foregroundStyle(Nuru.muted).lineLimit(2) }
+                                        Text(m.title).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                                        if let s = m.summary { Text(s).font(.nCaption).foregroundStyle(Nuru.muted).lineLimit(2) }
                                         HStack(spacing: 6) {
                                             Pill(text: m.status.capitalized,
                                                  color: m.status == "published" ? Nuru.success : Nuru.warning)
@@ -66,7 +66,7 @@ struct LevelDetailView: View {
                                         }
                                     }
                                     Spacer()
-                                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(Nuru.muted)
+                                    Image(systemName: "chevron.right").font(.nCaption).foregroundStyle(Nuru.muted)
                                 }
                             }
                         }
@@ -95,17 +95,17 @@ struct ModuleQuizView: View {
                             Card {
                                 VStack(alignment: .leading, spacing: 8) {
                                     HStack(alignment: .top) {
-                                        Text("Q\(idx + 1)").font(.caption.weight(.bold)).foregroundStyle(Nuru.gold)
-                                        Text(q.questionText).font(.subheadline.weight(.medium)).foregroundStyle(Nuru.navy)
+                                        Text("Q\(idx + 1)").font(.inter(13, .bold)).foregroundStyle(Nuru.gold)
+                                        Text(q.questionText).font(.inter(15, .medium)).foregroundStyle(Nuru.navy)
                                         Spacer()
                                         if !q.isActive { Pill(text: "Inactive", color: Nuru.muted) }
                                     }
                                     if !q.correctAnswer.isEmpty {
                                         Label(q.correctAnswer, systemImage: "checkmark.circle.fill")
-                                            .font(.caption).foregroundStyle(Nuru.success)
+                                            .font(.nCaption).foregroundStyle(Nuru.success)
                                     }
                                     if let e = q.explanation, !e.isEmpty {
-                                        Text(e).font(.caption).foregroundStyle(Nuru.muted)
+                                        Text(e).font(.nCaption).foregroundStyle(Nuru.muted)
                                     }
                                     HStack(spacing: 6) {
                                         Pill(text: q.qType.replacingOccurrences(of: "_", with: " ").capitalized, color: Nuru.navy)

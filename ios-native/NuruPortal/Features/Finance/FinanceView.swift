@@ -11,7 +11,7 @@ struct FinanceView: View {
                         Card {
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack {
-                                    Text(fund.name).font(.headline).foregroundStyle(Nuru.navy)
+                                    Text(fund.name).font(.nHeading).foregroundStyle(Nuru.navy)
                                     Spacer()
                                     Pill(text: "\(fund.giftCount) gifts", color: Nuru.navy)
                                 }
@@ -19,12 +19,12 @@ struct FinanceView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(Fmt.money(minor: fund.totalMinor, currency: fund.currency))
                                             .font(.nuruDisplay(26)).foregroundStyle(Nuru.gold)
-                                        Text("Total").font(.caption2).foregroundStyle(Nuru.muted)
+                                        Text("Total").font(.nMicro).foregroundStyle(Nuru.muted)
                                     }
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(Fmt.money(minor: fund.monthMinor, currency: fund.currency))
-                                            .font(.title3.weight(.semibold)).foregroundStyle(Nuru.navy)
-                                        Text("This month").font(.caption2).foregroundStyle(Nuru.muted)
+                                            .font(.fraunces(22, .semibold)).foregroundStyle(Nuru.navy)
+                                        Text("This month").font(.nMicro).foregroundStyle(Nuru.muted)
                                     }
                                 }
                             }

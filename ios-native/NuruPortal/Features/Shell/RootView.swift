@@ -110,7 +110,7 @@ struct RootView: View {
                         ForEach(navGroups) { group in
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(group.label.uppercased())
-                                    .font(.caption2.weight(.bold)).tracking(1.2)
+                                    .font(.inter(11.5, .bold)).tracking(1.2)
                                     .foregroundStyle(.white.opacity(0.34))
                                     .padding(.horizontal, 14).padding(.bottom, 2)
                                 ForEach(group.items) { item in
@@ -136,7 +136,7 @@ struct RootView: View {
             BrandMark(size: 38)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Nuru Pathway").font(.nuruDisplay(18)).foregroundStyle(.white)
-                Text("Portal Admin").font(.caption2).foregroundStyle(.white.opacity(0.45))
+                Text("Portal Admin").font(.nMicro).foregroundStyle(.white.opacity(0.45))
             }
             Spacer()
         }
@@ -158,11 +158,11 @@ struct RootView: View {
             HStack(spacing: 10) {
                 Monogram(name: name, size: 36, gradient: Nuru.goldGradient)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(name).font(.subheadline).fontWeight(.semibold).foregroundStyle(.white).lineLimit(1)
-                    Text(role).font(.caption2).fontWeight(.bold).foregroundStyle(Nuru.goldLight)
+                    Text(name).font(.nBody).fontWeight(.semibold).foregroundStyle(.white).lineLimit(1)
+                    Text(role).font(.nMicro).fontWeight(.bold).foregroundStyle(Nuru.goldLight)
                 }
                 Spacer()
-                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.white.opacity(0.5))
+                Image(systemName: "chevron.up.chevron.down").font(.nMicro).foregroundStyle(.white.opacity(0.5))
             }
             .padding(12)
             .background(.white.opacity(0.07))
@@ -213,7 +213,7 @@ private struct NavRow: View {
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 22)
                 Text(item.title)
-                    .font(.system(size: 14, weight: selected ? .semibold : .regular))
+                    .font(.inter(14.5, selected ? .semibold : .medium))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(selected ? .white : Color.white.opacity(0.7))

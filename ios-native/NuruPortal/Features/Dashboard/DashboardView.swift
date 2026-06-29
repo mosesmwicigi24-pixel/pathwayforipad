@@ -86,12 +86,12 @@ private struct CellRow: View {
                 ZStack {
                     Circle().fill(Nuru.bandColor(scoreBand).opacity(0.15)).frame(width: 46, height: 46)
                     Text(String(format: "%.0f", cell.avgEngagement))
-                        .font(.headline).foregroundStyle(Nuru.bandColor(scoreBand))
+                        .font(.nHeading).foregroundStyle(Nuru.bandColor(scoreBand))
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(cell.name).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
+                    Text(cell.name).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                     Text("\(cell.members) members · \(cell.disciplerName ?? "Unassigned")")
-                        .font(.caption).foregroundStyle(Nuru.muted)
+                        .font(.nCaption).foregroundStyle(Nuru.muted)
                 }
                 Spacer()
                 if cell.atRisk > 0 { Pill(text: "\(cell.atRisk) at risk", color: Nuru.danger) }

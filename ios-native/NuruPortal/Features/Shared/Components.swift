@@ -1,19 +1,18 @@
-// Shared UI kit + async-loading primitives. Every feature is a thin declaration
-// over these, so the whole app shares one polished, consistent design language.
+// Shared UI kit — a Swift port of the mobile app's primitives
+// (packages/mobile/src/theme/components.tsx), so the iPad app reads with the same
+// warm, card-based feel: white cards floating on one soft shadow, overline
+// section headers, gold-on-restraint, Inter body + Fraunces display.
 import SwiftUI
 
 // MARK: - Async loading
 
-enum Loadable<T> {
-    case idle, loading, loaded(T), failed(String)
-}
+enum Loadable<T> { case idle, loading, loaded(T), failed(String) }
 
 @MainActor
 final class Loader<T>: ObservableObject {
     @Published var state: Loadable<T> = .idle
     private let fetch: () async throws -> T
     init(_ fetch: @escaping () async throws -> T) { self.fetch = fetch }
-
     func load() async {
         if case .loaded = state {} else { state = .loading }
         do { state = .loaded(try await fetch()) }
@@ -21,135 +20,160 @@ final class Loader<T>: ObservableObject {
     }
 }
 
-/// Drives a screen from a `Loader`: branded loader → content → retryable error.
+/// Drives a screen: skeleton → content → retryable error.
 struct AsyncView<T, Content: View>: View {
     @StateObject private var loader: Loader<T>
     private let content: (T) -> Content
-
     init(_ fetch: @escaping () async throws -> T, @ViewBuilder content: @escaping (T) -> Content) {
         _loader = StateObject(wrappedValue: Loader(fetch))
         self.content = content
     }
-
     var body: some View {
         Group {
             switch loader.state {
             case .idle, .loading:
-                LoadingState()
-            case .loaded(let value):
-                content(value)
-            case .failed(let message):
-                ScrollView { ErrorBanner(message: message) { Task { await loader.load() } }.padding(24) }
+                ScrollView { SkeletonList(rows: 6).padding(Nuru.S.screen) }
+            case .loaded(let v):
+                content(v)
+            case .failed(let m):
+                ScrollView { ErrorBanner(message: m) { Task { await loader.load() } }.padding(Nuru.S.screen) }
             }
         }
-        .background(Nuru.background)
+        .background(Nuru.paper)
         .task { if case .idle = loader.state { await loader.load() } }
         .refreshable { await loader.load() }
     }
 }
 
-/// Calm, branded loading state (pulsing mark) — replaces a bare spinner.
 struct LoadingState: View {
-    @State private var pulse = false
+    var body: some View { SkeletonList(rows: 5).padding(Nuru.S.screen) }
+}
+
+// MARK: - Shimmer skeletons
+
+struct Shimmer: ViewModifier {
+    @State private var x: CGFloat = -1
+    func body(content: Content) -> some View {
+        content.overlay(
+            GeometryReader { geo in
+                LinearGradient(colors: [.clear, .white.opacity(0.55), .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: geo.size.width * 0.6)
+                    .offset(x: x * geo.size.width)
+                    .animation(.linear(duration: 1.2).repeatForever(autoreverses: false), value: x)
+            }
+            .mask(content)
+        )
+        .onAppear { x = 1.6 }
+    }
+}
+extension View { func shimmer() -> some View { modifier(Shimmer()) } }
+
+struct Skeleton: View {
+    var height: CGFloat = 16
+    var width: CGFloat? = nil
+    var radius: CGFloat = Nuru.R.control
     var body: some View {
-        VStack(spacing: 14) {
-            BrandMark(size: 46)
-                .scaleEffect(pulse ? 1.06 : 0.94)
-                .opacity(pulse ? 1 : 0.7)
-                .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: pulse)
-            Text("Loading…").font(.footnote).foregroundStyle(Nuru.faint)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { pulse = true }
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(Nuru.mutedBg)
+            .frame(width: width, height: height)
+            .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
+            .shimmer()
     }
 }
 
-// MARK: - Building blocks
-
-struct ErrorBanner: View {
-    let message: String
-    let retry: () -> Void
+struct SkeletonList: View {
+    var rows = 3
     var body: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                Circle().fill(Nuru.danger.opacity(0.1)).frame(width: 56, height: 56)
-                Image(systemName: "exclamationmark.triangle.fill").font(.title2).foregroundStyle(Nuru.danger)
+        VStack(spacing: Nuru.S.md) {
+            ForEach(0..<rows, id: \.self) { _ in
+                HStack(spacing: Nuru.S.md) {
+                    Skeleton(height: 44, width: 44)
+                    VStack(alignment: .leading, spacing: Nuru.S.sm) {
+                        Skeleton(height: 14, width: 200)
+                        Skeleton(height: 10, width: 120)
+                    }
+                    Spacer()
+                }
+                .padding(Nuru.S.base)
+                .background(Nuru.surface)
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
             }
-            Text("Something went wrong").font(.headline).foregroundStyle(Nuru.foreground)
-            Text(message).font(.subheadline).foregroundStyle(Nuru.muted).multilineTextAlignment(.center)
-            Button(action: retry) {
-                Text("Try again").fontWeight(.semibold)
-                    .padding(.horizontal, 22).padding(.vertical, 11)
-                    .background(Nuru.goldGradient).foregroundStyle(.white)
-                    .clipShape(Capsule())
-            }
-            .padding(.top, 2)
         }
-        .frame(maxWidth: 420)
-        .padding(28)
-        .background(Nuru.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .nuruShadow()
-        .frame(maxWidth: .infinity)
     }
 }
 
-/// Elevated white card — the workhorse surface for rows and panels.
+// MARK: - Surfaces
+
+/// White rounded card with one soft shadow + hairline border (mobile Card).
 struct Card<Content: View>: View {
-    var padding: CGFloat = 16
+    var padding: CGFloat = Nuru.S.base
+    var accent = false
     @ViewBuilder var content: Content
     var body: some View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Nuru.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Nuru.border.opacity(0.7), lineWidth: 1))
-            .nuruShadow(0.8)
+            .background(Nuru.white)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous)
+                .stroke(accent ? Nuru.gold.opacity(0.5) : Nuru.border, lineWidth: 1))
+            .nuruShadow()
     }
 }
 
-/// Rounded tinted icon chip — adds color + depth to leading glyphs.
+/// Inset tile inside a card (mobile `surface`).
+struct SurfaceTile<Content: View>: View {
+    var padding: CGFloat = Nuru.S.md
+    @ViewBuilder var content: Content
+    var body: some View {
+        content.padding(padding).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Nuru.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+    }
+}
+
+/// Soft gold glow orb for navy headers.
+struct Glow: View {
+    var size: CGFloat = 220
+    var color: Color = Nuru.gold.opacity(0.18)
+    var body: some View { Circle().fill(color).frame(width: size, height: size).blur(radius: 60) }
+}
+
+// MARK: - Pieces
+
 struct TintedIcon: View {
     let systemName: String
     var color: Color = Nuru.gold
     var size: CGFloat = 44
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                .fill(color.opacity(0.14))
-            Image(systemName: systemName)
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundStyle(color)
+            RoundedRectangle(cornerRadius: size * 0.3, style: .continuous).fill(color.opacity(0.14))
+            Image(systemName: systemName).font(.system(size: size * 0.42, weight: .semibold)).foregroundStyle(color)
         }
         .frame(width: size, height: size)
     }
 }
 
-/// Small status pill.
 struct Pill: View {
     let text: String
-    var color: Color = Nuru.muted
-    var filled: Bool = false
+    var color: Color = Nuru.ink600
+    var filled = false
     var body: some View {
-        Text(text)
-            .font(.caption2.weight(.bold))
+        Text(text).font(.nMicro)
             .foregroundStyle(filled ? .white : color)
-            .padding(.horizontal, 9).padding(.vertical, 4)
-            .background(filled ? AnyShapeStyle(color) : AnyShapeStyle(color.opacity(0.13)))
+            .padding(.horizontal, 11).padding(.vertical, 5)
+            .background(filled ? AnyShapeStyle(color) : AnyShapeStyle(color.opacity(0.12)))
             .clipShape(Capsule())
     }
 }
 
-/// Leading monogram avatar from a name, on a gradient.
 struct Monogram: View {
     let name: String
     var size: CGFloat = 44
     var gradient: LinearGradient = Nuru.navyGradient
     var body: some View {
         Circle().fill(gradient).frame(width: size, height: size)
-            .overlay(Text(initials(name)).font(.system(size: size * 0.36, weight: .bold)).foregroundStyle(.white))
-            .nuruShadow(0.4)
+            .overlay(Text(initials(name)).font(.inter(size * 0.34, .semibold)).foregroundStyle(.white))
     }
     private func initials(_ n: String) -> String {
         let p = n.split(separator: " ").prefix(2).compactMap { $0.first }
@@ -157,23 +181,133 @@ struct Monogram: View {
     }
 }
 
+/// Overline eyebrow + serif title (mobile SectionHeader).
+struct SectionHeader: View {
+    let overline: String
+    let title: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(overline.uppercased()).font(.nOverline).tracking(1.8).foregroundStyle(Nuru.ink600)
+            Text(title).font(.nTitle).foregroundStyle(Nuru.ink)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Simple serif section title with optional trailing action (kept for call sites).
 struct SectionTitle: View {
     let text: String
-    var action: (() -> Void)?
-    var actionLabel: String?
+    var action: (() -> Void)? = nil
+    var actionLabel: String? = nil
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(text).font(.nuruDisplay(21)).foregroundStyle(Nuru.navy)
+            Text(text).font(.nTitle).foregroundStyle(Nuru.ink)
             Spacer()
             if let action, let actionLabel {
-                Button(actionLabel, action: action).font(.caption.weight(.semibold)).tint(Nuru.gold)
+                Button(actionLabel, action: action).font(.nLabel).tint(Nuru.goldLo)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// A KPI / stat tile with a gradient icon chip and serif numeral.
+struct ProgressBar: View {
+    let pct: Double
+    var fill: Color = Nuru.gold
+    var height: CGFloat = 8
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Nuru.track)
+                Capsule().fill(fill).frame(width: geo.size.width * min(max(pct, 0), 100) / 100)
+            }
+        }
+        .frame(height: height)
+    }
+}
+
+/// Full-width gold pill button (mobile gold PButton).
+struct GoldButton: View {
+    let title: String
+    var icon: String? = nil
+    var loading = false
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if loading { ProgressView().tint(Nuru.navyDeep) }
+                Text(title).font(.inter(16, .bold)).foregroundStyle(Nuru.navyDeep)
+                if let icon, !loading { Image(systemName: icon).foregroundStyle(Nuru.navyDeep) }
+            }
+            .frame(maxWidth: .infinity).frame(height: 54)
+            .background(Nuru.goldGradient)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.button, style: .continuous))
+        }
+    }
+}
+
+// MARK: - States
+
+struct ErrorBanner: View {
+    let message: String
+    let retry: () -> Void
+    var body: some View {
+        VStack(spacing: Nuru.S.base) {
+            ZStack {
+                Circle().fill(Nuru.danger.opacity(0.1)).frame(width: 56, height: 56)
+                Text("!").font(.inter(24, .bold)).foregroundStyle(Nuru.danger)
+            }
+            Text("Something went wrong").font(.nHeading).foregroundStyle(Nuru.ink)
+            Text(message).font(.nBody).foregroundStyle(Nuru.ink600).multilineTextAlignment(.center)
+            Button(action: retry) {
+                Text("Try again").font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                    .padding(.horizontal, 20).padding(.vertical, 12)
+                    .background(Nuru.white)
+                    .overlay(Capsule().stroke(Nuru.border, lineWidth: 1))
+                    .clipShape(Capsule())
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: 420)
+        .padding(.vertical, Nuru.S.xl)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Hero + stat
+
+struct HeroHeader<Trailing: View>: View {
+    let title: String
+    var subtitle: String?
+    var eyebrow: String?
+    @ViewBuilder var trailing: Trailing
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Glow().offset(x: 60, y: -80)
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let eyebrow {
+                        Text(eyebrow.uppercased()).font(.nOverline).tracking(1.8).foregroundStyle(Nuru.goldGlow)
+                    }
+                    Text(title).font(.nDisplay).foregroundStyle(.white)
+                    if let subtitle { Text(subtitle).font(.nBody).foregroundStyle(Nuru.onNavyDim) }
+                }
+                Spacer()
+                trailing
+            }
+            .padding(Nuru.S.lg)
+        }
+        .background(Nuru.heroGradient)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.hero, style: .continuous))
+        .nuruShadow()
+    }
+}
+extension HeroHeader where Trailing == EmptyView {
+    init(title: String, subtitle: String? = nil, eyebrow: String? = nil) {
+        self.init(title: title, subtitle: subtitle, eyebrow: eyebrow) { EmptyView() }
+    }
+}
+
 struct StatCard: View {
     let label: String
     let value: String
@@ -183,50 +317,12 @@ struct StatCard: View {
     var body: some View {
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Nuru.tintGradient(color))
-                    Image(systemName: icon).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                }
-                .frame(width: 42, height: 42)
-                .nuruShadow(0.5)
-                Text(value).font(.nuruDisplay(30)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.6)
-                Text(label).font(.footnote.weight(.medium)).foregroundStyle(Nuru.muted)
-                if let caption { Text(caption).font(.caption2).foregroundStyle(Nuru.faint) }
+                TintedIcon(systemName: icon, color: color, size: 42)
+                Text(value).font(.fraunces(30, .semibold)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.6)
+                Text(label).font(.nLabel).foregroundStyle(Nuru.ink600)
+                if let caption { Text(caption).font(.nMicro).foregroundStyle(Nuru.warning) }
             }
         }
-    }
-}
-
-/// Navy gradient hero header used at the top of feature pages.
-struct HeroHeader<Trailing: View>: View {
-    let title: String
-    var subtitle: String?
-    @ViewBuilder var trailing: Trailing
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            // subtle gold glow
-            Circle().fill(Nuru.gold.opacity(0.18)).frame(width: 220, height: 220)
-                .blur(radius: 60).offset(x: 70, y: -90)
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title).font(.nuruDisplay(30)).foregroundStyle(.white)
-                    if let subtitle {
-                        Text(subtitle).font(.subheadline).foregroundStyle(.white.opacity(0.72))
-                    }
-                }
-                Spacer()
-                trailing
-            }
-            .padding(.horizontal, 22).padding(.vertical, 22)
-        }
-        .background(Nuru.navyGradient)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .nuruShadow()
-    }
-}
-extension HeroHeader where Trailing == EmptyView {
-    init(title: String, subtitle: String? = nil) {
-        self.init(title: title, subtitle: subtitle) { EmptyView() }
     }
 }
 
@@ -234,10 +330,7 @@ extension HeroHeader where Trailing == EmptyView {
 
 enum Fmt {
     static func money(minor: Int, currency: String?) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .currency
-        f.currencyCode = currency ?? "USD"
-        f.maximumFractionDigits = 2
+        let f = NumberFormatter(); f.numberStyle = .currency; f.currencyCode = currency ?? "USD"; f.maximumFractionDigits = 2
         return f.string(from: NSNumber(value: Double(minor) / 100)) ?? "\(Double(minor) / 100)"
     }
     private static let iso: ISO8601DateFormatter = {
@@ -246,8 +339,7 @@ enum Fmt {
     private static let isoPlain = ISO8601DateFormatter()
     static func date(_ s: String?, style: Date.FormatStyle = .dateTime.month().day().year()) -> String {
         guard let s else { return "—" }
-        let d = iso.date(from: s) ?? isoPlain.date(from: s)
-        return d.map { $0.formatted(style) } ?? "—"
+        return (iso.date(from: s) ?? isoPlain.date(from: s)).map { $0.formatted(style) } ?? "—"
     }
     static func relative(_ s: String?) -> String {
         guard let s, let d = iso.date(from: s) ?? isoPlain.date(from: s) else { return "—" }
@@ -258,11 +350,9 @@ enum Fmt {
 // MARK: - Page chrome
 
 extension View {
-    /// Standard page background + large serif nav title (configured app-wide in
-    /// NuruPortalApp via UINavigationBarAppearance).
     func portalPage(_ title: String) -> some View {
-        self.navigationTitle(title)
+        navigationTitle(title)
             .navigationBarTitleDisplayMode(.large)
-            .background(Nuru.background)
+            .background(Nuru.paper)
     }
 }

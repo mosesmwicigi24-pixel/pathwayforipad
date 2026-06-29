@@ -11,16 +11,16 @@ struct BadgesView: View {
                         Card {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack {
-                                    Image(systemName: "rosette").font(.title2).foregroundStyle(Nuru.gold)
+                                    Image(systemName: "rosette").font(.fraunces(26, .semibold)).foregroundStyle(Nuru.gold)
                                     Spacer()
                                     if b.isActive == false { Pill(text: "Retired", color: Nuru.muted) }
                                 }
-                                Text(b.name).font(.subheadline.weight(.bold)).foregroundStyle(Nuru.navy)
-                                Text(b.description).font(.caption).foregroundStyle(Nuru.muted).lineLimit(3)
+                                Text(b.name).font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
+                                Text(b.description).font(.nCaption).foregroundStyle(Nuru.muted).lineLimit(3)
                                 HStack {
                                     Pill(text: b.category.capitalized, color: Nuru.navy)
                                     Spacer()
-                                    Text("\(b.earnedCount) earned").font(.caption2).foregroundStyle(Nuru.muted)
+                                    Text("\(b.earnedCount) earned").font(.nMicro).foregroundStyle(Nuru.muted)
                                 }
                             }
                         }

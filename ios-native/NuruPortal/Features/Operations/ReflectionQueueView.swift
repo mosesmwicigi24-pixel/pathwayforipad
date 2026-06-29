@@ -16,15 +16,15 @@ struct ReflectionQueueView: View {
                                     HStack {
                                         Monogram(name: r.fullName, size: 36)
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(r.fullName).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
-                                            Text("Level \(r.levelNumber) · \(r.moduleTitle)").font(.caption).foregroundStyle(Nuru.muted)
+                                            Text(r.fullName).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                                            Text("Level \(r.levelNumber) · \(r.moduleTitle)").font(.nCaption).foregroundStyle(Nuru.muted)
                                         }
                                         Spacer()
                                         if r.overdue { Pill(text: "Overdue", color: Nuru.danger) }
                                     }
-                                    Text(r.body).font(.callout).foregroundStyle(Nuru.foreground)
+                                    Text(r.body).font(.nBody).foregroundStyle(Nuru.foreground)
                                         .lineLimit(4).padding(.top, 2)
-                                    Text(Fmt.relative(r.submittedAt)).font(.caption2).foregroundStyle(Nuru.muted)
+                                    Text(Fmt.relative(r.submittedAt)).font(.nMicro).foregroundStyle(Nuru.muted)
                                 }
                             }
                         }

@@ -29,7 +29,7 @@ struct LoginView: View {
                     header
                     card
                     Text("Server-authoritative · offline-first · §1")
-                        .font(.caption2).foregroundStyle(.white.opacity(0.35))
+                        .font(.nMicro).foregroundStyle(.white.opacity(0.35))
                     Spacer(minLength: 30)
                 }
                 .frame(maxWidth: .infinity)
@@ -43,7 +43,7 @@ struct LoginView: View {
             BrandMark(size: 64)
             VStack(spacing: 3) {
                 Text("Nuru Pathway").font(.nuruDisplay(30)).foregroundStyle(.white)
-                Text("Discipleship Admin Portal").font(.subheadline).foregroundStyle(.white.opacity(0.6))
+                Text("Discipleship Admin Portal").font(.nBody).foregroundStyle(.white.opacity(0.6))
             }
         }
     }
@@ -57,7 +57,7 @@ struct LoginView: View {
 
             if let error {
                 Label(error, systemImage: "exclamationmark.circle.fill")
-                    .font(.footnote).foregroundStyle(Nuru.danger)
+                    .font(.nCaption).foregroundStyle(Nuru.danger)
                     .padding(.horizontal, 12).padding(.vertical, 9)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Nuru.danger.opacity(0.08))
@@ -82,7 +82,7 @@ struct LoginView: View {
 
             if mfaToken != nil {
                 Button("Use a different account") { mfaToken = nil; code = ""; error = nil }
-                    .font(.footnote).foregroundStyle(Nuru.muted)
+                    .font(.nCaption).foregroundStyle(Nuru.muted)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -149,7 +149,7 @@ private struct LoginField<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(Nuru.muted)
+            Text(title).font(.inter(13, .semibold)).foregroundStyle(Nuru.muted)
             HStack(spacing: 10) {
                 Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Nuru.gold).frame(width: 18)
                 content

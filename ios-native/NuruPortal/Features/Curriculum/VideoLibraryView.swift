@@ -34,10 +34,10 @@ private struct MediaCard: View {
                         } placeholder: { ProgressView() }
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     } else {
-                        Image(systemName: "play.rectangle").font(.largeTitle).foregroundStyle(Nuru.muted)
+                        Image(systemName: "play.rectangle").font(.fraunces(30, .semibold)).foregroundStyle(Nuru.muted)
                     }
                     if let d = asset.durationSec {
-                        Text(duration(d)).font(.caption2.weight(.bold)).foregroundStyle(.white)
+                        Text(duration(d)).font(.inter(11.5, .bold)).foregroundStyle(.white)
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(.black.opacity(0.6)).clipShape(Capsule())
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -46,16 +46,16 @@ private struct MediaCard: View {
                 }
                 .frame(height: 150).clipped()
 
-                Text(asset.caption ?? "Untitled").font(.subheadline.weight(.semibold))
+                Text(asset.caption ?? "Untitled").font(.inter(15, .semibold))
                     .foregroundStyle(Nuru.navy).lineLimit(2)
                 if let mod = asset.attachedModuleTitle {
-                    Label(mod, systemImage: "link").font(.caption2).foregroundStyle(Nuru.muted).lineLimit(1)
+                    Label(mod, systemImage: "link").font(.nMicro).foregroundStyle(Nuru.muted).lineLimit(1)
                 }
                 HStack(spacing: 6) {
                     Pill(text: asset.status.capitalized, color: asset.status == "ready" ? Nuru.success : Nuru.warning)
                     Pill(text: asset.videoSource.uppercased(), color: Nuru.navy)
                     Spacer()
-                    if let v = asset.views { Text("\(v) views").font(.caption2).foregroundStyle(Nuru.muted) }
+                    if let v = asset.views { Text("\(v) views").font(.nMicro).foregroundStyle(Nuru.muted) }
                 }
             }
         }

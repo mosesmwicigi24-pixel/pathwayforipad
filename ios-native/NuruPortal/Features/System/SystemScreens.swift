@@ -12,10 +12,10 @@ struct UsersView: View {
                             HStack(spacing: 14) {
                                 Monogram(name: u.fullName, size: 40)
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(u.fullName).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
-                                    Text(u.email ?? u.phoneNumber).font(.caption).foregroundStyle(Nuru.muted)
+                                    Text(u.fullName).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                                    Text(u.email ?? u.phoneNumber).font(.nCaption).foregroundStyle(Nuru.muted)
                                     if !u.roleKeys.isEmpty {
-                                        Text(u.roleKeys.joined(separator: ", ")).font(.caption2).foregroundStyle(Nuru.gold)
+                                        Text(u.roleKeys.joined(separator: ", ")).font(.nMicro).foregroundStyle(Nuru.gold)
                                     }
                                 }
                                 Spacer()
@@ -42,17 +42,17 @@ struct CongregationsView: View {
                     ForEach(items) { c in
                         Card {
                             HStack(spacing: 14) {
-                                Image(systemName: "building.columns").font(.title3).foregroundStyle(Nuru.navy)
+                                Image(systemName: "building.columns").font(.fraunces(22, .semibold)).foregroundStyle(Nuru.navy)
                                     .frame(width: 40, height: 40).background(Nuru.navy.opacity(0.1))
                                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(c.name).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
-                                    Text("\(c.country) · \(c.timezone)").font(.caption).foregroundStyle(Nuru.muted)
+                                    Text(c.name).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                                    Text("\(c.country) · \(c.timezone)").font(.nCaption).foregroundStyle(Nuru.muted)
                                 }
                                 Spacer()
                                 VStack(alignment: .trailing, spacing: 2) {
-                                    Text("\(c.cellCount) cells").font(.caption.weight(.semibold)).foregroundStyle(Nuru.navy)
-                                    Text("\(c.memberCount) members").font(.caption2).foregroundStyle(Nuru.muted)
+                                    Text("\(c.cellCount) cells").font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
+                                    Text("\(c.memberCount) members").font(.nMicro).foregroundStyle(Nuru.muted)
                                 }
                             }
                         }
@@ -73,11 +73,11 @@ struct CountriesView: View {
                     ForEach(items) { c in
                         Card {
                             HStack(spacing: 14) {
-                                Text(c.flag ?? "🏳️").font(.title2)
+                                Text(c.flag ?? "🏳️").font(.fraunces(26, .semibold))
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(c.name).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
+                                    Text(c.name).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                                     Text([c.region, c.dialCode, c.currency].compactMap { $0 }.joined(separator: " · "))
-                                        .font(.caption).foregroundStyle(Nuru.muted)
+                                        .font(.nCaption).foregroundStyle(Nuru.muted)
                                 }
                                 Spacer()
                                 Pill(text: c.status.capitalized, color: c.status == "active" ? Nuru.success : Nuru.muted)
@@ -102,13 +102,13 @@ struct LanguagesView: View {
                             HStack(spacing: 14) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack(spacing: 6) {
-                                        Text(l.name).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
+                                        Text(l.name).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                                         if l.isDefault { Pill(text: "Default", color: Nuru.gold) }
                                     }
-                                    Text("\(l.nativeName) · \(l.direction.uppercased())").font(.caption).foregroundStyle(Nuru.muted)
+                                    Text("\(l.nativeName) · \(l.direction.uppercased())").font(.nCaption).foregroundStyle(Nuru.muted)
                                 }
                                 Spacer()
-                                Text(String(format: "%.0f%%", l.coverage)).font(.subheadline.weight(.bold)).foregroundStyle(Nuru.gold)
+                                Text(String(format: "%.0f%%", l.coverage)).font(.inter(15, .bold)).foregroundStyle(Nuru.gold)
                             }
                         }
                     }
@@ -129,12 +129,12 @@ struct RolesView: View {
                         Card {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
-                                    Text(r.name).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
+                                    Text(r.name).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                                     Spacer()
                                     Pill(text: r.roleType.capitalized, color: Nuru.navy)
                                 }
-                                Text(r.description).font(.caption).foregroundStyle(Nuru.muted)
-                                Text("\(r.userCount) users").font(.caption2).foregroundStyle(Nuru.gold)
+                                Text(r.description).font(.nCaption).foregroundStyle(Nuru.muted)
+                                Text("\(r.userCount) users").font(.nMicro).foregroundStyle(Nuru.gold)
                             }
                         }
                     }

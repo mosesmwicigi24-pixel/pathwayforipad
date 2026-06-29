@@ -20,19 +20,19 @@ struct EventsView: View {
                                 HStack(spacing: 14) {
                                     VStack(spacing: 1) {
                                         Text(Fmt.date(e.startAt, style: .dateTime.month(.abbreviated)))
-                                            .font(.caption2.weight(.bold)).foregroundStyle(Nuru.gold)
+                                            .font(.inter(11.5, .bold)).foregroundStyle(Nuru.gold)
                                         Text(Fmt.date(e.startAt, style: .dateTime.day()))
-                                            .font(.title3.bold()).foregroundStyle(Nuru.navy)
+                                            .font(.fraunces(22, .semibold)).foregroundStyle(Nuru.navy)
                                     }
                                     .frame(width: 48)
                                     Divider().frame(height: 36)
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(e.title).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
+                                        Text(e.title).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                                         Text(Fmt.date(e.startAt, style: .dateTime.weekday().hour().minute()))
-                                            .font(.caption).foregroundStyle(Nuru.muted)
+                                            .font(.nCaption).foregroundStyle(Nuru.muted)
                                         if let loc = e.location {
                                             Label(loc, systemImage: "mappin.and.ellipse")
-                                                .font(.caption2).foregroundStyle(Nuru.muted)
+                                                .font(.nMicro).foregroundStyle(Nuru.muted)
                                         }
                                     }
                                     Spacer()

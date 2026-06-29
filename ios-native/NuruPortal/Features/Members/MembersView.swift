@@ -78,15 +78,15 @@ private struct MemberRowView: View {
     var body: some View {
         HStack(spacing: 14) {
             Circle().fill(Nuru.navy).frame(width: 42, height: 42)
-                .overlay(Text(initials).font(.caption.weight(.bold)).foregroundStyle(.white))
+                .overlay(Text(initials).font(.inter(13, .bold)).foregroundStyle(.white))
             VStack(alignment: .leading, spacing: 3) {
-                Text(member.fullName).font(.subheadline.weight(.semibold)).foregroundStyle(Nuru.navy)
-                Text(subtitle).font(.caption).foregroundStyle(Nuru.muted).lineLimit(1)
+                Text(member.fullName).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                Text(subtitle).font(.nCaption).foregroundStyle(Nuru.muted).lineLimit(1)
             }
             Spacer()
             if let band = member.band {
                 Text(band.capitalized)
-                    .font(.caption2.weight(.bold))
+                    .font(.inter(11.5, .bold))
                     .foregroundStyle(Nuru.bandColor(band))
                     .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(Nuru.bandColor(band).opacity(0.12))
@@ -94,7 +94,7 @@ private struct MemberRowView: View {
             }
             if let score = member.eScore {
                 Text(String(format: "%.0f", score))
-                    .font(.subheadline.weight(.bold)).foregroundStyle(Nuru.gold)
+                    .font(.inter(15, .bold)).foregroundStyle(Nuru.gold)
                     .frame(minWidth: 34)
             }
         }

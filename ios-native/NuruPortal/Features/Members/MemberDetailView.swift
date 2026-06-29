@@ -13,8 +13,8 @@ struct MemberDetailView: View {
                         HStack(spacing: 14) {
                             Monogram(name: m.fullName, size: 56)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(m.fullName).font(.title3.bold()).foregroundStyle(Nuru.navy)
-                                if let cell = m.cellName { Text(cell).font(.subheadline).foregroundStyle(Nuru.muted) }
+                                Text(m.fullName).font(.fraunces(22, .semibold)).foregroundStyle(Nuru.navy)
+                                if let cell = m.cellName { Text(cell).font(.nBody).foregroundStyle(Nuru.muted) }
                                 HStack(spacing: 8) {
                                     if let band = m.engagement.band { Pill(text: band.capitalized, color: Nuru.bandColor(band)) }
                                     if let s = m.engagement.eScore {
@@ -59,9 +59,9 @@ private struct InfoRow: View {
     init(_ label: String, _ value: String) { self.label = label; self.value = value }
     var body: some View {
         HStack {
-            Text(label).font(.subheadline).foregroundStyle(Nuru.muted)
+            Text(label).font(.nBody).foregroundStyle(Nuru.muted)
             Spacer()
-            Text(value).font(.subheadline.weight(.medium)).foregroundStyle(Nuru.navy)
+            Text(value).font(.inter(15, .medium)).foregroundStyle(Nuru.navy)
                 .multilineTextAlignment(.trailing)
         }
     }

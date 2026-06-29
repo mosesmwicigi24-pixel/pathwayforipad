@@ -19,10 +19,10 @@ struct NotificationsView: View {
                                         .background(color(n.category).opacity(0.12))
                                         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(n.title).font(.subheadline.weight(n.read ? .medium : .bold))
+                                        Text(n.title).font(.inter(15, n.read ? .medium : .bold))
                                             .foregroundStyle(Nuru.navy)
-                                        if let m = n.message { Text(m).font(.caption).foregroundStyle(Nuru.muted) }
-                                        Text(Fmt.relative(n.at)).font(.caption2).foregroundStyle(Nuru.muted)
+                                        if let m = n.message { Text(m).font(.nCaption).foregroundStyle(Nuru.muted) }
+                                        Text(Fmt.relative(n.at)).font(.nMicro).foregroundStyle(Nuru.muted)
                                     }
                                     Spacer()
                                     if !n.read { Circle().fill(Nuru.gold).frame(width: 8, height: 8) }
