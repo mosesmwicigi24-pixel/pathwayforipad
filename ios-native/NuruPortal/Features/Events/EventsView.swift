@@ -37,6 +37,7 @@
 // since the shared CalendarOccurrence model omits series_id/cell_group_id.
 import SwiftUI
 import Charts
+import CoreImage.CIFilterBuiltins
 
 // MARK: - Category derivation (no category column on the wire — infer from title)
 
@@ -1325,40 +1326,45 @@ private struct FlexRow: Layout {
 
 // MARK: - Procedural QR placeholder (display-only — no QR endpoint yet)
 
+/// A real, scannable QR code rendered from `value` via CoreImage
+/// (CIQRCodeGenerator), tinted brand-navy on white.
 private struct QrPlaceholder: View {
     let value: String
     var size: CGFloat = 200
-    private var cells: [Bool] {
-        var seed: UInt32 = 0
-        for ch in value.unicodeScalars { seed = seed &* 31 &+ ch.value }
-        var arr: [Bool] = []
-        for _ in 0..<(21 * 21) { seed = seed &* 1664525 &+ 1013904223; arr.append(seed & 1 == 1) }
-        return arr
+
+    private static let ciContext = CIContext()
+
+    private func qrImage() -> Image? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(value.utf8)
+        filter.correctionLevel = "M"           // 15% error correction
+        guard let coded = filter.outputImage else { return nil }
+        // Tint: navy modules on a white field.
+        let tint = CIFilter.falseColor()
+        tint.inputImage = coded
+        tint.color0 = CIColor(red: 0x0B/255.0, green: 0x1F/255.0, blue: 0x33/255.0) // navy (foreground/dots)
+        tint.color1 = CIColor(red: 1, green: 1, blue: 1)                            // white (background)
+        guard let colored = tint.outputImage else { return nil }
+        // Upscale (nearest-neighbour) so the modules stay crisp at display size.
+        let scale = max(1, (size * 3) / colored.extent.width)
+        let scaled = colored.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        guard let cg = Self.ciContext.createCGImage(scaled, from: scaled.extent) else { return nil }
+        return Image(decorative: cg, scale: 1, orientation: .up)
     }
-    private func isCorner(_ r: Int, _ c: Int) -> Bool {
-        (r < 7 && c < 7) || (r < 7 && c >= 14) || (r >= 14 && c < 7)
-    }
+
     var body: some View {
-        let m = cells
-        Canvas { ctx, sz in
-            let u = sz.width / 21
-            ctx.fill(Path(CGRect(origin: .zero, size: sz)), with: .color(.white))
-            for i in 0..<(21 * 21) {
-                let r = i / 21, c = i % 21
-                var on = false
-                if isCorner(r, c) {
-                    let lr = r < 7 ? r : r - 14, lc = c < 7 ? c : c - 14
-                    let edge = lr == 0 || lr == 6 || lc == 0 || lc == 6
-                    let inner = lr >= 2 && lr <= 4 && lc >= 2 && lc <= 4
-                    on = edge || inner
-                } else { on = m[i] }
-                if on {
-                    ctx.fill(Path(CGRect(x: CGFloat(c) * u, y: CGFloat(r) * u, width: u, height: u)),
-                             with: .color(Color(hex: 0x0B1F33)))
-                }
+        Group {
+            if let img = qrImage() {
+                img.interpolation(.none).resizable().scaledToFit()
+                    .frame(width: size, height: size)
+            } else {
+                // Should never happen for non-empty input; show a neutral placeholder.
+                ZStack {
+                    Color.white
+                    Image(systemName: "qrcode").font(.system(size: size * 0.4)).foregroundStyle(Nuru.ink300)
+                }.frame(width: size, height: size)
             }
         }
-        .frame(width: size, height: size)
         .padding(14).background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Nuru.border, lineWidth: 1))
@@ -1651,6 +1657,12 @@ private struct QrSheet: View {
     private var secret: String {
         "NURU-\(occ.id.prefix(8).uppercased())-\(String(tick, radix: 36).uppercased())"
     }
+    /// The value actually encoded in the QR — a real check-in deep link carrying the
+    /// occurrence id and the rotating code, so a scan resolves to a parseable URL.
+    private var qrPayload: String {
+        let code = secret.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? secret
+        return "https://pathway.nuruplace.org/checkin?occ=\(occ.id)&code=\(code)"
+    }
 
     var body: some View {
         NavigationStack {
@@ -1663,7 +1675,7 @@ private struct QrSheet: View {
                     }
 
                     VStack(spacing: 14) {
-                        QrPlaceholder(value: secret, size: 280)
+                        QrPlaceholder(value: qrPayload, size: 280)
                         HStack(spacing: 8) {
                             Label("QR refreshes every 30 seconds", systemImage: "sparkles").font(.nMicro).foregroundStyle(Nuru.muted)
                             Button { tick += 1 } label: {
