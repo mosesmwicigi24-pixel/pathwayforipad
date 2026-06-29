@@ -1,621 +1,923 @@
-// Members — native SwiftUI port of the web Members page (Members.tsx). Matches the
-// make: navy hero with breadcrumb + "on pathway" tag + Export/Add chips, a 4-up
-// stat strip (Total / Thriving / Watch / At-risk), a "By country" chip filter row,
-// the full filter bar (search + band/level/cell/gender/programme/country), and the
-// roster list. Each row carries identity (monogram, name, L-pill, MINOR, email,
-// country·city), cell, start point, programme progress, last active, and a server-
-// derived status pill, and pushes MemberDetailView. Cursor pagination.
-//
-// Roster rows come from a page-local Codable that mirrors the web MemberRow (the
-// shared MemberRow is a slimmer subset), fetched through APIClient.shared.get so we
-// can pass every filter param from api/client.ts. The shared MemberRow/MembersPage
-// and PortalAPI.members stay untouched.
+// Members — a faithful, complete native port of the web admin Members.tsx.
+// Hero (breadcrumb · "N on pathway" · Export · Add member) + band stat strip +
+// "By country" filter chips; toolbar (debounced search · Band · Cell); rich member
+// rows; and the four flows: Add member, Edit member, Member results, Export — all
+// wired to the live ops API (list/detail/results reads; add/update/enrollment/
+// graduation writes via APIClient's put/patch/post). Tap a row → MemberDetailView.
 import SwiftUI
 
-// MARK: - Page-local wire models (full web MemberRow shape; snake_case via decoder)
+// MARK: - Page-local models (the shared MemberRow is a slim subset)
 
-fileprivate enum MemberStatusKey: String, CaseIterable {
-    case thriving, steady, watch, at_risk, graduated
-    var label: String {
-        switch self {
-        case .thriving: "Thriving"; case .steady: "Steady"; case .watch: "Watch"
-        case .at_risk: "At-risk"; case .graduated: "Graduated"
-        }
-    }
-    /// Pill colours mirror statusMeta in Members.tsx.
-    var fg: Color {
-        switch self {
-        case .thriving: Color(hex: 0x16A34A); case .steady: Color(hex: 0x0B1F33)
-        case .watch:    Color(hex: 0x8B6914); case .at_risk: Color(hex: 0xDC2626)
-        case .graduated: Color(hex: 0x7C3AED)
-        }
-    }
-    var bg: Color {
-        switch self {
-        case .thriving: Color(hex: 0x16A34A, alpha: 0.10); case .steady: Color(hex: 0x0B1F33, alpha: 0.08)
-        case .watch:    Color(hex: 0xC89B3C, alpha: 0.12); case .at_risk: Color(hex: 0xDC2626, alpha: 0.10)
-        case .graduated: Color(hex: 0x7C3AED, alpha: 0.10)
-        }
-    }
-    var ring: Color {
-        switch self {
-        case .thriving: Color(hex: 0x16A34A, alpha: 0.20); case .steady: Color(hex: 0x0B1F33, alpha: 0.15)
-        case .watch:    Color(hex: 0xC89B3C, alpha: 0.25); case .at_risk: Color(hex: 0xDC2626, alpha: 0.20)
-        case .graduated: Color(hex: 0x7C3AED, alpha: 0.25)
-        }
-    }
-}
-
-private let programmeLabels: [String: String] = [
-    "new_believer": "New Believer", "foundations": "Foundations",
-    "serving_track": "Serving Track", "leadership_prep": "Leadership Prep",
-]
-
-fileprivate struct MemberListRow: Codable, Identifiable {
-    var userId: String = ""
-    var fullName: String = ""
+private struct MRow: Codable, Identifiable {
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var fullName: String
     let email: String?
-    var phoneNumber: String = ""
-    var isMinor: Bool = false
-    let cellName: String?
-    let cellGroupId: String?
+    @DefaultEmpty var phoneNumber: String
+    @DefaultFalse var isMinor: Bool
     let currentLevel: Int?
     let startLevel: Int?
     let startModuleSequence: Int?
     let eScore: Double?
     let band: String?
+    let cellName: String?
+    let cellGroupId: String?
     let lastActivity: String?
     let gender: String?
     let city: String?
     let programme: String?
     let countryCode: String?
-    let age: Int?
-    let status: String?
+    let status: String?     // server-derived: graduated | band
     var id: String { userId }
+}
+private struct MPage: Codable { let data: [MRow] }
 
-    var statusKey: MemberStatusKey { MemberStatusKey(rawValue: status ?? "steady") ?? .steady }
-    var progress: Int { Int((eScore ?? 0) * 100) }
+private struct MEditDetail: Codable {
+    @DefaultEmpty var fullName: String
+    let email: String?
+    @DefaultEmpty var phoneNumber: String
+    let gender: String?
+    let dateOfBirth: String?
+    let countryCode: String?
+    let city: String?
+    let language: String?
+    let cellGroupId: String?
+    let programme: String?
+    @DefaultFalse var isBaptized: Bool
+    let currentLevel: Int?
+    let startLevel: Int?
+    let startModuleSequence: Int?
 }
 
-private struct MemberListPage: Codable {
-    let data: [MemberListRow]
-    let nextCursor: String?
+private struct OkResponse: Codable {}
+
+// Conditional JSON body (omit absent keys, mirroring the web's spread).
+private enum JSONValue: Encodable {
+    case string(String), int(Int), bool(Bool), null
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let v): try c.encode(v)
+        case .int(let v): try c.encode(v)
+        case .bool(let v): try c.encode(v)
+        case .null: try c.encodeNil()
+        }
+    }
+}
+
+// MARK: - Results dossier models
+
+private struct MResults: Codable {
+    struct User: Codable { @DefaultEmpty var fullName: String }
+    struct Summary: Codable {
+        let overallScore: Double?
+        @DefaultZero var modulesCompleted: Int
+        @DefaultZero var modulesTotal: Int
+        @DefaultZero var levelsCompleted: Int
+        @DefaultZero var badges: Int
+        @DefaultZero var certificates: Int
+    }
+    struct Exam: Codable { let score: Double?; @DefaultFalse var passed: Bool; @DefaultZero var attempts: Int }
+    struct Module: Codable, Identifiable {
+        @DefaultEmpty var moduleId: String
+        @DefaultZero var sequence: Int
+        @DefaultEmpty var title: String
+        @DefaultFalse var completed: Bool
+        let bestScore: Double?
+        @DefaultZero var attempts: Int
+        var id: String { moduleId }
+    }
+    struct Level: Codable, Identifiable {
+        @DefaultZero var levelNumber: Int
+        @DefaultEmpty var title: String
+        let moduleAverage: Double?
+        let levelScore: Double?
+        @DefaultFalse var completed: Bool
+        let exam: Exam?
+        @MListDefault var modules: [Module]
+        var id: Int { levelNumber }
+    }
+    struct Badge: Codable, Identifiable { @DefaultEmpty var code: String; @DefaultEmpty var name: String; var id: String { code } }
+    struct Cert: Codable, Identifiable {
+        @DefaultZero var levelNumber: Int
+        let levelTitle: String?
+        @DefaultEmpty var verificationCode: String
+        @DefaultEmpty var issuedAt: String
+        var id: String { verificationCode }
+    }
+    let user: User
+    let summary: Summary
+    @MListDefault var levels: [Level]
+    @MListDefault var badges: [Badge]
+    @MListDefault var certificates: [Cert]
+}
+
+@propertyWrapper private struct MListDefault<E: Codable>: Codable {
+    var wrappedValue: [E]
+    init() { wrappedValue = [] }
+    init(from decoder: Decoder) throws { wrappedValue = (try? [E](from: decoder)) ?? [] }
+    func encode(to encoder: Encoder) throws { try wrappedValue.encode(to: encoder) }
+}
+extension KeyedDecodingContainer {
+    fileprivate func decode<E>(_ t: MListDefault<E>.Type, forKey k: Key) throws -> MListDefault<E> {
+        try decodeIfPresent(t, forKey: k) ?? MListDefault<E>()
+    }
+}
+
+// MARK: - Status meta (band → label + colors)
+
+private struct StatusMeta { let label: String; let fg: Color; let bg: Color }
+private func statusMeta(_ key: String?) -> StatusMeta {
+    switch key {
+    case "thriving":  return StatusMeta(label: "Thriving", fg: Color(hex: 0x16A34A), bg: Color(hex: 0x16A34A).opacity(0.10))
+    case "watch":     return StatusMeta(label: "Watch", fg: Color(hex: 0x8B6914), bg: Color(hex: 0xC89B3C).opacity(0.12))
+    case "at_risk":   return StatusMeta(label: "At-risk", fg: Color(hex: 0xDC2626), bg: Color(hex: 0xDC2626).opacity(0.10))
+    case "graduated": return StatusMeta(label: "Graduated", fg: Color(hex: 0x7C3AED), bg: Color(hex: 0x7C3AED).opacity(0.10))
+    default:          return StatusMeta(label: "Steady", fg: Nuru.navy, bg: Nuru.navy.opacity(0.08))
+    }
+}
+private let PROGRAMME_LABELS: [String: String] = [
+    "new_believer": "New Believer", "foundations": "Foundations",
+    "serving_track": "Serving Track", "leadership_prep": "Leadership Prep",
+]
+private let AVATAR_GRADIENTS: [[Color]] = [
+    [Color(hex: 0x0B1F33), Color(hex: 0x1E4068)], [Color(hex: 0xC89B3C), Color(hex: 0x8B6914)],
+    [Color(hex: 0x16A34A), Color(hex: 0x065F46)], [Color(hex: 0x7C3AED), Color(hex: 0x4C1D95)],
+    [Color(hex: 0xDC2626), Color(hex: 0x7F1D1D)], [Color(hex: 0x0EA5E9), Color(hex: 0x075985)],
+]
+private func avatarGradient(_ i: Int) -> LinearGradient {
+    LinearGradient(colors: AVATAR_GRADIENTS[i % AVATAR_GRADIENTS.count], startPoint: .topLeading, endPoint: .bottomTrailing)
+}
+private func initials(_ n: String) -> String {
+    let p = n.split(separator: " ").prefix(2).compactMap { $0.first }
+    return p.isEmpty ? "?" : String(p).uppercased()
+}
+private func pctInt(_ v: Double?) -> Int { Int(((v ?? 0) * 100).rounded()) }
+private func relDays(_ iso: String?) -> String {
+    guard let iso, let d = ISO8601DateFormatter().date(from: iso) else { return "—" }
+    let days = Int(Date().timeIntervalSince(d) / 86400)
+    return days <= 0 ? "Today" : days == 1 ? "Yesterday" : "\(days)d ago"
+}
+
+// MARK: - API
+
+private enum MembersAPI {
+    static func list(search: String, band: String?, country: String?) async throws -> [MRow] {
+        var q: [String: String] = [:]
+        let s = search.trimmingCharacters(in: .whitespaces)
+        if !s.isEmpty { q["search"] = s }
+        if let band, band != "All", band != "graduated" { q["band"] = band }
+        if let country, country != "All" { q["country_code"] = country }
+        return try await APIClient.shared.get("/admin/members", query: q, as: MPage.self).data
+    }
+    static func detail(_ id: String) async throws -> MEditDetail {
+        try await APIClient.shared.get("/admin/members/\(id)", as: MEditDetail.self)
+    }
+    static func results(_ id: String) async throws -> MResults {
+        try await APIClient.shared.get("/admin/members/\(id)/results", as: MResults.self)
+    }
+    static func add(_ body: [String: JSONValue]) async throws {
+        _ = try await APIClient.shared.post("/admin/members", body: body, as: OkResponse.self)
+    }
+    static func update(_ id: String, _ body: [String: JSONValue]) async throws {
+        _ = try await APIClient.shared.patch("/admin/members/\(id)", body: body, as: OkResponse.self)
+    }
+    static func setStart(_ id: String, level: Int, module: Int) async throws {
+        _ = try await APIClient.shared.patch("/admin/members/\(id)/enrollment",
+                                             body: ["start_level": JSONValue.int(level), "start_module_sequence": .int(module)],
+                                             as: OkResponse.self)
+    }
+    static func setGraduation(_ id: String, _ graduated: Bool) async throws {
+        _ = try await APIClient.shared.patch("/admin/members/\(id)/graduation",
+                                             body: ["graduated": JSONValue.bool(graduated)], as: OkResponse.self)
+    }
 }
 
 // MARK: - View model
 
 @MainActor
-fileprivate final class MembersViewModel: ObservableObject {
-    @Published var rows: [MemberListRow] = []
+private final class MembersVM: ObservableObject {
+    @Published var rows: [MRow] = []
+    @Published var cells: [EngagementCellRow] = []
     @Published var countries: [Country] = []
-    @Published var loading = false
-    @Published var loadingMore = false
-    @Published var error: String?
-
-    // Filters (mirror the web toolbar + chips)
     @Published var search = ""
-    @Published var band: MemberStatusKey?       // nil == All; .graduated filters client-side
-    @Published var level: Int?                   // nil == All
+    @Published var band: String = "All"
     @Published var cellFilter = "All"
-    @Published var gender: String?               // nil == All
-    @Published var programme: String?            // nil == All
-    @Published var countryFilter = "All"         // ISO-2 or "All"
+    @Published var country = "All"
+    @Published var error: String?
+    @Published var loading = true
+    private var task: Task<Void, Never>?
 
-    private var cursor: String?
-    private var canLoadMore = true
+    var countryByCode: [String: Country] { Dictionary(countries.map { ($0.code, $0) }, uniquingKeysWith: { a, _ in a }) }
+    var cellNames: [String] { ["All"] + Array(Set(rows.compactMap { $0.cellName })).sorted() }
 
-    var countryByCode: [String: Country] { Dictionary(uniqueKeysWithValues: countries.map { ($0.code, $0) }) }
-
-    /// Cell names present in the loaded roster (web cellNames).
-    var cellNames: [String] {
-        ["All"] + Array(Set(rows.compactMap { $0.cellName })).sorted()
-    }
-
-    /// Rows after the client-side cell + graduated filters (web `filtered`).
-    var filtered: [MemberListRow] {
+    var filtered: [MRow] {
         rows.filter { m in
             (cellFilter == "All" || m.cellName == cellFilter) &&
-            (band != .graduated || m.status == "graduated")
+            (band != "graduated" || m.status == "graduated")
         }
     }
-
-    /// "By country" chips with counts over the loaded roster (web countryChips).
-    struct CountryChip: Identifiable { let code: String; let count: Int; let country: Country?; var id: String { code } }
-    var countryChips: [CountryChip] {
-        var counts: [String: Int] = [:]
-        for m in rows { if let c = m.countryCode { counts[c, default: 0] += 1 } }
-        return counts.map { CountryChip(code: $0.key, count: $0.value, country: countryByCode[$0.key]) }
-            .sorted { $0.count > $1.count }
-    }
-
-    var totals: (total: Int, thriving: Int, watch: Int, atRisk: Int) {
+    var counts: (total: Int, thriving: Int, watch: Int, atRisk: Int) {
         (rows.count,
          rows.filter { $0.status == "thriving" }.count,
          rows.filter { $0.status == "watch" }.count,
          rows.filter { $0.status == "at_risk" }.count)
     }
-
-    private func query(cursor: String?) -> [String: String] {
-        var q: [String: String] = [:]
-        let s = search.trimmingCharacters(in: .whitespaces)
-        if !s.isEmpty { q["search"] = s }
-        // Band goes to the server; "graduated" is derived, so it filters client-side.
-        if let band, band != .graduated { q["band"] = band.rawValue }
-        if let level { q["level"] = String(level) }
-        if let gender { q["gender"] = gender }
-        if let programme { q["programme"] = programme }
-        if countryFilter != "All" { q["country_code"] = countryFilter }
-        if let cursor { q["cursor"] = cursor }
-        return q
+    var countryChips: [(code: String, count: Int, country: Country?)] {
+        var counts: [String: Int] = [:]
+        for m in rows { if let c = m.countryCode { counts[c, default: 0] += 1 } }
+        return counts.map { ($0.key, $0.value, countryByCode[$0.key]) }.sorted { $0.1 > $1.1 }
     }
 
+    func bootstrap() async {
+        async let c = try? PortalAPI.engagement()
+        async let co = try? PortalAPI.countries()
+        cells = (await c)?.cells ?? []
+        countries = await co ?? []
+        await reload()
+    }
     func reload() async {
-        cursor = nil; canLoadMore = true; rows = []
-        await load(reset: true)
+        do { rows = try await MembersAPI.list(search: search, band: band, country: country); error = nil }
+        catch { self.error = (error as? APIError)?.errorDescription ?? "Could not load members." }
+        loading = false
     }
-
-    func loadMore() async {
-        guard canLoadMore, !loading, !loadingMore else { return }
-        await load(reset: false)
-    }
-
-    private func load(reset: Bool) async {
-        if reset { loading = true } else { loadingMore = true }
-        error = nil
-        do {
-            let page = try await APIClient.shared.get("/admin/members", query: query(cursor: cursor), as: MemberListPage.self)
-            rows.append(contentsOf: page.data)
-            cursor = page.nextCursor
-            canLoadMore = page.nextCursor != nil
-        } catch {
-            self.error = (error as? APIError)?.errorDescription ?? error.localizedDescription
+    func scheduleReload() {
+        task?.cancel()
+        task = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if !Task.isCancelled { await self?.reload() }
         }
-        loading = false; loadingMore = false
     }
-
-    func loadCountries() async {
-        countries = (try? await PortalAPI.countries()) ?? []
+    func graduate(_ id: String, _ next: Bool) async {
+        do { try await MembersAPI.setGraduation(id, next); await reload() }
+        catch { self.error = (error as? APIError)?.errorDescription ?? "Could not update graduation." }
     }
 }
 
 // MARK: - Members screen
 
 struct MembersView: View {
-    @StateObject private var vm = MembersViewModel()
-    @State private var searchTask: Task<Void, Never>?
+    @StateObject private var vm = MembersVM()
+    @State private var addOpen = false
+    @State private var editId: String?
+    @State private var resultsId: String?
+    @State private var exportOpen = false
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 0, pinnedViews: []) {
+            VStack(spacing: 0) {
                 hero
-                VStack(spacing: 12) {
-                    if let error = vm.error {
-                        ErrorBanner(message: error) { Task { await vm.reload() } }
+                VStack(spacing: 14) {
+                    if let e = vm.error { ErrorBanner(message: e) { Task { await vm.reload() } } }
+                    toolbar
+                    if vm.loading && vm.rows.isEmpty {
+                        SkeletonList(rows: 6)
+                    } else if vm.filtered.isEmpty {
+                        emptyState
+                    } else {
+                        ForEach(Array(vm.filtered.enumerated()), id: \.element.id) { i, m in
+                            MemberRowCard(member: m, index: i, country: m.countryCode.flatMap { vm.countryByCode[$0] },
+                                          onResults: { resultsId = m.userId },
+                                          onEdit: { editId = m.userId },
+                                          onGraduate: { Task { await vm.graduate(m.userId, m.status != "graduated") } })
+                        }
+                        footer
                     }
-                    filterBar
-                    roster
-                    footer
                 }
-                .padding(.horizontal, Nuru.S.base)
-                .padding(.top, Nuru.S.lg)
-                .padding(.bottom, Nuru.S.xxl)
+                .padding(20)
             }
         }
-        .background(Nuru.background)
+        .background(Nuru.paper)
+        .navigationTitle("Members")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
-        .task {
-            if vm.rows.isEmpty { await vm.reload() }
-            if vm.countries.isEmpty { await vm.loadCountries() }
-        }
+        .task { if vm.rows.isEmpty { await vm.bootstrap() } }
         .refreshable { await vm.reload() }
+        .sheet(isPresented: $addOpen) { MemberFormSheet(mode: .add, cells: vm.cells, countries: vm.countries) { Task { await vm.reload() } } }
+        .sheet(item: Binding(get: { editId.map { IdBox(id: $0) } }, set: { editId = $0?.id })) { box in
+            MemberFormSheet(mode: .edit(box.id), cells: vm.cells, countries: vm.countries) { Task { await vm.reload() } }
+        }
+        .sheet(item: Binding(get: { resultsId.map { IdBox(id: $0) } }, set: { resultsId = $0?.id })) { box in
+            MemberResultsSheet(userId: box.id)
+        }
+        .sheet(isPresented: $exportOpen) { ExportSheet(members: vm.filtered, countryByCode: vm.countryByCode) }
     }
 
-    // MARK: Hero (navy)
-
+    // Hero
     private var hero: some View {
-        let t = vm.totals
-        return VStack(alignment: .leading, spacing: 16) {
-            // Breadcrumb + action chips
-            HStack(alignment: .center) {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
                 HStack(spacing: 6) {
                     Text("Nuru Pathway").font(.nMicro).foregroundStyle(Nuru.onNavyDim)
                     Image(systemName: "chevron.right").font(.system(size: 8)).foregroundStyle(Nuru.onNavyFaint)
                     Text("Members").font(.nMicro).foregroundStyle(.white)
                 }
-                Spacer(minLength: 8)
+                Spacer()
+                HStack(spacing: 8) {
+                    HeroChip(label: "\(vm.counts.total) on pathway", icon: "person.2.fill", style: .tag)
+                    HeroChip(label: "Export", icon: "square.and.arrow.up", style: .ghost) { exportOpen = true }
+                    HeroChip(label: "Add member", icon: "plus", style: .gold) { addOpen = true }
+                }
             }
-            HStack(spacing: 8) {
-                HeroChip(label: "\(t.total) on pathway", icon: "person.2.fill", style: .tag)
-                Spacer(minLength: 0)
-                HeroChip(label: "Export", icon: "square.and.arrow.down", style: .ghost)
-                HeroChip(label: "Add member", icon: "plus", style: .gold)
+            HStack(spacing: 0) {
+                bandStat("Total members", "\(vm.counts.total)", nil)
+                bandStat("Thriving", "\(vm.counts.thriving)", Color(hex: 0x16A34A))
+                bandStat("Watch", "\(vm.counts.watch)", Color(hex: 0xA87616))
+                bandStat("At-risk", "\(vm.counts.atRisk)", Color(hex: 0xDC2626))
             }
-
-            statStrip(t)
-
-            if !vm.countryChips.isEmpty { countryChipRow }
+            .background(.white.opacity(0.04))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+            if !vm.countryChips.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        Text("BY COUNTRY").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)
+                        countryChip("All", flag: nil, count: nil, code: "All")
+                        ForEach(vm.countryChips, id: \.code) { c in
+                            countryChip(c.country?.name ?? c.code, flag: c.country?.flag, count: c.count, code: c.code)
+                        }
+                    }
+                }
+            }
         }
-        .padding(.horizontal, Nuru.S.base).padding(.top, Nuru.S.lg).padding(.bottom, Nuru.S.lg)
+        .padding(.horizontal, Nuru.S.lg).padding(.top, Nuru.S.lg).padding(.bottom, Nuru.S.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.navyCeremony)
     }
 
-    private func statStrip(_ t: (total: Int, thriving: Int, watch: Int, atRisk: Int)) -> some View {
-        let cells: [(String, String, Color?, Color)] = [
-            ("Total members", String(t.total), nil, .white),
-            ("Thriving", String(t.thriving), Color(hex: 0xE8F6EC), Color(hex: 0x16A34A)),
-            ("Watch", String(t.watch), Color(hex: 0xFFF6E0), Color(hex: 0xA87616)),
-            ("At-risk", String(t.atRisk), Color(hex: 0xFDECEC), Color(hex: 0xDC2626)),
-        ]
-        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 0), GridItem(.flexible(), spacing: 0)], spacing: 0) {
-            ForEach(Array(cells.enumerated()), id: \.offset) { _, c in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(c.0.uppercased()).font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)
-                    if let bandBg = c.2 {
-                        Text("● \(c.1)").font(.inter(13, .bold)).foregroundStyle(c.3)
-                            .padding(.horizontal, 10).padding(.vertical, 4)
-                            .background(bandBg).clipShape(Capsule())
-                    } else {
-                        Text(c.1).font(.fraunces(22, .medium)).foregroundStyle(.white)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 18).padding(.vertical, 14)
+    private func bandStat(_ label: String, _ value: String, _ band: Color?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label.uppercased()).font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)
+            if let band {
+                Text("● \(value)").font(.inter(13, .bold)).foregroundStyle(band)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(band.opacity(0.16)).clipShape(Capsule())
+            } else {
+                Text(value).font(.fraunces(22, .medium)).foregroundStyle(.white)
             }
         }
-        .background(.white.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18).padding(.vertical, 14)
     }
 
-    private var countryChipRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                Text("By country").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)
-                countryPill(label: "All", active: vm.countryFilter == "All") {
-                    vm.countryFilter = "All"; Task { await vm.reload() }
-                }
-                ForEach(vm.countryChips) { c in
-                    countryPill(
-                        label: "\(c.country?.flag ?? "🏳️") \(c.country?.name ?? c.code) · \(c.count)",
-                        active: vm.countryFilter == c.code
-                    ) {
-                        vm.countryFilter = (vm.countryFilter == c.code) ? "All" : c.code
-                        Task { await vm.reload() }
-                    }
-                }
+    private func countryChip(_ name: String, flag: String?, count: Int?, code: String) -> some View {
+        let active = vm.country == code
+        return Button {
+            vm.country = (vm.country == code) ? "All" : code
+            vm.scheduleReload()
+        } label: {
+            HStack(spacing: 5) {
+                if let flag { Text(flag) }
+                Text(name).font(.inter(11.5, .semibold))
+                if let count { Text("· \(count)").font(.inter(11.5, .regular)).opacity(0.7) }
             }
-        }
-    }
-
-    private func countryPill(label: String, active: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label).font(.inter(11.5, .semibold)).foregroundStyle(.white)
-                .padding(.horizontal, 10).frame(height: 26)
-                .background(active ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Color.white.opacity(0.06)))
-                .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
-                .clipShape(Capsule())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10).frame(height: 26)
+            .background(active ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(.white.opacity(0.06)))
+            .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
+            .clipShape(Capsule())
         }
         .buttonStyle(.plain)
     }
 
-    // MARK: Filter bar
-
-    private var filterBar: some View {
-        VStack(spacing: 12) {
-            // Search
+    // Toolbar
+    private var toolbar: some View {
+        HStack(spacing: 10) {
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(Nuru.muted)
+                Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(Nuru.ink400)
                 TextField("Search by name, email or programme…", text: $vm.search)
-                    .font(.inter(13)).foregroundStyle(Nuru.ink)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .onChange(of: vm.search) { _, _ in debouncedReload() }
-                    .submitLabel(.search)
-                    .onSubmit { Task { await vm.reload() } }
-                if !vm.search.isEmpty {
-                    Button { vm.search = ""; Task { await vm.reload() } } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(Nuru.ink300)
-                    }.buttonStyle(.plain)
-                }
+                    .font(.nBody).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .onChange(of: vm.search) { _, _ in vm.scheduleReload() }
             }
-            .padding(.horizontal, 12).frame(height: 40)
+            .padding(.horizontal, 12).frame(height: 38)
             .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-            // Filter menus (band / level / cell / gender / programme / country)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    bandMenu
-                    levelMenu
-                    cellMenu
-                    genderMenu
-                    programmeMenu
-                    countryMenu
+            Menu {
+                Picker("Band", selection: $vm.band) {
+                    Text("All").tag("All")
+                    Text("Thriving").tag("thriving"); Text("Steady").tag("steady")
+                    Text("Watch").tag("watch"); Text("At-risk").tag("at_risk"); Text("Graduated").tag("graduated")
                 }
-            }
+            } label: { filterLabel("Band: \(vm.band == "All" ? "All" : statusMeta(vm.band).label)") }
+            .onChange(of: vm.band) { _, _ in vm.scheduleReload() }
+
+            Menu {
+                Picker("Cell", selection: $vm.cellFilter) {
+                    ForEach(vm.cellNames, id: \.self) { Text($0).tag($0) }
+                }
+            } label: { filterLabel("Cell: \(vm.cellFilter)") }
         }
         .padding(12)
-        .background(Nuru.white)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
-
-    private func filterChip(_ title: String, active: Bool) -> some View {
-        HStack(spacing: 6) {
-            Text(title).font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
-            Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(Nuru.muted)
-        }
-        .padding(.horizontal, 12).frame(height: 38)
-        .background(active ? AnyShapeStyle(Nuru.gold.opacity(0.12)) : AnyShapeStyle(Nuru.inputBg))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(active ? Nuru.gold.opacity(0.4) : Nuru.border, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
-    private var bandMenu: some View {
-        Menu {
-            Button("All") { vm.band = nil; Task { await vm.reload() } }
-            ForEach(MemberStatusKey.allCases, id: \.self) { b in
-                Button(b.label) { vm.band = b; Task { await vm.reload() } }
-            }
-        } label: {
-            filterChip("Band: \(vm.band?.label ?? "All")", active: vm.band != nil)
-        }
-    }
-
-    private var levelMenu: some View {
-        Menu {
-            Button("All") { vm.level = nil; Task { await vm.reload() } }
-            ForEach(1...6, id: \.self) { l in
-                Button("Level \(l)") { vm.level = l; Task { await vm.reload() } }
-            }
-        } label: {
-            filterChip("Level: \(vm.level.map { "L\($0)" } ?? "All")", active: vm.level != nil)
-        }
-    }
-
-    private var cellMenu: some View {
-        Menu {
-            ForEach(vm.cellNames, id: \.self) { name in
-                Button(name) { vm.cellFilter = name }   // client-side filter, no reload
-            }
-        } label: {
-            filterChip("Cell: \(vm.cellFilter)", active: vm.cellFilter != "All")
-        }
-    }
-
-    private var genderMenu: some View {
-        Menu {
-            Button("All") { vm.gender = nil; Task { await vm.reload() } }
-            ForEach([("female", "Female"), ("male", "Male"), ("other", "Other")], id: \.0) { g in
-                Button(g.1) { vm.gender = g.0; Task { await vm.reload() } }
-            }
-        } label: {
-            filterChip("Gender: \(vm.gender.map { $0.capitalized } ?? "All")", active: vm.gender != nil)
-        }
-    }
-
-    private var programmeMenu: some View {
-        Menu {
-            Button("All") { vm.programme = nil; Task { await vm.reload() } }
-            ForEach(["new_believer", "foundations", "serving_track", "leadership_prep"], id: \.self) { p in
-                Button(programmeLabels[p] ?? p) { vm.programme = p; Task { await vm.reload() } }
-            }
-        } label: {
-            filterChip("Programme: \(vm.programme.flatMap { programmeLabels[$0] } ?? "All")", active: vm.programme != nil)
-        }
-    }
-
-    private var countryMenu: some View {
-        Menu {
-            Button("All") { vm.countryFilter = "All"; Task { await vm.reload() } }
-            ForEach(vm.countries) { c in
-                Button("\(c.flag ?? "") \(c.name)") { vm.countryFilter = c.code; Task { await vm.reload() } }
-            }
-        } label: {
-            let label = vm.countryFilter == "All" ? "All" : (vm.countryByCode[vm.countryFilter]?.name ?? vm.countryFilter)
-            filterChip("Country: \(label)", active: vm.countryFilter != "All")
-        }
-    }
-
-    // MARK: Roster
-
-    private var roster: some View {
-        let list = vm.filtered
-        return VStack(spacing: 8) {
-            if vm.loading && list.isEmpty {
-                SkeletonList(rows: 6)
-            } else if list.isEmpty {
-                emptyState
-            } else {
-                ForEach(Array(list.enumerated()), id: \.element.id) { idx, m in
-                    NavigationLink {
-                        MemberDetailView(userId: m.userId, name: m.fullName)
-                    } label: {
-                        MemberCardRow(member: m, index: idx, country: m.countryCode.flatMap { vm.countryByCode[$0] })
-                    }
-                    .buttonStyle(.plain)
-                    .onAppear { if m.id == list.last?.id { Task { await vm.loadMore() } } }
-                }
-                if vm.loadingMore {
-                    HStack { Spacer(); ProgressView(); Spacer() }.padding(.vertical, 8)
-                }
-            }
-        }
+    private func filterLabel(_ t: String) -> some View {
+        HStack(spacing: 6) { Text(t).font(.inter(12, .semibold)); Image(systemName: "chevron.down").font(.system(size: 10)) }
+            .foregroundStyle(Nuru.navy).padding(.horizontal, 12).frame(height: 38)
+            .background(Nuru.inputBg).overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Text("No members match those filters.").font(.nBody).foregroundStyle(Nuru.muted)
+            Image(systemName: "person.2").font(.title).foregroundStyle(Nuru.ink300)
+            Text("No members match those filters.").font(.nBody).foregroundStyle(Nuru.ink600)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 48)
-        .background(Nuru.white)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous)
-            .strokeBorder(Nuru.border, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [5])).foregroundStyle(Nuru.border))
     }
 
     private var footer: some View {
         HStack {
-            Text("Showing \(vm.filtered.count) of \(vm.rows.count) loaded").font(.nCaption).foregroundStyle(Nuru.muted)
+            Text("Showing \(vm.filtered.count) of \(vm.rows.count) loaded").font(.nCaption).foregroundStyle(Nuru.ink600)
             Spacer()
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(Color(hex: 0x16A34A))
-                Text("Live from the directory").font(.nMicro).foregroundStyle(Nuru.muted)
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(Nuru.success)
+                Text("Live from the directory").font(.nMicro).foregroundStyle(Nuru.ink600)
             }
         }
-        .padding(.top, 6)
-    }
-
-    // Debounced search reload (web's 250ms timeout).
-    private func debouncedReload() {
-        searchTask?.cancel()
-        searchTask = Task {
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            if Task.isCancelled { return }
-            await vm.reload()
-        }
+        .padding(.top, 8)
     }
 }
 
-// MARK: - Member roster card row (mirrors the web row layout)
+private struct IdBox: Identifiable { let id: String }
 
-private struct MemberCardRow: View {
-    let member: MemberListRow
+// MARK: - Member row
+
+private struct MemberRowCard: View {
+    let member: MRow
     let index: Int
     let country: Country?
-
-    private let avatarGradients: [LinearGradient] = [
-        LinearGradient(colors: [Color(hex: 0x0B1F33), Color(hex: 0x1E4068)], startPoint: .topLeading, endPoint: .bottomTrailing),
-        LinearGradient(colors: [Color(hex: 0xC89B3C), Color(hex: 0x8B6914)], startPoint: .topLeading, endPoint: .bottomTrailing),
-        LinearGradient(colors: [Color(hex: 0x16A34A), Color(hex: 0x065F46)], startPoint: .topLeading, endPoint: .bottomTrailing),
-        LinearGradient(colors: [Color(hex: 0x7C3AED), Color(hex: 0x4C1D95)], startPoint: .topLeading, endPoint: .bottomTrailing),
-        LinearGradient(colors: [Color(hex: 0xDC2626), Color(hex: 0x7F1D1D)], startPoint: .topLeading, endPoint: .bottomTrailing),
-        LinearGradient(colors: [Color(hex: 0x0EA5E9), Color(hex: 0x075985)], startPoint: .topLeading, endPoint: .bottomTrailing),
-    ]
+    let onResults: () -> Void
+    let onEdit: () -> Void
+    let onGraduate: () -> Void
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 12) {
-                // Avatar + thriving dot
+        let sm = statusMeta(member.status)
+        let progress = pctInt(member.eScore)
+        return NavigationLink {
+            MemberDetailView(userId: member.userId, name: member.fullName)
+        } label: {
+            HStack(spacing: 14) {
                 ZStack(alignment: .bottomTrailing) {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(avatarGradients[index % avatarGradients.count])
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(avatarGradient(index))
                         .frame(width: 44, height: 44)
-                        .overlay(Text(initials).font(.inter(14, .bold)).foregroundStyle(.white))
+                        .overlay(Text(initials(member.fullName)).font(.inter(14, .bold)).foregroundStyle(.white))
                     if member.status == "thriving" {
-                        Circle().fill(Color(hex: 0x16A34A))
-                            .frame(width: 12, height: 12)
-                            .overlay(Circle().stroke(.white, lineWidth: 2))
-                            .offset(x: 2, y: 2)
+                        Circle().fill(Color(hex: 0x16A34A)).frame(width: 12, height: 12)
+                            .overlay(Circle().stroke(.white, lineWidth: 2)).offset(x: 3, y: 3)
                     }
                 }
-                // Identity
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(member.fullName).font(.inter(14, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                        Text("L\(member.currentLevel.map(String.init) ?? "—")")
-                            .font(.inter(9.5, .bold)).foregroundStyle(Nuru.gold)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
+                        Text("L\(member.currentLevel.map(String.init) ?? "—")").font(.inter(9.5, .bold))
+                            .foregroundStyle(Nuru.goldLo).padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Nuru.gold.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 4))
                         if member.isMinor {
                             Text("MINOR").font(.inter(9, .bold)).foregroundStyle(Color(hex: 0xA87616))
                                 .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color(hex: 0xF59E0B, alpha: 0.18)).clipShape(RoundedRectangle(cornerRadius: 4))
+                                .background(Color(hex: 0xF59E0B).opacity(0.18)).clipShape(RoundedRectangle(cornerRadius: 4))
                         }
                     }
-                    HStack(spacing: 5) {
-                        Image(systemName: "envelope").font(.system(size: 10)).foregroundStyle(Nuru.muted)
-                        Text(member.email ?? member.phoneNumber).font(.inter(11.5)).foregroundStyle(Nuru.muted).lineLimit(1)
-                    }
+                    Label(member.email ?? member.phoneNumber, systemImage: "envelope").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
                     if country != nil || member.city != nil {
                         HStack(spacing: 4) {
                             if let f = country?.flag { Text(f).font(.system(size: 12)) }
                             Text([country?.name ?? member.countryCode, member.city].compactMap { $0 }.joined(separator: " · "))
-                                .font(.inter(11)).foregroundStyle(Nuru.muted).lineLimit(1)
+                                .font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
                         }
                     }
                 }
-                Spacer(minLength: 0)
-                // Status pill + chevron
-                VStack(alignment: .trailing, spacing: 4) {
-                    statusPill
-                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Nuru.ink300)
-                }
-            }
+                .frame(width: 210, alignment: .leading)
 
-            // Secondary strip: cell · start point · programme progress · last active
-            HStack(spacing: 12) {
-                metaCol(title: member.cellName ?? "—", caption: "cell", captionIcon: "person.crop.circle.badge.checkmark", iconColor: Nuru.gold)
-                metaCol(
-                    title: "L\(member.startLevel ?? 1)·M\(member.startModuleSequence ?? 1)",
-                    caption: "start point", captionIcon: "flag.fill", iconColor: Color(hex: 0x0EA5E9), titleLeading: true
-                )
-                Spacer(minLength: 0)
-                VStack(alignment: .trailing, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(member.cellName ?? "—").font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                    Label("cell", systemImage: "person.crop.circle.badge.checkmark").font(.nMicro).foregroundStyle(Nuru.ink600)
+                }.frame(width: 150, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Label("L\(member.startLevel ?? 1)·M\(member.startModuleSequence ?? 1)", systemImage: "flag.fill")
+                        .font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy)
+                    Text("start point").font(.nMicro).foregroundStyle(Nuru.ink600)
+                }.frame(width: 100, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(member.programme.flatMap { programmeLabels[$0] } ?? "Engagement")
-                            .font(.inter(11, .semibold)).foregroundStyle(Nuru.muted).lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text("\(member.progress)%").font(.inter(12, .bold)).foregroundStyle(Nuru.navy)
+                        Text(member.programme.flatMap { PROGRAMME_LABELS[$0] } ?? "Engagement").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                        Spacer()
+                        Text("\(progress)%").font(.inter(12, .bold)).foregroundStyle(Nuru.navy)
                     }
-                    ProgressBar(pct: Double(member.progress), fill: member.statusKey.fg, height: 6)
-                        .frame(width: 130)
-                }
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("Last active").font(.inter(11)).foregroundStyle(Nuru.muted)
-                    Text(relTime(member.lastActivity)).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy)
+                    ProgressBar(pct: Double(progress), fill: sm.fg, height: 6)
+                }.frame(width: 170)
+
+                Spacer(minLength: 0)
+
+                Text(sm.label).font(.inter(11, .bold)).foregroundStyle(sm.fg)
+                    .frame(width: 80).padding(.vertical, 5)
+                    .background(sm.bg).overlay(Capsule().stroke(sm.fg.opacity(0.2), lineWidth: 1)).clipShape(Capsule())
+
+                Button(action: onResults) {
+                    Image(systemName: "chart.bar.xaxis").font(.system(size: 15)).foregroundStyle(Nuru.goldLo)
+                        .frame(width: 36, height: 36).background(Nuru.inputBg)
+                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                }.buttonStyle(.plain)
+
+                Menu {
+                    Button { onEdit() } label: { Label("Edit member", systemImage: "pencil") }
+                    Button { onGraduate() } label: { Label(member.status == "graduated" ? "Un-graduate" : "Mark graduated", systemImage: "graduationcap") }
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 15)).foregroundStyle(Nuru.ink600)
+                        .frame(width: 32, height: 32).background(Nuru.inputBg)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
+            .padding(.horizontal, 18).padding(.vertical, 14)
+            .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .nuruShadow(0.5)
         }
-        .padding(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
-        .background(Nuru.white)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-        .nuruShadow(0.5)
+        .buttonStyle(.plain)
     }
+}
 
-    private var statusPill: some View {
-        let sk = member.statusKey
-        return Text(sk.label).font(.inter(11, .bold)).foregroundStyle(sk.fg)
-            .padding(.horizontal, 12).padding(.vertical, 5)
-            .background(sk.bg)
-            .overlay(Capsule().stroke(sk.ring, lineWidth: 1))
-            .clipShape(Capsule())
-    }
+// MARK: - Add / Edit form
 
-    private func metaCol(title: String, caption: String, captionIcon: String, iconColor: Color, titleLeading: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if titleLeading {
-                HStack(spacing: 4) {
-                    Image(systemName: captionIcon).font(.system(size: 11)).foregroundStyle(iconColor)
-                    Text(title).font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+private struct MemberFormSheet: View {
+    enum Mode { case add, edit(String) }
+    let mode: Mode
+    let cells: [EngagementCellRow]
+    let countries: [Country]
+    let onDone: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var fullName = ""
+    @State private var email = ""
+    @State private var phone = ""
+    @State private var gender = ""
+    @State private var hasDob = false
+    @State private var dob = Date()
+    @State private var country = ""
+    @State private var city = ""
+    @State private var language = ""
+    @State private var cellId = ""
+    @State private var startLevel = 1
+    @State private var startModule = 1
+    @State private var programme = ""
+    @State private var baptized = false
+    @State private var levels: [AdminLevel] = []
+    @State private var modules: [AdminModuleSummary] = []
+    @State private var saving = false
+    @State private var error: String?
+    @State private var loaded = false
+
+    private var isEdit: Bool { if case .edit = mode { return true }; return false }
+    private var selectedCell: EngagementCellRow? { cells.first { $0.cellGroupId == cellId } }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
+                personalSection
+                placementSection
+                SwiftUI.Section("Discipleship") { Toggle("Baptized", isOn: $baptized) }
+            }
+            .navigationTitle(isEdit ? "Edit member" : "Add a disciple")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isEdit ? "Save" : "Add") { Task { await submit() } }.disabled(saving || (isEdit && !loaded))
                 }
-                Text(caption).font(.inter(10.5)).foregroundStyle(Nuru.muted)
+            }
+            .task { await setup() }
+            .onChange(of: startLevel) { _, n in Task { await loadModules(n) } }
+        }
+    }
+
+    @ViewBuilder private var personalSection: some View {
+        SwiftUI.Section("Personal details") {
+            labeledField("Full name", required: true) { TextField("e.g. Grace Wanjiru", text: $fullName) }
+            labeledField("Email", required: !isEdit) { TextField("name@email.com", text: $email).keyboardType(.emailAddress).textInputAutocapitalization(.never) }
+            labeledField("Phone") { TextField("+254 …", text: $phone).keyboardType(.phonePad) }
+            Picker("Gender", selection: $gender) { Text("—").tag(""); Text("Female").tag("female"); Text("Male").tag("male"); Text("Other").tag("other") }
+            Toggle("Set date of birth", isOn: $hasDob)
+            if hasDob { DatePicker("Date of birth", selection: $dob, displayedComponents: .date) }
+            Picker("Country", selection: $country) { Text("—").tag(""); ForEach(countries) { c in Text("\(c.flag ?? "") \(c.name)").tag(c.code) } }
+            labeledField("City") { TextField("e.g. Nairobi", text: $city) }
+            labeledField("Language") { TextField("e.g. en", text: $language).textInputAutocapitalization(.never) }
+        }
+    }
+
+    @ViewBuilder private var placementSection: some View {
+        SwiftUI.Section("Pathway placement") {
+            Picker("Cell", selection: $cellId) { ForEach(cells) { c in Text(c.name).tag(c.cellGroupId) } }
+            HStack { Text("Discipler").foregroundStyle(Nuru.ink600); Spacer(); Text(selectedCell?.disciplerName ?? "—").foregroundStyle(Nuru.navy) }
+            Picker("Current level", selection: $startLevel) {
+                if levels.isEmpty { Text("Level \(startLevel)").tag(startLevel) }
+                else { ForEach(levels) { l in Text("Level \(l.levelNumber) — \(l.title)").tag(l.levelNumber) } }
+            }
+            Picker("Module reached", selection: $startModule) {
+                if modules.isEmpty { Text("Module \(startModule)").tag(startModule) }
+                else { ForEach(modules) { m in Text("Module \(m.moduleSequenceNumber) — \(m.title)").tag(m.moduleSequenceNumber) } }
+            }
+            Picker("Programme", selection: $programme) {
+                Text("—").tag("")
+                ForEach(Array(PROGRAMME_LABELS.keys).sorted(), id: \.self) { k in Text(PROGRAMME_LABELS[k] ?? k).tag(k) }
+            }
+            Text("Unlocks every earlier level in full, plus this level up to the selected module.")
+                .font(.nMicro).foregroundStyle(Nuru.ink600)
+        }
+    }
+
+    @ViewBuilder private func labeledField<C: View>(_ label: String, required: Bool = false, @ViewBuilder _ field: () -> C) -> some View {
+        HStack { Text(label + (required ? " *" : "")).foregroundStyle(Nuru.ink600).frame(width: 110, alignment: .leading); field() }
+    }
+
+    private func setup() async {
+        levels = (try? await PortalAPI.curriculumLevels()) ?? []
+        if cellId.isEmpty, let first = cells.first { cellId = first.cellGroupId }
+        if case .edit(let id) = mode {
+            if let d = try? await MembersAPI.detail(id) {
+                fullName = d.fullName; email = d.email ?? ""; phone = d.phoneNumber
+                gender = d.gender ?? ""; country = d.countryCode ?? ""; city = d.city ?? ""
+                language = d.language ?? ""; cellId = d.cellGroupId ?? cellId; programme = d.programme ?? ""
+                baptized = d.isBaptized
+                startLevel = d.startLevel ?? d.currentLevel ?? 1
+                startModule = d.startModuleSequence ?? 1
+                if let dobStr = d.dateOfBirth, let parsed = ISO8601DateFormatter().date(from: dobStr) { dob = parsed; hasDob = true }
+            }
+            loaded = true
+        }
+        await loadModules(startLevel)
+    }
+    private func loadModules(_ level: Int) async {
+        modules = (try? await PortalAPI.modules(level: level)) ?? []
+        if !modules.isEmpty, !modules.contains(where: { $0.moduleSequenceNumber == startModule }) {
+            startModule = modules.first?.moduleSequenceNumber ?? 1
+        }
+    }
+
+    private func submit() async {
+        guard !fullName.trimmingCharacters(in: .whitespaces).isEmpty else { error = "Please enter the member's name."; return }
+        guard !cellId.isEmpty else { error = "Select a cell."; return }
+        if !isEdit, email.trimmingCharacters(in: .whitespaces).isEmpty { error = "Email is required."; return }
+        saving = true; error = nil
+        let dobStr: String? = hasDob ? { let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]; return f.string(from: dob) }() : nil
+        do {
+            if case .edit(let id) = mode {
+                let body: [String: JSONValue] = [
+                    "full_name": .string(fullName.trimmingCharacters(in: .whitespaces)),
+                    "phone_number": .string(phone.isEmpty ? "n/a" : phone),
+                    "cell_group_id": .string(cellId),
+                    "is_baptized": .bool(baptized),
+                    "email": email.isEmpty ? .null : .string(email),
+                    "gender": gender.isEmpty ? .null : .string(gender),
+                    "city": city.isEmpty ? .null : .string(city),
+                    "programme": programme.isEmpty ? .null : .string(programme),
+                    "country_code": country.isEmpty ? .null : .string(country),
+                    "language": language.isEmpty ? .null : .string(language),
+                    "date_of_birth": dobStr.map { JSONValue.string($0) } ?? .null,
+                ]
+                try await MembersAPI.update(id, body)
+                try await MembersAPI.setStart(id, level: startLevel, module: startModule)
             } else {
-                Text(title).font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                HStack(spacing: 4) {
-                    Image(systemName: captionIcon).font(.system(size: 10)).foregroundStyle(iconColor)
-                    Text(caption).font(.inter(11)).foregroundStyle(Nuru.muted)
+                var body: [String: JSONValue] = [
+                    "full_name": .string(fullName.trimmingCharacters(in: .whitespaces)),
+                    "phone_number": .string(phone.isEmpty ? "n/a" : phone),
+                    "email": .string(email.trimmingCharacters(in: .whitespaces)),
+                    "cell_group_id": .string(cellId),
+                    "is_baptized": .bool(baptized),
+                    "start_level": .int(startLevel),
+                    "start_module_sequence": .int(startModule),
+                ]
+                if !gender.isEmpty { body["gender"] = .string(gender) }
+                if !city.isEmpty { body["city"] = .string(city) }
+                if !programme.isEmpty { body["programme"] = .string(programme) }
+                if !country.isEmpty { body["country_code"] = .string(country) }
+                if !language.isEmpty { body["language"] = .string(language) }
+                if let dobStr { body["date_of_birth"] = .string(dobStr) }
+                try await MembersAPI.add(body)
+            }
+            saving = false; onDone(); dismiss()
+        } catch {
+            self.error = (error as? APIError)?.errorDescription ?? "Could not save."; saving = false
+        }
+    }
+}
+
+// MARK: - Results dossier
+
+private struct MemberResultsSheet: View {
+    let userId: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var data: MResults?
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    header
+                    if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
+                    if let d = data {
+                        ForEach(d.levels) { lv in LevelResultCard(lv: lv) }
+                        if !d.badges.isEmpty {
+                            SectionHeader(overline: "Achievements", title: "Badges attained")
+                            FlexChips(d.badges.map { $0.name })
+                        }
+                        if !d.certificates.isEmpty {
+                            SectionHeader(overline: "Records", title: "Certificates earned")
+                            ForEach(d.certificates) { c in
+                                Card {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "rosette").foregroundStyle(Color(hex: 0x7C3AED))
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("Level \(c.levelNumber)\(c.levelTitle.map { " — \($0)" } ?? "")").font(.inter(13, .bold)).foregroundStyle(Nuru.navy)
+                                            Text("Issued \(Fmt.date(c.issuedAt)) · \(c.verificationCode)").font(.nMicro).foregroundStyle(Nuru.ink600)
+                                        }
+                                        Spacer()
+                                    }
+                                }
+                            }
+                        }
+                    } else if error == nil {
+                        SkeletonList(rows: 4)
+                    }
+                }
+                .padding(20)
+            }
+            .background(Nuru.paper)
+            .navigationTitle("Member results")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .task {
+                do { data = try await MembersAPI.results(userId) }
+                catch { self.error = (error as? APIError)?.errorDescription ?? "Could not load results." }
+            }
+        }
+    }
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(data?.user.fullName ?? "Member results").font(.nTitle).foregroundStyle(.white)
+            if let s = data?.summary {
+                HStack(spacing: 10) {
+                    summaryTile("Overall", s.overallScore.map { "\(Int($0.rounded()))%" } ?? "—")
+                    summaryTile("Modules", "\(s.modulesCompleted)/\(s.modulesTotal)")
+                    summaryTile("Levels", "\(s.levelsCompleted)")
+                    summaryTile("Badges·Certs", "\(s.badges)·\(s.certificates)")
+                }
+            }
+        }
+        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.navyGradient).clipShape(RoundedRectangle(cornerRadius: Nuru.R.hero, style: .continuous))
+    }
+    private func summaryTile(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value).font(.fraunces(18, .semibold)).foregroundStyle(.white)
+            Text(label.uppercased()).font(.nOverline).tracking(1.2).foregroundStyle(Nuru.onNavyDim)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+        .background(.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private func scoreColor(_ n: Double?) -> Color {
+    guard let n else { return Nuru.ink600 }
+    return n >= 70 ? Color(hex: 0x16A34A) : n > 0 ? Color(hex: 0xA87616) : Color(hex: 0xDC2626)
+}
+private func pctLabel(_ n: Double?) -> String { n == nil ? "—" : "\(Int(n!.rounded()))%" }
+
+private struct LevelResultCard: View {
+    let lv: MResults.Level
+    var body: some View {
+        Card(padding: 0) {
+            VStack(spacing: 0) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "book.closed").font(.system(size: 14)).foregroundStyle(Nuru.goldLo)
+                            Text("Level \(lv.levelNumber) — \(lv.title)").font(.inter(13.5, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                            if lv.completed { Pill(text: "Complete", color: Color(hex: 0x16A34A)) }
+                        }
+                        Text("Modules avg \(pctLabel(lv.moduleAverage))" + (lv.exam.map { " · Exam \(pctLabel($0.score))" } ?? " · Exam —"))
+                            .font(.nMicro).foregroundStyle(Nuru.ink600)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(pctLabel(lv.levelScore)).font(.inter(17, .bold)).foregroundStyle(scoreColor(lv.levelScore))
+                        Text("LEVEL OVERALL").font(.system(size: 8.5, weight: .semibold)).foregroundStyle(Nuru.ink600)
+                    }
+                }
+                .padding(14)
+                Divider()
+                VStack(spacing: 0) {
+                    ForEach(lv.modules) { m in
+                        HStack(spacing: 10) {
+                            Circle().fill(m.completed ? Color(hex: 0x16A34A) : m.attempts > 0 ? Color(hex: 0xA87616) : Color(hex: 0xD1D5DB)).frame(width: 8, height: 8)
+                            Text("M\(m.sequence)").font(.nMicro).foregroundStyle(Nuru.ink600).frame(width: 26, alignment: .leading)
+                            Text(m.title).font(.inter(12.5, .regular)).foregroundStyle(Nuru.navy).lineLimit(1)
+                            Spacer()
+                            Text(pctLabel(m.bestScore)).font(.inter(13, .bold)).foregroundStyle(scoreColor(m.bestScore))
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        Divider()
+                    }
+                    if let exam = lv.exam {
+                        HStack(spacing: 10) {
+                            Image(systemName: "rosette").font(.system(size: 13)).foregroundStyle(Color(hex: 0x7C3AED))
+                            Text("Level exam\(exam.passed ? " · passed" : "")").font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy)
+                            Spacer()
+                            Text(pctLabel(exam.score)).font(.inter(13, .bold)).foregroundStyle(scoreColor(exam.score))
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                    }
                 }
             }
         }
     }
+}
 
-    private var initials: String {
-        let p = member.fullName.split(separator: " ").prefix(2).compactMap { $0.first }
-        return p.isEmpty ? "?" : String(p).uppercased()
+// Simple wrapping chips row.
+private struct FlexChips: View {
+    let items: [String]
+    init(_ items: [String]) { self.items = items }
+    var body: some View {
+        let cols = [GridItem(.adaptive(minimum: 120), spacing: 8)]
+        LazyVGrid(columns: cols, alignment: .leading, spacing: 8) {
+            ForEach(items, id: \.self) { t in
+                HStack(spacing: 6) { Image(systemName: "star.fill").font(.system(size: 10)); Text(t).font(.inter(12, .bold)) }
+                    .foregroundStyle(Color(hex: 0xA87616)).padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Color(hex: 0xFFF6E0)).overlay(Capsule().stroke(Color(hex: 0xF5E0A8), lineWidth: 1)).clipShape(Capsule())
+            }
+        }
+    }
+}
+
+// MARK: - Export
+
+private struct ExportSheet: View {
+    let members: [MRow]
+    let countryByCode: [String: Country]
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: Set<String>
+
+    init(members: [MRow], countryByCode: [String: Country]) {
+        self.members = members; self.countryByCode = countryByCode
+        _selected = State(initialValue: Set(members.map { $0.userId }))
     }
 
-    /// Relative day count (web relTime).
-    private func relTime(_ iso: String?) -> String {
-        guard let iso, let d = isoDate(iso) else { return "—" }
-        let days = Int((Date().timeIntervalSince(d)) / 86400)
-        if days <= 0 { return "Today" }
-        if days == 1 { return "Yesterday" }
-        return "\(days)d ago"
+    private var csv: String {
+        var out = "Name,Email,Country,City,Cell,Level,Programme,Status,Last active\n"
+        for m in members where selected.contains(m.userId) {
+            let cols = [m.fullName, m.email ?? "", countryByCode[m.countryCode ?? ""]?.name ?? m.countryCode ?? "",
+                        m.city ?? "", m.cellName ?? "", "L\(m.currentLevel.map(String.init) ?? "—")",
+                        m.programme.flatMap { PROGRAMME_LABELS[$0] } ?? "", statusMeta(m.status).label, relDays(m.lastActivity)]
+            out += cols.map { "\"\($0.replacingOccurrences(of: "\"", with: "\"\""))\"" }.joined(separator: ",") + "\n"
+        }
+        return out
     }
-    private func isoDate(_ s: String) -> Date? {
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                HStack {
+                    Button(selected.count == members.count ? "Deselect all" : "Select all") {
+                        selected = selected.count == members.count ? [] : Set(members.map { $0.userId })
+                    }.font(.inter(12.5, .semibold)).tint(Nuru.goldLo)
+                    Spacer()
+                    Text("\(selected.count) of \(members.count) selected").font(.nCaption).foregroundStyle(Nuru.ink600)
+                }
+                .padding(.horizontal, 18).padding(.vertical, 12)
+                Divider()
+                List {
+                    ForEach(members) { m in
+                        Button {
+                            if selected.contains(m.userId) { selected.remove(m.userId) } else { selected.insert(m.userId) }
+                        } label: {
+                            HStack {
+                                Image(systemName: selected.contains(m.userId) ? "checkmark.square.fill" : "square").foregroundStyle(selected.contains(m.userId) ? Nuru.gold : Nuru.ink300)
+                                Text(m.fullName).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
+                                Spacer()
+                                Text(m.cellName ?? "—").font(.nCaption).foregroundStyle(Nuru.ink600)
+                            }
+                        }.buttonStyle(.plain)
+                    }
+                }
+                .listStyle(.plain)
+            }
+            .navigationTitle("Export members")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    ShareLink(item: csv, preview: SharePreview("Nuru Pathway — Members.csv")) {
+                        Label("Export \(selected.count)", systemImage: "square.and.arrow.up")
+                    }.disabled(selected.isEmpty)
+                }
+            }
+        }
     }
 }
