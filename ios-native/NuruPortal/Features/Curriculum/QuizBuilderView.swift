@@ -217,7 +217,7 @@ private enum QType: String {
     var tint: Color {
         switch self {
         case .multipleChoice: return Color(hex: 0x7C3AED)
-        case .checkbox: return Color(hex: 0x0B84E8)
+        case .checkbox: return Nuru.navy           // was off-brand blue 0x0B84E8 → brand navy
         case .dropdown: return Color(hex: 0x0EA5A4)
         case .shortAnswer: return Color(hex: 0x16A34A)
         case .paragraph: return Color(hex: 0xD97706)
@@ -454,7 +454,8 @@ private func qbStatusStyle(_ s: String) -> StatusStyle {
     switch s {
     case "published": return StatusStyle(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33))
     case "in_review": return StatusStyle(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F))
-    default:          return StatusStyle(bg: Color(hex: 0xEEF1F8), fg: Color(hex: 0x1F3A6B))
+    // draft/archived — was off-brand blue tint (0xEEF1F8 / 0x1F3A6B); now brand navy pair (Nuru.brandTint(2))
+    default:          return StatusStyle(bg: Nuru.brandTint(2).bg, fg: Nuru.brandTint(2).fg)
     }
 }
 

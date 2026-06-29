@@ -162,7 +162,7 @@ struct RootView: View {
         }
         .frame(width: collapsed ? 76 : 264)
         .frame(maxHeight: .infinity)
-        .background(Nuru.navyGradient.ignoresSafeArea())
+        .background(Nuru.sidebarGradient.ignoresSafeArea())
         .animation(.easeInOut(duration: 0.22), value: collapsed)
     }
 

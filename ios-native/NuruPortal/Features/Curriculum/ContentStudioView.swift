@@ -52,14 +52,16 @@ struct ContentStudioView: View {
             case .resources:   return "books.vertical"
             }
         }
-        // web `accent` hex per tab
+        // Per-section brand accent — distinct, all on-palette, NO off-brand blue.
+        // Drawn from {success green, gold, navy, lumGreen, lumAmber} so each of the
+        // five sections has its own identity while staying cohesive with the kit.
         var accent: Color {
             switch self {
-            case .devotionals: return Color(hex: 0x0B84E8)
-            case .verses:      return Color(hex: 0x7C3AED)
-            case .dailyverses: return Color(hex: 0x0EA5A0)
-            case .plans:       return Color(hex: 0x16A34A)
-            case .resources:   return Color(hex: 0xC89B3C)
+            case .devotionals: return Nuru.success    // thriving green
+            case .verses:      return Nuru.gold        // gold
+            case .dailyverses: return Nuru.navy        // brand navy
+            case .plans:       return Nuru.lumGreen     // luminous green
+            case .resources:   return Nuru.lumAmber     // amber
             }
         }
         // web: dailyverses has no New button (fixed-schedule, edit-only).
@@ -214,33 +216,39 @@ struct ContentStudioView: View {
         }
     }
 
-    // ── Section switcher (web: tabbed bar with icon + label + count badge) ──
+    // ── Section switcher — capsule segmented buttons (web: tabbed bar). Each
+    // segment is a styled capsule; the selected one fills with its section's brand
+    // accent (white text + matching count badge), the rest are quiet outlined chips.
     private var switcher: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
+            HStack(spacing: 8) {
                 ForEach(Tab.allCases) { t in
                     let on = t == tab
                     Button { tab = t; query = "" } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: t.icon).font(.system(size: 13, weight: .semibold))
-                            Text(t.label).font(.inter(13.5, on ? .bold : .semibold))
+                        HStack(spacing: 7) {
+                            Image(systemName: t.icon).font(.system(size: 12.5, weight: .medium))
+                            Text(t.label).font(.inter(13, on ? .semibold : .medium))
                             Text(counts[t].map(String.init) ?? "·")
-                                .font(.inter(10.5, .bold))
-                                .foregroundStyle(on ? .white : Nuru.ink600)
-                                .padding(.horizontal, 7).padding(.vertical, 1.5)
-                                .background(on ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.mutedBg))
+                                .font(.inter(10.5, .semibold))
+                                .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(t.accent))
+                                .padding(.horizontal, 6.5).padding(.vertical, 1.5)
+                                .background(on ? AnyShapeStyle(Color.white.opacity(0.22))
+                                              : AnyShapeStyle(t.accent.opacity(0.12)))
                                 .clipShape(Capsule())
                         }
-                        .foregroundStyle(on ? Nuru.navy : Nuru.ink600)
-                        .padding(.horizontal, 14).padding(.vertical, 12)
-                        .overlay(alignment: .bottom) {
-                            Rectangle().fill(on ? Nuru.gold : .clear).frame(height: 2)
-                        }
+                        .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(Nuru.ink600))
+                        .padding(.horizontal, 14).frame(height: 38)
+                        .background(on ? AnyShapeStyle(t.accent) : AnyShapeStyle(Nuru.white))
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule().stroke(on ? Color.clear : Nuru.border, lineWidth: 1)
+                        )
+                        .shadow(color: on ? t.accent.opacity(0.28) : .clear, radius: 6, y: 2)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 20).padding(.vertical, 14)
         }
         .background(Nuru.paper)
     }
@@ -262,9 +270,9 @@ struct ContentStudioView: View {
     }
 
     // ── Generic section: adaptive grid + empty state + count capture ──
-    // Denser on the wide iPad canvas (≈330 packs 4–5 content cards per row) while
-    // each accent-bar row stays readable.
-    private let cols = [GridItem(.adaptive(minimum: 330), spacing: 14)]
+    // THREE columns at portrait (~740pt usable): minimum ≈230 packs exactly 3-up
+    // while each card stays compact and premium; lays out 4–5-up on the wide canvas.
+    private let cols = [GridItem(.adaptive(minimum: 230), spacing: 14)]
 
     private func section<T: Identifiable, C: View>(
         _ rows: [T], count tab: Tab, total: Int, @ViewBuilder _ card: @escaping (T) -> C
@@ -787,13 +795,14 @@ private struct PremiumCard<Body: View>: View {
 
                 bodyContent
 
-                // Footer rail: primary Edit CTA + secondary delete, real buttons.
+                // Footer rail: actions pinned to the FAR TRAILING end — a filled
+                // Edit capsule + a capsule trash button, right-aligned (no links).
                 HStack(spacing: 8) {
+                    Spacer(minLength: 0)
                     CardButton(title: editTitle, icon: "pencil", tint: accent, style: .fill, action: onEdit)
                     if let onDelete {
                         CardIconButton(icon: "trash", tint: Nuru.danger, action: onDelete)
                     }
-                    Spacer(minLength: 0)
                 }
             }
             .padding(16)
@@ -845,7 +854,7 @@ private struct DevotionalCard: View {
     var onEdit: () -> Void
     var onDelete: () -> Void
     var onToggle: () -> Void
-    private let accent = Color(hex: 0x0B84E8)
+    private let accent = Nuru.success     // thriving green (was off-brand blue)
     var body: some View {
         PremiumCard(
             accent: accent, icon: "book.fill",
@@ -875,7 +884,7 @@ private struct VerseCard: View {
     var onEdit: () -> Void
     var onDelete: () -> Void
     var onToggle: () -> Void
-    private let accent = Color(hex: 0x7C3AED)
+    private let accent = Nuru.gold
     var body: some View {
         PremiumCard(
             accent: accent, icon: "quote.bubble.fill",
@@ -907,7 +916,7 @@ private struct DailyVerseCard: View {
         guard let date = f.date(from: d.dayDate) else { return d.dayDate }
         return date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).year())
     }
-    private let accent = Color(hex: 0x0EA5A0)
+    private let accent = Nuru.navy
     var body: some View {
         // Daily verses are edit-only (no delete, no toggle) — onEdit only.
         PremiumCard(
@@ -937,7 +946,7 @@ private struct PlanCard: View {
     var onEdit: () -> Void
     var onDelete: () -> Void
     var onToggle: () -> Void
-    private let accent = Color(hex: 0x16A34A)
+    private let accent = Nuru.lumGreen
     var body: some View {
         PremiumCard(
             accent: accent, icon: "calendar.badge.clock",
@@ -974,7 +983,7 @@ private struct ResourceCard: View {
         default:        return "doc.text"
         }
     }
-    private let accent = Color(hex: 0xC89B3C)
+    private let accent = Nuru.lumAmber
     var body: some View {
         PremiumCard(
             accent: accent, icon: icon,

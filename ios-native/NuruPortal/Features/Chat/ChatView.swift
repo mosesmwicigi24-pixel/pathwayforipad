@@ -197,7 +197,12 @@ struct ChatView: View {
         }
         .background(Nuru.paper)
         .task { if case .idle = model.listState { await model.loadList() } }
-        .portalPage("Chat")
+        // Use the inline title mode (like Finance / Events) — `.portalPage` requests a
+        // `.large` title which, under the hidden root nav bar, paints a stray black
+        // strip just under the page hero. Inline removes it; the global PortalTopBar
+        // already carries the page title.
+        .navigationTitle("Chat")
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $model.createOpen) { CreateSpaceSheet(model: model) }
         .sheet(isPresented: $model.newMsgOpen) { NewMessageSheet(model: model) }
         .sheet(item: $model.readersForId) { box in SeenBySheet(messageId: box.id) }

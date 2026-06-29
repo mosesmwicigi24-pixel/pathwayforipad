@@ -70,51 +70,47 @@ struct RolesView: View {
     @ViewBuilder
     private func content(_ roles: [LocalRole]) -> some View {
         let filtered = roles.filter { query.isEmpty || "\($0.name) \($0.roleKey)".lowercased().contains(query.lowercased()) }
-        let keyRoles = roles.filter { RolePerm.keyIcons[$0.roleKey] != nil }.prefix(6)
+        // Key (built-in) roles surface first as their own group; everything else
+        // follows below. Both render as the same Members-style informative rows.
+        let keyOrder = ["super_admin", "national_director", "regional_coach", "curriculum_editor", "pastoral_reviewer", "discipler"]
+        let isKey: (LocalRole) -> Bool = { RolePerm.keyIcons[$0.roleKey] != nil }
+        let keyRoles = filtered.filter(isKey).sorted {
+            (keyOrder.firstIndex(of: $0.roleKey) ?? 99) < (keyOrder.firstIndex(of: $1.roleKey) ?? 99)
+        }
+        let otherRoles = filtered.filter { !isKey($0) }
 
         ScrollView {
             VStack(spacing: 0) {
                 hero
 
-                VStack(alignment: .leading, spacing: Nuru.S.lg) {
-                    if !keyRoles.isEmpty {
-                        VStack(alignment: .leading, spacing: 14) {
-                            SectionHeader(overline: "Access tiers", title: "Key roles in the pathway")
-                            // ~740pt usable: minimum 165 → 4 fit on the top row, the
-                            // remaining 2 of 6 wrap naturally to the next row.
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 165), spacing: 12)], spacing: 12) {
-                                ForEach(Array(keyRoles)) { KeyRoleCard(role: $0) }
-                            }
-                        }
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .bottom) {
+                        SectionHeader(overline: "Access control", title: "Roles & permissions")
+                        Spacer(minLength: 12)
+                        searchField.frame(maxWidth: 240)
                     }
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(alignment: .bottom) {
-                            SectionHeader(overline: "All roles", title: "Configured roles")
-                            Spacer(minLength: 12)
-                            searchField.frame(maxWidth: 240)
-                        }
-
-                        if filtered.isEmpty {
-                            Text("No roles match.")
-                                .font(.inter(14)).foregroundStyle(Nuru.ink600)
-                                .frame(maxWidth: .infinity).padding(.vertical, 48)
-                                .background(Nuru.white)
-                                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                        } else {
-                            Card(padding: 0) {
-                                VStack(spacing: 0) {
-                                    RoleHeaderRow()
-                                    ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, role in
-                                        if idx > 0 { Divider().overlay(Nuru.border) }
-                                        RoleTableRow(
-                                            role: role,
-                                            onOpen: { openRole = role },
-                                            onEdit: { editRole = role },
-                                            onDelete: { if !role.isSystem { pendingDelete = role } }
-                                        )
-                                    }
+                    if filtered.isEmpty {
+                        Text("No roles match.")
+                            .font(.inter(14)).foregroundStyle(Nuru.ink600)
+                            .frame(maxWidth: .infinity).padding(.vertical, 48)
+                            .background(Nuru.white)
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    } else {
+                        // One cohesive, Members-style informative list. A quiet
+                        // "Key roles" group header sits above the built-in roles;
+                        // configured roles follow under their own header — all rows
+                        // share the same rich presentation.
+                        Card(padding: 0) {
+                            VStack(spacing: 0) {
+                                if !keyRoles.isEmpty {
+                                    RoleGroupHeader(title: "Key roles", caption: "Built-in access tiers")
+                                    rows(keyRoles)
+                                }
+                                if !otherRoles.isEmpty {
+                                    RoleGroupHeader(title: "Configured roles", caption: "\(otherRoles.count) custom \(otherRoles.count == 1 ? "role" : "roles")")
+                                    rows(otherRoles)
                                 }
                             }
                         }
@@ -126,6 +122,19 @@ struct RolesView: View {
             }
         }
         .onAppear { createRoles = roles }
+    }
+
+    @ViewBuilder
+    private func rows(_ list: [LocalRole]) -> some View {
+        ForEach(Array(list.enumerated()), id: \.element.id) { idx, role in
+            if idx > 0 { Divider().overlay(Nuru.border) }
+            RoleRichRow(
+                role: role,
+                onOpen: { openRole = role },
+                onEdit: { editRole = role },
+                onDelete: { if !role.isSystem { pendingDelete = role } }
+            )
+        }
     }
 
     private var hero: some View {
@@ -300,96 +309,30 @@ enum RolePerm {
     }
 }
 
-// MARK: - Key role card (icon chip + name + description)
+// MARK: - Group header (quiet section band inside the one cohesive list)
 
-private struct KeyRoleCard: View {
-    let role: LocalRole
+private struct RoleGroupHeader: View {
+    let title: String
+    let caption: String
     var body: some View {
-        let ic = RolePerm.keyIcons[role.roleKey] ?? RolePerm.typeIcon(role.roleType)
-        Card(padding: 14) {
-            VStack(alignment: .leading, spacing: 9) {
-                // Tinted icon chip + a quiet type tag on the same baseline.
-                HStack(alignment: .top, spacing: 0) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 11, style: .continuous).fill(ic.bg)
-                        Image(systemName: ic.icon).font(.system(size: 17, weight: .semibold)).foregroundStyle(ic.tone)
-                    }.frame(width: 38, height: 38)
-                    Spacer(minLength: 8)
-                    Text(role.roleType.isEmpty ? "—" : role.roleType.capitalized)
-                        .font(.inter(9.5, .semibold)).tracking(0.4)
-                        .foregroundStyle(ic.tone)
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(ic.bg).clipShape(Capsule())
-                        .lineLimit(1)
-                }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(role.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
-                        .lineLimit(1).minimumScaleFactor(0.85)
-                    Text(role.description.isEmpty ? "Scoped access tier." : role.description)
-                        .font(.inter(11, .regular)).foregroundStyle(Nuru.ink600)
-                        .lineLimit(2).minimumScaleFactor(0.9)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                Divider().overlay(Nuru.border)
-
-                // Real-field stats: permissions granted + members holding the role.
-                HStack(spacing: 12) {
-                    stat(icon: "shield.lefthalf.filled", value: "\(role.permissions.count)", label: "perms", tone: ic.tone)
-                    stat(icon: "person.2.fill", value: "\(role.userCount)", label: "members", tone: Nuru.ink400)
-                    Spacer(minLength: 0)
-                }
-            }
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title.uppercased()).font(.nOverline).tracking(1.2).foregroundStyle(Nuru.goldLo)
+            Text(caption).font(.inter(10.5, .regular)).foregroundStyle(Nuru.ink400).lineLimit(1)
+            Spacer(minLength: 0)
         }
-    }
-
-    private func stat(icon: String, value: String, label: String, tone: Color) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 9.5, weight: .semibold)).foregroundStyle(tone)
-            Text(value).font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
-            Text(label).font(.inter(10, .regular)).foregroundStyle(Nuru.ink600)
-        }
-        .lineLimit(1).minimumScaleFactor(0.8)
-    }
-}
-
-// MARK: - Configured-roles table — header row + dense data rows (iPad density pass)
-// Columns mirror the web Roles.tsx table: Role · Type · Permissions · Users ·
-// Status · ⋯, width-aligned across rows.
-
-// Tuned for PORTRAIT (usable row ≈ 692pt): icon 38 + fixed 348 + 6×10 gaps +
-// name flex ≈ 200 → fits without clipping.
-private enum RoleCol {
-    static let icon: CGFloat = 38
-    static let type: CGFloat = 74
-    static let perms: CGFloat = 76
-    static let users: CGFloat = 56
-    static let status: CGFloat = 84
-    static let actions: CGFloat = 78
-}
-
-private struct RoleHeaderRow: View {
-    var body: some View {
-        HStack(spacing: 10) {
-            Color.clear.frame(width: RoleCol.icon)
-            head("Role").frame(maxWidth: .infinity, alignment: .leading)
-            head("Type").frame(width: RoleCol.type, alignment: .leading)
-            head("Perms").frame(width: RoleCol.perms, alignment: .trailing)
-            head("Users").frame(width: RoleCol.users, alignment: .trailing)
-            head("Status").frame(width: RoleCol.status, alignment: .leading)
-            head("").frame(width: RoleCol.actions, alignment: .trailing)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 11)
+        .padding(.horizontal, 16).padding(.top, 13).padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.surface)
-    }
-    private func head(_ t: String) -> some View {
-        Text(t.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.85)
+        .overlay(Rectangle().fill(Nuru.border).frame(height: 1), alignment: .bottom)
     }
 }
 
-private struct RoleTableRow: View {
+// MARK: - Rich role row — Members-style informative row
+// Leading tinted icon · name + mono key + one-line description · Type pill ·
+// perms / members metrics · visible Status pill · right-aligned actions.
+// Fits PORTRAIT (~692pt usable): icon 40 + flex identity + fixed trailing block.
+
+private struct RoleRichRow: View {
     let role: LocalRole
     let onOpen: () -> Void
     let onEdit: () -> Void
@@ -397,52 +340,49 @@ private struct RoleTableRow: View {
 
     var body: some View {
         let ic = RolePerm.keyIcons[role.roleKey] ?? RolePerm.typeIcon(role.roleType)
-        HStack(spacing: 10) {
-            // Leading tinted icon tile — gives the row weight and a quick visual cue.
+        HStack(spacing: 11) {
+            // Leading tinted icon tile — the row's identity anchor.
             ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(ic.bg)
-                Image(systemName: ic.icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(ic.tone)
+                RoundedRectangle(cornerRadius: 11, style: .continuous).fill(ic.bg)
+                Image(systemName: ic.icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(ic.tone)
             }
-            .frame(width: RoleCol.icon, height: RoleCol.icon)
+            .frame(width: 40, height: 40)
 
-            // Role — name + monospaced key
-            VStack(alignment: .leading, spacing: 2) {
-                Text(role.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.85)
-                Text(role.roleKey).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Nuru.ink400).lineLimit(1).minimumScaleFactor(0.8)
+            // Identity + multiple aspects (name · key · type pill · description · metrics).
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(role.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
+                        .lineLimit(1).minimumScaleFactor(0.85)
+                    typePill
+                    if role.isSystem {
+                        Text("BUILT-IN").font(.inter(8.5, .bold)).tracking(0.4).foregroundStyle(Nuru.goldLo)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Nuru.gold.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
+                }
+                Text(role.roleKey).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Nuru.ink400)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Text(role.description.isEmpty ? "Scoped access tier." : role.description)
+                    .font(.inter(11, .regular)).foregroundStyle(Nuru.ink600)
+                    .lineLimit(1).minimumScaleFactor(0.9)
+                // Inline metrics — perms is tappable (opens the matrix), members is informational.
+                HStack(spacing: 12) {
+                    Button(action: onOpen) {
+                        metric(icon: "shield.lefthalf.filled", value: "\(role.permissions.count)", label: "perms", tone: Nuru.gold)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    metric(icon: "person.2.fill", value: "\(role.userCount)", label: role.userCount == 1 ? "member" : "members", tone: Nuru.ink400)
+                }
+                .padding(.top, 1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Type
-            typePill.frame(width: RoleCol.type, alignment: .leading)
+            // Visible status pill.
+            statusPill
 
-            // Permissions — tap opens the matrix sheet
-            Button(action: onOpen) {
-                HStack(spacing: 4) {
-                    Image(systemName: "shield.lefthalf.filled").font(.system(size: 10, weight: .semibold))
-                    Text("\(role.permissions.count)").font(.inter(12.5, .semibold))
-                }
-                .foregroundStyle(Nuru.gold)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .frame(width: RoleCol.perms, alignment: .trailing)
-
-            // Users
-            HStack(spacing: 4) {
-                Spacer(minLength: 0)
-                Image(systemName: "person.2.fill").font(.system(size: 9)).foregroundStyle(Nuru.ink400)
-                Text("\(role.userCount)").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink)
-            }
-            .frame(width: RoleCol.users, alignment: .trailing)
-
-            // Status pill (always shows a label)
-            statusPill.frame(width: RoleCol.status, alignment: .leading)
-
-            // Actions — fixed trailing width
+            // Right-aligned actions — same style as Members rows.
             HStack(spacing: 6) {
-                Spacer(minLength: 0)
                 Button(action: onEdit) {
                     Image(systemName: "pencil").font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(Nuru.navy)
@@ -461,23 +401,31 @@ private struct RoleTableRow: View {
                 .buttonStyle(.plain)
                 .disabled(role.isSystem)
             }
-            .frame(width: RoleCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 16).padding(.vertical, 11)
-        .frame(minHeight: 58)
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .frame(minHeight: 72)
+    }
+
+    private func metric(icon: String, value: String, label: String, tone: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 9.5, weight: .semibold)).foregroundStyle(tone)
+            Text(value).font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
+            Text(label).font(.inter(10, .regular)).foregroundStyle(Nuru.ink600)
+        }
+        .lineLimit(1).minimumScaleFactor(0.8)
     }
 
     private var typePill: some View {
         let tone = RolePerm.typeChip(role.roleType)
         return Text(role.roleType.isEmpty ? "—" : role.roleType.capitalized)
-            .font(.inter(10.5, .semibold)).foregroundStyle(tone.fg)
+            .font(.inter(9.5, .semibold)).foregroundStyle(tone.fg)
             .lineLimit(1).minimumScaleFactor(0.8)
-            .padding(.horizontal, 9).padding(.vertical, 3)
+            .padding(.horizontal, 8).padding(.vertical, 2.5)
             .background(tone.bg).clipShape(Capsule())
     }
 
     private var statusPill: some View {
-        let active = role.status == "active"
+        let active = role.status == "active" || role.status.isEmpty
         let bg = active ? Color(hex: 0xE8F6EE) : Color(hex: 0xF3F4F6)
         let fg = active ? Color(hex: 0x0F6B33) : Color(hex: 0x6B7280)
         return HStack(spacing: 5) {
@@ -486,6 +434,7 @@ private struct RoleTableRow: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 4)
         .background(bg).clipShape(Capsule())
+        .fixedSize()
     }
 }
 

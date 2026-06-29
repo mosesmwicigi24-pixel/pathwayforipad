@@ -416,18 +416,17 @@ private struct QueueList: View {
     let current: ReflectionRow?
 
     var body: some View {
-        Card(padding: 0) {
-            VStack(spacing: 0) {
-                header
-                Divider().overlay(Nuru.border)
-                if rows.isEmpty {
-                    emptyState
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { i, r in
-                            row(r, selected: current?.reflectionId == r.reflectionId)
-                            if i < rows.count - 1 { Divider().overlay(Nuru.border) }
-                        }
+        // Header lives in its own card; each reflection becomes a discrete card so
+        // it reads clearly against the light-gray page (was: invisible white rows
+        // on a white card). Selected card gets a gold accent border + lift.
+        VStack(spacing: 12) {
+            Card(padding: 16) { header }
+            if rows.isEmpty {
+                Card(padding: 0) { emptyState }
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(rows, id: \.id) { r in
+                        row(r, selected: current?.reflectionId == r.reflectionId)
                     }
                 }
             }
@@ -459,7 +458,6 @@ private struct QueueList: View {
             }
             .pickerStyle(.segmented)
         }
-        .padding(16)
     }
 
     private func row(_ r: ReflectionRow, selected: Bool) -> some View {
@@ -497,12 +495,24 @@ private struct QueueList: View {
                 }
                 .frame(minWidth: 70, alignment: .trailing)
             }
-            .padding(.horizontal, 14).padding(.vertical, 11)
+            .padding(.horizontal, 14).padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(selected ? Color(hex: 0xFFFBEB) : .clear)
+            // Clear white surface so the card stands off the light-gray page.
+            // Selected → subtle warm fill + a stronger gold accent border + a
+            // gold leading rail; otherwise a visible navy-alpha hairline border.
+            .background(selected ? Color(hex: 0xFFFBEB) : Nuru.white)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(selected ? Nuru.gold : Color(hex: 0x0A2540, alpha: 0.16),
+                            lineWidth: selected ? 1.5 : 1)
+            )
             .overlay(alignment: .leading) {
-                Rectangle().fill(selected ? Nuru.gold : .clear).frame(width: 3)
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(selected ? Nuru.gold : .clear)
+                    .frame(width: 3).padding(.vertical, 10)
             }
+            .nuruShadow(selected ? 1 : 0.6)
         }.buttonStyle(.plain)
     }
 
@@ -679,61 +689,70 @@ private struct Workspace: View {
                         .font(.nMicro).foregroundStyle(Nuru.ink600)
                     editor($reviewerNote, placeholder: "Add a private note for the review record…", minHeight: 60)
                 }
-                // Approve / Return
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 14)], spacing: 14) {
-                    decisionCard(title: "Approve & Advance", icon: "checkmark.circle.fill",
-                                 desc: "Advance the member to the next level and notify them.",
-                                 bg: Color(hex: 0xE8F6EC), border: Color(hex: 0xBBE5C5),
-                                 iconBg: Color(hex: 0x16A34A), titleColor: Color(hex: 0x15803D),
-                                 action: onApprove)
-                    decisionCard(title: "Return for Revision", icon: "bubble.left.fill",
-                                 desc: "Send kind feedback and allow the member to revise and resubmit.",
-                                 bg: Color(hex: 0xFFFBEB), border: Color(hex: 0xF5E0A8),
-                                 iconBg: Color(hex: 0xC89B3C), titleColor: Color(hex: 0x92651B),
-                                 action: onReturn)
+                // Decision controls — clearly legible buttons (no off-brand blue).
+                // Approve = filled brand green; Return = bordered; Defer = subtle.
+                VStack(spacing: 10) {
+                    // Approve & Advance — primary, filled brand green.
+                    decisionButton(
+                        title: "Approve & Advance", icon: "checkmark.circle.fill",
+                        sub: "Advance to the next level and notify the member.",
+                        style: .filled(Nuru.success), action: onApprove)
+                    // Return for Revision — bordered gold.
+                    decisionButton(
+                        title: "Return for Revision", icon: "arrow.uturn.backward",
+                        sub: "Send kind feedback and let them revise and resubmit.",
+                        style: .bordered(Color(hex: 0x92651B), Nuru.gold), action: onReturn)
+                    // Defer — subtle but legible.
+                    decisionButton(
+                        title: "Defer review", icon: "calendar",
+                        sub: "Set aside for now and keep it in the deferred list.",
+                        style: .subtle, action: onDefer)
                 }
                 Divider().overlay(Nuru.border)
-                HStack {
-                    Button(action: onDefer) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "calendar").font(.system(size: 13))
-                            Text("Defer review").font(.inter(13, .semibold))
-                        }
-                        .foregroundStyle(Nuru.foreground)
-                        .padding(.horizontal, 16).padding(.vertical, 10)
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(busy)
-                    Spacer()
-                    Text("“Shepherd the flock of God that is among you…” — 1 Peter 5:2")
-                        .font(.nMicro).italic().foregroundStyle(Nuru.ink600)
-                        .multilineTextAlignment(.trailing)
-                }
+                Text("“Shepherd the flock of God that is among you…” — 1 Peter 5:2")
+                    .font(.nMicro).italic().foregroundStyle(Nuru.ink600)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
     }
 
-    private func decisionCard(title: String, icon: String, desc: String,
-                              bg: Color, border: Color, iconBg: Color, titleColor: Color,
-                              action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(iconBg).frame(width: 32, height: 32)
-                        Image(systemName: icon).font(.system(size: 15)).foregroundStyle(.white)
-                    }
-                    Text(title).font(.fraunces(17, .medium)).foregroundStyle(titleColor)
+    /// Visual treatment for a decision button.
+    private enum DecisionStyle {
+        case filled(Color)            // solid brand fill, white label
+        case bordered(Color, Color)   // (text/icon color, border color)
+        case subtle                   // light surface, navy-alpha border
+    }
+
+    private func decisionButton(title: String, icon: String, sub: String,
+                                style: DecisionStyle, action: @escaping () -> Void) -> some View {
+        // Resolve colors for the chosen style.
+        let fg: Color, bg: AnyShapeStyle, border: Color, borderW: CGFloat, subFg: Color
+        switch style {
+        case .filled(let c):
+            fg = .white; bg = AnyShapeStyle(c); border = .clear; borderW = 0; subFg = .white.opacity(0.85)
+        case .bordered(let text, let line):
+            fg = text; bg = AnyShapeStyle(Nuru.white); border = line; borderW = 1.5; subFg = Nuru.ink600
+        case .subtle:
+            fg = Nuru.foreground; bg = AnyShapeStyle(Nuru.surface)
+            border = Color(hex: 0x0A2540, alpha: 0.16); borderW = 1; subFg = Nuru.ink600
+        }
+        return Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon).font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(fg).frame(width: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.inter(14, .semibold)).foregroundStyle(fg)
+                        .lineLimit(1).minimumScaleFactor(0.85)
+                    Text(sub).font(.nMicro).foregroundStyle(subFg)
                         .lineLimit(1).minimumScaleFactor(0.8)
                 }
-                Text(desc).font(.nCaption).foregroundStyle(titleColor).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16).padding(.vertical, 11)
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
             .background(bg)
-            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(border, lineWidth: borderW))
         }
         .buttonStyle(.plain)
         .disabled(busy)

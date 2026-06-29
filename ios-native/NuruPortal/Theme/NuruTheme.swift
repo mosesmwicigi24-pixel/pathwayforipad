@@ -64,10 +64,31 @@ enum Nuru {
     static let onNavyDim   = Color.white.opacity(0.55)
     static let onNavyFaint = Color.white.opacity(0.40)
 
+    // MARK: Luminous accents (shiny brand set — for notifications & status color-coding).
+    // Brighter than the deep status colors; used where we want vivid, "shiny" chips.
+    static let lumGreen = Color(hex: 0x17A45A)   // thriving, luminous
+    static let lumGold  = Color(hex: 0xE0B85E)   // gold, luminous (== goldHi)
+    static let lumAmber = Color(hex: 0xE08A1E)   // watch, luminous
+    static let lumRed   = Color(hex: 0xF0405F)   // at-risk, luminous
+    static let lumNavy  = Color(hex: 0x1D4E86)   // brand navy-blue, luminous (NOT the off-brand 0x1B5FAE)
+    static func lumTint(_ c: Color) -> Color { c.opacity(0.14) }
+
     // MARK: Gradients
     static let navyGradient = LinearGradient(
         colors: [navy700, navy, Color(hex: 0x07203A)],
         startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// Deeper navy for the app sidebar (richer, darker than the hero/top-bar gradient).
+    static let sidebarGradient = LinearGradient(
+        colors: [Color(hex: 0x081C36), navyDeep, Color(hex: 0x00091A)],
+        startPoint: .top, endPoint: .bottom)
+    /// Brand accent pairs WITHOUT blue — for categorisation where decorative blue must go.
+    static let brandTints: [Tint] = [
+        Tint(bg: Color(hex: 0xDCFCE7), fg: Color(hex: 0x166534)),   // green
+        Tint(bg: Color(hex: 0xFBF1DC), fg: Color(hex: 0x8A6B1F)),   // gold
+        Tint(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)),   // brand navy (not off-brand blue)
+        Tint(bg: Color(hex: 0xFCEFD9), fg: Color(hex: 0xB45309)),   // amber
+    ]
+    static func brandTint(_ i: Int) -> Tint { brandTints[((i % brandTints.count) + brandTints.count) % brandTints.count] }
     static let heroGradient = LinearGradient(
         colors: [Color(hex: 0x1A406B), navy, navyDeep],
         startPoint: .topLeading, endPoint: .bottomTrailing)

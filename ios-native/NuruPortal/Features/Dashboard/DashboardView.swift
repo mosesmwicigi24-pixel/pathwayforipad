@@ -61,8 +61,9 @@ private let todayLabel: String = Date().formatted(.dateTime.weekday(.wide).day()
 struct DashboardView: View {
     @StateObject private var vm = DashboardViewModel()
     @EnvironmentObject private var router: NavRouter
-    // 6 KPI tiles → dense strip. minimum 184 lets 5–6 fit per row on the wide canvas.
-    private let grid = [GridItem(.adaptive(minimum: 184), spacing: 12)]
+    // KPI strip → FIVE compact tiles per row at portrait width (~740pt usable):
+    // 5 × 132 + 4 × 12 spacing = 708 ≤ 740. A 6th KPI wraps cleanly to row 2.
+    private let grid = [GridItem(.adaptive(minimum: 132), spacing: 12)]
 
     var body: some View {
         ScrollView {
@@ -107,12 +108,13 @@ struct DashboardView: View {
 
     @ViewBuilder private var kpiTiles: some View {
         let o = vm.overview
-        KpiTile(label: "Modules published", value: "\(o?.modulesPublished ?? 0)", icon: "book.fill", tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F))) { router.go(.cms) }
-        KpiTile(label: "Pending reviews", value: "\(o?.pendingReviews ?? 0)", icon: "checklist", tint: .init(bg: Color(hex: 0xFDECEC), fg: Color(hex: 0xA8281F))) { router.go(.reflectionQueue) }
-        KpiTile(label: "Certificates (mo.)", value: "\(o?.certificatesThisMonth ?? 0)", icon: "rosette", tint: .init(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33))) { router.go(.certificates) }
-        KpiTile(label: "Members at risk", value: "\(o?.membersAtRisk ?? 0)", icon: "exclamationmark.triangle.fill", tint: .init(bg: Color(hex: 0xEEF1F8), fg: Color(hex: 0x1F3A6B))) { router.go(.cellEngagement) }
-        KpiTile(label: "Countries", value: "\(vm.countriesActive)", icon: "globe", tint: .init(bg: Color(hex: 0xEEF1F8), fg: Color(hex: 0x1F3A6B))) { router.go(.countries) }
-        KpiTile(label: "Languages", value: "\(vm.languagesActive)", icon: "character.bubble", tint: .init(bg: Color(hex: 0xF3E8FF), fg: Color(hex: 0x7C3AED))) { router.go(.languages) }
+        // On-brand palette only (gold / navy / success-green / danger) — no off-brand blue.
+        DashKpiTile(label: "Modules published", value: "\(o?.modulesPublished ?? 0)", icon: "book.fill", tint: .init(bg: Color(hex: 0xFDF5E5), fg: Nuru.goldLo)) { router.go(.cms) }
+        DashKpiTile(label: "Pending reviews", value: "\(o?.pendingReviews ?? 0)", icon: "checklist", tint: .init(bg: Color(hex: 0xFDECEC), fg: Nuru.danger)) { router.go(.reflectionQueue) }
+        DashKpiTile(label: "Certificates (mo.)", value: "\(o?.certificatesThisMonth ?? 0)", icon: "rosette", tint: .init(bg: Color(hex: 0xE8F6EE), fg: Nuru.success)) { router.go(.certificates) }
+        DashKpiTile(label: "Members at risk", value: "\(o?.membersAtRisk ?? 0)", icon: "exclamationmark.triangle.fill", tint: .init(bg: Color(hex: 0xFFF4DA), fg: Nuru.warning)) { router.go(.cellEngagement) }
+        DashKpiTile(label: "Countries", value: "\(vm.countriesActive)", icon: "globe", tint: .init(bg: Color(hex: 0xE3EAF3), fg: Nuru.navy)) { router.go(.countries) }
+        DashKpiTile(label: "Languages", value: "\(vm.languagesActive)", icon: "character.bubble", tint: .init(bg: Color(hex: 0xFDF5E5), fg: Nuru.goldLo)) { router.go(.languages) }
     }
 
     // Three reference cards side-by-side on the wide canvas (no stacked half-empty
@@ -127,6 +129,38 @@ struct DashboardView: View {
 }
 
 func Pctf(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
+
+/// Compact KPI tile sized for FIVE-up at portrait width (~132pt). Vertical layout so the
+/// value and label read cleanly at narrow width: tinted icon, then the value (never clipped
+/// via lineLimit + minimumScaleFactor), then a one-line label. Reuses Nuru tokens + Font.inter.
+private struct DashKpiTile: View {
+    let label: String, value: String, icon: String
+    let tint: Nuru.Tint
+    var action: () -> Void = {}
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                TintedIcon(systemName: icon, color: tint.fg, size: 34)
+                Text(value)
+                    .font(.fraunces(22, .semibold))
+                    .foregroundStyle(Nuru.navy)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Text(label)
+                    .font(.inter(11.5, .medium))
+                    .foregroundStyle(Nuru.ink600)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(tint.bg)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(tint.fg.opacity(0.18), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
 
 // MARK: - Curriculum pipeline
 

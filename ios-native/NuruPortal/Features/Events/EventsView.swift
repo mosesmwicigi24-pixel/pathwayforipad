@@ -441,8 +441,9 @@ struct EventsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 0) {
                 hero
+                VStack(alignment: .leading, spacing: 20) {
                 if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
                 if let notice {
                     HStack(spacing: 8) {
@@ -493,8 +494,9 @@ struct EventsView: View {
                 Text("Nuru Events Command Center · All times in East Africa Time (UTC+3)")
                     .font(.nMicro).foregroundStyle(Nuru.muted)
                     .frame(maxWidth: .infinity).padding(.top, 6)
+                }
+                .padding(24)
             }
-            .padding(24)
         }
         .background(Nuru.paper)
         .navigationTitle("Events")
@@ -602,8 +604,6 @@ struct EventsView: View {
                 HeroChip(label: "Create event", icon: "plus", style: .gold) { showCreateEvent = true }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.hero, style: .continuous))
-        .nuruShadow()
     }
 
     private var alertStrip: some View {

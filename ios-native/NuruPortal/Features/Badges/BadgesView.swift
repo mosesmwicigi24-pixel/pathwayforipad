@@ -84,27 +84,29 @@ struct BadgesView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 0) {
                 hero
 
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                if let notice { Text(notice).font(.nCaption).foregroundStyle(Nuru.success) }
+                VStack(alignment: .leading, spacing: 24) {
+                    if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
+                    if let notice { Text(notice).font(.nCaption).foregroundStyle(Nuru.success) }
 
-                statStrip
-                filterBar
+                    statStrip
+                    filterBar
 
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 24) {
-                        gridSection.frame(maxWidth: .infinity)
-                        sidebar.frame(width: 320)
-                    }
-                    VStack(spacing: 24) {
-                        gridSection
-                        sidebar
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 24) {
+                            gridSection.frame(maxWidth: .infinity)
+                            sidebar.frame(width: 320)
+                        }
+                        VStack(spacing: 24) {
+                            gridSection
+                            sidebar
+                        }
                     }
                 }
+                .padding(24)
             }
-            .padding(24)
         }
         .background(Nuru.paper)
         .navigationTitle("Badges")
@@ -141,8 +143,6 @@ struct BadgesView: View {
                 HeroChip(label: "New badge", icon: "plus", style: .gold) { createOpen = true }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.hero, style: .continuous))
-        .nuruShadow()
     }
 
     // MARK: KPI strip

@@ -155,3 +155,46 @@ Still iPad Pro 13" M5 PORTRAIT (~720–760pt content). Presentation only; keep A
   clean aligned values), not bare.
 - **Languages:** the cards look **noisy / not clean** — reorganize into clean, organized cards
   with clear hierarchy and a proper coverage fill.
+
+---
+
+## Pass v4 — brand color + consistency + per-page (portrait)
+
+**Brand color rule (applies everywhere): NO off-brand blue.** The decorative blue
+`0x1B5FAE` / `tintBlue 0xE8EEF7` / `Nuru.info` / `tints[1]` is OFF-BRAND — replace decorative
+uses with our palette: **thriving green `Nuru.success`/`0x1E7F4F`, gold `Nuru.gold`, navy
+`Nuru.navy`**, or the new `Nuru.brandTint(i)` set (green/gold/navy/amber — NO blue) and the
+luminous set `Nuru.lumGreen/lumGold/lumAmber/lumRed/lumNavy`. **DO NOT** change the Members /
+engagement **band colors** (`Nuru.bandColor` — steady=blue is intentional there and the owner
+likes it). Only kill *decorative* blue accents on the pages named below.
+
+- **Sidebar:** the app side menu must be a **deeper navy** — use the new `Nuru.sidebarGradient`
+  (in RootView) instead of `navyGradient`.
+- **Top-bar consistency:** the navy top bar must be **flush/attached to the sidebar** on every
+  page, like Quiz Builder / Finance / Chat already are. Fix pages where the navy hero/top bar
+  is detached or has a gap: **Level detail, Curriculum, Badges (like Finance), Certificates
+  (like Finance), Events (like Chat)**. **Chat:** remove the stray **black row** that appears
+  just under the chat header.
+- **Roles:** the "key roles" cards still don't look nice — present them like **rich rows**
+  (the way Members rows show multiple aspects/details per row), not the 4+2 card grid. Make
+  roles & permissions read like the Members list: informative rows.
+- **Level Detail / Curriculum pathway report:** the **Overview / Modules / Engagement tabs are
+  not engaged** — wire them so tapping switches content (real working segmented tabs).
+  **Status mix / Breakdown / Modules per level → THREE COLUMNS** (status mix a bit smaller,
+  then breakdown, then modules per level). **Quick Actions → squeeze into ONE ROW** of
+  clickable buttons (keep each action's behavior). Remove decorative blue.
+- **Quiz Builder:** replace the decorative **blue** with brand color (gold/navy/green).
+- **Content Studio:** replace blue with brand color; the section cards look off — lay them in
+  **THREE COLUMNS**, put **Edit + Delete buttons at the far (trailing) end** of each card, and
+  the section selector (Devotions / Memory verse / Daily verse / Reading plans / Resources)
+  must be **nice styled buttons** (not plain/underlined). Premium feel.
+- **Reflection Queue:** the pending-reflection cards are **white on light-gray → invisible**.
+  Fix contrast (clear card surface + border). Make the **Return / Defer / Approve** controls
+  clearly visible.
+- **Engagement (Cell Engagement) page:** the top summary should be **four cards in a row**.
+  Keep the nice band colors (thriving green / watch / at-risk).
+- **Notifications:** add a beautiful touch. Color-code using the **luminous** member palette
+  (`lumGreen/lumAmber/lumRed/lumGold`) — the top "update types" (Updates / Success / Alerts /
+  Security) should be **color-coded** chips; notification rows tinted by type. Shiny, premium.
+- **Dashboard:** liked — but make the KPI row at the top (the "modules / published" stats)
+  **FIVE cards in a row**, and ensure each card's content is well captured (no clipped values).

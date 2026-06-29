@@ -97,25 +97,27 @@ struct CertificatesView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 0) {
                 hero
 
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                if let notice { Text(notice).font(.nCaption).foregroundStyle(Nuru.success) }
+                VStack(alignment: .leading, spacing: 24) {
+                    if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
+                    if let notice { Text(notice).font(.nCaption).foregroundStyle(Nuru.success) }
 
-                // Two-column on iPad (issued list + verification | preview).
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 24) {
-                        leftColumn.frame(maxWidth: .infinity)
-                        previewColumn.frame(maxWidth: .infinity)
-                    }
-                    VStack(spacing: 24) {
-                        leftColumn
-                        previewColumn
+                    // Two-column on iPad (issued list + verification | preview).
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 24) {
+                            leftColumn.frame(maxWidth: .infinity)
+                            previewColumn.frame(maxWidth: .infinity)
+                        }
+                        VStack(spacing: 24) {
+                            leftColumn
+                            previewColumn
+                        }
                     }
                 }
+                .padding(24)
             }
-            .padding(24)
         }
         .background(Nuru.paper)
         .navigationTitle("Certificates")
@@ -155,8 +157,6 @@ struct CertificatesView: View {
                 HeroChip(label: "Issue certificate", icon: "plus", style: .gold) { issueOpen = true }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.hero, style: .continuous))
-        .nuruShadow()
     }
 
     // MARK: Left column — issued list + public verification

@@ -79,6 +79,8 @@ struct CellEngagementView: View {
     @State private var editCell: EngagementCellRow?
     // Portrait roster grid: ~720–760pt usable → 3-up at minimum 220.
     private let grid = [GridItem(.adaptive(minimum: 220), spacing: 14)]
+    // Top summary: four compact tiles in a row at portrait width (~740pt → min 165 = 4-up).
+    private let summaryGrid = [GridItem(.adaptive(minimum: 165), spacing: 12)]
 
     var body: some View {
         Group {
@@ -111,6 +113,11 @@ struct CellEngagementView: View {
             : 0
         let ranked = cells.sorted { $0.avgEngagement > $1.avgEngagement }
         let byRisk = cells.sorted { $0.atRisk > $1.atRisk }
+        // Engagement bands per cell — thriving (≥70%) vs watch (40–69%); at-risk is the
+        // count of cells that have any at-risk members (a pastoral-call signal).
+        let thriving = cells.filter { engPct($0.avgEngagement) >= 70 }.count
+        let watch = cells.filter { let p = engPct($0.avgEngagement); return p >= 40 && p < 70 }.count
+        let atRiskCells = cells.filter { $0.atRisk > 0 }.count
 
         return ScrollView {
             VStack(spacing: 18) {
@@ -135,6 +142,25 @@ struct CellEngagementView: View {
                         HeroChip(label: "New Cell", icon: "plus", style: .gold) { addOpen = true }
                     }
                 }
+
+                // Top summary — four compact tiles in a row (portrait ~740pt). Band
+                // colours: avg engagement → navy, thriving → green, watch → amber,
+                // at-risk → red. Real metrics derived from the engagement report.
+                LazyVGrid(columns: summaryGrid, spacing: 12) {
+                    SummaryTile(icon: "gauge.with.dots.needle.67percent",
+                                value: "\(overallAvg)%", label: "Avg engagement",
+                                hint: "all cells", color: Nuru.navy)
+                    SummaryTile(icon: "checkmark.seal.fill",
+                                value: "\(thriving)", label: "Thriving",
+                                hint: "≥ 70% engaged", color: Nuru.success)
+                    SummaryTile(icon: "eye.fill",
+                                value: "\(watch)", label: "Watch",
+                                hint: "40–69% engaged", color: Nuru.warning)
+                    SummaryTile(icon: "exclamationmark.triangle.fill",
+                                value: "\(atRiskCells)", label: "At-risk cells",
+                                hint: "\(totalAtRisk) members", color: Nuru.danger)
+                }
+                .padding(.horizontal, 20)
 
                 VStack(alignment: .leading, spacing: 16) {
                     HStack(alignment: .bottom) {
@@ -271,6 +297,36 @@ struct CellEngagementView: View {
                 Text("Prioritise pastoral calls where the at-risk count is highest.")
                     .font(.nMicro).foregroundStyle(Nuru.muted)
             }
+        }
+    }
+}
+
+// MARK: - Top summary tile
+
+/// Compact summary tile for the four-up top row. Clean vertical hierarchy —
+/// tinted icon chip, one value, one short label, one quiet hint. Band-coloured
+/// (navy / green / amber / red); thin Inter fonts; values never clipped.
+private struct SummaryTile: View {
+    let icon: String, value: String, label: String, hint: String
+    let color: Color
+    var body: some View {
+        Card(padding: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(color.opacity(0.12))
+                    Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(color)
+                }.frame(width: 30, height: 30)
+                Text(value)
+                    .font(.inter(22, .semibold)).foregroundStyle(Nuru.navy)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(label).font(.inter(11.5, .medium)).foregroundStyle(Nuru.ink600)
+                        .lineLimit(1).minimumScaleFactor(0.85)
+                    Text(hint).font(.inter(10, .regular)).foregroundStyle(Nuru.muted)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

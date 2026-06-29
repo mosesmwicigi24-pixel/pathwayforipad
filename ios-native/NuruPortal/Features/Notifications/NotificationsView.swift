@@ -30,14 +30,16 @@ private struct NotifItem: Codable, Identifiable {
 }
 private struct NotifFeedResponse: Codable { let data: [NotifItem] }
 
-// CATEGORY_META — colour + label per category (web NotificationsProvider).
+// CATEGORY_META — luminous colour + label per category (web NotificationsProvider).
+// Color-keyed to the LUMINOUS member palette (no off-brand blue):
+//   Success → lumGreen · Alerts → lumAmber · Security → lumRed · Updates → lumNavy.
 private struct CatMeta { let label: String; let icon: String; let color: Color }
 private func catMeta(_ c: String) -> CatMeta {
     switch c {
-    case "success":  return CatMeta(label: "Success",  icon: "checkmark.circle.fill",      color: Color(hex: 0x16A34A))
-    case "warning":  return CatMeta(label: "Alerts",   icon: "exclamationmark.triangle.fill", color: Color(hex: 0xD97706))
-    case "security": return CatMeta(label: "Security", icon: "checkmark.shield.fill",       color: Nuru.gold)
-    default:         return CatMeta(label: "Updates",  icon: "info.circle.fill",            color: Color(hex: 0x2563EB))
+    case "success":  return CatMeta(label: "Success",  icon: "checkmark.circle.fill",         color: Nuru.lumGreen)
+    case "warning":  return CatMeta(label: "Alerts",   icon: "exclamationmark.triangle.fill", color: Nuru.lumAmber)
+    case "security": return CatMeta(label: "Security", icon: "checkmark.shield.fill",          color: Nuru.lumRed)
+    default:         return CatMeta(label: "Updates",  icon: "info.circle.fill",               color: Nuru.lumNavy)
     }
 }
 
@@ -169,6 +171,14 @@ struct NotificationsView: View {
     private enum Tab { case all, unread }
     private enum CatFilter: String, CaseIterable { case all, info, success, warning, security
         var label: String { switch self { case .all: "All types"; case .info: "Updates"; case .success: "Success"; case .warning: "Alerts"; case .security: "Security" } }
+        var icon: String { switch self {
+            case .all: "square.grid.2x2.fill"; case .info: "info.circle.fill"
+            case .success: "checkmark.circle.fill"; case .warning: "exclamationmark.triangle.fill"
+            case .security: "checkmark.shield.fill" } }
+        // Luminous colour key — matches catMeta. "All" uses brand gold.
+        var color: Color { switch self {
+            case .all: Nuru.lumGold; case .info: Nuru.lumNavy; case .success: Nuru.lumGreen
+            case .warning: Nuru.lumAmber; case .security: Nuru.lumRed } }
     }
     @State private var tab: Tab = .all
     @State private var catFilter: CatFilter = .all
@@ -294,22 +304,36 @@ struct NotificationsView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(CatFilter.allCases, id: \.self) { c in
-                        let active = catFilter == c
-                        Button { catFilter = c } label: {
-                            Text(c.label).font(.inter(12.5, .semibold))
-                                .foregroundStyle(active ? Nuru.gold : Nuru.muted)
-                                .padding(.horizontal, 14).padding(.vertical, 7)
-                                .background(active ? AnyShapeStyle(Nuru.gold.opacity(0.12)) : AnyShapeStyle(Nuru.white))
-                                .overlay(Capsule().stroke(active ? Nuru.gold : Nuru.border, lineWidth: 1))
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+                HStack(spacing: 8) { ForEach(CatFilter.allCases, id: \.self) { catChip($0) } }
+                    .padding(.vertical, 1)
             }
         }
+    }
+
+    // Luminous, colour-coded type chip. Selected = vivid filled; unselected = soft lumTint.
+    private func catChip(_ c: CatFilter) -> some View {
+        let active = catFilter == c
+        let n = c == .all ? nil : store.items.filter { $0.category == c.rawValue }.count
+        return Button { catFilter = c } label: {
+            HStack(spacing: 6) {
+                Image(systemName: c.icon).font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(active ? .white : c.color)
+                Text(c.label).font(.inter(12.5, .semibold))
+                    .foregroundStyle(active ? .white : c.color)
+                if let n, n > 0 {
+                    Text("\(n)").font(.inter(10.5, .bold))
+                        .foregroundStyle(active ? .white : c.color)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background((active ? Color.white.opacity(0.22) : Nuru.lumTint(c.color)).clipShape(Capsule()))
+                }
+            }
+            .padding(.horizontal, 13).padding(.vertical, 7)
+            .background(active ? AnyShapeStyle(c.color) : AnyShapeStyle(Nuru.lumTint(c.color)))
+            .overlay(Capsule().stroke(active ? Color.clear : c.color.opacity(0.32), lineWidth: 1))
+            .clipShape(Capsule())
+            .shadow(color: active ? c.color.opacity(0.30) : .clear, radius: 6, y: 2)
+        }
+        .buttonStyle(.plain)
     }
 
     private var sectionHeading: some View {
@@ -351,18 +375,25 @@ struct NotificationsView: View {
     private func row(_ n: NotifItem) -> some View {
         let meta = catMeta(n.category)
         return HStack(alignment: .top, spacing: 12) {
+            // Subtle left accent keyed to type.
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(meta.color.opacity(n.read ? 0.35 : 0.9))
+                .frame(width: 3).frame(maxHeight: .infinity)
+
+            // Luminous leading icon chip (lumTint background + luminous icon).
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(meta.color.opacity(0.12))
-                Image(systemName: meta.icon).font(.system(size: 16)).foregroundStyle(meta.color)
-            }.frame(width: 36, height: 36)
+                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Nuru.lumTint(meta.color))
+                RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(meta.color.opacity(0.22), lineWidth: 1)
+                Image(systemName: meta.icon).font(.system(size: 15, weight: .medium)).foregroundStyle(meta.color)
+            }.frame(width: 38, height: 38)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Text(n.title).font(.inter(13.5, n.read ? .semibold : .bold)).foregroundStyle(Nuru.navy)
+                    Text(n.title).font(.inter(13.5, n.read ? .medium : .semibold)).foregroundStyle(Nuru.navy)
                     Text(meta.label.uppercased()).font(.inter(9.5, .bold)).tracking(0.4)
                         .foregroundStyle(meta.color)
                         .padding(.horizontal, 8).padding(.vertical, 1.5)
-                        .background(meta.color.opacity(0.12)).clipShape(Capsule())
+                        .background(Nuru.lumTint(meta.color)).clipShape(Capsule())
                 }
                 if let m = n.message {
                     Text(m).font(.inter(12.5)).foregroundStyle(Nuru.muted).lineSpacing(2)
@@ -391,13 +422,13 @@ struct NotificationsView: View {
                     Button { store.remove(n.id) } label: {
                         Image(systemName: "xmark").font(.system(size: 12, weight: .semibold)).foregroundStyle(Nuru.muted)
                     }.buttonStyle(.plain)
-                    if !n.read { Circle().fill(Nuru.gold).frame(width: 8, height: 8) }
+                    if !n.read { Circle().fill(meta.color).frame(width: 8, height: 8) }
                 }
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 11)
+        .padding(.leading, 12).padding(.trailing, 16).padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(n.read ? Nuru.white : Nuru.gold.opacity(0.045))
+        .background(n.read ? AnyShapeStyle(Nuru.white) : AnyShapeStyle(Nuru.lumTint(meta.color).opacity(0.45)))
         .contentShape(Rectangle())
         .onTapGesture { open(n) }
     }
