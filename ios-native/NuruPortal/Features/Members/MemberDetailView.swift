@@ -14,69 +14,105 @@
 import SwiftUI
 
 // MARK: - Page-local rich wire models (full web MemberDetail / MemberResults shape)
+//
+// Decoding is fully resilient: every scalar uses a @Default* wrapper (tolerates
+// null AND missing keys), nested objects use @MPObj (default to .mpEmpty when
+// absent), and arrays use @MPList (default to []). Swift's *synthesised* Codable
+// ignores plain `= default` values and throws on missing/null — these wrappers are
+// what make the screen survive partial backend payloads.
+
+private protocol MPEmpty { static var mpEmpty: Self { get } }
+
+/// Build an all-defaults instance by decoding `{}` — the @Default*/optional fields
+/// make every key tolerant, so this never throws.
+private func mpEmptyDecode<T: Decodable>(_ t: T.Type) -> T {
+    (try? JSONDecoder().decode(T.self, from: Data("{}".utf8))) ?? (try! JSONDecoder().decode(T.self, from: Data("{}".utf8)))
+}
+
+@propertyWrapper private struct MPObj<T: Codable & MPEmpty>: Codable {
+    var wrappedValue: T
+    init() { wrappedValue = .mpEmpty }
+    init(from decoder: Decoder) throws { wrappedValue = (try? T(from: decoder)) ?? .mpEmpty }
+    func encode(to encoder: Encoder) throws { try wrappedValue.encode(to: encoder) }
+}
+@propertyWrapper private struct MPList<E: Codable>: Codable {
+    var wrappedValue: [E]
+    init() { wrappedValue = [] }
+    init(from decoder: Decoder) throws { wrappedValue = (try? [E](from: decoder)) ?? [] }
+    func encode(to encoder: Encoder) throws { try wrappedValue.encode(to: encoder) }
+}
+extension KeyedDecodingContainer {
+    fileprivate func decode<T>(_ t: MPObj<T>.Type, forKey k: Key) throws -> MPObj<T> { (try? decodeIfPresent(t, forKey: k) ?? MPObj()) ?? MPObj() }
+    fileprivate func decode<E>(_ t: MPList<E>.Type, forKey k: Key) throws -> MPList<E> { (try? decodeIfPresent(t, forKey: k) ?? MPList()) ?? MPList() }
+}
 
 private struct MemberFull: Codable, Identifiable {
-    struct Enrollment: Codable {
-        var currentLevel: Int = 0
+    struct Enrollment: Codable, MPEmpty {
+        @DefaultZero var currentLevel: Int
         let levelTitle: String?
         let startLevel: Int?
         let state: String?
         let startedAt: String?
         let completedAt: String?
         let graduatedAt: String?
+        static let mpEmpty = mpEmptyDecode(Enrollment.self)
     }
-    struct Engagement: Codable { let eScore: Double?; let band: String? }
-    struct Metrics: Codable {
-        var habitsPct: Int = 0
-        var activeDays30: Int = 0
-        var curriculumPct: Int = 0
-        var modulesDone: Int = 0
-        var modulesTotal: Int = 0
-        var attendancePct: Int = 0
-        var attended: Int = 0
-        var eventsHeld: Int = 0
-        var currentStreakDays: Int = 0
-        var longestStreakDays: Int = 0
+    struct Engagement: Codable, MPEmpty {
+        let eScore: Double?; let band: String?
+        static let mpEmpty = mpEmptyDecode(Engagement.self)
+    }
+    struct Metrics: Codable, MPEmpty {
+        @DefaultZero var habitsPct: Int
+        @DefaultZero var activeDays30: Int
+        @DefaultZero var curriculumPct: Int
+        @DefaultZero var modulesDone: Int
+        @DefaultZero var modulesTotal: Int
+        @DefaultZero var attendancePct: Int
+        @DefaultZero var attended: Int
+        @DefaultZero var eventsHeld: Int
+        @DefaultZero var currentStreakDays: Int
+        @DefaultZero var longestStreakDays: Int
+        static let mpEmpty = mpEmptyDecode(Metrics.self)
     }
     struct Guardian: Codable {
-        var name: String = ""
-        var relationship: String = ""
-        var consent: String = ""
+        @DefaultEmpty var name: String
+        @DefaultEmpty var relationship: String
+        @DefaultEmpty var consent: String
         let grantedAt: String?
         let revokedAt: String?
         let consentVersion: String?
     }
     struct Certificate: Codable, Identifiable {
-        var certificateId: String = ""
+        @DefaultEmpty var certificateId: String
         let levelNumber: Int?
-        var verificationCode: String = ""
-        var issuedAt: String = ""
-        var levelTitle: String = ""
+        @DefaultEmpty var verificationCode: String
+        @DefaultEmpty var issuedAt: String
+        @DefaultEmpty var levelTitle: String
         var id: String { certificateId }
     }
     struct Badge: Codable, Identifiable {
-        var code: String = ""
-        var name: String = ""
-        var description: String = ""
-        var category: String = ""
+        @DefaultEmpty var code: String
+        @DefaultEmpty var name: String
+        @DefaultEmpty var description: String
+        @DefaultEmpty var category: String
         let iconKey: String?
         let awardedAt: String?
         var id: String { code }
     }
     struct TimelineEntry: Codable, Identifiable {
-        var kind: String = ""
-        var label: String = ""
+        @DefaultEmpty var kind: String
+        @DefaultEmpty var label: String
         let moduleTitle: String?
-        var occurredAt: String = ""
+        @DefaultEmpty var occurredAt: String
         var id: String { kind + occurredAt + label }
     }
 
-    var userId: String = ""
-    var fullName: String = ""
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var fullName: String
     let email: String?
-    var phoneNumber: String = ""
-    var isMinor: Bool = false
-    var isBaptized: Bool = false
+    @DefaultEmpty var phoneNumber: String
+    @DefaultFalse var isMinor: Bool
+    @DefaultFalse var isBaptized: Bool
     let gender: String?
     let city: String?
     let programme: String?
@@ -84,76 +120,84 @@ private struct MemberFull: Codable, Identifiable {
     let dateOfBirth: String?
     let age: Int?
     let status: String?
-    var graduated: Bool = false
+    @DefaultFalse var graduated: Bool
     let graduatedAt: String?
     let cellGroupId: String?
     let cellName: String?
     let language: String?
-    var createdAt: String = ""
+    @DefaultEmpty var createdAt: String
     let lastActivity: String?
-    let enrollment: Enrollment
-    let engagement: Engagement
-    let metrics: Metrics
+    @MPObj var enrollment: Enrollment
+    @MPObj var engagement: Engagement
+    @MPObj var metrics: Metrics
     let guardian: Guardian?
-    var certificates: [Certificate] = []
-    var badges: [Badge] = []
-    var timeline: [TimelineEntry] = []
+    @MPList var certificates: [Certificate]
+    @MPList var badges: [Badge]
+    @MPList var timeline: [TimelineEntry]
     var id: String { userId }
 }
 
 private struct MemberResultsFull: Codable {
-    struct User: Codable { var userId = ""; var fullName = "" }
-    struct Summary: Codable {
-        var currentLevel = 0
-        var modulesTotal = 0
-        var modulesCompleted = 0
-        var modulesPassed = 0
+    struct User: Codable, MPEmpty {
+        @DefaultEmpty var userId: String
+        @DefaultEmpty var fullName: String
+        static let mpEmpty = mpEmptyDecode(User.self)
+    }
+    struct Summary: Codable, MPEmpty {
+        @DefaultZero var currentLevel: Int
+        @DefaultZero var modulesTotal: Int
+        @DefaultZero var modulesCompleted: Int
+        @DefaultZero var modulesPassed: Int
         let avgModuleScore: Double?
         let overallScore: Double?
-        var levelsCompleted = 0
-        var badges = 0
-        var certificates = 0
+        @DefaultZero var levelsCompleted: Int
+        @DefaultZero var badges: Int
+        @DefaultZero var certificates: Int
+        static let mpEmpty = mpEmptyDecode(Summary.self)
     }
     struct ModuleRow: Codable, Identifiable {
-        var moduleId = ""
-        var sequence = 0
-        var title = ""
-        var completed = false
+        @DefaultEmpty var moduleId: String
+        @DefaultZero var sequence: Int
+        @DefaultEmpty var title: String
+        @DefaultFalse var completed: Bool
         let bestScore: Double?
-        var passed = false
-        var attempts = 0
+        @DefaultFalse var passed: Bool
+        @DefaultZero var attempts: Int
         var id: String { moduleId }
     }
-    struct Exam: Codable { let score: Double?; var passed = false; var attempts = 0 }
+    struct Exam: Codable { let score: Double?; @DefaultFalse var passed: Bool; @DefaultZero var attempts: Int }
     struct LevelRow: Codable, Identifiable {
-        var levelNumber = 0
-        var title = ""
-        var moduleCount = 0
-        var modulesCompleted = 0
+        @DefaultZero var levelNumber: Int
+        @DefaultEmpty var title: String
+        @DefaultZero var moduleCount: Int
+        @DefaultZero var modulesCompleted: Int
         let moduleAverage: Double?
         let levelScore: Double?
-        var completed = false
+        @DefaultFalse var completed: Bool
         let exam: Exam?
-        var modules: [ModuleRow] = []
+        @MPList var modules: [ModuleRow]
         var id: Int { levelNumber }
     }
     struct Badge: Codable, Identifiable {
-        var code = ""; var name = ""; var category = ""
-        let description: String?; var awardedAt = ""
+        @DefaultEmpty var code: String
+        @DefaultEmpty var name: String
+        @DefaultEmpty var category: String
+        let description: String?
+        @DefaultEmpty var awardedAt: String
         var id: String { code }
     }
     struct Cert: Codable, Identifiable {
         let levelNumber: Int?
         let levelTitle: String?
-        var verificationCode = ""
-        var issuedAt = ""
+        @DefaultEmpty var verificationCode: String
+        @DefaultEmpty var issuedAt: String
         var id: String { verificationCode }
     }
-    let user: User
-    let summary: Summary
-    var levels: [LevelRow] = []
-    var badges: [Badge] = []
-    var certificates: [Cert] = []
+    @MPObj var user: User
+    @MPObj var summary: Summary
+    @MPList var levels: [LevelRow]
+    @MPList var badges: [Badge]
+    @MPList var certificates: [Cert]
 }
 
 private let mpProgrammeLabels: [String: String] = [
