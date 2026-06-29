@@ -805,7 +805,7 @@ struct EventsView: View {
                                     Text(o.category.label).font(.inter(13, .bold)).monospaced().foregroundStyle(Nuru.ink)
                                     Text("Type").font(.system(size: 10)).foregroundStyle(Nuru.muted)
                                 }.frame(width: 70)
-                            }.padding(.vertical, 12).contentShape(Rectangle())
+                            }.padding(.vertical, 10).contentShape(Rectangle())
                         }.buttonStyle(.plain)
                     }
                 }
@@ -928,7 +928,7 @@ struct EventsView: View {
                     Text(o.category.label).font(.inter(12, .bold)).foregroundStyle(o.category.color)
                     Text("TYPE").font(.system(size: 10)).tracking(0.4).foregroundStyle(Nuru.muted)
                 }
-            }.padding(.vertical, 12).contentShape(Rectangle())
+            }.padding(.vertical, 10).contentShape(Rectangle())
         }.buttonStyle(.plain)
     }
 
@@ -990,7 +990,7 @@ struct EventsView: View {
                 Image(systemName: "eye").font(.system(size: 12)).foregroundStyle(Nuru.ink)
                     .padding(7).background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }.buttonStyle(.plain)
-        }.padding(.vertical, 12)
+        }.padding(.vertical, 10)
     }
 
     // MARK: Announcements + QR
@@ -1011,8 +1011,8 @@ struct EventsView: View {
                     emptyState(icon: "bell", title: "No announcements yet",
                                body: "Send updates, reminders, and event notices to the right audience.")
                 } else {
-                    let cols = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-                    LazyVGrid(columns: cols, spacing: 12) {
+                    let cols = [GridItem(.adaptive(minimum: 240), spacing: 12)]
+                    LazyVGrid(columns: cols, alignment: .leading, spacing: 12) {
                         ForEach(announcements) { a in announcementTile(a) }
                     }
                 }
@@ -1165,8 +1165,8 @@ struct EventsView: View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
                 cardHeader("Event insights", "Patterns across recent occurrences")
-                let cols = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-                LazyVGrid(columns: cols, spacing: 12) {
+                let cols = [GridItem(.adaptive(minimum: 170), spacing: 12)]
+                LazyVGrid(columns: cols, alignment: .leading, spacing: 12) {
                     insightTile("Checked in", "\(checkedThisWeek)", "Across recent events", up: true)
                     insightTile("Recent events", "\(recent.count)", "Last 8 weeks", up: true)
                     insightTile("RSVP conversion", "74%", "RSVP members checked in", up: true)
@@ -1185,8 +1185,8 @@ struct EventsView: View {
                     Image(systemName: up ? "chart.line.uptrend.xyaxis" : "chart.line.downtrend.xyaxis")
                         .font(.system(size: 11)).foregroundStyle(up ? Color(hex: 0x15803D) : Color(hex: 0xB91C1C))
                 }
-                Text(value).font(.fraunces(26, .medium)).foregroundStyle(Nuru.ink)
-                Text(hint).font(.nMicro).foregroundStyle(Nuru.muted)
+                Text(value).font(.fraunces(24, .medium)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.7)
+                Text(hint).font(.nMicro).foregroundStyle(Nuru.muted).lineLimit(1)
             }
         }
     }
@@ -1250,8 +1250,8 @@ struct EventsView: View {
                 HStack {
                     Text("EVENT").frame(maxWidth: .infinity, alignment: .leading)
                     Text("WHEN").frame(width: 120, alignment: .leading)
-                    Text("CHECKED IN").frame(width: 90, alignment: .leading)
-                    Text("RSVP").frame(width: 60, alignment: .leading)
+                    Text("CHECKED IN").frame(width: 90, alignment: .trailing)
+                    Text("RSVP").frame(width: 60, alignment: .trailing)
                 }
                 .font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
                 .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 8)
@@ -1264,9 +1264,9 @@ struct EventsView: View {
                             .frame(maxWidth: .infinity, alignment: .leading).lineLimit(1)
                         Text(Fmt.date(e.occursAt, style: .dateTime.day().month(.abbreviated)))
                             .font(.nCaption).foregroundStyle(Nuru.muted).frame(width: 120, alignment: .leading)
-                        Text("\(e.checkedIn)").font(.inter(13, .bold)).foregroundStyle(Color(hex: 0x0F6B33)).frame(width: 90, alignment: .leading)
-                        Text("\(e.rsvpGoing)").font(.nCaption).foregroundStyle(Nuru.ink).frame(width: 60, alignment: .leading)
-                    }.padding(.horizontal, 20).padding(.vertical, 12)
+                        Text("\(e.checkedIn)").font(.inter(13, .bold)).monospaced().foregroundStyle(Color(hex: 0x0F6B33)).frame(width: 90, alignment: .trailing)
+                        Text("\(e.rsvpGoing)").font(.nCaption).monospaced().foregroundStyle(Nuru.ink).frame(width: 60, alignment: .trailing)
+                    }.padding(.horizontal, 20).padding(.vertical, 10)
                 }
             }
         }

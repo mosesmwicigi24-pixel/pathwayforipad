@@ -230,9 +230,9 @@ struct NotificationsView: View {
                     if !archived.isEmpty || showArchive { pager }
                 }
                 .padding(.horizontal, Nuru.S.lg)
-                .padding(.top, 20)
-                .padding(.bottom, 40)
-                .frame(maxWidth: 980, alignment: .leading)
+                .padding(.top, 18)
+                .padding(.bottom, 36)
+                .frame(maxWidth: 1040, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -350,11 +350,11 @@ struct NotificationsView: View {
 
     private func row(_ n: NotifItem) -> some View {
         let meta = catMeta(n.category)
-        return HStack(alignment: .top, spacing: 14) {
+        return HStack(alignment: .top, spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 11, style: .continuous).fill(meta.color.opacity(0.12))
-                Image(systemName: meta.icon).font(.system(size: 17)).foregroundStyle(meta.color)
-            }.frame(width: 40, height: 40)
+                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(meta.color.opacity(0.12))
+                Image(systemName: meta.icon).font(.system(size: 16)).foregroundStyle(meta.color)
+            }.frame(width: 36, height: 36)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
@@ -395,7 +395,7 @@ struct NotificationsView: View {
                 }
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 14)
+        .padding(.horizontal, 16).padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(n.read ? Nuru.white : Nuru.gold.opacity(0.045))
         .contentShape(Rectangle())

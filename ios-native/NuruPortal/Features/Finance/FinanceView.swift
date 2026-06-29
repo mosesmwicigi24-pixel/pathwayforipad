@@ -429,7 +429,7 @@ struct FinanceView: View {
             ("Funds", String(funds.count), "active"),
             ("Gifts", String(giftCount), "received"),
         ]
-        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 1), GridItem(.flexible(), spacing: 1)], spacing: 1) {
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 1), count: 4), spacing: 1) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.label.uppercased()).font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)
@@ -437,7 +437,7 @@ struct FinanceView: View {
                     Text(item.hint).font(.nMicro).foregroundStyle(Nuru.onNavyFaint)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 18).padding(.vertical, 14)
+                .padding(.horizontal, 16).padding(.vertical, 12)
                 .background(Color.white.opacity(0.04))
             }
         }
@@ -532,7 +532,7 @@ private struct OverviewTab: View {
     let allTotal: Int
     let giftCount: Int
 
-    private let cols = [GridItem(.adaptive(minimum: 240), spacing: 16)]
+    private let cols = [GridItem(.adaptive(minimum: 210), spacing: 14)]
 
     var body: some View {
         VStack(spacing: 20) {
@@ -743,14 +743,14 @@ private struct TransactionsTab: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     VStack(spacing: 0) {
                         HStack(spacing: 12) {
-                            Th(text: "Date").frame(width: 96, alignment: .leading)
-                            Th(text: "Member").frame(width: 150, alignment: .leading)
-                            Th(text: "Fund").frame(width: 90, alignment: .leading)
-                            Th(text: "Amount").frame(width: 110, alignment: .leading)
-                            Th(text: "Payment Status").frame(width: 120, alignment: .leading)
-                            Th(text: "Ledger Status").frame(width: 100, alignment: .leading)
-                            Th(text: "Reference").frame(width: 130, alignment: .leading)
-                            Th(text: "Action").frame(width: 70, alignment: .leading)
+                            Th(text: "Date").frame(width: 92, alignment: .leading)
+                            Th(text: "Member").frame(width: 168, alignment: .leading)
+                            Th(text: "Fund").frame(width: 96, alignment: .leading)
+                            Th(text: "Amount").frame(width: 116, alignment: .trailing)
+                            Th(text: "Payment").frame(width: 116, alignment: .leading)
+                            Th(text: "Ledger").frame(width: 104, alignment: .leading)
+                            Th(text: "Reference").frame(width: 132, alignment: .leading)
+                            Th(text: "").frame(width: 64, alignment: .trailing)
                         }
                         .padding(.horizontal, 16).padding(.vertical, 10)
                         .background(Nuru.mutedBg)
@@ -783,29 +783,29 @@ private struct TransactionsTab: View {
         let lc = ledgerStatus(t.status)
         return HStack(spacing: 12) {
             Text(fmtDate(t.createdAt)).font(.inter(12)).monospaced().foregroundStyle(Nuru.navy)
-                .frame(width: 96, alignment: .leading)
+                .frame(width: 92, alignment: .leading)
             Text(t.fullName ?? "Anonymous").font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
-                .frame(width: 150, alignment: .leading).lineLimit(1)
+                .frame(width: 168, alignment: .leading).lineLimit(1)
             Text(t.fund ?? "—").font(.inter(12)).foregroundStyle(Nuru.ink600)
-                .frame(width: 90, alignment: .leading).lineLimit(1)
+                .frame(width: 96, alignment: .leading).lineLimit(1)
             Text(Fmt.money(minor: t.amountMinor, currency: t.currency)).font(.inter(13, .bold)).monospaced().foregroundStyle(Nuru.navy)
-                .frame(width: 110, alignment: .leading)
+                .frame(width: 116, alignment: .trailing)
             ColorPill(text: statusTitle(t.status), bg: sc.bg, fg: sc.fg)
-                .frame(width: 120, alignment: .leading)
+                .frame(width: 116, alignment: .leading)
             ColorPill(text: lc.label, bg: lc.bg, fg: lc.fg)
-                .frame(width: 100, alignment: .leading)
+                .frame(width: 104, alignment: .leading)
             Text(shortRef(t.transactionId)).font(.inter(12)).monospaced().foregroundStyle(Nuru.ink600)
-                .frame(width: 130, alignment: .leading)
+                .frame(width: 132, alignment: .leading)
             Button("View") { onView(t.transactionId) }
                 .font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 .background(Nuru.white)
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .frame(width: 70, alignment: .leading)
+                .frame(width: 64, alignment: .trailing)
                 .buttonStyle(.plain)
         }
-        .padding(.horizontal, 16).padding(.vertical, 10)
+        .padding(.horizontal, 16).padding(.vertical, 9)
         .overlay(alignment: .top) { Rectangle().fill(Nuru.border).frame(height: 1) }
     }
 }
@@ -858,10 +858,10 @@ private struct LedgerTab: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     VStack(spacing: 0) {
                         HStack(spacing: 12) {
-                            Th(text: "Account").frame(width: 170, alignment: .leading)
-                            Th(text: "Side").frame(width: 80, alignment: .leading)
-                            Th(text: "Amount").frame(width: 120, alignment: .leading)
-                            Th(text: "When").frame(width: 170, alignment: .leading)
+                            Th(text: "Account").frame(maxWidth: .infinity, alignment: .leading)
+                            Th(text: "Side").frame(width: 92, alignment: .leading)
+                            Th(text: "Amount").frame(width: 132, alignment: .trailing)
+                            Th(text: "When").frame(width: 176, alignment: .leading)
                         }
                         .padding(.horizontal, 16).padding(.vertical, 10)
                         .background(Nuru.mutedBg)
@@ -881,12 +881,12 @@ private struct LedgerTab: View {
     private func ledgerRow(_ l: LedgerRow) -> some View {
         HStack(spacing: 12) {
             Text(l.account).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy)
-                .frame(width: 170, alignment: .leading).lineLimit(1)
-            sideBadge(l.side).frame(width: 80, alignment: .leading)
-            Text(Fmt.money(minor: l.amountMinor, currency: l.currency)).font(.inter(12.5)).monospaced().foregroundStyle(Nuru.ink)
-                .frame(width: 120, alignment: .leading)
-            Text(fmtDateTime(l.createdAt)).font(.inter(12)).foregroundStyle(Nuru.ink600)
-                .frame(width: 170, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading).lineLimit(1)
+            sideBadge(l.side).frame(width: 92, alignment: .leading)
+            Text(Fmt.money(minor: l.amountMinor, currency: l.currency)).font(.inter(12.5, .semibold)).monospaced().foregroundStyle(Nuru.ink)
+                .frame(width: 132, alignment: .trailing)
+            Text(fmtDateTime(l.createdAt)).font(.inter(12)).monospaced().foregroundStyle(Nuru.ink600)
+                .frame(width: 176, alignment: .leading)
         }
         .padding(.horizontal, 16).padding(.vertical, 9)
         .overlay(alignment: .top) { Rectangle().fill(Nuru.border).frame(height: 1) }

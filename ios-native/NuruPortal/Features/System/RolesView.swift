@@ -80,7 +80,7 @@ struct RolesView: View {
                     if !keyRoles.isEmpty {
                         VStack(alignment: .leading, spacing: 14) {
                             SectionHeader(overline: "Access tiers", title: "Key roles in the pathway")
-                            VStack(spacing: 10) {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 14)], spacing: 14) {
                                 ForEach(Array(keyRoles)) { KeyRoleCard(role: $0) }
                             }
                         }
@@ -101,14 +101,18 @@ struct RolesView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
                                 .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                         } else {
-                            VStack(spacing: 10) {
-                                ForEach(filtered) { role in
-                                    RoleRowCard(
-                                        role: role,
-                                        onOpen: { openRole = role },
-                                        onEdit: { editRole = role },
-                                        onDelete: { if !role.isSystem { pendingDelete = role } }
-                                    )
+                            Card(padding: 0) {
+                                VStack(spacing: 0) {
+                                    RoleHeaderRow()
+                                    ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, role in
+                                        if idx > 0 { Divider().overlay(Nuru.border) }
+                                        RoleTableRow(
+                                            role: role,
+                                            onOpen: { openRole = role },
+                                            onEdit: { editRole = role },
+                                            onDelete: { if !role.isSystem { pendingDelete = role } }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -317,81 +321,100 @@ private struct KeyRoleCard: View {
     }
 }
 
-// MARK: - Role row card (name/key, type, perms, users, status, edit/delete)
+// MARK: - Configured-roles table — header row + dense data rows (iPad density pass)
+// Columns mirror the web Roles.tsx table: Role · Type · Permissions · Users ·
+// Status · ⋯, width-aligned across rows.
 
-private struct RoleRowCard: View {
+private enum RoleCol {
+    static let type: CGFloat = 110
+    static let perms: CGFloat = 150
+    static let users: CGFloat = 90
+    static let status: CGFloat = 120
+    static let actions: CGFloat = 90
+}
+
+private struct RoleHeaderRow: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            head("Role").frame(maxWidth: .infinity, alignment: .leading)
+            head("Type").frame(width: RoleCol.type, alignment: .leading)
+            head("Permissions").frame(width: RoleCol.perms, alignment: .leading)
+            head("Users").frame(width: RoleCol.users, alignment: .trailing)
+            head("Status").frame(width: RoleCol.status, alignment: .leading)
+            head("").frame(width: RoleCol.actions, alignment: .trailing)
+        }
+        .padding(.horizontal, 18).padding(.vertical, 12)
+        .background(Nuru.surface)
+    }
+    private func head(_ t: String) -> some View {
+        Text(t.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.ink600)
+    }
+}
+
+private struct RoleTableRow: View {
     let role: LocalRole
     let onOpen: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(role.name).font(.inter(13.5, .bold)).foregroundStyle(Nuru.navy)
-                        Text(role.roleKey).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Nuru.ink600)
-                    }
-                    Spacer(minLength: 8)
-                    typePill
-                }
+        HStack(spacing: 14) {
+            // Role — name + monospaced key
+            VStack(alignment: .leading, spacing: 2) {
+                Text(role.name).font(.inter(14, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                Text(role.roleKey).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Nuru.ink600).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: 10) {
-                    statusPill
-                    Spacer(minLength: 0)
-                    HStack(spacing: 4) {
-                        Image(systemName: "person.2.fill").font(.system(size: 10)).foregroundStyle(Nuru.ink400)
-                        Text("\(role.userCount) users").font(.nMicro).foregroundStyle(Nuru.ink600)
-                    }
-                }
+            // Type
+            typePill.frame(width: RoleCol.type, alignment: .leading)
 
-                Button(action: onOpen) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "shield.lefthalf.filled").font(.system(size: 12, weight: .semibold))
-                        Text("\(role.permissions.count) permissions").font(.inter(12, .semibold))
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Nuru.ink400)
-                    }
-                    .foregroundStyle(Nuru.gold)
-                    .padding(.horizontal, 12).padding(.vertical, 10)
-                    .frame(maxWidth: .infinity)
-                    .background(Nuru.gold.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+            // Permissions — tap opens the matrix sheet
+            Button(action: onOpen) {
+                HStack(spacing: 5) {
+                    Image(systemName: "shield.lefthalf.filled").font(.system(size: 11, weight: .semibold))
+                    Text("\(role.permissions.count) perms").font(.inter(12, .semibold)).lineLimit(1)
                 }
-                .buttonStyle(.plain)
+                .foregroundStyle(Nuru.gold)
+            }
+            .buttonStyle(.plain)
+            .frame(width: RoleCol.perms, alignment: .leading)
 
-                // Edit / Delete actions (web row buttons).
-                HStack(spacing: 8) {
-                    Button(action: onEdit) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "pencil").font(.system(size: 12, weight: .semibold))
-                            Text("Edit").font(.inter(12, .semibold))
-                        }
+            // Users
+            HStack(spacing: 4) {
+                Image(systemName: "person.2.fill").font(.system(size: 9)).foregroundStyle(Nuru.ink400)
+                Text("\(role.userCount)").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink600)
+            }
+            .frame(width: RoleCol.users, alignment: .trailing)
+
+            // Status pill (always shows a label)
+            statusPill.frame(width: RoleCol.status, alignment: .leading)
+
+            // Actions — fixed trailing width
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                Button(action: onEdit) {
+                    Image(systemName: "pencil").font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Nuru.navy)
-                        .padding(.horizontal, 11).padding(.vertical, 7)
+                        .frame(width: 34, height: 30)
                         .background(Nuru.navy.opacity(0.08))
                         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer(minLength: 0)
-
-                    Button(action: onDelete) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "trash").font(.system(size: 12, weight: .semibold))
-                            Text(role.isSystem ? "Built-in" : "Delete").font(.inter(12, .semibold))
-                        }
+                }
+                .buttonStyle(.plain)
+                Button(action: onDelete) {
+                    Image(systemName: "trash").font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(role.isSystem ? Nuru.ink400 : Color(hex: 0xDC2626))
-                        .padding(.horizontal, 11).padding(.vertical, 7)
+                        .frame(width: 34, height: 30)
                         .background((role.isSystem ? Nuru.ink400 : Color(hex: 0xDC2626)).opacity(0.10))
                         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(role.isSystem)
                 }
+                .buttonStyle(.plain)
+                .disabled(role.isSystem)
             }
+            .frame(width: RoleCol.actions, alignment: .trailing)
         }
+        .padding(.horizontal, 18).padding(.vertical, 10)
+        .frame(minHeight: 52)
     }
 
     private var typePill: some View {
@@ -408,7 +431,7 @@ private struct RoleRowCard: View {
         let fg = active ? Color(hex: 0x0F6B33) : Color(hex: 0x6B7280)
         return HStack(spacing: 5) {
             Circle().fill(fg).frame(width: 6, height: 6)
-            Text(role.status.capitalized).font(.inter(11, .semibold)).foregroundStyle(fg)
+            Text(role.status.isEmpty ? "Active" : role.status.capitalized).font(.inter(11, .semibold)).foregroundStyle(fg)
         }
         .padding(.horizontal, 10).padding(.vertical, 4)
         .background(bg).clipShape(Capsule())
@@ -647,20 +670,20 @@ private struct PermissionsMatrixSheet: View {
                 Text(group.uppercased())
                     .font(.inter(11.5, .semibold)).tracking(1.4).foregroundStyle(Nuru.goldLo)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 12).padding(.bottom, 5).padding(.horizontal, 0)
+                    .padding(.top, 9).padding(.bottom, 3).padding(.horizontal, 0)
 
                 ForEach(RolePerm.modules.filter { $0.group == group }) { mod in
                     HStack(spacing: 0) {
                         // Tapping the module label toggles the whole row.
                         Button { toggleRow(mod.id) } label: {
                             Text(mod.label).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
-                                .frame(width: 190, alignment: .leading).padding(.vertical, 8)
+                                .frame(width: 190, alignment: .leading).padding(.vertical, 5)
                         }
                         .buttonStyle(.plain).disabled(locked)
                         ForEach(RolePerm.capabilities) { cap in
                             Button { toggleCell(mod.id, cap.key) } label: {
                                 MatrixBox(on: working.contains(cellKey(mod.id, cap.key)))
-                                    .frame(width: 60).padding(.vertical, 6)
+                                    .frame(width: 60).padding(.vertical, 4)
                             }
                             .buttonStyle(.plain).disabled(locked)
                         }

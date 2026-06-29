@@ -84,7 +84,7 @@ struct CellDetailView: View {
     let cellGroupId: String
     let name: String
     @StateObject private var vm = CellDetailViewModel()
-    private let kpiGrid = [GridItem(.adaptive(minimum: 150), spacing: 14)]
+    private let kpiGrid = [GridItem(.adaptive(minimum: 168), spacing: 12)]
 
     var body: some View {
         ScrollView {
@@ -96,11 +96,20 @@ struct CellDetailView: View {
                     ErrorBanner(message: error) { Task { await vm.load(cellId: cellGroupId) } }
                         .padding(.horizontal, 20)
                 } else {
-                    VStack(spacing: 16) {
-                        HStack(alignment: .top, spacing: 16) {
-                            bandsCard.frame(maxWidth: .infinity)
+                    VStack(spacing: 14) {
+                        // Health mix + KPI tiles share one row on the wide canvas
+                        // so neither leaves a band of empty space beside it.
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .top, spacing: 14) {
+                                bandsCard.frame(maxWidth: 460)
+                                LazyVGrid(columns: kpiGrid, alignment: .leading, spacing: 12) { kpiTiles }
+                                    .frame(maxWidth: .infinity)
+                            }
+                            VStack(spacing: 14) {
+                                bandsCard
+                                LazyVGrid(columns: kpiGrid, alignment: .leading, spacing: 12) { kpiTiles }
+                            }
                         }
-                        LazyVGrid(columns: kpiGrid, spacing: 14) { kpiTiles }
                         memberTable
                     }
                     .padding(.horizontal, 20)
@@ -135,8 +144,8 @@ struct CellDetailView: View {
 
     // Health mix — stacked band bar + per-band counts.
     private var bandsCard: some View {
-        Card(padding: 24) {
-            VStack(alignment: .leading, spacing: 14) {
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("HEALTH MIX").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.goldLo)
                     Text("Engagement bands").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
@@ -205,8 +214,21 @@ struct CellDetailView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 22).padding(.vertical, 18)
+                .padding(.horizontal, 22).padding(.vertical, 16)
                 .background(Nuru.navy)
+
+                // Aligned column-header row (overline titles) so the table reads
+                // as a real table, not a stack of cards.
+                HStack(spacing: 12) {
+                    Text("MEMBER").font(.nOverline).tracking(1.1).foregroundStyle(Nuru.ink600)
+                    Spacer(minLength: 8)
+                    Text("ENGAGEMENT").font(.nOverline).tracking(1.1).foregroundStyle(Nuru.ink600)
+                        .frame(width: 168, alignment: .trailing)
+                    Spacer().frame(width: 18)
+                }
+                .padding(.horizontal, 22).padding(.vertical, 9)
+                .background(Nuru.surface)
+                Divider().overlay(Nuru.border)
 
                 if vm.sorted.isEmpty {
                     Text("No members loaded for this cell.")
@@ -235,7 +257,7 @@ struct CellDetailView: View {
         let nm = m.fullName ?? "—"
         let days = m.lastActiveDaysAgo
         return HStack(spacing: 12) {
-            Monogram(name: nm, size: 40)
+            Monogram(name: nm, size: 36)
             VStack(alignment: .leading, spacing: 2) {
                 Text(nm).font(.inter(14, .bold)).foregroundStyle(Nuru.ink).lineLimit(1)
                 HStack(spacing: 8) {
@@ -250,13 +272,16 @@ struct CellDetailView: View {
                 }
             }
             Spacer(minLength: 8)
+            // Fixed-width trailing column so scores + bars line up across rows
+            // and under the ENGAGEMENT header.
             VStack(alignment: .trailing, spacing: 4) {
-                Text("\(score)%").font(.inter(12, .bold)).foregroundStyle(Nuru.ink)
-                ProgressBar(pct: Double(score), fill: band.color, height: 6).frame(width: 120)
+                Text("\(score)%").font(.inter(12.5, .bold)).foregroundStyle(Nuru.ink)
+                ProgressBar(pct: Double(score), fill: band.color, height: 6)
             }
+            .frame(width: 168)
             Image(systemName: "chevron.right").font(.system(size: 11)).foregroundStyle(Nuru.ink300)
         }
-        .padding(.horizontal, 22).padding(.vertical, 14)
+        .padding(.horizontal, 22).padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

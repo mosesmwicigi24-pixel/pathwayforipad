@@ -275,12 +275,22 @@ struct MembersView: View {
                     } else if vm.filtered.isEmpty {
                         emptyState
                     } else {
-                        ForEach(Array(vm.filtered.enumerated()), id: \.element.id) { i, m in
-                            MemberRowCard(member: m, index: i, country: m.countryCode.flatMap { vm.countryByCode[$0] },
-                                          onResults: { resultsId = m.userId },
-                                          onEdit: { editId = m.userId },
-                                          onGraduate: { Task { await vm.graduate(m.userId, m.status != "graduated") } })
+                        // Dense, aligned table: one card holds an overline header row +
+                        // hairline-separated member rows (columns aligned via fixed widths).
+                        VStack(spacing: 0) {
+                            tableHeader
+                            ForEach(Array(vm.filtered.enumerated()), id: \.element.id) { i, m in
+                                if i > 0 { Divider().overlay(Nuru.border) }
+                                MemberRowCard(member: m, index: i, country: m.countryCode.flatMap { vm.countryByCode[$0] },
+                                              onResults: { resultsId = m.userId },
+                                              onEdit: { editId = m.userId },
+                                              onGraduate: { Task { await vm.graduate(m.userId, m.status != "graduated") } })
+                            }
                         }
+                        .background(Nuru.white)
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .nuruShadow(0.5)
                         footer
                     }
                 }
@@ -424,6 +434,27 @@ struct MembersView: View {
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
+    // Column header — widths mirror MemberRowCard's fixed columns so titles align.
+    private var tableHeader: some View {
+        HStack(spacing: 14) {
+            Text("Member").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
+                .frame(width: 44 + 210 + 14, alignment: .leading)
+            Text("Cell").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
+                .frame(width: 150, alignment: .leading)
+            Text("Start").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
+                .frame(width: 100, alignment: .leading)
+            Text("Progress").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
+                .frame(width: 170, alignment: .leading)
+            Spacer(minLength: 0)
+            Text("Status").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
+                .frame(width: 80, alignment: .center)
+            Text("").frame(width: 36 + 14 + 32)   // Results + menu action columns
+        }
+        .padding(.horizontal, 18).padding(.vertical, 11)
+        .background(Nuru.surface)
+        .overlay(Divider().overlay(Nuru.border), alignment: .bottom)
+    }
+
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "person.2").font(.title).foregroundStyle(Nuru.ink300)
@@ -541,10 +572,9 @@ private struct MemberRowCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
-            .padding(.horizontal, 18).padding(.vertical, 14)
-            .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-            .nuruShadow(0.5)
+            .padding(.horizontal, 18).padding(.vertical, 11)
+            .background(Nuru.white)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

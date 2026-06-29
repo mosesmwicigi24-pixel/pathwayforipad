@@ -260,23 +260,41 @@ private struct CountryFormSheet: View {
     }
 }
 
+// Fixed column widths so every cell aligns across rows and the status Pill is
+// never squeezed to zero. The Country (name) column flexes; the rest are fixed.
+private enum CountryCol {
+    static let region: CGFloat = 200
+    static let currency: CGFloat = 110
+    static let dial: CGFloat = 110
+    static let status: CGFloat = 110
+    static let actions: CGFloat = 150
+}
+
 private struct CountryHeaderRow: View {
     var body: some View {
-        HStack(spacing: 12) {
-            cell("Country", flex: 3)
-            cell("Region", flex: 2)
-            cell("Currency", flex: 1)
-            cell("Dial code", flex: 1)
-            cell("Status", flex: 1, align: .trailing)
-            cell("", flex: 1, align: .trailing)
+        HStack(spacing: 14) {
+            Text("Country").modifier(CountryHead(maxWidth: .infinity, align: .leading))
+            Text("Region").modifier(CountryHead(width: CountryCol.region, align: .leading))
+            Text("Currency").modifier(CountryHead(width: CountryCol.currency, align: .leading))
+            Text("Dial").modifier(CountryHead(width: CountryCol.dial, align: .leading))
+            Text("Status").modifier(CountryHead(width: CountryCol.status, align: .leading))
+            Text("").modifier(CountryHead(width: CountryCol.actions, align: .trailing))
         }
-        .padding(.horizontal, 18).padding(.vertical, 13)
+        .padding(.horizontal, 18).padding(.vertical, 11)
         .background(Nuru.surface)
     }
-    private func cell(_ t: String, flex: CGFloat, align: Alignment = .leading) -> some View {
-        Text(t.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.ink600)
-            .frame(maxWidth: .infinity, alignment: align)
-            .layoutPriority(Double(flex))
+}
+
+private struct CountryHead: ViewModifier {
+    var width: CGFloat? = nil
+    var maxWidth: CGFloat? = nil
+    var align: Alignment
+    func body(content: Content) -> some View {
+        content
+            .font(.nOverline).tracking(0.6).foregroundStyle(Nuru.ink600)
+            .lineLimit(1)
+            .frame(width: width, alignment: align)
+            .frame(maxWidth: maxWidth, alignment: align)
     }
 }
 
@@ -289,28 +307,28 @@ private struct CountryRow: View {
     }
     var body: some View {
         let active = c.status == "active"
-        HStack(spacing: 12) {
-            HStack(spacing: 12) {
-                Text(c.flag ?? "🏳️").font(.system(size: 22))
+        HStack(spacing: 14) {
+            HStack(spacing: 11) {
+                Text(c.flag ?? "🏳️").font(.system(size: 20))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(c.name).font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
-                    Text(c.code).font(.system(.caption, design: .monospaced)).foregroundStyle(Nuru.muted)
+                    Text(c.name).font(.inter(14, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                    Text(c.code).font(.system(.caption2, design: .monospaced)).foregroundStyle(Nuru.muted)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(3)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(c.region ?? "—").font(.inter(13)).foregroundStyle(Nuru.foreground)
-                .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(2)
-            Text(c.currency ?? "—").font(.inter(13, .semibold)).foregroundStyle(Nuru.foreground)
-                .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
-            Text(c.dialCode ?? "—").font(.system(.subheadline, design: .monospaced)).foregroundStyle(Nuru.foreground)
-                .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
+            Text(c.region ?? "—").font(.inter(13)).foregroundStyle(Nuru.foreground).lineLimit(1)
+                .frame(width: CountryCol.region, alignment: .leading)
+            Text(c.currency ?? "—").font(.inter(13, .semibold)).foregroundStyle(Nuru.foreground).lineLimit(1)
+                .frame(width: CountryCol.currency, alignment: .leading)
+            Text(c.dialCode ?? "—").font(.system(.subheadline, design: .monospaced)).foregroundStyle(Nuru.foreground).lineLimit(1)
+                .frame(width: CountryCol.dial, alignment: .leading)
             HStack {
+                Pill(text: active ? "Active" : "Inactive", color: active ? Nuru.success : Nuru.muted)
                 Spacer(minLength: 0)
-                Pill(text: c.status.capitalized, color: active ? Nuru.success : Nuru.muted)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing).layoutPriority(1)
-            HStack(spacing: 8) {
+            .frame(width: CountryCol.status, alignment: .leading)
+            HStack(spacing: 14) {
                 Spacer(minLength: 0)
                 Button(action: onEdit) { Image(systemName: "pencil").font(.system(size: 14)).foregroundStyle(Nuru.muted) }
                     .buttonStyle(.plain)
@@ -320,9 +338,10 @@ private struct CountryRow: View {
                 }
                 .buttonStyle(.plain)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing).layoutPriority(1)
+            .frame(width: CountryCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 14)
+        .padding(.horizontal, 18).padding(.vertical, 11)
+        .frame(minHeight: 52)
     }
 }
 

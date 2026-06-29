@@ -244,13 +244,13 @@ struct VideoLibraryView: View {
 
     private enum ViewMode { case table, grid }
 
-    private let grid = [GridItem(.adaptive(minimum: 260), spacing: 20)]
+    private let grid = [GridItem(.adaptive(minimum: 224), spacing: 14)]
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
                 hero
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 16) {
                     if let n = vm.notice {
                         Text(n).font(.nCaption).foregroundStyle(Color(hex: 0x0F6B33))
                     }
@@ -263,8 +263,8 @@ struct VideoLibraryView: View {
                     assetsLibrary
                 }
                 .padding(.horizontal, 22)
-                .padding(.top, 24)
-                .padding(.bottom, 48)
+                .padding(.top, 20)
+                .padding(.bottom, 40)
             }
         }
         .background(Nuru.paper)
@@ -361,10 +361,10 @@ struct VideoLibraryView: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(hex: 0xF2E2BD), lineWidth: 1))
     }
 
-    // ────── 4 pastel KPI cards ──────
+    // ────── 4 KPI tiles — a compact 4-up strip (no half-empty cards) ──────
     private var kpiCards: some View {
         let pct = vm.totalCount > 0 ? "\(Int((Double(vm.ready) / Double(vm.totalCount) * 100).rounded()))% of library" : "—"
-        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 184), spacing: 14)], spacing: 14) {
             kpiCard("Total video assets", vm.totalCount, "film", "in the library", tint: 1)
             kpiCard("Ready for members",  vm.ready, "checkmark.circle.fill", pct, tint: 2)
             kpiCard("Processing",         vm.processing, "arrow.triangle.2.circlepath", "uploading / transcoding", tint: 1)
@@ -372,27 +372,40 @@ struct VideoLibraryView: View {
         }
     }
     private func kpiCard(_ label: String, _ value: Int, _ icon: String, _ sub: String, tint: Int) -> some View {
-        Card(padding: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                TintedIcon(systemName: icon, color: Nuru.tint(tint).fg, size: 34)
-                Text(label.uppercased()).font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                Text("\(value)").font(.fraunces(26, .semibold)).foregroundStyle(Nuru.navy)
-                Text(sub).font(.nMicro).foregroundStyle(Nuru.ink600)
+        Card(padding: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                TintedIcon(systemName: icon, color: Nuru.tint(tint).fg, size: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label.uppercased()).font(.nOverline).tracking(1).foregroundStyle(Nuru.ink600).lineLimit(1)
+                    Text("\(value)").font(.fraunces(24, .semibold)).foregroundStyle(Nuru.navy)
+                    Text(sub).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                }
+                Spacer(minLength: 0)
             }
         }
     }
 
     // ────── Upload dropzone + Register external + Processing queue ──────
+    // Upload + register sit side-by-side on the wide iPad canvas (they fall back
+    // to stacked when the width is tight); the queue spans full width below.
     private var uploadAndQueue: some View {
-        VStack(spacing: 20) {
-            uploadCard
-            registerExternalCard
+        VStack(spacing: 16) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 16) {
+                    uploadCard.frame(maxWidth: .infinity)
+                    registerExternalCard.frame(maxWidth: .infinity)
+                }
+                VStack(spacing: 16) {
+                    uploadCard
+                    registerExternalCard
+                }
+            }
             processingQueueCard
         }
     }
 
     private var uploadCard: some View {
-        Card(padding: 24) {
+        Card(padding: 18) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Upload a video").font(.inter(14, .bold)).foregroundStyle(Nuru.ink)
                 Text("Choose a video — it uploads straight to your own storage (not Cloudinary) and is ready to attach.")
@@ -477,7 +490,7 @@ struct VideoLibraryView: View {
     }
 
     private var registerExternalCard: some View {
-        Card(padding: 24) {
+        Card(padding: 18) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -625,7 +638,7 @@ struct VideoLibraryView: View {
                                  onDelete: { deleteFor = a })
                     }
                 } else {
-                    LazyVGrid(columns: grid, spacing: 20) {
+                    LazyVGrid(columns: grid, spacing: 14) {
                         ForEach(filtered) { a in
                             AssetGridCard(asset: a, working: vm.working,
                                           onView: { selected = a },
@@ -634,7 +647,7 @@ struct VideoLibraryView: View {
                                           onDelete: { deleteFor = a })
                         }
                     }
-                    .padding(20)
+                    .padding(16)
                 }
             }
         }

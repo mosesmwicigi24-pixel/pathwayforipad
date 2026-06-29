@@ -61,7 +61,8 @@ private let todayLabel: String = Date().formatted(.dateTime.weekday(.wide).day()
 struct DashboardView: View {
     @StateObject private var vm = DashboardViewModel()
     @EnvironmentObject private var router: NavRouter
-    private let grid = [GridItem(.adaptive(minimum: 230), spacing: 14)]
+    // 6 KPI tiles → dense strip. minimum 184 lets 5–6 fit per row on the wide canvas.
+    private let grid = [GridItem(.adaptive(minimum: 184), spacing: 12)]
 
     var body: some View {
         ScrollView {
@@ -70,7 +71,7 @@ struct DashboardView: View {
                 if vm.loading && vm.overview == nil {
                     SkeletonList(rows: 4).padding(.horizontal, 20)
                 } else {
-                    LazyVGrid(columns: grid, spacing: 14) { kpiTiles }.padding(.horizontal, 20)
+                    LazyVGrid(columns: grid, spacing: 12) { kpiTiles }.padding(.horizontal, 20)
                     PipelineSection(levels: vm.levels).padding(.horizontal, 20)
                     PathwayReport(bands: vm.bands, trend: vm.trend).padding(.horizontal, 20)
                     bottomRow.padding(.horizontal, 20)
@@ -114,8 +115,10 @@ struct DashboardView: View {
         KpiTile(label: "Languages", value: "\(vm.languagesActive)", icon: "character.bubble", tint: .init(bg: Color(hex: 0xF3E8FF), fg: Color(hex: 0x7C3AED))) { router.go(.languages) }
     }
 
+    // Three reference cards side-by-side on the wide canvas (no stacked half-empty
+    // full-width cards). Falls back to a single column when narrow (portrait).
     private var bottomRow: some View {
-        VStack(spacing: 14) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 14, alignment: .top)], spacing: 14) {
             ActivityCard(activity: vm.activity)
             UpcomingCard(events: vm.upcoming)
             RisksCard(overview: vm.overview, consents: vm.consents, stuck: vm.stuck)
@@ -213,7 +216,7 @@ private struct PathwayReport: View {
                 }
                 .overlay(alignment: .bottom) { Rectangle().fill(Nuru.border).frame(height: 1) }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 16)], spacing: 16) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 14, alignment: .top)], spacing: 14) {
                     DonutPanel(slices: slices, total: total)
                     BreakdownPanel(slices: slices, total: total)
                     AttendancePanel(trend: trend)
@@ -261,7 +264,7 @@ private struct DonutPanel: View {
                         .foregroundStyle(s.color).cornerRadius(3)
                 }
                 .chartLegend(.hidden)
-                .frame(height: 190)
+                .frame(height: 168)
                 VStack(spacing: 2) {
                     Text("\(total)").font(.fraunces(26, .semibold)).foregroundStyle(Nuru.navy)
                     Text("TOTAL").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.ink600)
@@ -311,7 +314,7 @@ private struct AttendancePanel: View {
         return ReportPanel(title: "Attendance", trailing: "last 8 weeks", icon: "chart.bar.fill") {
             VStack(alignment: .leading, spacing: 8) {
                 if bars.isEmpty {
-                    Text("No attendance recorded yet.").font(.nCaption).foregroundStyle(Nuru.ink600).frame(height: 190)
+                    Text("No attendance recorded yet.").font(.nCaption).foregroundStyle(Nuru.ink600).frame(height: 168)
                 } else {
                     Chart(bars) { b in
                         BarMark(x: .value("Week", b.week), y: .value("Count", b.value), width: .fixed(9))
@@ -322,7 +325,7 @@ private struct AttendancePanel: View {
                     .chartForegroundStyleScale(["Members": Color(hex: 0xE8E3D3), "Check-ins": Nuru.gold])
                     .chartLegend(.hidden)
                     .chartYAxis(.hidden)
-                    .frame(height: 190)
+                    .frame(height: 168)
                 }
                 HStack(spacing: 16) {
                     legend("Check-ins", Nuru.gold); legend("Members", Color(hex: 0xE8E3D3))

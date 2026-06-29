@@ -60,7 +60,7 @@ struct BadgesView: View {
     private enum StatusFilter: String, CaseIterable { case all = "All", active = "Active", inactive = "Inactive" }
     private enum SortMode: String, CaseIterable { case mostEarned = "Most earned", leastEarned = "Least earned", name = "Name" }
 
-    private let grid = [GridItem(.adaptive(minimum: 210), spacing: 16)]
+    private let grid = [GridItem(.adaptive(minimum: 184), spacing: 14)]
 
     private func isActive(_ b: BadgeRow) -> Bool { b.isActive != false }
 
@@ -148,7 +148,7 @@ struct BadgesView: View {
     // MARK: KPI strip
 
     private var statStrip: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
             statTile("Active badges", "\(activeCount)", "rosette", Color(hex: 0x16A34A), Color(hex: 0xE8F6EC))
             statTile("Inactive badges", "\(inactiveCount)", "clock", Color(hex: 0x6B7280), Color(hex: 0xF3F4F6))
             statTile("Total badge awards", totalAwards.formatted(), "star", Color(hex: 0xA87616), Color(hex: 0xFFF6E0))
@@ -156,16 +156,17 @@ struct BadgesView: View {
         }
     }
 
+    // Compact stat strip cell (~84pt tall) — never a half-screen card.
     private func statTile(_ label: String, _ value: String, _ icon: String, _ color: Color, _ bg: Color) -> some View {
-        Card(padding: 20) {
-            HStack(spacing: 16) {
+        Card(padding: 14) {
+            HStack(spacing: 12) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(bg)
-                    Image(systemName: icon).font(.system(size: 20)).foregroundStyle(color)
-                }.frame(width: 46, height: 46)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(value).font(.fraunces(24, .medium)).foregroundStyle(Nuru.ink).lineLimit(1)
-                    Text(label.uppercased()).font(.nOverline).tracking(0.5).foregroundStyle(Nuru.muted)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(bg)
+                    Image(systemName: icon).font(.system(size: 17)).foregroundStyle(color)
+                }.frame(width: 38, height: 38)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(value).font(.fraunces(21, .medium)).foregroundStyle(Nuru.ink).lineLimit(1)
+                    Text(label.uppercased()).font(.nOverline).tracking(0.4).foregroundStyle(Nuru.muted).lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
@@ -259,39 +260,39 @@ struct BadgesView: View {
                 HStack {
                     Pill(text: cat.label, color: cat.color)
                     Spacer()
-                    Circle().fill(active ? Color(hex: 0x16A34A) : Color(hex: 0x9CA3AF)).frame(width: 9, height: 9)
+                    Circle().fill(active ? Color(hex: 0x16A34A) : Color(hex: 0x9CA3AF)).frame(width: 8, height: 8)
                 }
-                Medallion(icon: cat.icon, size: 76, color: cat.color)
+                Medallion(icon: cat.icon, size: 60, color: cat.color)
                     .saturation(active ? 1 : 0.5)
-                    .padding(.top, 4)
-                Text(b.name).font(.fraunces(16.5, .medium)).foregroundStyle(Nuru.ink)
-                    .multilineTextAlignment(.center).padding(.top, 12)
-                Text(b.description.count > 64 ? "\(b.description.prefix(64))…" : b.description)
-                    .font(.inter(11.5, .regular)).foregroundStyle(Nuru.muted)
+                    .padding(.top, 6)
+                Text(b.name).font(.fraunces(15, .medium)).foregroundStyle(Nuru.ink)
+                    .multilineTextAlignment(.center).lineLimit(2).padding(.top, 10)
+                Text(b.description.count > 56 ? "\(b.description.prefix(56))…" : b.description)
+                    .font(.inter(11, .regular)).foregroundStyle(Nuru.muted)
                     .multilineTextAlignment(.center).lineLimit(2)
-                    .frame(minHeight: 32).padding(.top, 4)
+                    .frame(minHeight: 30).padding(.top, 3)
                 HStack(spacing: 4) {
-                    Image(systemName: "person.2").font(.system(size: 11)).foregroundStyle(Nuru.gold)
-                    Text("\(b.earnedCount)").font(.inter(11.5, .bold)).foregroundStyle(Nuru.navy)
+                    Image(systemName: "person.2").font(.system(size: 10)).foregroundStyle(Nuru.gold)
+                    Text("\(b.earnedCount)").font(.inter(11, .bold)).foregroundStyle(Nuru.navy)
                 }
-                .padding(.horizontal, 10).padding(.vertical, 4)
+                .padding(.horizontal, 9).padding(.vertical, 3)
                 .background(Nuru.surface).clipShape(Capsule())
-                .padding(.top, 12)
+                .padding(.top, 10)
 
-                Divider().overlay(Nuru.border).padding(.top, 16)
+                Divider().overlay(Nuru.border).padding(.top, 12)
                 HStack(spacing: 6) {
-                    Image(systemName: "eye").font(.system(size: 14)).foregroundStyle(Nuru.muted)
+                    Image(systemName: "eye").font(.system(size: 13)).foregroundStyle(Nuru.muted)
                     Button {
                         if active { retiring = b } else { Task { await reactivate(b) } }
                     } label: {
-                        Image(systemName: "power").font(.system(size: 14))
+                        Image(systemName: "power").font(.system(size: 13))
                             .foregroundStyle(active ? Nuru.danger : Nuru.success)
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.top, 10)
+                .padding(.top, 8)
             }
-            .padding(16)
+            .padding(14)
             .frame(maxWidth: .infinity)
             .background(Nuru.white)
             .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))

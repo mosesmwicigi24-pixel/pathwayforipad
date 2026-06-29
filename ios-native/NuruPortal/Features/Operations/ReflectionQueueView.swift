@@ -145,22 +145,37 @@ struct ReflectionQueueView: View {
                     if let actionError {
                         banner(actionError, fg: Color(hex: 0xA8281F), bg: Color(hex: 0xFDECEC))
                     }
-                    QueueList(rows: filtered, tab: tab,
-                              search: $search, statusFilter: $statusFilter,
-                              sortOldestFirst: $sortOldestFirst, selId: $selId,
-                              current: current)
-                    if let current {
-                        Workspace(current: current,
-                                  feedback: $feedback, reviewerNote: $reviewerNote,
-                                  busy: busy,
-                                  onApprove: { decide(current, "approve") },
-                                  onReturn: { decide(current, "return") },
-                                  onDefer: { decide(current, "defer") },
-                                  onHistory: { openHistory(current) },
-                                  onProfile: { router.member(current.userId, current.fullName) })
-                            .id(current.reflectionId)
-                    } else {
-                        emptyWorkspace
+                    // Two-pane on the wide canvas — the queue list (left) keeps a
+                    // bounded width so rows stay compact, and the review workspace
+                    // (right) fills the rest instead of stacking far below.
+                    let list = QueueList(rows: filtered, tab: tab,
+                                         search: $search, statusFilter: $statusFilter,
+                                         sortOldestFirst: $sortOldestFirst, selId: $selId,
+                                         current: current)
+                    let workspace = Group {
+                        if let current {
+                            Workspace(current: current,
+                                      feedback: $feedback, reviewerNote: $reviewerNote,
+                                      busy: busy,
+                                      onApprove: { decide(current, "approve") },
+                                      onReturn: { decide(current, "return") },
+                                      onDefer: { decide(current, "defer") },
+                                      onHistory: { openHistory(current) },
+                                      onProfile: { router.member(current.userId, current.fullName) })
+                                .id(current.reflectionId)
+                        } else {
+                            emptyWorkspace
+                        }
+                    }
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 16) {
+                            list.frame(width: 420)
+                            workspace.frame(maxWidth: .infinity)
+                        }
+                        VStack(spacing: 18) {
+                            list
+                            workspace
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -330,12 +345,12 @@ struct ReflectionQueueView: View {
             ("Needs attention", "\(overdue)", nil, "exclamationmark.shield.fill", Color(hex: 0xFDF0E6), Color(hex: 0xC2410C)),
             ("In view", "\(rows.count)", nil, "checkmark.circle.fill", Color(hex: 0xE8F6EE), Color(hex: 0x0F6B33)),
         ]
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 14)], spacing: 14) {
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
             ForEach(cards, id: \.0) { c in
-                Card(padding: 16) {
+                Card(padding: 14) {
                     HStack(spacing: 12) {
-                        TintedIcon(systemName: c.3, color: c.5, size: 42)
-                            .background(c.4).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                        TintedIcon(systemName: c.3, color: c.5, size: 40)
+                            .background(c.4).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(c.0).font(.nCaption).foregroundStyle(Nuru.ink600)
                             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -449,38 +464,38 @@ private struct QueueList: View {
         let days = RQ.ageDays(r.submittedAt)
         let pri = RQ.priority(r)
         return Button { selId = r.reflectionId } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Monogram(name: r.fullName, size: 40)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(r.fullName).font(.inter(13, .bold)).foregroundStyle(Nuru.foreground)
-                        Spacer()
-                        if tab == "pending" {
-                            HStack(spacing: 4) {
-                                Circle().fill(RQ.priColor(pri)).frame(width: 5, height: 5)
-                                Text(pri).font(.inter(10, .bold)).foregroundStyle(RQ.priColor(pri))
-                            }
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(RQ.priColor(pri).opacity(0.12)).clipShape(Capsule())
-                        }
-                    }
+            HStack(alignment: .top, spacing: 10) {
+                Monogram(name: r.fullName, size: 34)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(r.fullName).font(.inter(13, .bold)).foregroundStyle(Nuru.foreground).lineLimit(1)
                     HStack(spacing: 0) {
                         Text("L\(r.levelNumber - 1) → ").font(.nMicro).foregroundStyle(Nuru.ink600)
-                        Text("L\(r.levelNumber)").font(.inter(11.5, .bold)).foregroundStyle(Nuru.gold)
-                        Text(" · \(r.moduleTitle)").font(.nMicro).foregroundStyle(Nuru.ink600)
+                        Text("L\(r.levelNumber)").font(.inter(11, .bold)).foregroundStyle(Nuru.gold)
+                        Text(" · \(r.moduleTitle)").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
                     }
                     Text(r.body.split(separator: "\n").first.map(String.init) ?? r.body)
-                        .font(.nCaption).foregroundStyle(Nuru.foreground).lineLimit(2)
-                        .padding(.top, 2)
-                    HStack(spacing: 5) {
-                        Image(systemName: "clock").font(.system(size: 10))
-                        Text(days == 0 ? "Today" : "\(days)d ago").font(.nMicro)
+                        .font(.nCaption).foregroundStyle(Nuru.ink600).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                // Fixed trailing column: priority pill (pending) over age, right-aligned.
+                VStack(alignment: .trailing, spacing: 5) {
+                    if tab == "pending" {
+                        HStack(spacing: 4) {
+                            Circle().fill(RQ.priColor(pri)).frame(width: 5, height: 5)
+                            Text(pri).font(.inter(9.5, .bold)).foregroundStyle(RQ.priColor(pri))
+                        }
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(RQ.priColor(pri).opacity(0.12)).clipShape(Capsule())
+                    }
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock").font(.system(size: 9))
+                        Text(days == 0 ? "Today" : "\(days)d").font(.nMicro)
                     }
                     .foregroundStyle(days >= 4 ? Nuru.danger : Nuru.ink600)
-                    .padding(.top, 2)
                 }
+                .frame(minWidth: 70, alignment: .trailing)
             }
-            .padding(.horizontal, 16).padding(.vertical, 14)
+            .padding(.horizontal, 14).padding(.vertical, 11)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(selected ? Color(hex: 0xFFFBEB) : .clear)
             .overlay(alignment: .leading) {

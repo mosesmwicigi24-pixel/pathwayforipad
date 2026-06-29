@@ -214,11 +214,11 @@ struct ChatView: View {
                     if twoPane {
                         HStack(alignment: .top, spacing: 16) {
                             InboxPane(model: model)
-                                .frame(width: 360)
-                                .frame(maxHeight: 680)
+                                .frame(width: 380)
+                                .frame(maxHeight: 760)
                             ThreadPane(model: model)
                                 .frame(maxWidth: .infinity)
-                                .frame(maxHeight: 680)
+                                .frame(maxHeight: 760)
                         }
                     } else {
                         InboxPaneCompact(model: model)
@@ -380,7 +380,7 @@ private struct InboxList: View {
                  : model.segment == .space ? "No spaces yet — follow one below." : "No groups yet.")
                 .font(.nCaption).foregroundStyle(Nuru.muted).multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity).padding(.vertical, 48).padding(.horizontal, 20)
+        .frame(maxWidth: .infinity).padding(.vertical, 40).padding(.horizontal, 20)
     }
 
     private var discoverSection: some View {
@@ -455,7 +455,7 @@ private struct ConversationRowView: View {
                 .padding(.top, 2)
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
+        .padding(.horizontal, 14).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(active ? Nuru.gold.opacity(0.08) : .clear)
         .overlay(alignment: .leading) {
@@ -507,7 +507,7 @@ private struct ThreadPane: View {
                     Text("Pick a chat from the list to read and moderate it.").font(.nCaption).foregroundStyle(Nuru.muted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(48)
+                .padding(36)
             }
         }
     }

@@ -478,6 +478,7 @@ struct QuizBuilderView: View {
             let wide = geo.size.width >= 880
             VStack(spacing: 0) {
                 hero
+                statStrip
                 if wide {
                     HStack(spacing: 0) {
                         levelRail
@@ -512,15 +513,47 @@ struct QuizBuilderView: View {
     // MARK: Hero
 
     private var hero: some View {
+        // Compact hero — no half-screen stat strip; the two counts live in the
+        // tight `statStrip` below so the 3-pane editor sits high on the canvas.
         PortalHero(
             breadcrumb: ["Curriculum", "Level Quiz Builder"],
             title: "Level Quiz Builder",
-            subtitle: "Build the final assessment disciples take after completing a level.",
-            stats: [
-                HeroStat(label: "Levels", value: "\(levels.count)", hint: "Total"),
-                HeroStat(label: "Published", value: "\(publishedCount)", hint: "Live"),
-            ]
+            subtitle: "Build the final assessment disciples take after completing a level."
         )
+    }
+
+    /// Compact two-tile stat strip (~90pt) — replaces the two half-screen
+    /// near-empty hero cards. Small tiles in an HStack, sized to content.
+    private var statStrip: some View {
+        HStack(spacing: Nuru.S.md) {
+            statTile("LEVELS", "\(levels.count)", "Total", "square.stack.3d.up.fill", Nuru.navy)
+            statTile("PUBLISHED", "\(publishedCount)", "Live", "checkmark.seal.fill", Nuru.gold)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Nuru.S.lg)
+        .padding(.vertical, Nuru.S.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.white)
+        .overlay(Rectangle().fill(Nuru.border).frame(height: 1), alignment: .bottom)
+    }
+
+    private func statTile(_ label: String, _ value: String, _ hint: String, _ icon: String, _ tint: Color) -> some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(tint.opacity(0.12))
+                Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(tint)
+            }.frame(width: 38, height: 38)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(label).font(.inter(9.5, .bold)).tracking(0.8).foregroundStyle(Nuru.ink600)
+                Text(value).font(.fraunces(22, .medium)).foregroundStyle(Nuru.navy)
+                Text(hint).font(.inter(10)).foregroundStyle(Nuru.ink600)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .frame(minWidth: 150, alignment: .leading)
+        .background(Nuru.mutedBg)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     // MARK: Left rail (level selector)
@@ -540,10 +573,10 @@ struct QuizBuilderView: View {
             levelRailHeader
             Divider().background(Nuru.border)
             ScrollView {
-                VStack(spacing: 8) {
+                VStack(spacing: 6) {
                     ForEach(levels) { l in levelCard(l) }
                 }
-                .padding(12)
+                .padding(10)
             }
         }
         .background(Nuru.white)
@@ -572,51 +605,45 @@ struct QuizBuilderView: View {
         return Button {
             if !l.locked { selNo = l.levelNumber }
         } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top, spacing: 10) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(l.locked ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(lc))
-                        if l.locked {
-                            Image(systemName: "lock.fill").font(.system(size: 13)).foregroundStyle(.white)
-                        } else {
-                            Text("\(l.levelNumber)").font(.fraunces(15, .medium)).foregroundStyle(.white)
-                        }
+            HStack(alignment: .top, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(l.locked ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(lc))
+                    if l.locked {
+                        Image(systemName: "lock.fill").font(.system(size: 12)).foregroundStyle(.white)
+                    } else {
+                        Text("\(l.levelNumber)").font(.fraunces(14, .medium)).foregroundStyle(.white)
                     }
-                    .frame(width: 36, height: 36)
+                }
+                .frame(width: 32, height: 32)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text("LEVEL \(l.levelNumber)").font(.inter(10, .bold)).tracking(0.8)
-                                .foregroundStyle(lc)
-                            Text(qbStatusLabel[l.status] ?? l.status).font(.inter(9.5, .bold))
-                                .foregroundStyle(ss.fg)
-                                .padding(.horizontal, 7).padding(.vertical, 1)
-                                .background(ss.bg).clipShape(Capsule())
-                        }
-                        Text(l.title).font(.inter(13.5, .bold)).foregroundStyle(Nuru.navy)
-                            .lineLimit(2).multilineTextAlignment(.leading)
-                        if let theme = l.theme, !theme.isEmpty {
-                            Text(theme).font(.inter(11)).foregroundStyle(Nuru.ink600).lineLimit(1)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text("LEVEL \(l.levelNumber)").font(.inter(9.5, .bold)).tracking(0.8)
+                            .foregroundStyle(lc)
+                        Text(qbStatusLabel[l.status] ?? l.status).font(.inter(9, .bold))
+                            .foregroundStyle(ss.fg)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(ss.bg).clipShape(Capsule())
+                        Spacer(minLength: 0)
+                        if sel {
+                            ZStack {
+                                Circle().fill(lc)
+                                Image(systemName: "checkmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(.white)
+                            }.frame(width: 18, height: 18)
                         }
                     }
-                    Spacer(minLength: 0)
-                    if sel {
-                        ZStack {
-                            Circle().fill(lc)
-                            Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
-                        }.frame(width: 20, height: 20)
+                    Text(l.title).font(.inter(13, .bold)).foregroundStyle(Nuru.navy)
+                        .lineLimit(2).multilineTextAlignment(.leading)
+                    HStack(spacing: 10) {
+                        Label("\(modules) modules", systemImage: "book")
+                            .labelStyle(.titleAndIcon).font(.inter(10)).foregroundStyle(Nuru.ink600)
+                        Label(l.duration ?? "—", systemImage: "clock")
+                            .labelStyle(.titleAndIcon).font(.inter(10)).foregroundStyle(Nuru.ink600)
                     }
                 }
-                HStack(spacing: 12) {
-                    Label("\(modules) modules", systemImage: "book")
-                        .labelStyle(.titleAndIcon).font(.inter(10.5)).foregroundStyle(Nuru.ink600)
-                    Label(l.duration ?? "—", systemImage: "clock")
-                        .labelStyle(.titleAndIcon).font(.inter(10.5)).foregroundStyle(Nuru.ink600)
-                }
-                .padding(.leading, 46)
             }
-            .padding(.horizontal, 16).padding(.vertical, 14)
+            .padding(.horizontal, 12).padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(sel ? lc.opacity(0.03) : Nuru.white)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))

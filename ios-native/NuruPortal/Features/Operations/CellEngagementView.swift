@@ -77,7 +77,8 @@ struct CellEngagementView: View {
     @EnvironmentObject private var router: NavRouter
     @State private var addOpen = false
     @State private var editCell: EngagementCellRow?
-    private let grid = [GridItem(.adaptive(minimum: 280), spacing: 16)]
+    // Denser roster grid: ~4–5 cards per row on the wide iPad canvas.
+    private let grid = [GridItem(.adaptive(minimum: 230), spacing: 14)]
 
     var body: some View {
         Group {
@@ -158,7 +159,7 @@ struct CellEngagementView: View {
                             .font(.nCaption).foregroundStyle(Nuru.muted)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        LazyVGrid(columns: grid, spacing: 16) {
+                        LazyVGrid(columns: grid, spacing: 14) {
                             ForEach(cells) { cell in
                                 CellCard(
                                     cell: cell,
@@ -172,8 +173,12 @@ struct CellEngagementView: View {
                     }
 
                     if !cells.isEmpty {
-                        leaderboard(ranked)
-                        atRiskList(byRisk)
+                        // Side-by-side on the wide canvas so neither panel runs tall
+                        // with empty width; stacks naturally when space is tight.
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 380), spacing: 16)], alignment: .leading, spacing: 16) {
+                            leaderboard(ranked)
+                            atRiskList(byRisk)
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -185,16 +190,16 @@ struct CellEngagementView: View {
 
     // Cell engagement leaderboard — ranked by average engagement.
     private func leaderboard(_ ranked: [EngagementCellRow]) -> some View {
-        Card(padding: 24) {
-            VStack(alignment: .leading, spacing: 18) {
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 10) {
-                    TintedIcon(systemName: "chart.line.uptrend.xyaxis", color: Nuru.success, size: 32)
+                    TintedIcon(systemName: "chart.line.uptrend.xyaxis", color: Nuru.success, size: 30)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("PERFORMANCE").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.goldLo)
                         Text("Cell engagement leaderboard").font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                     }
                 }
-                VStack(spacing: 16) {
+                VStack(spacing: 11) {
                     ForEach(Array(ranked.enumerated()), id: \.element.id) { idx, cell in
                         let avg = engPct(cell.avgEngagement)
                         NavigationLink {
@@ -226,16 +231,16 @@ struct CellEngagementView: View {
 
     // At-risk by cell — prioritise pastoral calls where the count is highest.
     private func atRiskList(_ byRisk: [EngagementCellRow]) -> some View {
-        Card(padding: 24) {
-            VStack(alignment: .leading, spacing: 18) {
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 10) {
-                    TintedIcon(systemName: "exclamationmark.circle", color: Nuru.danger, size: 32)
+                    TintedIcon(systemName: "exclamationmark.circle", color: Nuru.danger, size: 30)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("NEEDS ATTENTION").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.goldLo)
                         Text("At-risk by cell").font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                     }
                 }
-                VStack(spacing: 12) {
+                VStack(spacing: 8) {
                     ForEach(byRisk) { cell in
                         let tone = toneOf(cell.cellGroupId)
                         NavigationLink {
@@ -257,7 +262,7 @@ struct CellEngagementView: View {
                                     Pill(text: "Healthy", color: Nuru.success)
                                 }
                             }
-                            .padding(.horizontal, 14).padding(.vertical, 12)
+                            .padding(.horizontal, 12).padding(.vertical, 9)
                             .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                         }
                         .buttonStyle(.plain)
@@ -281,16 +286,16 @@ private struct CellCard: View {
     var body: some View {
         let tone = toneOf(cell.cellGroupId)
         let avg = engPct(cell.avgEngagement)
-        return Card(padding: 20) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 12) {
+        return Card(padding: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 10) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous).fill(tone.opacity(0.12))
-                        Text(cellInitials(cell.name)).font(.inter(15, .bold)).foregroundStyle(tone)
-                    }.frame(width: 48, height: 48)
+                        RoundedRectangle(cornerRadius: 13, style: .continuous).fill(tone.opacity(0.12))
+                        Text(cellInitials(cell.name)).font(.inter(14, .bold)).foregroundStyle(tone)
+                    }.frame(width: 42, height: 42)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(cell.name).font(.inter(16, .bold)).foregroundStyle(Nuru.navy).lineLimit(2)
-                        Text("\(cell.members) members").font(.inter(11.5, .semibold)).foregroundStyle(Nuru.muted)
+                        Text(cell.name).font(.inter(15, .bold)).foregroundStyle(Nuru.navy).lineLimit(2)
+                        Text("\(cell.members) members").font(.inter(11, .semibold)).foregroundStyle(Nuru.muted)
                     }
                     Spacer(minLength: 0)
                     HStack(spacing: 6) {
@@ -336,33 +341,44 @@ private struct CellCard: View {
                 .buttonStyle(.plain)
                 .disabled(isFeaturing)
 
-                HStack(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("AVG ENGAGEMENT").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                        Text("\(avg)%").font(.fraunces(32, .semibold)).foregroundStyle(Nuru.navy)
+                // Compact stat strip — avg engagement no longer dominates with a
+                // half-card serif number; sits inline with the bar + status pills.
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("AVG ENGAGEMENT").font(.nOverline).tracking(1.1).foregroundStyle(Nuru.ink600)
+                        Spacer()
+                        Text("\(avg)%").font(.inter(18, .bold)).foregroundStyle(Nuru.navy)
                     }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 6) {
+                    ProgressBar(pct: Double(avg), fill: tone, height: 7)
+                    HStack(spacing: 6) {
                         HStack(spacing: 4) {
-                            Image(systemName: "person.2.fill").font(.system(size: 11)).foregroundStyle(tone)
-                            Text("\(cell.members) members").font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
+                            Image(systemName: "person.2.fill").font(.system(size: 10)).foregroundStyle(tone)
+                            Text("\(cell.members)").font(.inter(11.5, .bold)).foregroundStyle(Nuru.navy)
                         }
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(tone.opacity(0.10)).clipShape(Capsule())
+                        Spacer(minLength: 0)
                         if cell.atRisk > 0 {
                             HStack(spacing: 4) {
-                                Image(systemName: "exclamationmark.circle.fill").font(.system(size: 10))
-                                Text("\(cell.atRisk) at-risk").font(.inter(11, .bold))
+                                Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9))
+                                Text("\(cell.atRisk) at-risk").font(.inter(10.5, .bold))
                             }
                             .foregroundStyle(Nuru.danger)
                             .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(Nuru.danger.opacity(0.08))
+                            .background(Nuru.danger.opacity(0.10))
                             .clipShape(Capsule())
                         } else {
-                            Text("All on track").font(.inter(11, .semibold)).foregroundStyle(Nuru.success)
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill").font(.system(size: 9))
+                                Text("On track").font(.inter(10.5, .bold))
+                            }
+                            .foregroundStyle(Nuru.success)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Nuru.success.opacity(0.10))
+                            .clipShape(Capsule())
                         }
                     }
                 }
-
-                ProgressBar(pct: Double(avg), fill: tone, height: 8)
             }
         }
     }

@@ -255,23 +255,33 @@ fileprivate struct EmptyRow: View {
     }
 }
 
+// Fixed column widths so every cell aligns across rows. The Congregation (name)
+// column flexes; the rest are fixed.
+private enum CongCol {
+    static let country: CGFloat = 90
+    static let timezone: CGFloat = 200
+    static let cells: CGFloat = 80
+    static let members: CGFloat = 90
+    static let actions: CGFloat = 90
+}
+
 private struct CongregationHeaderRow: View {
     var body: some View {
-        HStack(spacing: 12) {
-            cell("Congregation", flex: 3)
-            cell("Country", flex: 1)
-            cell("Timezone", flex: 2)
-            cell("Cells", flex: 1, align: .trailing)
-            cell("Members", flex: 1, align: .trailing)
-            cell("", flex: 1, align: .trailing)
+        HStack(spacing: 14) {
+            head("Congregation", maxWidth: .infinity, align: .leading)
+            head("Country", width: CongCol.country, align: .leading)
+            head("Timezone", width: CongCol.timezone, align: .leading)
+            head("Cells", width: CongCol.cells, align: .trailing)
+            head("Members", width: CongCol.members, align: .trailing)
+            head("", width: CongCol.actions, align: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 13)
+        .padding(.horizontal, 18).padding(.vertical, 11)
         .background(Nuru.surface)
     }
-    private func cell(_ t: String, flex: CGFloat, align: Alignment = .leading) -> some View {
-        Text(t.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.ink600)
-            .frame(maxWidth: .infinity, alignment: align)
-            .layoutPriority(Double(flex))
+    @ViewBuilder private func head(_ t: String, width: CGFloat? = nil, maxWidth: CGFloat? = nil, align: Alignment) -> some View {
+        Text(t.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.ink600).lineLimit(1)
+            .frame(width: width, alignment: align)
+            .frame(maxWidth: maxWidth, alignment: align)
     }
 }
 
@@ -283,33 +293,34 @@ private struct CongregationRow: View {
         self.c = c; self.onEdit = onEdit; self.onDelete = onDelete
     }
     var body: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 12) {
+        HStack(spacing: 14) {
+            HStack(spacing: 11) {
                 Image(systemName: "building.columns")
-                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(Nuru.navy)
-                    .frame(width: 38, height: 38).background(Nuru.navy.opacity(0.10))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                Text(c.name).font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(Nuru.navy)
+                    .frame(width: 30, height: 30).background(Nuru.navy.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text(c.name).font(.inter(14, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(3)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(c.country).font(.system(.subheadline, design: .monospaced)).foregroundStyle(Nuru.foreground)
-                .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
-            Text(c.timezone).font(.inter(13)).foregroundStyle(Nuru.foreground)
-                .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(2)
+            Text(c.country).font(.system(.subheadline, design: .monospaced)).foregroundStyle(Nuru.foreground).lineLimit(1)
+                .frame(width: CongCol.country, alignment: .leading)
+            Text(c.timezone).font(.inter(13)).foregroundStyle(Nuru.foreground).lineLimit(1)
+                .frame(width: CongCol.timezone, alignment: .leading)
             Text("\(c.cellCount)").font(.inter(13, .semibold)).foregroundStyle(Nuru.foreground)
-                .frame(maxWidth: .infinity, alignment: .trailing).layoutPriority(1)
+                .frame(width: CongCol.cells, alignment: .trailing)
             Text("\(c.memberCount)").font(.inter(13, .semibold)).foregroundStyle(Nuru.foreground)
-                .frame(maxWidth: .infinity, alignment: .trailing).layoutPriority(1)
-            HStack(spacing: 4) {
+                .frame(width: CongCol.members, alignment: .trailing)
+            HStack(spacing: 12) {
                 Spacer(minLength: 0)
                 Button(action: onEdit) { Image(systemName: "pencil").font(.system(size: 14)).foregroundStyle(Nuru.muted) }
                     .buttonStyle(.plain)
                 Button(action: onDelete) { Image(systemName: "trash").font(.system(size: 14)).foregroundStyle(Color(hex: 0xDC2626)) }
                     .buttonStyle(.plain)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing).layoutPriority(1)
+            .frame(width: CongCol.actions, alignment: .trailing)
         }
-        .padding(.horizontal, 18).padding(.vertical, 14)
+        .padding(.horizontal, 18).padding(.vertical, 11)
+        .frame(minHeight: 52)
     }
 }

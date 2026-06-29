@@ -331,10 +331,10 @@ struct MemberDetailView: View {
                 Spacer(minLength: 0)
             }
 
-            // 9-up info strip (2 cols)
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 0), GridItem(.flexible(), spacing: 0)], spacing: 0) {
+            // 9-up info strip — 3 cols on the wide canvas (3 dense rows, no tall gaps).
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 0)], spacing: 0) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 5) {
                         Text(item.0.uppercased()).font(.nOverline).tracking(1.2).foregroundStyle(Nuru.onNavyDim)
                         if item.2 {
                             Text("● \(item.1)").font(.inter(12, .bold)).foregroundStyle(band.fg)
@@ -344,8 +344,8 @@ struct MemberDetailView: View {
                             Text(item.1).font(.inter(14, .semibold)).foregroundStyle(.white).lineLimit(2)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .topLeading)
+                    .padding(.horizontal, 16).padding(.vertical, 11)
                     .overlay(Rectangle().fill(.white.opacity(0.07)).frame(height: 1), alignment: .bottom)
                 }
             }
@@ -388,17 +388,18 @@ struct MemberDetailView: View {
     // MARK: Body
 
     private func body(_ m: MemberFull) -> some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             kpiRow(m)
             progressRings(m)
 
-            // Activity
-            activityCard(m)
-            // Milestones
-            milestonesCard(m)
-            // Certificates + Badges
-            certificatesCard(m)
-            badgesCard(m)
+            // Activity + Milestones, then Certificates + Badges — paired 2-up on the
+            // wide canvas (one column when narrow) so no card sits half-empty.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 360), spacing: 16, alignment: .top)], spacing: 16) {
+                activityCard(m)
+                milestonesCard(m)
+                certificatesCard(m)
+                badgesCard(m)
+            }
 
             // Results dossier (levels/modules/exams/badges/certs)
             ResultsSection(userId: userId)
@@ -416,19 +417,22 @@ struct MemberDetailView: View {
             ("Attendance", "\(met.attendancePct)%", "calendar", Nuru.tints[1], Color(hex: 0xF4F6FB), Color(hex: 0xDBE2EF), "\(met.attended) present days · 90d"),
             ("Badges", String(m.badges.count), "rosette", Nuru.tints[3], Color(hex: 0xF7F3FC), Color(hex: 0xE2D7F2), "\(m.certificates.count) certificates"),
         ]
-        return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
             ForEach(Array(kpis.enumerated()), id: \.offset) { _, k in
-                VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 12) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(k.3.fg.opacity(0.14))
-                        Image(systemName: k.2).font(.system(size: 15, weight: .semibold)).foregroundStyle(k.3.fg)
-                    }.frame(width: 34, height: 34)
-                    Text(k.0.uppercased()).font(.nOverline).tracking(1.2).foregroundStyle(Nuru.muted)
-                    Text(k.1).font(.fraunces(26, .medium)).foregroundStyle(Nuru.navy)
-                    Text(k.6).font(.inter(11)).foregroundStyle(Nuru.muted).lineLimit(1)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous).fill(k.3.fg.opacity(0.14))
+                        Image(systemName: k.2).font(.system(size: 17, weight: .semibold)).foregroundStyle(k.3.fg)
+                    }.frame(width: 42, height: 42)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(k.0.uppercased()).font(.nOverline).tracking(1.0).foregroundStyle(Nuru.muted)
+                        Text(k.1).font(.fraunces(24, .medium)).foregroundStyle(Nuru.navy)
+                        Text(k.6).font(.inter(10.5)).foregroundStyle(Nuru.muted).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
+                .padding(EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14))
                 .background(k.4)
                 .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(k.5, lineWidth: 1))
@@ -443,22 +447,23 @@ struct MemberDetailView: View {
             ("Curriculum", "book.fill", met.curriculumPct, "Level \(m.enrollment.currentLevel)", "\(met.modulesDone) of \(met.modulesTotal) modules complete", Color(hex: 0xC89B3C), Color(hex: 0xFDF9EF), Color(hex: 0xF0E2BD)),
             ("Attendance", "calendar", met.attendancePct, "App engagement + gatherings", "\(met.attended) present days · last 90 days", Color(hex: 0x0B1F33), Color(hex: 0xF4F6FB), Color(hex: 0xDBE2EF)),
         ]
-        return VStack(spacing: 12) {
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12, alignment: .top)], spacing: 12) {
             ForEach(Array(cards.enumerated()), id: \.offset) { _, c in
-                HStack(spacing: 16) {
-                    ProgressRing(value: c.2, color: c.5, size: 84)
+                HStack(spacing: 14) {
+                    ProgressRing(value: c.2, color: c.5, size: 72)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
                             Image(systemName: c.1).font(.system(size: 13)).foregroundStyle(c.5)
                             Text(c.0.uppercased()).font(.inter(12, .bold)).tracking(0.5).foregroundStyle(Nuru.ink)
                         }
-                        Text(c.3).font(.inter(13)).foregroundStyle(Nuru.ink)
-                        Text(c.4).font(.inter(12)).foregroundStyle(Nuru.muted)
+                        Text(c.3).font(.inter(12.5)).foregroundStyle(Nuru.ink).lineLimit(1)
+                        Text(c.4).font(.inter(11)).foregroundStyle(Nuru.muted).fixedSize(horizontal: false, vertical: true)
                         ProgressBar(pct: Double(c.2), fill: c.5, height: 4).padding(.top, 4)
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
                 .background(c.6)
                 .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(c.7, lineWidth: 1))

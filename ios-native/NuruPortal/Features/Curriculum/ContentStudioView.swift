@@ -262,7 +262,9 @@ struct ContentStudioView: View {
     }
 
     // ── Generic section: adaptive grid + empty state + count capture ──
-    private let cols = [GridItem(.adaptive(minimum: 360), spacing: 14)]
+    // Denser on the wide iPad canvas (≈330 packs 4–5 content cards per row) while
+    // each accent-bar row stays readable.
+    private let cols = [GridItem(.adaptive(minimum: 330), spacing: 14)]
 
     private func section<T: Identifiable, C: View>(
         _ rows: [T], count tab: Tab, total: Int, @ViewBuilder _ card: @escaping (T) -> C

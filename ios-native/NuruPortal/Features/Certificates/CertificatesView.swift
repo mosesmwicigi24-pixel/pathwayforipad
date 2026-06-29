@@ -172,9 +172,9 @@ struct CertificatesView: View {
         Card(padding: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 1) {
                         Text("Issued certificates").font(.inter(15, .bold)).foregroundStyle(Nuru.ink)
-                        Text("\(certs.count) on record").font(.nCaption).foregroundStyle(Nuru.muted)
+                        Text("\(certs.count) on record").font(.nMicro).foregroundStyle(Nuru.muted)
                     }
                     Spacer()
                     HStack(spacing: 8) {
@@ -182,13 +182,17 @@ struct CertificatesView: View {
                         TextField("Member or code", text: $query)
                             .font(.nCaption).textInputAutocapitalization(.never)
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
                     .frame(width: 220)
                     .background(Nuru.inputBg)
                     .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 }
-                .padding(.horizontal, 20).padding(.vertical, 16)
+                .padding(.horizontal, 18).padding(.vertical, 14)
+                Divider().overlay(Nuru.border)
+
+                // Aligned column header (Member · Level · Issued · Code · Status · ⋯)
+                certHeaderRow
                 Divider().overlay(Nuru.border)
 
                 if filtered.isEmpty {
@@ -205,40 +209,62 @@ struct CertificatesView: View {
         }
     }
 
+    private var certHeaderRow: some View {
+        HStack(spacing: 12) {
+            Color.clear.frame(width: 3)
+            Text("Member").font(.nOverline).tracking(0.5).foregroundStyle(Nuru.ink600)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Level").font(.nOverline).tracking(0.5).foregroundStyle(Nuru.ink600)
+                .frame(width: 52, alignment: .leading)
+            Text("Issued").font(.nOverline).tracking(0.5).foregroundStyle(Nuru.ink600)
+                .frame(width: 88, alignment: .leading)
+            Text("Code").font(.nOverline).tracking(0.5).foregroundStyle(Nuru.ink600)
+                .frame(width: 104, alignment: .leading)
+            Text("Status").font(.nOverline).tracking(0.5).foregroundStyle(Nuru.ink600)
+                .frame(width: 72, alignment: .leading)
+            Color.clear.frame(width: 26)
+        }
+        .padding(.leading, 12).padding(.trailing, 16).padding(.vertical, 8)
+        .background(Nuru.inputBg.opacity(0.5))
+    }
+
     private func certRow(_ c: CertFull) -> some View {
         let isSel = c.certificateId == selId
         return Button { selId = c.certificateId } label: {
             HStack(spacing: 12) {
                 Rectangle().fill(isSel ? Nuru.gold : .clear).frame(width: 3)
                     .frame(maxHeight: .infinity)
-                HStack(spacing: 10) {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Nuru.navy)
-                        .frame(width: 28, height: 28)
-                        .overlay(Text(certInitials(c.fullName)).font(.inter(11, .bold)).foregroundStyle(.white))
+                HStack(spacing: 9) {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Nuru.navy)
+                        .frame(width: 26, height: 26)
+                        .overlay(Text(certInitials(c.fullName)).font(.inter(10.5, .bold)).foregroundStyle(.white))
                     Text(c.fullName).font(.inter(13, .semibold)).foregroundStyle(Nuru.ink).lineLimit(1)
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 8)
-                Text(c.levelNumber.map { "L\($0)" } ?? "Program")
-                    .font(.nMicro).foregroundStyle(Nuru.ink).frame(width: 56, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(c.levelNumber.map { "L\($0)" } ?? "Prog")
+                    .font(.nMicro).foregroundStyle(Nuru.ink).frame(width: 52, alignment: .leading)
                 Text(certDate(c.issuedAt)).font(.nMicro).foregroundStyle(Nuru.muted)
-                    .frame(width: 92, alignment: .leading)
-                Text(c.verificationCode).font(.inter(11.5, .regular)).monospaced()
-                    .foregroundStyle(Nuru.ink).lineLimit(1).frame(width: 110, alignment: .leading)
+                    .frame(width: 88, alignment: .leading)
+                Text(c.verificationCode).font(.inter(11, .regular)).monospaced()
+                    .foregroundStyle(Nuru.ink).lineLimit(1).frame(width: 104, alignment: .leading)
                 Pill(text: c.isValid ? "Valid" : "Revoked", color: c.isValid ? Nuru.success : Nuru.danger)
+                    .frame(width: 72, alignment: .leading)
                 if c.isValid {
                     Button { revokeReason = ""; revoking = c } label: {
                         Image(systemName: "arrow.uturn.backward").font(.system(size: 11))
                             .foregroundStyle(Nuru.danger)
-                            .padding(7)
+                            .padding(6)
                             .background(Nuru.danger.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 26)
                 } else {
                     Color.clear.frame(width: 26, height: 1)
                 }
             }
-            .padding(.trailing, 16).padding(.vertical, 10)
+            .padding(.trailing, 16).padding(.vertical, 9)
             .background(isSel ? Nuru.surface : Color.clear)
             .contentShape(Rectangle())
         }

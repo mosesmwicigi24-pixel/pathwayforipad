@@ -70,14 +70,18 @@ struct UsersView: View {
                     if filtered.isEmpty {
                         emptyState
                     } else {
-                        VStack(spacing: 10) {
-                            ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, u in
-                                UserRowCard(
-                                    user: u, index: idx, roles: roles,
-                                    onEdit: { formTarget = .edit(u, roles: roles, countries: bundle.countries, languages: bundle.languages) },
-                                    onToggleSuspend: { toggleSuspend(u) },
-                                    onDelete: { pendingDelete = u }
-                                )
+                        Card(padding: 0) {
+                            VStack(spacing: 0) {
+                                UserHeaderRow()
+                                ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, u in
+                                    if idx > 0 { Divider().overlay(Nuru.border) }
+                                    UserTableRow(
+                                        user: u, index: idx, roles: roles,
+                                        onEdit: { formTarget = .edit(u, roles: roles, countries: bundle.countries, languages: bundle.languages) },
+                                        onToggleSuspend: { toggleSuspend(u) },
+                                        onDelete: { pendingDelete = u }
+                                    )
+                                }
                             }
                         }
                     }
@@ -293,9 +297,38 @@ private enum UsersLoad {
     }
 }
 
-// MARK: - User row card (avatar, name/email, role chips, status, last-active, actions)
+// MARK: - User table — header row + dense data rows (iPad density pass)
+// Columns mirror the prompt spec: User · Email/Phone · Roles · Status · Last active · ⋯
+// (the web Users.tsx table). Columns are width-aligned across rows via fixed
+// frames so the whole list reads as a real table, not stacked cards.
 
-private struct UserRowCard: View {
+private enum UserCol {
+    static let contact: CGFloat = 240
+    static let roles: CGFloat = 220
+    static let status: CGFloat = 120
+    static let lastActive: CGFloat = 120
+    static let actions: CGFloat = 132
+}
+
+private struct UserHeaderRow: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            head("User").frame(maxWidth: .infinity, alignment: .leading)
+            head("Email / Phone").frame(width: UserCol.contact, alignment: .leading)
+            head("Roles").frame(width: UserCol.roles, alignment: .leading)
+            head("Status").frame(width: UserCol.status, alignment: .leading)
+            head("Last active").frame(width: UserCol.lastActive, alignment: .leading)
+            head("").frame(width: UserCol.actions, alignment: .trailing)
+        }
+        .padding(.horizontal, 18).padding(.vertical, 12)
+        .background(Nuru.surface)
+    }
+    private func head(_ t: String) -> some View {
+        Text(t.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.ink600)
+    }
+}
+
+private struct UserTableRow: View {
     let user: SystemUser
     let index: Int
     let roles: [SystemRole]
@@ -304,47 +337,48 @@ private struct UserRowCard: View {
     let onDelete: () -> Void
 
     var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 14) {
-                    Monogram(name: user.fullName, size: 44, gradient: Self.avatarGradients[index % Self.avatarGradients.count])
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(user.fullName).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
-                        HStack(spacing: 5) {
-                            Image(systemName: "envelope").font(.system(size: 10)).foregroundStyle(Nuru.ink400)
-                            Text(displayContact).font(.nCaption).foregroundStyle(Nuru.ink600)
-                        }
-                        roleChips
-                    }
-
-                    Spacer(minLength: 8)
-
-                    VStack(alignment: .trailing, spacing: 8) {
-                        statusPill
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock").font(.system(size: 9)).foregroundStyle(Nuru.ink400)
-                            Text(lastActive).font(.nMicro).foregroundStyle(Nuru.ink400)
-                        }
-                    }
-                }
-
-                Divider().overlay(Nuru.border)
-
-                // Action row — web's Pencil / Ban / Trash2 buttons.
-                HStack(spacing: 8) {
-                    RowAction(label: "Edit", icon: "pencil", tint: Nuru.navy, action: onEdit)
-                    RowAction(
-                        label: user.accountStatus == "suspended" ? "Reactivate" : "Suspend",
-                        icon: user.accountStatus == "suspended" ? "checkmark.circle" : "nosign",
-                        tint: user.accountStatus == "suspended" ? Color(hex: 0x16A34A) : Color(hex: 0xC2410C),
-                        action: onToggleSuspend
-                    )
-                    Spacer(minLength: 0)
-                    RowAction(label: "Delete", icon: "trash", tint: Color(hex: 0xDC2626), action: onDelete)
-                }
+        HStack(spacing: 14) {
+            // User — monogram + name
+            HStack(spacing: 11) {
+                Monogram(name: user.fullName, size: 36, gradient: Self.avatarGradients[index % Self.avatarGradients.count])
+                Text(user.fullName).font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                    .lineLimit(1)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Email / Phone
+            HStack(spacing: 5) {
+                Image(systemName: user.email?.isEmpty == false ? "envelope" : "phone")
+                    .font(.system(size: 10)).foregroundStyle(Nuru.ink400)
+                Text(displayContact).font(.inter(12.5)).foregroundStyle(Nuru.ink600).lineLimit(1)
+            }
+            .frame(width: UserCol.contact, alignment: .leading)
+
+            // Roles
+            roleChips.frame(width: UserCol.roles, alignment: .leading)
+
+            // Status pill (always shows a label)
+            statusPill.frame(width: UserCol.status, alignment: .leading)
+
+            // Last active
+            Text(lastActive).font(.inter(12)).foregroundStyle(Nuru.ink600)
+                .frame(width: UserCol.lastActive, alignment: .leading)
+
+            // Actions — fixed trailing width
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                IconAction(icon: "pencil", tint: Nuru.navy, action: onEdit)
+                IconAction(
+                    icon: user.accountStatus == "suspended" ? "checkmark.circle" : "nosign",
+                    tint: user.accountStatus == "suspended" ? Color(hex: 0x16A34A) : Color(hex: 0xC2410C),
+                    action: onToggleSuspend
+                )
+                IconAction(icon: "trash", tint: Color(hex: 0xDC2626), action: onDelete)
+            }
+            .frame(width: UserCol.actions, alignment: .trailing)
         }
+        .padding(.horizontal, 18).padding(.vertical, 10)
+        .frame(minHeight: 52)
     }
 
     private var displayContact: String {
@@ -363,6 +397,7 @@ private struct UserRowCard: View {
                     Text(roleName(key))
                         .font(.inter(11, .semibold))
                         .foregroundStyle(tone.fg)
+                        .lineLimit(1)
                         .padding(.horizontal, 9).padding(.vertical, 3)
                         .background(tone.bg)
                         .clipShape(Capsule())
@@ -420,23 +455,19 @@ private struct UserRowCard: View {
     }
 }
 
-// MARK: - Compact row action button
+// MARK: - Compact icon action button (fixed footprint for the actions column)
 
-private struct RowAction: View {
-    let label: String
+private struct IconAction: View {
     let icon: String
     let tint: Color
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 12, weight: .semibold))
-                Text(label).font(.inter(12, .semibold))
-            }
-            .foregroundStyle(tint)
-            .padding(.horizontal, 11).padding(.vertical, 7)
-            .background(tint.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 30)
+                .background(tint.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
     }

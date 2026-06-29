@@ -84,9 +84,18 @@ struct CurriculumLevelsView: View {
                 hero(levels)
 
                 VStack(spacing: 18) {
-                    // Row 1: distribution + completion
-                    LearnersByLevel(levels: levels)
-                    CompletionByLevel(levels: levels)
+                    // Row 1: distribution + completion — side-by-side on the wide
+                    // iPad canvas, stacked when narrow. Same cards, denser use of width.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 18) {
+                            LearnersByLevel(levels: levels).frame(maxWidth: .infinity)
+                            CompletionByLevel(levels: levels).frame(maxWidth: .infinity)
+                        }
+                        VStack(spacing: 18) {
+                            LearnersByLevel(levels: levels)
+                            CompletionByLevel(levels: levels)
+                        }
+                    }
 
                     // Row 2: enrolment trend
                     EnrolmentTrend(levels: levels, trend: report.trend)
@@ -102,8 +111,8 @@ struct CurriculumLevelsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    // Row 4: level cards
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14)], spacing: 14) {
+                    // Row 4: level cards — denser grid (4-up on the wide canvas)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 14)], spacing: 14) {
                         ForEach(levels) { lvl in
                             LevelCard(level: lvl, active: activeId == lvl.levelNumber,
                                       onOpen: { router.openLevel(lvl.levelNumber) })
@@ -318,20 +327,21 @@ private struct LevelCard: View {
             .padding(.horizontal, 16).padding(.vertical, 12)
             .background(Nuru.tintGradient(color))
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text(level.title).font(.fraunces(19, .semibold)).foregroundStyle(Nuru.navy)
+            VStack(alignment: .leading, spacing: 10) {
+                Text(level.title).font(.fraunces(17, .semibold)).foregroundStyle(Nuru.navy)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 Text(level.theme ?? "Discipleship pathway level.")
-                    .font(.nCaption).foregroundStyle(Nuru.ink600).lineLimit(2).frame(minHeight: 34, alignment: .top)
+                    .font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(2).frame(minHeight: 28, alignment: .top)
 
                 // Stat tiles
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     miniStat("Modules", "\(level.modulesTotal)", "book.fill")
                     miniStat("Learners", "\(level.learners)", "person.2.fill")
                     miniStat("Certs", "\(level.certificates)", "rosette")
                 }
 
                 // Completion
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 5) {
                     HStack {
                         Text("Completion").font(.nMicro).foregroundStyle(Nuru.ink600)
                         Spacer()
@@ -343,8 +353,8 @@ private struct LevelCard: View {
                 Divider().overlay(Nuru.border)
 
                 HStack {
-                    HStack(spacing: 6) {
-                        Image(systemName: "clock").font(.system(size: 11)).foregroundStyle(Nuru.ink600)
+                    HStack(spacing: 5) {
+                        Image(systemName: "clock").font(.system(size: 10)).foregroundStyle(Nuru.ink600)
                         Text("\(level.modulesPublished) published").font(.nMicro).foregroundStyle(Nuru.ink600)
                     }
                     Spacer()
@@ -356,7 +366,7 @@ private struct LevelCard: View {
                     }.buttonStyle(.plain)
                 }
             }
-            .padding(16)
+            .padding(14)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.white)

@@ -85,7 +85,8 @@ struct LanguagesView: View {
     @State private var editing: LangBox?
     @State private var deleteTarget: Language?
 
-    private let columns = [GridItem(.adaptive(minimum: 300), spacing: Nuru.S.base)]
+    // Denser adaptive grid: ~260pt min so 3-up (often 4-up) fits the wide iPad canvas.
+    private let columns = [GridItem(.adaptive(minimum: 260), spacing: 14)]
 
     var body: some View {
         Group {
@@ -147,7 +148,7 @@ struct LanguagesView: View {
                     if filtered.isEmpty {
                         LanguageEmptyRow(text: "No languages match.")
                     } else {
-                        LazyVGrid(columns: columns, spacing: Nuru.S.base) {
+                        LazyVGrid(columns: columns, spacing: 14) {
                             ForEach(filtered) { l in
                                 LanguageCard(l,
                                              onSetDefault: { Task { await vm.setDefault(l) } },
@@ -177,11 +178,11 @@ private struct LanguageCard: View {
     }
     var body: some View {
         let active = l.status == "active"
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) {
-                        Text(l.name).font(.fraunces(19, .semibold)).foregroundStyle(Nuru.foreground)
+                        Text(l.name).font(.fraunces(17, .semibold)).foregroundStyle(Nuru.foreground).lineLimit(1)
                         if l.isDefault {
                             HStack(spacing: 4) {
                                 Image(systemName: "star.fill").font(.system(size: 8))
@@ -219,7 +220,7 @@ private struct LanguageCard: View {
 
             Divider().background(Nuru.border)
 
-            HStack(spacing: 4) {
+            HStack(spacing: 10) {
                 if !l.isDefault {
                     Button(action: onSetDefault) {
                         HStack(spacing: 4) { Image(systemName: "star").font(.system(size: 12)); Text("Default") }
@@ -237,14 +238,14 @@ private struct LanguageCard: View {
                         .foregroundStyle(active ? Color(hex: 0xDC2626) : Color(hex: 0x16A34A))
                 }
                 .buttonStyle(.plain)
+                Spacer(minLength: 0)
                 if !l.isDefault {
-                    Spacer(minLength: 0)
                     Button(action: onDelete) { Image(systemName: "trash").font(.system(size: 14)).foregroundStyle(Color(hex: 0xDC2626)) }
                         .buttonStyle(.plain)
                 }
             }
         }
-        .padding(20)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.white)
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))

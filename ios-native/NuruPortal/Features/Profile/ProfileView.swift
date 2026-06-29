@@ -161,10 +161,10 @@ struct ProfileView: View {
                 }
                 .padding(.horizontal, Nuru.S.lg)
                 .padding(.top, 18)
-                .padding(.bottom, 40)
-                .frame(maxWidth: 1080, alignment: .leading)
+                .padding(.bottom, 36)
+                .frame(maxWidth: 1100, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
         .background(Nuru.paper)
         .portalPage("My Profile")
@@ -230,8 +230,8 @@ struct ProfileView: View {
                     }.buttonStyle(.plain)
                 }
             }
-            .frame(width: 200)
-            .padding(12)
+            .frame(width: 188)
+            .padding(10)
 
             Rectangle().fill(Nuru.border).frame(width: 1)
 
@@ -239,7 +239,7 @@ struct ProfileView: View {
                 panel
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(24)
+            .padding(22)
         }
         .background(Nuru.white)
         .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
@@ -334,7 +334,7 @@ private struct PDetailRow: View {
                 Text(label).font(.inter(12.5)).foregroundStyle(Nuru.muted)
                 Spacer()
                 Text(value).font(.inter(12.5, .medium)).foregroundStyle(Nuru.foreground)
-            }.padding(.vertical, 11)
+            }.padding(.vertical, 9)
             Rectangle().fill(Nuru.border).frame(height: 1)
         }
     }
@@ -373,18 +373,20 @@ private struct ProfilePanel: View {
 
     var body: some View {
         let p = store.profile
-        VStack(alignment: .leading, spacing: 28) {
-            VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 14) {
                 PSectionTitle(text: "Personal Information")
-                HStack(spacing: 20) {
+                HStack(spacing: 16) {
                     PField(label: "First Name", required: true, value: $first, error: nameError)
                     PField(label: "Last Name", required: true, value: $last, error: nameError)
                 }
-                PField(label: "Email Address", value: .constant(p?.email ?? ""), disabled: true,
-                       helper: "Contact an administrator to change your email address.")
-                PField(label: "Phone Number", value: $phone)
+                HStack(alignment: .top, spacing: 16) {
+                    PField(label: "Email Address", value: .constant(p?.email ?? ""), disabled: true,
+                           helper: "Contact an administrator to change your email address.")
+                    PField(label: "Phone Number", value: $phone)
+                }
             }
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 Rectangle().fill(Nuru.border).frame(height: 1)
                 PSectionTitle(text: "Account Details")
                 VStack(spacing: 0) {
