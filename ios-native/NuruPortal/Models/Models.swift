@@ -10,26 +10,26 @@ struct DataList<T: Codable>: Codable { let data: [T] }
 // MARK: - Auth
 
 struct Session: Codable {
-    let accessToken: String
-    let refreshToken: String
+    @DefaultEmpty var accessToken: String
+    @DefaultEmpty var refreshToken: String
 }
 
 /// /auth/login may return a session OR a 2FA challenge.
 struct MfaChallenge: Codable {
-    let mfaRequired: Bool
-    let mfaToken: String
+    @DefaultFalse var mfaRequired: Bool
+    @DefaultEmpty var mfaToken: String
 }
 
 // MARK: - Me
 
 struct MeProfile: Codable, Identifiable {
-    let userId: String
+    @DefaultEmpty var userId: String
     let email: String?
-    let fullName: String
-    let phoneNumber: String
-    let role: String
+    @DefaultEmpty var fullName: String
+    @DefaultEmpty var phoneNumber: String
+    @DefaultEmpty var role: String
     let locale: String?
-    let accountStatus: String
+    @DefaultEmpty var accountStatus: String
     let roleKeys: [String]
     var id: String { userId }
 }
@@ -41,25 +41,25 @@ struct MeResponse: Codable {
 // MARK: - Dashboard
 
 struct OverviewKpis: Codable {
-    let totalMembers: Int
-    let activeLearners: Int
-    let avgEngagement: Double
-    let membersAtRisk: Int
-    let certificatesThisMonth: Int
-    let reflectionsThisWeek: Int
-    let pendingReviews: Int
-    let reviewsOverdue: Int
-    let modulesPublished: Int
-    let cohortsRunning: Int
-    let checkedInThisWeek: Int
+    @DefaultZero var totalMembers: Int
+    @DefaultZero var activeLearners: Int
+    @DefaultZeroD var avgEngagement: Double
+    @DefaultZero var membersAtRisk: Int
+    @DefaultZero var certificatesThisMonth: Int
+    @DefaultZero var reflectionsThisWeek: Int
+    @DefaultZero var pendingReviews: Int
+    @DefaultZero var reviewsOverdue: Int
+    @DefaultZero var modulesPublished: Int
+    @DefaultZero var cohortsRunning: Int
+    @DefaultZero var checkedInThisWeek: Int
 }
 
 struct EngagementCellRow: Codable, Identifiable {
-    let cellGroupId: String
-    let name: String
-    let members: Int
-    let avgEngagement: Double
-    let atRisk: Int
+    @DefaultEmpty var cellGroupId: String
+    @DefaultEmpty var name: String
+    @DefaultZero var members: Int
+    @DefaultZeroD var avgEngagement: Double
+    @DefaultZero var atRisk: Int
     let disciplerName: String?
     let levelLabel: String?
     var id: String { cellGroupId }
@@ -73,10 +73,10 @@ struct EngagementReport: Codable {
 // MARK: - Members
 
 struct MemberRow: Codable, Identifiable {
-    let userId: String
-    let fullName: String
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var fullName: String
     let email: String?
-    let phoneNumber: String
+    @DefaultEmpty var phoneNumber: String
     let cellName: String?
     let currentLevel: Int?
     let eScore: Double?
@@ -93,20 +93,20 @@ struct MembersPage: Codable {
 
 struct MemberDetail: Codable, Identifiable {
     struct Enrollment: Codable {
-        let currentLevel: Int
+        @DefaultZero var currentLevel: Int
         let levelTitle: String?
         let state: String?
     }
     struct Engagement: Codable { let eScore: Double?; let band: String? }
-    let userId: String
-    let fullName: String
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var fullName: String
     let email: String?
-    let phoneNumber: String
+    @DefaultEmpty var phoneNumber: String
     let city: String?
     let countryCode: String?
     let cellName: String?
     let language: String?
-    let createdAt: String
+    @DefaultEmpty var createdAt: String
     let lastActivity: String?
     let enrollment: Enrollment
     let engagement: Engagement
@@ -116,15 +116,15 @@ struct MemberDetail: Codable, Identifiable {
 // MARK: - Reflections (review queue)
 
 struct ReflectionRow: Codable, Identifiable {
-    let reflectionId: String
-    let userId: String
-    let fullName: String
-    let moduleTitle: String
-    let levelNumber: Int
-    let body: String
-    let state: String
-    let submittedAt: String
-    let overdue: Bool
+    @DefaultEmpty var reflectionId: String
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var fullName: String
+    @DefaultEmpty var moduleTitle: String
+    @DefaultZero var levelNumber: Int
+    @DefaultEmpty var body: String
+    @DefaultEmpty var state: String
+    @DefaultEmpty var submittedAt: String
+    @DefaultFalse var overdue: Bool
     var id: String { reflectionId }
 }
 struct ReflectionsPage: Codable { let data: [ReflectionRow] }
@@ -132,12 +132,12 @@ struct ReflectionsPage: Codable { let data: [ReflectionRow] }
 // MARK: - Finance
 
 struct FundSummary: Codable, Identifiable {
-    let code: String
-    let name: String
+    @DefaultEmpty var code: String
+    @DefaultEmpty var name: String
     let currency: String?
-    let totalMinor: Int
-    let monthMinor: Int
-    let giftCount: Int
+    @DefaultZero var totalMinor: Int
+    @DefaultZero var monthMinor: Int
+    @DefaultZero var giftCount: Int
     var id: String { code }
 }
 struct FinanceSummary: Codable { let funds: [FundSummary] }
@@ -145,15 +145,15 @@ struct FinanceSummary: Codable { let funds: [FundSummary] }
 // MARK: - Curriculum
 
 struct LevelAnalyticsRow: Codable, Identifiable {
-    let levelNumber: Int
-    let title: String
+    @DefaultZero var levelNumber: Int
+    @DefaultEmpty var title: String
     let theme: String?
-    let status: String
-    let modulesTotal: Int
-    let modulesPublished: Int
-    let learners: Int
-    let completionPct: Double
-    let certificates: Int
+    @DefaultEmpty var status: String
+    @DefaultZero var modulesTotal: Int
+    @DefaultZero var modulesPublished: Int
+    @DefaultZero var learners: Int
+    @DefaultZeroD var completionPct: Double
+    @DefaultZero var certificates: Int
     var id: Int { levelNumber }
 }
 struct LevelsReport: Codable { let levels: [LevelAnalyticsRow] }
@@ -161,24 +161,24 @@ struct LevelsReport: Codable { let levels: [LevelAnalyticsRow] }
 // MARK: - Notifications
 
 struct NotificationFeedItem: Codable, Identifiable {
-    let id: String
-    let title: String
+    @DefaultEmpty var id: String
+    @DefaultEmpty var title: String
     let message: String?
-    let category: String
-    let at: String
-    let read: Bool
+    @DefaultEmpty var category: String
+    @DefaultEmpty var at: String
+    @DefaultFalse var read: Bool
 }
 struct NotificationsFeed: Codable { let data: [NotificationFeedItem] }
 
 // MARK: - Events (calendar)
 
 struct CalendarOccurrence: Codable, Identifiable {
-    let occurrenceId: String
-    let title: String
+    @DefaultEmpty var occurrenceId: String
+    @DefaultEmpty var title: String
     let location: String?
-    let visibility: String
-    let startAt: String
-    let endAt: String
+    @DefaultEmpty var visibility: String
+    @DefaultEmpty var startAt: String
+    @DefaultEmpty var endAt: String
     var id: String { occurrenceId }
 }
 struct CalendarPage: Codable { let data: [CalendarOccurrence] }
@@ -186,23 +186,23 @@ struct CalendarPage: Codable { let data: [CalendarOccurrence] }
 // MARK: - Badges & certificates
 
 struct BadgeRow: Codable, Identifiable {
-    let code: String
-    let name: String
-    let description: String
-    let category: String
-    let earnedCount: Int
+    @DefaultEmpty var code: String
+    @DefaultEmpty var name: String
+    @DefaultEmpty var description: String
+    @DefaultEmpty var category: String
+    @DefaultZero var earnedCount: Int
     let isActive: Bool?
     var id: String { code }
 }
 struct BadgesPage: Codable { let data: [BadgeRow] }
 
 struct CertificateRow: Codable, Identifiable {
-    let certificateId: String
-    let fullName: String
+    @DefaultEmpty var certificateId: String
+    @DefaultEmpty var fullName: String
     let levelNumber: Int?
     let levelTitle: String?
-    let verificationCode: String
-    let issuedAt: String
+    @DefaultEmpty var verificationCode: String
+    @DefaultEmpty var issuedAt: String
     let revokedAt: String?
     var id: String { certificateId }
 }
@@ -211,49 +211,49 @@ struct CertificatesPage: Codable { let data: [CertificateRow]; let nextCursor: S
 // MARK: - System reference data
 
 struct Country: Codable, Identifiable {
-    let code: String
-    let name: String
+    @DefaultEmpty var code: String
+    @DefaultEmpty var name: String
     let flag: String?
     let region: String?
     let dialCode: String?
     let currency: String?
-    let status: String
+    @DefaultEmpty var status: String
     var id: String { code }
 }
 struct Language: Codable, Identifiable {
-    let code: String
-    let name: String
-    let nativeName: String
-    let direction: String
-    let isDefault: Bool
-    let coverage: Double
-    let status: String
+    @DefaultEmpty var code: String
+    @DefaultEmpty var name: String
+    @DefaultEmpty var nativeName: String
+    @DefaultEmpty var direction: String
+    @DefaultFalse var isDefault: Bool
+    @DefaultZeroD var coverage: Double
+    @DefaultEmpty var status: String
     var id: String { code }
 }
 struct Congregation: Codable, Identifiable {
-    let congregationId: String
-    let name: String
-    let country: String
-    let timezone: String
-    let cellCount: Int
-    let memberCount: Int
+    @DefaultEmpty var congregationId: String
+    @DefaultEmpty var name: String
+    @DefaultEmpty var country: String
+    @DefaultEmpty var timezone: String
+    @DefaultZero var cellCount: Int
+    @DefaultZero var memberCount: Int
     var id: String { congregationId }
 }
 struct SystemRole: Codable, Identifiable {
-    let roleKey: String
-    let name: String
-    let roleType: String
-    let description: String
-    let status: String
-    let userCount: Int
+    @DefaultEmpty var roleKey: String
+    @DefaultEmpty var name: String
+    @DefaultEmpty var roleType: String
+    @DefaultEmpty var description: String
+    @DefaultEmpty var status: String
+    @DefaultZero var userCount: Int
     var id: String { roleKey }
 }
 struct SystemUser: Codable, Identifiable {
-    let userId: String
-    let fullName: String
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var fullName: String
     let email: String?
-    let phoneNumber: String
-    let accountStatus: String
+    @DefaultEmpty var phoneNumber: String
+    @DefaultEmpty var accountStatus: String
     let roleKeys: [String]
     let lastActive: String?
     var id: String { userId }
@@ -262,99 +262,99 @@ struct SystemUser: Codable, Identifiable {
 // MARK: - Curriculum (CMS / Level Detail / Quiz Builder)
 
 struct AdminLevel: Codable, Identifiable {
-    let levelNumber: Int
-    let title: String
+    @DefaultZero var levelNumber: Int
+    @DefaultEmpty var title: String
     let theme: String?
     let duration: String?
-    let status: String
-    let locked: Bool
-    let color: String
-    let publishedCount: String
-    let draftCount: String
-    let archivedCount: String
+    @DefaultEmpty var status: String
+    @DefaultFalse var locked: Bool
+    @DefaultEmpty var color: String
+    @DefaultEmpty var publishedCount: String
+    @DefaultEmpty var draftCount: String
+    @DefaultEmpty var archivedCount: String
     var id: Int { levelNumber }
 }
 
 struct AdminModuleSummary: Codable, Identifiable {
-    let moduleId: String
-    let levelNumber: Int
-    let moduleSequenceNumber: Int
-    let title: String
+    @DefaultEmpty var moduleId: String
+    @DefaultZero var levelNumber: Int
+    @DefaultZero var moduleSequenceNumber: Int
+    @DefaultEmpty var title: String
     let summary: String?
-    let status: String
-    let evaluationKind: String
-    let activeQuestionCount: String
+    @DefaultEmpty var status: String
+    @DefaultEmpty var evaluationKind: String
+    @DefaultEmpty var activeQuestionCount: String
     var id: String { moduleId }
 }
 
 struct AdminQuestion: Codable, Identifiable {
-    let questionId: String
-    let qType: String
-    let questionText: String
-    let correctAnswer: String
-    let isActive: Bool
+    @DefaultEmpty var questionId: String
+    @DefaultEmpty var qType: String
+    @DefaultEmpty var questionText: String
+    @DefaultEmpty var correctAnswer: String
+    @DefaultFalse var isActive: Bool
     let explanation: String?
-    let points: Int
-    let required: Bool
+    @DefaultZero var points: Int
+    @DefaultFalse var required: Bool
     var id: String { questionId }
 }
 
 // MARK: - Content Studio (growth)
 
 struct DevotionalRow: Codable, Identifiable {
-    let devotionalId: String
-    let dayNumber: Int
+    @DefaultEmpty var devotionalId: String
+    @DefaultZero var dayNumber: Int
     let series: String?
-    let title: String
+    @DefaultEmpty var title: String
     let scriptureRef: String?
-    let body: String
-    let isPublished: Bool
+    @DefaultEmpty var body: String
+    @DefaultFalse var isPublished: Bool
     var id: String { devotionalId }
 }
 struct VerseRow: Codable, Identifiable {
-    let memoryVerseId: String
-    let reference: String
-    let verseText: String
-    let version: String
+    @DefaultEmpty var memoryVerseId: String
+    @DefaultEmpty var reference: String
+    @DefaultEmpty var verseText: String
+    @DefaultEmpty var version: String
     let weekNumber: Int?
-    let isActive: Bool
+    @DefaultFalse var isActive: Bool
     var id: String { memoryVerseId }
 }
 struct PlanRow: Codable, Identifiable {
-    let planId: String
-    let code: String
-    let title: String
+    @DefaultEmpty var planId: String
+    @DefaultEmpty var code: String
+    @DefaultEmpty var title: String
     let subtitle: String?
     let description: String?
     let category: String?
-    let dayCount: Int
-    let isActive: Bool
+    @DefaultZero var dayCount: Int
+    @DefaultFalse var isActive: Bool
     var id: String { planId }
 }
 struct ResourceAdminRow: Codable, Identifiable {
-    let resourceId: String
-    let title: String
+    @DefaultEmpty var resourceId: String
+    @DefaultEmpty var title: String
     let author: String?
-    let kind: String
+    @DefaultEmpty var kind: String
     let durationLabel: String?
     let url: String?
-    let isActive: Bool
+    @DefaultFalse var isActive: Bool
     var id: String { resourceId }
 }
 
 // MARK: - Video Library (media)
 
 struct MediaAssetRow: Codable, Identifiable {
-    let mediaAssetId: String
-    let kind: String
-    let status: String
-    let videoSource: String
+    @DefaultEmpty var mediaAssetId: String
+    @DefaultEmpty var kind: String
+    @DefaultEmpty var status: String
+    @DefaultEmpty var videoSource: String
     let externalUrl: String?
     let caption: String?
     let levelNumber: Int?
     let thumbnailUrl: String?
     let durationSec: Int?
-    let createdAt: String
+    @DefaultEmpty var createdAt: String
     let attachedModuleTitle: String?
     let views: Int?
     let completion: Double?
@@ -365,25 +365,25 @@ struct MediaListResponse: Codable { let data: [MediaAssetRow] }
 // MARK: - Chat
 
 struct ChatConversationRow: Codable, Identifiable {
-    let conversationId: String
-    let kind: String
-    let isPublic: Bool
+    @DefaultEmpty var conversationId: String
+    @DefaultEmpty var kind: String
+    @DefaultFalse var isPublic: Bool
     let title: String?
     let topic: String?
     let avatarUrl: String?
-    let memberCount: Int
+    @DefaultZero var memberCount: Int
     let lastBody: String?
     let lastAt: String?
     let lastAuthor: String?
-    let unread: Int
+    @DefaultZero var unread: Int
     var id: String { conversationId }
     var displayName: String { title ?? topic ?? "Conversation" }
 }
 struct ChatDiscoverSpace: Codable, Identifiable {
-    let conversationId: String
+    @DefaultEmpty var conversationId: String
     let title: String?
     let topic: String?
-    let memberCount: Int
+    @DefaultZero var memberCount: Int
     var id: String { conversationId }
 }
 struct ChatList: Codable {
@@ -391,23 +391,23 @@ struct ChatList: Codable {
     let discoverSpaces: [ChatDiscoverSpace]
 }
 struct ChatMessageRow: Codable, Identifiable {
-    let messageId: String
-    let authorName: String
-    let body: String
-    let msgType: String
-    let createdAt: String
-    let mine: Bool
+    @DefaultEmpty var messageId: String
+    @DefaultEmpty var authorName: String
+    @DefaultEmpty var body: String
+    @DefaultEmpty var msgType: String
+    @DefaultEmpty var createdAt: String
+    @DefaultFalse var mine: Bool
     let replyBody: String?
     let replyAuthor: String?
     var id: String { messageId }
 }
 struct ChatConversationDetail: Codable {
-    let conversationId: String
-    let kind: String
-    let isPublic: Bool
+    @DefaultEmpty var conversationId: String
+    @DefaultEmpty var kind: String
+    @DefaultFalse var isPublic: Bool
     let topic: String?
     let title: String?
-    let joined: Bool
+    @DefaultFalse var joined: Bool
     let messages: [ChatMessageRow]
     var displayName: String { title ?? topic ?? "Conversation" }
 }
