@@ -36,7 +36,6 @@
 // page-local Codable structs via APIClient.shared.get (actor, convertFromSnakeCase),
 // since the shared CalendarOccurrence model omits series_id/cell_group_id.
 import SwiftUI
-import Charts
 import CoreImage.CIFilterBuiltins
 
 // MARK: - Category derivation (no category column on the wire — infer from title)
@@ -61,6 +60,13 @@ private enum EventCategory: CaseIterable {
         case .worship: Color(hex: 0xFBF1DA); case .klass: Color(hex: 0xE1E6ED)
         case .cell: Color(hex: 0xDCF7E4); case .leadership: Color(hex: 0xE4E5FB)
         case .youth: Color(hex: 0xDBE7FE); case .special: Color(hex: 0xFFE6D2)
+        }
+    }
+    /// Wire category string used by eventTypeOptions / create+edit bodies.
+    var apiKey: String {
+        switch self {
+        case .worship: "worship"; case .klass: "class"; case .cell: "cell"
+        case .leadership: "leadership"; case .youth: "youth"; case .special: "special"
         }
     }
 }
@@ -238,6 +244,19 @@ private enum EventsWrites {
     static func resumeSeries(_ id: String) async throws -> SeriesRowResp {
         try await APIClient.shared.postEmpty("/admin/events/series/\(id)/resume", as: SeriesRowResp.self)
     }
+    // PUT /admin/events/series/{id}  (Edit event/series — same body keys as create)
+    @discardableResult
+    static func updateSeries(_ id: String, _ body: [String: JSONValue]) async throws -> SeriesRowResp {
+        try await APIClient.shared.put("/admin/events/series/\(id)", body: body, as: SeriesRowResp.self)
+    }
+    // POST /admin/events/series/{seriesId}/exceptions  (Cancel/override one occurrence)
+    static func cancelOccurrence(_ seriesId: String, _ body: [String: JSONValue]) async throws {
+        _ = try await APIClient.shared.post("/admin/events/series/\(seriesId)/exceptions", body: body, as: OkResponse.self)
+    }
+    // DELETE /admin/events/series/{id}  (Delete the whole series)
+    static func deleteSeries(_ id: String) async throws {
+        _ = try await APIClient.shared.delete("/admin/events/series/\(id)", as: OkResponse.self)
+    }
     // POST /admin/events/{id}/checkins  (Manual check-in — member)
     static func manualCheckIn(_ eventId: String, _ body: [String: JSONValue]) async throws {
         _ = try await APIClient.shared.post("/admin/events/\(eventId)/checkins", body: body, as: OkResponse.self)
@@ -299,6 +318,10 @@ private struct UiOcc: Identifiable {
     let location: String
     let visibility: String
     let endDate: Date?
+    /// Raw ISO strings preserved from the server occurrence — used by series
+    /// writes (cancelOccurrence needs the exact occurrence start the server knows).
+    let startAt: String
+    let originalStartAt: String
     var iso: String { UiOcc.isoDay(date) }
 
     static func isoDay(_ d: Date?) -> String {
@@ -327,7 +350,9 @@ private struct UiOcc: Identifiable {
             date: parse(o.startAt),
             location: (o.location?.isEmpty == false ? o.location! : "Location TBC"),
             visibility: o.visibility.isEmpty ? "members" : o.visibility,
-            endDate: parse(o.endAt))
+            endDate: parse(o.endAt),
+            startAt: o.startAt,
+            originalStartAt: o.originalStartAt)
     }
 }
 
@@ -395,8 +420,10 @@ struct EventsView: View {
     @State private var showCreateEvent = false
     @State private var showCreateAnnouncement = false
     @State private var manualCheckinOcc: UiOcc?
+    @State private var editOcc: UiOcc?
     @State private var showPostMoment = false
     @State private var deletingMomentId: String?
+    @State private var showRecentAttendance = false
 
     // Roster caches (lazy)
     @State private var rosters: [String: Roster] = [:]
@@ -472,7 +499,13 @@ struct EventsView: View {
                 }
                 alertStrip
 
-                // Calendar + Today panel
+                // 1. Insights — moved to the top, 4-up single row.
+                insightsCard
+
+                // 2. Follow-up queue — full-width row.
+                followUpCard
+
+                // 3. Calendar + Today panel
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 20) {
                         calendarCard.frame(maxWidth: .infinity)
@@ -481,7 +514,7 @@ struct EventsView: View {
                     VStack(spacing: 20) { calendarCard; todayPanel }
                 }
 
-                // Upcoming + Series
+                // 4. Upcoming + Series (paired side-by-side at wide canvas)
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 20) {
                         upcomingCard.frame(maxWidth: .infinity)
@@ -490,21 +523,16 @@ struct EventsView: View {
                     VStack(spacing: 20) { upcomingCard; seriesCard }
                 }
 
-                // Announcements (full width — Live QR card removed)
+                // 5. Announcements (full width — Live QR card removed)
                 announcementsCard
 
+                // 6. Moments — the final card.
                 momentsCard
 
-                // Insights + Follow-up
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 20) {
-                        insightsCard.frame(maxWidth: .infinity)
-                        followUpCard.frame(maxWidth: .infinity)
-                    }
-                    VStack(spacing: 20) { insightsCard; followUpCard }
-                }
-
-                if !recent.isEmpty { recentAttendanceCard }
+                // Recent attendance now lives in the header "Recent attendance"
+                // sheet (RecentAttendanceSheet); the front-page table + bar chart
+                // were removed. The reports/attendance + roster loaders are kept
+                // because that sheet reuses them.
 
                 Text("Nuru Events Command Center · All times in East Africa Time (UTC+3)")
                     .font(.nMicro).foregroundStyle(Nuru.muted)
@@ -522,7 +550,10 @@ struct EventsView: View {
             onQr: { detailOcc = nil; qrOcc = o },
             onAttendance: { detailOcc = nil; attendanceOcc = o },
             onRsvp: { detailOcc = nil; rsvpOcc = o },
-            onManualCheckIn: { detailOcc = nil; manualCheckinOcc = o })
+            onManualCheckIn: { detailOcc = nil; manualCheckinOcc = o },
+            onEdit: { detailOcc = nil; editOcc = o },
+            onCancelOccurrence: { detailOcc = nil; Task { await cancelOccurrence(o) } },
+            onDelete: { detailOcc = nil; Task { await deleteSeries(o) } })
             .task { await loadRoster(o.id) } }
         .sheet(item: dayBinding) { day in DaySheet(iso: day.iso, events: byDay[day.iso] ?? []) { o in dayIso = nil; detailOcc = o } }
         .sheet(item: $rsvpOcc) { o in RsvpSheet(occ: o, roster: rsvpRosters[o.id]).task { await loadRsvp(o.id) } }
@@ -544,6 +575,11 @@ struct EventsView: View {
             CreateEventSheet(onCreated: { msg in showCreateEvent = false; notice = msg; Task { await reload() } },
                              onError: { msg in error = msg })
         }
+        .sheet(item: $editOcc) { o in
+            CreateEventSheet(editing: o,
+                             onCreated: { msg in editOcc = nil; notice = msg; Task { await reload() } },
+                             onError: { msg in error = msg })
+        }
         .sheet(isPresented: $showCreateAnnouncement) {
             CreateAnnouncementSheet(events: events,
                 onCreated: { msg in showCreateAnnouncement = false; notice = msg; Task { await reload() } },
@@ -552,6 +588,9 @@ struct EventsView: View {
         .sheet(isPresented: $showPostMoment) {
             PostMomentSheet(onPosted: { showPostMoment = false; notice = "Moment posted."; Task { await reloadMoments() } },
                             onError: { msg in error = msg })
+        }
+        .sheet(isPresented: $showRecentAttendance) {
+            RecentAttendanceSheet(events: events, seedRosters: rosters, fetchRoster: { id in await fetchRoster(id) })
         }
     }
 
@@ -593,6 +632,33 @@ struct EventsView: View {
         }
     }
 
+    // Cancel a single occurrence via a series exception (web cancelOccurrence).
+    private func cancelOccurrence(_ o: UiOcc) async {
+        guard !o.seriesId.isEmpty else { error = "This occurrence has no series id — cancel is unavailable."; return }
+        do {
+            try await EventsWrites.cancelOccurrence(o.seriesId, [
+                "original_start_at": .string(o.originalStartAt.isEmpty ? o.startAt : o.originalStartAt),
+                "is_cancelled": .bool(true),
+            ])
+            await reload()
+            notice = "Occurrence cancelled."
+        } catch {
+            self.error = (error as? APIError)?.errorDescription ?? "Could not cancel occurrence."
+        }
+    }
+
+    // Delete the whole series (web deleteSeries).
+    private func deleteSeries(_ o: UiOcc) async {
+        guard !o.seriesId.isEmpty else { error = "This occurrence has no series id — delete is unavailable."; return }
+        do {
+            try await EventsWrites.deleteSeries(o.seriesId)
+            await reload()
+            notice = "Event series deleted."
+        } catch {
+            self.error = (error as? APIError)?.errorDescription ?? "Could not delete event series."
+        }
+    }
+
     // Wrap dayIso (String?) in an Identifiable for .sheet(item:)
     private struct DayKey: Identifiable { let iso: String; var id: String { iso } }
     private var dayBinding: Binding<DayKey?> {
@@ -615,6 +681,7 @@ struct EventsView: View {
         ) {
             HStack(spacing: 8) {
                 HeroChip(label: "EAT timezone", icon: "checkmark.shield", style: .tag)
+                HeroChip(label: "Recent attendance", icon: "person.2", style: .ghost) { showRecentAttendance = true }
                 HeroChip(label: "Announcement", icon: "bell", style: .ghost) { showCreateAnnouncement = true }
                 HeroChip(label: "Create event", icon: "plus", style: .gold) { showCreateEvent = true }
             }
@@ -862,26 +929,49 @@ struct EventsView: View {
         }
     }
 
+    // Fixed geometry so the up-to-5 flow rows form a clean, even stack: every
+    // card is the same height, every date/time chip is the same width AND height.
+    private static let flowRowHeight: CGFloat = 92
+    private static let flowChipWidth: CGFloat = 58
+
     private func todayRow(_ o: UiOcc) -> some View {
         Button { detailOcc = o } label: {
-            HStack(alignment: .top, spacing: 12) {
-                RoundedRectangle(cornerRadius: 3).fill(o.category.color).frame(width: 4, height: 44)
+            HStack(alignment: .center, spacing: 12) {
+                // Left date/time chip — fixed equal width, full row height.
+                VStack(spacing: 2) {
+                    Text((o.date ?? now).formatted(.dateTime.month(.abbreviated)).uppercased())
+                        .font(.system(size: 9, weight: .bold)).tracking(0.4)
+                    Text("\(Calendar.current.component(.day, from: o.date ?? now))")
+                        .font(.inter(17, .heavy)).monospaced()
+                    Text(o.timeShort).font(.inter(10, .bold)).monospaced().lineLimit(1)
+                }
+                .foregroundStyle(o.category.color)
+                .frame(width: EventsView.flowChipWidth)
+                .frame(maxHeight: .infinity)
+                .background(o.category.soft)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+                // Content column — title/location/actions, fills row height.
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(o.timeShort).font(.inter(12, .bold)).monospaced().foregroundStyle(Nuru.ink)
-                        Spacer()
+                    HStack(spacing: 8) {
+                        Text(o.title).font(.inter(13, .bold)).foregroundStyle(Nuru.ink).lineLimit(1)
+                        Spacer(minLength: 4)
                         StatusBadge(status: "scheduled")
                     }
-                    Text(o.title).font(.inter(13, .bold)).foregroundStyle(Nuru.ink)
-                    Label(o.location, systemImage: "mappin.and.ellipse").font(.nMicro).foregroundStyle(Nuru.muted)
+                    Label(o.location, systemImage: "mappin.and.ellipse")
+                        .font(.nMicro).foregroundStyle(Nuru.muted).lineLimit(1)
+                    Spacer(minLength: 0)
                     HStack(spacing: 6) {
                         miniChip("Show QR", "qrcode") { qrOcc = o }
                         miniChip("Attendance", "person.2") { attendanceOcc = o }
                         miniChip("Check in", "checkmark.circle") { manualCheckinOcc = o }
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .frame(height: EventsView.flowRowHeight)
             .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Nuru.border, lineWidth: 1))
             .contentShape(Rectangle())
@@ -1133,7 +1223,8 @@ struct EventsView: View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
                 cardHeader("Event insights", "Patterns across recent occurrences")
-                let cols = [GridItem(.adaptive(minimum: 170), spacing: 12)]
+                // Fixed 4-column grid so all four tiles sit on one row at portrait width.
+                let cols = Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
                 LazyVGrid(columns: cols, alignment: .leading, spacing: 12) {
                     insightTile("Checked in", "\(checkedThisWeek)", "Across recent events", up: true)
                     insightTile("Recent events", "\(recent.count)", "Last 8 weeks", up: true)
@@ -1193,52 +1284,10 @@ struct EventsView: View {
         }
     }
 
-    // MARK: Recent attendance (real)
-
-    private var recentAttendanceCard: some View {
-        Card(padding: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("Recent attendance").font(.fraunces(18, .medium)).foregroundStyle(Nuru.ink)
-                    Spacer()
-                    Text("last 8 weeks").font(.nMicro).foregroundStyle(Nuru.muted)
-                }.padding(20)
-                Divider().overlay(Nuru.border)
-
-                Chart(recent) { e in
-                    BarMark(x: .value("Event", e.title), y: .value("Checked in", e.checkedIn))
-                        .foregroundStyle(Nuru.gold)
-                        .cornerRadius(4)
-                }
-                .chartXAxis(.hidden)
-                .frame(height: 140)
-                .padding(.horizontal, 20).padding(.top, 16)
-
-                // Header row
-                HStack {
-                    Text("EVENT").frame(maxWidth: .infinity, alignment: .leading)
-                    Text("WHEN").frame(width: 120, alignment: .leading)
-                    Text("CHECKED IN").frame(width: 90, alignment: .trailing)
-                    Text("RSVP").frame(width: 60, alignment: .trailing)
-                }
-                .font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
-                .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 8)
-                .background(Nuru.surface)
-
-                ForEach(recent) { e in
-                    Divider().overlay(Nuru.border)
-                    HStack {
-                        Text(e.title).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
-                            .frame(maxWidth: .infinity, alignment: .leading).lineLimit(1)
-                        Text(Fmt.date(e.occursAt, style: .dateTime.day().month(.abbreviated)))
-                            .font(.nCaption).foregroundStyle(Nuru.muted).frame(width: 120, alignment: .leading)
-                        Text("\(e.checkedIn)").font(.inter(13, .bold)).monospaced().foregroundStyle(Color(hex: 0x0F6B33)).frame(width: 90, alignment: .trailing)
-                        Text("\(e.rsvpGoing)").font(.nCaption).monospaced().foregroundStyle(Nuru.ink).frame(width: 60, alignment: .trailing)
-                    }.padding(.horizontal, 20).padding(.vertical, 10)
-                }
-            }
-        }
-    }
+    // Recent attendance (table + bar chart) was removed from the front page; it
+    // now lives in RecentAttendanceSheet (opened from the hero chip). The
+    // /admin/reports/attendance loader feeding `recent` is kept (used by insights
+    // and the hero stats). `Charts` is no longer rendered here.
 
     // MARK: Shared bits
 
@@ -1290,6 +1339,16 @@ struct EventsView: View {
         if let r = try? await APIClient.shared.get("/admin/events/\(id)/attendance", as: Roster.self) {
             rosters[id] = r
         }
+    }
+    /// On-demand roster fetch that returns the roster (used by RecentAttendanceSheet,
+    /// which keeps its own cache). Populates the shared `rosters` cache too.
+    private func fetchRoster(_ id: String) async -> Roster? {
+        if let cached = rosters[id] { return cached }
+        if let r = try? await APIClient.shared.get("/admin/events/\(id)/attendance", as: Roster.self) {
+            rosters[id] = r
+            return r
+        }
+        return nil
     }
     private func loadRsvp(_ id: String) async {
         guard rsvpRosters[id] == nil else { return }
@@ -1380,7 +1439,14 @@ private struct EventDetailSheet: View {
     var onAttendance: () -> Void
     var onRsvp: () -> Void
     var onManualCheckIn: () -> Void
+    var onEdit: () -> Void
+    var onCancelOccurrence: () -> Void
+    var onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var confirmCancel = false
+    @State private var confirmDelete = false
+
+    private var hasSeries: Bool { !occ.seriesId.isEmpty }
 
     var body: some View {
         NavigationStack {
@@ -1401,7 +1467,7 @@ private struct EventDetailSheet: View {
                         }.font(.nCaption).foregroundStyle(Nuru.muted)
                     }
 
-                    // Metric tiles
+                    // 2. Metric tiles
                     let cols = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
                     LazyVGrid(columns: cols, spacing: 8) {
                         metric("Checked in", "\(roster?.checkedIn?.count ?? 0)", Color(hex: 0x15803D))
@@ -1410,32 +1476,61 @@ private struct EventDetailSheet: View {
                         metric("QR", "Ready", Nuru.gold)
                     }
 
-                    // Actions (browse + write-as-read)
+                    // 3. Primary action — Edit event (prominent, full-width gold).
+                    Button { dismiss(); onEdit() } label: {
+                        Label("Edit event", systemImage: "pencil")
+                            .font(.inter(15, .bold)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity).frame(height: 50)
+                            .background(hasSeries ? AnyShapeStyle(Nuru.goldGradient) : AnyShapeStyle(Nuru.muted))
+                            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    }.buttonStyle(.plain).disabled(!hasSeries)
+                    if !hasSeries {
+                        Text("Editing isn't available for this occurrence (no series id yet).")
+                            .font(.nMicro).foregroundStyle(Nuru.muted)
+                    }
+
+                    // 4. Browse / secondary actions.
                     let acts = [GridItem(.flexible()), GridItem(.flexible())]
                     LazyVGrid(columns: acts, spacing: 8) {
                         action("Show QR", "qrcode", primary: true) { dismiss(); onQr() }
                         action("View attendance", "person.2") { dismiss(); onAttendance() }
                         action("View RSVPs", "person.crop.circle.badge.checkmark") { dismiss(); onRsvp() }
                         action("Manual check-in", "checkmark.circle") { dismiss(); onManualCheckIn() }
-                        action("Reschedule", "arrow.triangle.2.circlepath") {} // NEEDS write
-                        action("Edit event", "pencil") {}                      // NEEDS write
-                        action("Cancel occurrence", "xmark", danger: true) {}  // NEEDS write
-                        action("Delete event", "trash", danger: true) {}       // NEEDS write
                     }
 
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "checkmark.shield.fill").foregroundStyle(Color(hex: 0xA87616))
-                        Text("Changing this occurrence will not affect the whole series unless \"entire series\" is selected.")
+                        Text("Editing updates the whole series. Use \"Cancel occurrence\" to drop just this date.")
                             .font(.nMicro).foregroundStyle(Color(hex: 0x7A5410))
                     }
                     .padding(12).background(Color(hex: 0xFFFBEB))
                     .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color(hex: 0xF5E0A8), lineWidth: 1))
+
+                    // 5. Danger zone — lowest controls, visually separated.
+                    Divider().overlay(Nuru.border).padding(.top, 4)
+                    Text("DANGER ZONE").font(.nOverline).tracking(0.6).foregroundStyle(Color(hex: 0xB91C1C))
+                    if hasSeries {
+                        VStack(spacing: 8) {
+                            action("Cancel occurrence", "xmark", danger: true) { confirmCancel = true }
+                            action("Delete event", "trash", danger: true) { confirmDelete = true }
+                        }
+                    } else {
+                        Text("Not available for this occurrence.").font(.nMicro).foregroundStyle(Nuru.muted)
+                    }
                 }.padding(24)
             }
             .background(Nuru.paper)
             .navigationTitle("Event").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .alert("Cancel this occurrence?", isPresented: $confirmCancel) {
+                Button("Cancel occurrence", role: .destructive) { dismiss(); onCancelOccurrence() }
+                Button("Keep", role: .cancel) {}
+            } message: { Text("This drops just this date from the series.") }
+            .alert("Delete this event series?", isPresented: $confirmDelete) {
+                Button("Delete series", role: .destructive) { dismiss(); onDelete() }
+                Button("Keep", role: .cancel) {}
+            } message: { Text("This cannot be undone. All occurrences of this series will be removed.") }
         }
     }
 
@@ -1634,14 +1729,195 @@ private struct AttendanceSheet: View {
     }
 
     private func attRow(_ name: String, time: String, method: String, status: String) -> some View {
-        VStack(spacing: 0) {
+        attendeeRow(name, time: time, method: method, status: status)
+    }
+}
+
+/// Shared attendee row (name + check-in time + method + status badge), used by
+/// both AttendanceSheet and RecentAttendanceSheet so attendees render identically.
+private func attendeeRow(_ name: String, time: String, method: String, status: String) -> some View {
+    VStack(spacing: 0) {
+        HStack {
+            Text(name).font(.inter(12, .semibold)).foregroundStyle(Nuru.ink).frame(maxWidth: .infinity, alignment: .leading).lineLimit(1)
+            Text(Fmt.date(time, style: .dateTime.hour().minute())).font(.system(size: 11)).monospaced().foregroundStyle(Nuru.muted).frame(width: 70, alignment: .leading)
+            Text(method).font(.system(size: 11)).foregroundStyle(Nuru.muted).frame(width: 70, alignment: .leading)
+            HStack { StatusBadge(status: status); Spacer() }.frame(width: 84, alignment: .leading)
+        }.padding(.vertical, 10)
+        Divider().overlay(Nuru.border)
+    }
+}
+
+/// The attendee list body for one event's roster — checked-in members then
+/// guests, with an empty state. Reused by AttendanceSheet's rendering and the
+/// per-event detail inside RecentAttendanceSheet.
+private struct RosterAttendeeList: View {
+    let roster: Roster?
+    var body: some View {
+        let checkedIn = roster?.checkedIn ?? []
+        let guests = roster?.guests ?? []
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(name).font(.inter(12, .semibold)).foregroundStyle(Nuru.ink).frame(maxWidth: .infinity, alignment: .leading).lineLimit(1)
-                Text(Fmt.date(time, style: .dateTime.hour().minute())).font(.system(size: 11)).monospaced().foregroundStyle(Nuru.muted).frame(width: 70, alignment: .leading)
-                Text(method).font(.system(size: 11)).foregroundStyle(Nuru.muted).frame(width: 70, alignment: .leading)
-                HStack { StatusBadge(status: status); Spacer() }.frame(width: 84, alignment: .leading)
-            }.padding(.vertical, 10)
+                Text("MEMBER").frame(maxWidth: .infinity, alignment: .leading)
+                Text("TIME").frame(width: 70, alignment: .leading)
+                Text("METHOD").frame(width: 70, alignment: .leading)
+                Text("STATUS").frame(width: 84, alignment: .leading)
+            }.font(.system(size: 10, weight: .bold)).tracking(0.5).foregroundStyle(Nuru.muted).padding(.bottom, 6)
             Divider().overlay(Nuru.border)
+            if roster == nil {
+                Text("Loading attendees…").font(.nCaption).foregroundStyle(Nuru.muted).frame(maxWidth: .infinity).padding(.vertical, 16)
+            } else if checkedIn.isEmpty && guests.isEmpty {
+                Text("No one checked in to this event.").font(.nCaption).foregroundStyle(Nuru.muted).padding(.vertical, 16)
+            } else {
+                ForEach(checkedIn) { c in
+                    attendeeRow(c.fullName, time: c.checkedInAt, method: c.method,
+                                status: c.method.lowercased() == "manual" ? "Manual" : "Verified")
+                }
+                ForEach(guests) { g in
+                    attendeeRow(g.guestName + (g.firstTime ? " · first-time" : ""), time: g.createdAt, method: "Guest", status: "Guest")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Recent attendance sheet (events → who attended)
+
+/// Presented from the hero "Recent attendance" chip. Lists recent/past events
+/// (most-recent first); tapping one pushes a detail showing the people who
+/// attended (reusing the attendance roster + the shared attendee row). Rosters
+/// load on demand via `fetchRoster`, cached locally so reopening is instant.
+private struct RecentAttendanceSheet: View {
+    let events: [UiOcc]
+    let seedRosters: [String: Roster]
+    let fetchRoster: (String) async -> Roster?
+    @State private var rosters: [String: Roster] = [:]
+    @Environment(\.dismiss) private var dismiss
+
+    private let now = Date()
+
+    // Past + present occurrences, most recent first.
+    private var pastEvents: [UiOcc] {
+        events
+            .filter { ($0.date ?? .distantFuture) <= now }
+            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+    }
+
+    private func attendeeCount(_ id: String) -> Int? {
+        guard let r = rosters[id] else { return nil }
+        return (r.checkedIn?.count ?? 0) + (r.guests?.count ?? 0)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Tap an event to see who attended").font(.nCaption).foregroundStyle(Nuru.muted)
+                    if pastEvents.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "calendar.badge.clock").font(.system(size: 20)).foregroundStyle(Nuru.muted)
+                                .frame(width: 48, height: 48).background(Nuru.inputBg)
+                                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            Text("No past events yet").font(.inter(14, .bold)).foregroundStyle(Nuru.ink)
+                            Text("Once an event has happened it appears here with its attendees.")
+                                .font(.nCaption).foregroundStyle(Nuru.muted).multilineTextAlignment(.center).frame(maxWidth: 280)
+                        }.frame(maxWidth: .infinity).padding(.vertical, 40)
+                    } else {
+                        VStack(spacing: 10) {
+                            ForEach(pastEvents) { o in
+                                NavigationLink {
+                                    RecentAttendanceDetail(occ: o, roster: rosters[o.id], fetchRoster: fetchRoster)
+                                } label: {
+                                    eventRow(o)
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }.padding(24)
+            }
+            .background(Nuru.paper)
+            .navigationTitle("Recent attendance").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+        }
+        .presentationDetents([.large])
+        .task {
+            // Seed from the page's cache, then warm counts for the visible rows.
+            rosters = seedRosters
+            for o in pastEvents where rosters[o.id] == nil {
+                if let r = await fetchRoster(o.id) { rosters[o.id] = r }
+            }
+        }
+    }
+
+    private func eventRow(_ o: UiOcc) -> some View {
+        HStack(spacing: 12) {
+            VStack(spacing: 0) {
+                Text((o.date ?? now).formatted(.dateTime.month(.abbreviated)).uppercased())
+                    .font(.system(size: 9, weight: .bold)).tracking(0.4)
+                Text("\(Calendar.current.component(.day, from: o.date ?? now))")
+                    .font(.inter(16, .heavy)).monospaced()
+            }
+            .foregroundStyle(o.category.color)
+            .frame(width: 48, height: 48)
+            .background(o.category.soft).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(o.title).font(.inter(13, .bold)).foregroundStyle(Nuru.ink).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(o.dateLong).monospaced(); Text("·")
+                    Label(o.location, systemImage: "mappin.and.ellipse")
+                }.font(.inter(11, .regular)).foregroundStyle(Nuru.muted).lineLimit(1)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 1) {
+                if let n = attendeeCount(o.id) {
+                    Text("\(n)").font(.inter(16, .heavy)).monospaced().foregroundStyle(Color(hex: 0x0F6B33))
+                } else {
+                    Text("—").font(.inter(16, .heavy)).monospaced().foregroundStyle(Nuru.muted)
+                }
+                Text("ATTENDED").font(.system(size: 9, weight: .bold)).tracking(0.4).foregroundStyle(Nuru.muted)
+            }
+            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Nuru.ink300)
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .contentShape(Rectangle())
+    }
+}
+
+/// Per-event attendee detail inside RecentAttendanceSheet — loads the roster on
+/// demand and renders the same attendee list AttendanceSheet uses.
+private struct RecentAttendanceDetail: View {
+    let occ: UiOcc
+    let fetchRoster: (String) async -> Roster?
+    @State private var roster: Roster?
+
+    init(occ: UiOcc, roster: Roster?, fetchRoster: @escaping (String) async -> Roster?) {
+        self.occ = occ
+        self.fetchRoster = fetchRoster
+        _roster = State(initialValue: roster)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(occ.category.label.uppercased()) · ATTENDANCE").font(.nOverline).tracking(0.5).foregroundStyle(occ.category.color)
+                    Text(occ.title).font(.fraunces(22, .medium)).foregroundStyle(Nuru.ink)
+                    Label(occ.dateLong, systemImage: "calendar").font(.nCaption).foregroundStyle(Nuru.muted)
+                    Label(occ.location, systemImage: "mappin.and.ellipse").font(.nCaption).foregroundStyle(Nuru.muted)
+                }
+                HStack {
+                    Text("\((roster?.checkedIn?.count ?? 0) + (roster?.guests?.count ?? 0)) attended")
+                        .font(.fraunces(20, .medium)).foregroundStyle(Nuru.ink)
+                    Spacer()
+                }
+                RosterAttendeeList(roster: roster)
+            }.padding(24)
+        }
+        .background(Nuru.paper)
+        .navigationTitle("Attendees").navigationBarTitleDisplayMode(.inline)
+        .task {
+            if roster == nil { roster = await fetchRoster(occ.id) }
         }
     }
 }
@@ -1867,9 +2143,14 @@ private let recurrenceOptions = ["One-time", "Daily", "Weekly", "Monthly", "Cust
 private let weekdayRrule = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
 
 private struct CreateEventSheet: View {
+    /// When non-nil the sheet edits this occurrence's series (PUT) instead of
+    /// creating a new one (POST). Core fields are prefilled from the occurrence.
+    var editing: UiOcc? = nil
     var onCreated: (String) -> Void
     var onError: (String) -> Void
     @Environment(\.dismiss) private var dismiss
+
+    private var isEdit: Bool { editing != nil }
 
     @State private var title = ""
     @State private var typeLabel = eventTypeOptions[0].label
@@ -1887,6 +2168,28 @@ private struct CreateEventSheet: View {
     @State private var primaryImageUrl = ""
     @State private var busy = false
     @State private var err: String?
+    @State private var didPrefill = false
+
+    // Prefill core fields from the occurrence being edited (title, type/category,
+    // date, start time, location, visibility). Recurrence defaults to "One-time"
+    // in edit mode so we don't fabricate an rrule the server didn't send.
+    private func prefillIfNeeded() {
+        guard let e = editing, !didPrefill else { return }
+        didPrefill = true
+        title = e.title
+        location = (e.location == "Location TBC") ? "" : e.location
+        visibility = e.visibility
+        recurrence = "One-time"
+        typeLabel = eventTypeOptions.first { $0.category == e.category.apiKey }?.label ?? typeLabel
+        if let d = e.date {
+            startDate = d
+            startTime = d
+        }
+        if let s = e.date, let en = e.endDate {
+            let mins = Int(en.timeIntervalSince(s) / 60)
+            if mins > 0 { durationMin = mins }
+        }
+    }
 
     private func rrule() -> String? {
         switch recurrence {
@@ -1941,11 +2244,18 @@ private struct CreateEventSheet: View {
         if let r = rrule() { body["rrule"] = .string(r) }
         busy = true; defer { busy = false }
         do {
-            let created = try await EventsWrites.createSeries(body)
-            if featured, !created.seriesId.isEmpty { try? await EventsWrites.setSeriesHomepage(created.seriesId) }
-            onCreated(asDraft ? "Event saved as draft." : "Event created.")
+            if let e = editing, !e.seriesId.isEmpty {
+                // Edit mode: PUT the series with the SAME body keys the create flow sends.
+                try await EventsWrites.updateSeries(e.seriesId, body)
+                if featured { try? await EventsWrites.setSeriesHomepage(e.seriesId) }
+                onCreated("Event updated.")
+            } else {
+                let created = try await EventsWrites.createSeries(body)
+                if featured, !created.seriesId.isEmpty { try? await EventsWrites.setSeriesHomepage(created.seriesId) }
+                onCreated(asDraft ? "Event saved as draft." : "Event created.")
+            }
         } catch {
-            let msg = (error as? APIError)?.errorDescription ?? "Could not create event."
+            let msg = (error as? APIError)?.errorDescription ?? (isEdit ? "Could not update event." : "Could not create event.")
             err = msg; onError(msg)
         }
     }
@@ -2035,20 +2345,31 @@ private struct CreateEventSheet: View {
             }
             .background(Nuru.paper)
             .scrollContentBackground(.hidden)
-            .navigationTitle("New event").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(isEdit ? "Edit event" : "New event").navigationBarTitleDisplayMode(.inline)
+            .onAppear { prefillIfNeeded() }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Create event") { Task { await submit(asDraft: false) } }
-                        Button("Save as draft") { Task { await submit(asDraft: true) } }
-                    } label: {
-                        Group { if busy { ProgressView() } else { Text("Save").bold() } }
-                            .font(.inter(14, .semibold)).foregroundStyle(.white)
-                            .padding(.horizontal, 14).padding(.vertical, 8)
-                            .background(busy ? AnyShapeStyle(Nuru.muted) : AnyShapeStyle(Nuru.goldGradient))
-                            .clipShape(Capsule())
-                    }.disabled(busy)
+                    if isEdit {
+                        Button { Task { await submit(asDraft: false) } } label: {
+                            Group { if busy { ProgressView() } else { Text("Save changes").bold() } }
+                                .font(.inter(14, .semibold)).foregroundStyle(.white)
+                                .padding(.horizontal, 14).padding(.vertical, 8)
+                                .background(busy ? AnyShapeStyle(Nuru.muted) : AnyShapeStyle(Nuru.goldGradient))
+                                .clipShape(Capsule())
+                        }.disabled(busy)
+                    } else {
+                        Menu {
+                            Button("Create event") { Task { await submit(asDraft: false) } }
+                            Button("Save as draft") { Task { await submit(asDraft: true) } }
+                        } label: {
+                            Group { if busy { ProgressView() } else { Text("Save").bold() } }
+                                .font(.inter(14, .semibold)).foregroundStyle(.white)
+                                .padding(.horizontal, 14).padding(.vertical, 8)
+                                .background(busy ? AnyShapeStyle(Nuru.muted) : AnyShapeStyle(Nuru.goldGradient))
+                                .clipShape(Capsule())
+                        }.disabled(busy)
+                    }
                 }
             }
         }

@@ -14,6 +14,7 @@
 // Codable models through APIClient.shared (the shared slim Models.swift lacks the
 // moderation / reaction / attachment / read-receipt fields the web surfaces).
 import SwiftUI
+import Charts
 
 // MARK: - Page-local rich models (mirror api/client.ts ChatApi)
 
@@ -78,6 +79,7 @@ private struct PReaction: Codable, Identifiable {
 
 private struct PMessageRow: Codable, Identifiable {
     @DefaultEmpty var messageId: String
+    let authorUserId: String?                 // the author's user id (→ member id for DMs)
     @DefaultEmpty var authorName: String
     @DefaultEmpty var body: String
     @DefaultEmpty var msgType: String        // text | voice | image | file | video
@@ -138,6 +140,22 @@ private struct PReaders: Codable {
     init(recipientCount: Int = 0, readCount: Int = 0, readers: [PReader] = []) {
         self.recipientCount = recipientCount; self.readCount = readCount; self.readers = readers
     }
+}
+
+// Profile / quick-stats (slim, resilient subset of GET /admin/members/{id} — the
+// same endpoint MemberDetailView decodes. Only the fields the context card shows.)
+private struct PMemberProfile: Codable {
+    struct Enrollment: Codable { @DefaultZero var currentLevel: Int; let levelTitle: String? }
+    struct Metrics: Codable { @DefaultZero var curriculumPct: Int }
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var fullName: String
+    let cellName: String?
+    let programme: String?
+    let status: String?
+    @DefaultEmpty var createdAt: String
+    let lastActivity: String?
+    var enrollment: Enrollment?
+    var metrics: Metrics?
 }
 
 // Helpers ---------------------------------------------------------------
@@ -228,10 +246,13 @@ struct ChatView: View {
                     if twoPane {
                         HStack(alignment: .top, spacing: 16) {
                             InboxPane(model: model)
-                                .frame(width: 380)
+                                .frame(width: 340)
                                 .frame(maxHeight: 760)
                             ThreadPane(model: model)
                                 .frame(maxWidth: .infinity)
+                                .frame(maxHeight: 760)
+                            ContextColumn(model: model)
+                                .frame(width: 320)
                                 .frame(maxHeight: 760)
                         }
                     } else {
@@ -610,17 +631,34 @@ private struct ThreadBody: View {
 
     private var type: ChatType { ChatType.of(conv.kind) }
 
+    /// DM → "last seen …" from the member's real last activity (falls back to the
+    /// thread's last message time); group/space → topic or member count.
+    private var headerSubtitle: String {
+        if conv.kind == "dm" {
+            if let la = model.profile?.lastActivity ?? conv.lastAt {
+                return "Last seen \(Fmt.relative(la))"
+            }
+            return "Direct message"
+        }
+        return conv.topic ?? "\(conv.memberCount) \(conv.memberCount == 1 ? "member" : "members")"
+    }
+
     private var header: some View {
         HStack(spacing: 12) {
             ConvAvatar(name: conv.displayName, uri: conv.kind == "dm" ? conv.avatarUrl : nil, kind: conv.kind, size: 42)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 8) {
                     Text(conv.displayName).font(.inter(14, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                    if conv.kind == "dm" {
+                        Text((model.profile?.programme?.uppercased()) ?? "DISCIPLE")
+                            .font(.inter(9, .heavy)).tracking(0.5).foregroundStyle(Color(hex: 0x0F6B33))
+                            .padding(.horizontal, 7).padding(.vertical, 1)
+                            .background(Color(hex: 0xE8F6EE)).clipShape(Capsule())
+                    }
                     Text(type.label.uppercased()).font(.inter(9.5, .bold)).foregroundStyle(type.fg)
                         .padding(.horizontal, 8).padding(.vertical, 1).background(type.bg).clipShape(Capsule())
                 }
-                Text(conv.topic ?? "\(conv.memberCount) \(conv.memberCount == 1 ? "member" : "members")")
-                    .font(.nMicro).foregroundStyle(Nuru.muted).lineLimit(1)
+                Text(headerSubtitle).font(.nMicro).foregroundStyle(Nuru.muted).lineLimit(1)
             }
             Spacer()
             HStack(spacing: 6) {
@@ -1010,6 +1048,302 @@ private struct AttachmentView: View {
     }
 }
 
+// MARK: - Right-hand context column (navy cards on the light page)
+
+/// Three stacked navy cards: Today's pulse · Nuru Light (AI summary) · Profile.
+private struct ContextColumn: View {
+    @ObservedObject var model: ChatModel
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 14) {
+                PulseCard(model: model)
+                NuruLightCard(model: model)
+                ProfileCard(model: model)
+                Spacer(minLength: 0)
+            }
+        }
+        // Reload the profile whenever the selected conversation (or its derived
+        // member id) changes — graceful loading + empty handled inside the card.
+        .task(id: "\(model.activeId)|\(model.dmMemberId ?? "")") {
+            await model.loadProfileForSelection()
+        }
+    }
+}
+
+/// Shared navy surface for the context cards — rich navy gradient, white text,
+/// bright lumGreen accents, sitting on the otherwise light/paper page.
+private struct NavyCard<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) { content }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Nuru.navyGradient)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(.white.opacity(0.08), lineWidth: 1))
+            .nuruShadow()
+    }
+}
+
+private func cardEyebrow(_ icon: String, _ text: String, tint: Color = Nuru.lumGreen) -> some View {
+    HStack(spacing: 8) {
+        Image(systemName: icon).font(.system(size: 12, weight: .bold)).foregroundStyle(tint)
+            .frame(width: 26, height: 26)
+            .background(tint.opacity(0.16))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        Text(text.uppercased()).font(.inter(11, .heavy)).tracking(1.2).foregroundStyle(.white.opacity(0.92))
+        Spacer(minLength: 0)
+    }
+}
+
+// 1) Today's pulse — status line + four mini-stat tiles (reuses heroStats), plus a
+//    real 7-day "active conversations / day" sparkline derived from rows' lastAt.
+private struct PulseCard: View {
+    @ObservedObject var model: ChatModel
+    var body: some View {
+        NavyCard {
+            cardEyebrow("waveform.path.ecg", "Today's pulse")
+            HStack(spacing: 6) {
+                let flagged = model.totalFlagged
+                Image(systemName: flagged > 0 ? "exclamationmark.shield.fill" : "checkmark.seal.fill")
+                    .font(.system(size: 12)).foregroundStyle(flagged > 0 ? Nuru.gold : Nuru.lumGreen)
+                Text(flagged > 0 ? "\(flagged) flagged · needs review" : "0 flagged · All clear")
+                    .font(.inter(12.5, .semibold)).foregroundStyle(.white)
+            }
+            let stats = model.heroStats
+            let icons = ["bubble.left.and.bubble.right.fill", "bolt.fill", "envelope.fill", "exclamationmark.shield.fill"]
+            let tints: [Color] = [Nuru.lumGreen, Nuru.lumGreen, Nuru.gold, Nuru.gold]
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ForEach(Array(stats.enumerated()), id: \.element.id) { i, s in
+                    miniTile(icon: icons[i % icons.count], tint: tints[i % tints.count], value: s.value, label: s.label)
+                }
+            }
+            if let series = model.activitySeries {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("LAST 7 DAYS · ACTIVE CHATS").font(.inter(8.5, .bold)).tracking(0.6)
+                        .foregroundStyle(.white.opacity(0.5))
+                    Sparkline(values: series).frame(height: 34)
+                }
+                .padding(.top, 2)
+            }
+        }
+    }
+    private func miniTile(icon: String, tint: Color, value: String, label: String) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(tint)
+                .frame(width: 28, height: 28).background(tint.opacity(0.16))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: 0) {
+                Text(value).font(.inter(16, .heavy)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+                Text(label.uppercased()).font(.inter(8, .bold)).tracking(0.4)
+                    .foregroundStyle(.white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 9).padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// Tiny line sparkline (local — no shared helper exists). Real values in, drawn
+/// with Swift Charts on the navy card.
+private struct Sparkline: View {
+    let values: [Int]
+    var body: some View {
+        let pts = Array(values.enumerated())
+        Chart(pts, id: \.offset) { p in
+            LineMark(x: .value("Day", p.offset), y: .value("Chats", p.element))
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(Nuru.lumGreen)
+            AreaMark(x: .value("Day", p.offset), y: .value("Chats", p.element))
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(LinearGradient(colors: [Nuru.lumGreen.opacity(0.32), .clear],
+                                                startPoint: .top, endPoint: .bottom))
+        }
+        .chartXAxis(.hidden).chartYAxis(.hidden)
+        .chartYScale(domain: 0...max(1, (values.max() ?? 1)))
+    }
+}
+
+// 2) Nuru Light — the existing this-thread AI summary + Draft / Prayer / Encourage
+//    (identical model wiring), restyled into the navy card.
+private struct NuruLightCard: View {
+    @ObservedObject var model: ChatModel
+    var body: some View {
+        NavyCard {
+            cardEyebrow("sparkles", "Nuru Light")
+            if model.active == nil {
+                Text("Select a conversation for Nuru's read.")
+                    .font(.inter(12)).foregroundStyle(.white.opacity(0.7))
+            } else {
+                if model.summaryBusy {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small).tint(.white)
+                        Text("Nuru is reading the thread…").font(.inter(12)).foregroundStyle(.white.opacity(0.75))
+                    }
+                } else if let s = model.summary {
+                    Text(s).font(.inter(12.5)).foregroundStyle(.white.opacity(0.92))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Button { Task { await model.loadSummary() } } label: {
+                        Text("Summarise this conversation")
+                            .font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy)
+                            .padding(.horizontal, 12).frame(height: 34)
+                            .background(Nuru.lumGreen).clipShape(Capsule())
+                    }.buttonStyle(.plain)
+                }
+                if !model.isArchived {
+                    FlowChips {
+                        navyChip("Draft a reply", icon: "wand.and.stars", filled: true) {
+                            model.runAssist(.reply); model.assistOpen = true
+                        }
+                        navyChip("🙏 Offer a prayer") { model.runAssist(.prayer); model.assistOpen = true }
+                        navyChip("💛 Encourage") { model.runAssist(.encourage); model.assistOpen = true }
+                    }
+                }
+            }
+        }
+    }
+    private func navyChip(_ label: String, icon: String? = nil, filled: Bool = false, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if let icon { Image(systemName: icon).font(.system(size: 10)) }
+                Text(label).font(.inter(11, .bold))
+            }
+            .foregroundStyle(filled ? Nuru.navy : .white)
+            .padding(.horizontal, 11).padding(.vertical, 7)
+            .background(filled ? AnyShapeStyle(Nuru.lumGreen) : AnyShapeStyle(Color.white.opacity(0.10)))
+            .overlay(Capsule().stroke(filled ? .clear : .white.opacity(0.18), lineWidth: 1))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain).disabled(model.assistBusy).opacity(model.assistBusy ? 0.6 : 1)
+    }
+}
+
+/// Wrapping HStack for the action chips (so they don't clip the narrow column).
+private struct FlowChips<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) { content }
+            VStack(alignment: .leading, spacing: 6) { content }
+        }
+    }
+}
+
+// 3) Profile / quick-stats — DM member detail (real) or group/space context (real).
+private struct ProfileCard: View {
+    @ObservedObject var model: ChatModel
+    @EnvironmentObject private var router: NavRouter
+    var body: some View {
+        NavyCard {
+            if let conv = model.active, conv.kind != "dm" {
+                groupBody(conv)
+            } else if let conv = model.active {
+                dmBody(conv)
+            } else {
+                cardEyebrow("person.crop.circle", "Profile")
+                Text("Pick a chat to see who you're talking with.")
+                    .font(.inter(12)).foregroundStyle(.white.opacity(0.7))
+            }
+        }
+    }
+
+    // DM → disciple profile
+    @ViewBuilder private func dmBody(_ conv: PConversationRow) -> some View {
+        cardEyebrow("person.crop.circle", "Profile")
+        HStack(spacing: 12) {
+            ConvAvatar(name: model.profile?.fullName ?? conv.displayName,
+                       uri: conv.avatarUrl, kind: "dm", size: 46)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.profile?.fullName ?? conv.displayName)
+                    .font(.inter(15, .bold)).foregroundStyle(.white).lineLimit(1)
+                Text((model.profile?.programme?.capitalized ?? "Disciple").uppercased())
+                    .font(.inter(9, .heavy)).tracking(0.6).foregroundStyle(Nuru.navy)
+                    .padding(.horizontal, 8).padding(.vertical, 2)
+                    .background(Nuru.lumGreen).clipShape(Capsule())
+            }
+            Spacer(minLength: 0)
+        }
+        if model.profileLoading {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small).tint(.white)
+                Text("Loading profile…").font(.inter(11.5)).foregroundStyle(.white.opacity(0.7))
+            }.padding(.top, 2)
+        } else if let p = model.profile {
+            VStack(spacing: 0) {
+                if let cell = p.cellName, !cell.isEmpty { statRow("Congregation", cell) }
+                if !p.createdAt.isEmpty {
+                    statRow("Joined", Fmt.date(p.createdAt, style: .dateTime.month(.abbreviated).year()))
+                }
+                if let en = p.enrollment {
+                    let pct = Double(p.metrics?.curriculumPct ?? 0)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Pathway · Level \(en.currentLevel)").font(.inter(11.5, .semibold))
+                                .foregroundStyle(.white.opacity(0.85))
+                            Spacer()
+                            Text("\(Int(pct))%").font(.inter(11.5, .heavy)).foregroundStyle(Nuru.lumGreen)
+                        }
+                        ProgressBar(pct: pct, fill: Nuru.lumGreen, height: 7)
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
+            Button { router.member(p.userId, p.fullName) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.right.square").font(.system(size: 12, weight: .bold))
+                    Text("View full profile").font(.inter(12.5, .bold))
+                }
+                .foregroundStyle(Nuru.navy).frame(maxWidth: .infinity).frame(height: 38)
+                .background(Nuru.lumGreen).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            }.buttonStyle(.plain)
+        } else {
+            // Member id couldn't be resolved (e.g. no inbound message yet).
+            Text("Profile will appear once \(conv.displayName) has messaged here.")
+                .font(.inter(11.5)).foregroundStyle(.white.opacity(0.65))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // Group / space → real conversation context
+    @ViewBuilder private func groupBody(_ conv: PConversationRow) -> some View {
+        let isSpace = conv.kind == "space"
+        cardEyebrow(isSpace ? "number" : "person.3.fill", isSpace ? "Space" : "Group")
+        HStack(spacing: 12) {
+            ConvAvatar(name: conv.displayName, uri: nil, kind: conv.kind, size: 46)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(conv.displayName).font(.inter(15, .bold)).foregroundStyle(.white).lineLimit(2)
+                Text(ChatType.of(conv.kind).label.uppercased())
+                    .font(.inter(9, .heavy)).tracking(0.6).foregroundStyle(Nuru.navy)
+                    .padding(.horizontal, 8).padding(.vertical, 2)
+                    .background(Nuru.lumGreen).clipShape(Capsule())
+            }
+            Spacer(minLength: 0)
+        }
+        VStack(spacing: 0) {
+            if let topic = conv.topic, !topic.isEmpty { statRow("Topic", topic) }
+            if let cat = conv.category, !cat.isEmpty { statRow("Category", cat.capitalized) }
+            statRow("Members", "\(conv.memberCount)")
+            if conv.lastAt != nil { statRow("Last active", Fmt.relative(conv.lastAt)) }
+        }
+    }
+
+    private func statRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(label).font(.inter(11.5, .semibold)).foregroundStyle(.white.opacity(0.6))
+            Spacer(minLength: 12)
+            Text(value).font(.inter(12.5, .semibold)).foregroundStyle(.white)
+                .multilineTextAlignment(.trailing).lineLimit(2)
+        }
+        .padding(.vertical, 7)
+        .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.08)).frame(height: 1) }
+    }
+}
+
 // MARK: - Modals
 
 private struct CreateSpaceSheet: View {
@@ -1239,6 +1573,11 @@ private final class ChatModel: ObservableObject {
     @Published var archived: Set<String> = []
     @Published var moderatingIds: Set<String> = []
 
+    // Profile / quick-stats context card (right column)
+    @Published var profile: PMemberProfile? = nil
+    @Published var profileLoading = false
+    @Published var profileMemberId: String? = nil   // the DM member id this profile is for
+
     // Nuru
     @Published var aiOpen = true
     @Published var assistOpen = false
@@ -1283,6 +1622,23 @@ private final class ChatModel: ObservableObject {
             HeroStat(label: "Unread", value: "\(unread)", hint: "across chats"),
             HeroStat(label: "Flagged", value: "\(totalFlagged)", hint: "need moderation"),
         ]
+    }
+
+    /// Real 7-day series: number of conversations whose last activity fell on each
+    /// day (oldest→today), derived from the rows' `lastAt`. Returns nil when there
+    /// isn't a single dated row, so the sparkline is omitted rather than faked.
+    var activitySeries: [Int]? {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        var buckets = Array(repeating: 0, count: 7)
+        var any = false
+        for r in rows {
+            guard let at = r.lastAt, let d = isoDate(at) else { continue }
+            let day = cal.startOfDay(for: d)
+            guard let diff = cal.dateComponents([.day], from: day, to: today).day, diff >= 0, diff < 7 else { continue }
+            buckets[6 - diff] += 1; any = true
+        }
+        return any ? buckets : nil
     }
 
     // MARK: list
@@ -1406,6 +1762,33 @@ private final class ChatModel: ObservableObject {
     }
 
     func showReaders(_ messageId: String) { readersForId = IdBox(id: messageId) }
+
+    // MARK: profile / quick-stats (right-column context card)
+    /// The other member's user id for the active DM, derived from the first
+    /// non-mine message's author (the conversation rows/detail don't carry it,
+    /// but message rows do via `author_user_id`). Real data, no fabrication.
+    var dmMemberId: String? {
+        guard active?.kind == "dm" else { return nil }
+        return messages.first(where: { !$0.mine && !($0.authorUserId ?? "").isEmpty })?.authorUserId
+    }
+
+    /// Load (or clear) the profile card for the current selection. For a DM we
+    /// fetch the member detail from the same endpoint MemberDetailView uses; for
+    /// groups/spaces there is no per-member detail, so we render space context
+    /// straight from the conversation model (no fetch).
+    func loadProfileForSelection() async {
+        guard active?.kind == "dm", let id = dmMemberId else {
+            profile = nil; profileMemberId = nil; profileLoading = false; return
+        }
+        if profileMemberId == id, profile != nil { return }   // already loaded
+        profileLoading = true; profileMemberId = id
+        do {
+            profile = try await api.get("/admin/members/\(id)", as: PMemberProfile.self)
+        } catch {
+            profile = nil   // graceful empty state; the card falls back to the DM name
+        }
+        profileLoading = false
+    }
 
     // MARK: Nuru
     func toggleNuru() {

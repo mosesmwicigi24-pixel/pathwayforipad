@@ -1,11 +1,18 @@
-// Finance — Giving Ledger console, a line-by-line SwiftUI port of the web
-// admin portal's Finance.tsx ("Final Pathway Portal" make): a 5-tab read-only
-// reporting surface (Overview / Transactions / Ledger / Audit / Configuration),
-// wired to the live finance reads. Money is integer minor units + ISO currency.
+// Finance — Giving Ledger console. A richer, professional reporting surface for
+// the iPad admin portal, wired to the LIVE finance reads only. Five tabs:
+// Overview · Transactions · Ledger · Audit · Configuration. Money is integer
+// minor units + ISO currency.
 //
 // This page is READ-ONLY: it issues no writes, no payment actions, and shows no
 // secrets — cards never touch the server and config is informational only
 // (PCI SAQ-A, §5.6; step-up MFA is administrator-managed, server-side).
+//
+// HONESTY RULE: every number on this page is computed from a real endpoint
+// (summary / transactions / ledger / trend / audit / config). Where the owner's
+// vision wants data the backend doesn't expose yet — fees, expenses,
+// net-after-fees, reconciliation variance, receipt numbers, donor contact,
+// currency conversion, a cash channel — we show a dim "Not tracked yet" note or
+// omit the element. We never fabricate a figure.
 import SwiftUI
 import Charts
 
@@ -107,12 +114,12 @@ private enum FinanceAPI {
         try await APIClient.shared.get("/admin/finance/summary", as: FinanceSummary.self).funds
     }
     static func transactions(fund: String?, status: String?) async throws -> [TransactionRow] {
-        var q: [String: String] = [:]
+        var q: [String: String] = ["limit": "200"]
         if let fund, fund != "All" { q["fund"] = fund }
         if let status, status != "All" { q["status"] = status }
         return try await APIClient.shared.get("/admin/finance/transactions", query: q, as: TransactionsPage.self).data
     }
-    static func ledger(limit: Int = 200) async throws -> [LedgerRow] {
+    static func ledger(limit: Int = 500) async throws -> [LedgerRow] {
         try await APIClient.shared.get("/admin/finance/ledger", query: ["limit": String(limit)], as: LedgerPage.self).data
     }
     static func trend(months: Int = 6) async throws -> [FinanceTrendPoint] {
@@ -131,13 +138,13 @@ private enum FinanceAPI {
     }
 }
 
-// MARK: - Tokens / helpers (ported from the web page)
+// MARK: - Tokens / helpers (de-blue v5 palette: navy / gold / bright-green)
 
 private enum FinanceTone {
-    /// The TONES palette used for the fund cards + donut.
+    /// Fund / donut palette — brand-aligned, no off-brand blue.
     static let palette: [Color] = [
-        Color(hex: 0xC89B3C), Color(hex: 0x16A34A), Color(hex: 0x0B84E8),
-        Color(hex: 0x7C3AED), Color(hex: 0xDC2626), Color(hex: 0x0D9488),
+        Color(hex: 0xC89B3C), Color(hex: 0x16A34A), Color(hex: 0x1D4E86),
+        Color(hex: 0x7C3AED), Color(hex: 0x0D9488), Color(hex: 0xB45309),
     ]
     static func at(_ i: Int) -> Color { palette[((i % palette.count) + palette.count) % palette.count] }
 }
@@ -191,6 +198,64 @@ private func shortRef(_ id: String) -> String {
     id.count > 12 ? "\(id.prefix(8))…\(id.suffix(4))" : id
 }
 
+/// Group a status into the two derived buckets the spec asks for.
+private func isPendingStatus(_ s: String) -> Bool { s == "requires_action" || s == "processing" || s == "pending" }
+private func isFailedStatus(_ s: String) -> Bool { s == "failed" || s == "refunded" }
+
+// MARK: - Payment channels (REAL: cash:* ledger debits + method-grouped txns)
+
+/// The four wireable channels. `cashAccount` is the ledger account whose debit
+/// total is the money received by that channel; `method` is the transactions
+/// `method` value and the config provider key.
+private struct Channel: Identifiable {
+    let id: String           // method value
+    let label: String
+    let icon: String
+    let cashAccount: String  // e.g. "cash:mpesa"
+    let tint: Color
+}
+private let channels: [Channel] = [
+    Channel(id: "mpesa",  label: "M-Pesa", icon: "phone.fill",            cashAccount: "cash:mpesa",  tint: Color(hex: 0x16A34A)),
+    Channel(id: "airtel", label: "Airtel", icon: "antenna.radiowaves.left.and.right", cashAccount: "cash:airtel", tint: Color(hex: 0xDC2626)),
+    Channel(id: "paypal", label: "PayPal", icon: "p.circle.fill",         cashAccount: "cash:paypal", tint: Color(hex: 0x1D4E86)),
+    Channel(id: "card",   label: "Card",   icon: "creditcard.fill",       cashAccount: "cash:stripe", tint: Color(hex: 0xC89B3C)),
+]
+
+/// Per-channel rollup computed from the live ledger + transactions page.
+private struct ChannelStat: Identifiable {
+    let channel: Channel
+    var receivedMinor: Int = 0   // Σ debit on the cash:* account (real money received)
+    var currency: String = "KES"
+    var count: Int = 0           // txns with this method
+    var succeeded: Int = 0
+    var pending: Int = 0
+    var failed: Int = 0
+    var enabled: Bool? = nil     // from config providers, nil = unknown
+    var id: String { channel.id }
+}
+
+private func channelStats(ledger: [LedgerRow], txns: [TransactionRow], config: FinanceConfig?) -> [ChannelStat] {
+    channels.map { ch in
+        var s = ChannelStat(channel: ch)
+        for l in ledger where l.account == ch.cashAccount && l.side == "debit" {
+            s.receivedMinor += l.amountMinor
+            if !l.currency.isEmpty { s.currency = l.currency }
+        }
+        for t in txns where t.method == ch.id {
+            s.count += 1
+            if isFailedStatus(t.status) { s.failed += 1 }
+            else if isPendingStatus(t.status) { s.pending += 1 }
+            else { s.succeeded += 1 }
+        }
+        if let providers = config?.providers {
+            // provider key may be the method id or "stripe" for card
+            let keys: Set<String> = ch.id == "card" ? ["card", "stripe"] : [ch.id]
+            if let p = providers.first(where: { keys.contains($0.key) }) { s.enabled = p.enabled }
+        }
+        return s
+    }
+}
+
 // MARK: - CSV export (presentational in the web — window.print; here a native
 // ShareLink over the current read-only rows. No write endpoints are involved.)
 
@@ -208,12 +273,13 @@ private func csvAmount(_ minor: Int, _ currency: String) -> String {
 }
 
 private func transactionsCSV(_ rows: [TransactionRow]) -> String {
-    var out = csvRow(["Date", "Member", "Fund", "Amount", "Payment Status", "Ledger Status", "Reference"])
+    var out = csvRow(["Date", "Donor", "Fund", "Method", "Amount", "Payment Status", "Ledger Status", "Reference"])
     for t in rows {
         out += csvRow([
             fmtDate(t.createdAt),
             t.fullName ?? "Anonymous",
             t.fund ?? "—",
+            methodLabel(t.method),
             csvAmount(t.amountMinor, t.currency),
             statusTitle(t.status),
             ledgerStatus(t.status).label,
@@ -290,6 +356,17 @@ private struct ColorPill: View {
     }
 }
 
+/// Dim, honest placeholder for data the backend doesn't expose yet.
+private struct NotTracked: View {
+    let text: String
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "minus.circle").font(.system(size: 10)).foregroundStyle(Nuru.ink300)
+            Text(text).font(.inter(11.5)).foregroundStyle(Nuru.ink400)
+        }
+    }
+}
+
 // MARK: - ===================== FinanceView =====================
 
 struct FinanceView: View {
@@ -308,6 +385,8 @@ struct FinanceView: View {
     @State private var search = ""
     @State private var fundFilter = "All"
     @State private var statusFilter = "All"
+    @State private var minAmount = ""
+    @State private var maxAmount = ""
 
     // audit filter
     @State private var auditActor = "All"   // All | System | Admin
@@ -320,16 +399,37 @@ struct FinanceView: View {
 
     // MARK: derived
 
-    private var currency: String { funds.first?.currency ?? "KES" }
+    private var currency: String {
+        // Dominant currency = the one carrying the most all-time giving.
+        var totals: [String: Int] = [:]
+        for f in funds { totals[(f.currency ?? "KES"), default: 0] += f.totalMinor }
+        return totals.max { $0.value < $1.value }?.key ?? funds.first?.currency ?? "KES"
+    }
     private var monthTotal: Int { funds.reduce(0) { $0 + $1.monthMinor } }
     private var allTotal: Int { funds.reduce(0) { $0 + $1.totalMinor } }
     private var giftCount: Int { funds.reduce(0) { $0 + $1.giftCount } }
+    private var avgGift: Int { giftCount > 0 ? allTotal / giftCount : 0 }
+    private var activeFundCount: Int { funds.filter { $0.totalMinor > 0 }.count }
+
+    // Pending / Failed derived from the FETCHED transactions page (labelled as such in UI).
+    private var pendingCount: Int { txns.filter { isPendingStatus($0.status) }.count }
+    private var failedCount: Int { txns.filter { isFailedStatus($0.status) }.count }
+
+    private var channelStatsList: [ChannelStat] { channelStats(ledger: ledger, txns: txns, config: config) }
 
     fileprivate struct DonutSlice: Identifiable { let name: String; let value: Int; let color: Color; var id: String { name } }
     private var donut: [DonutSlice] {
         funds.enumerated()
             .filter { $0.element.monthMinor > 0 }
             .map { i, f in DonutSlice(name: f.name, value: Int((Double(f.monthMinor) / 100).rounded()), color: FinanceTone.at(i)) }
+    }
+
+    // Giving by payment method — from the ledger cash:* debit totals (real money received).
+    fileprivate struct MethodSlice: Identifiable { let name: String; let value: Int; let color: Color; var id: String { name } }
+    private var methodSlices: [MethodSlice] {
+        channelStatsList
+            .filter { $0.receivedMinor > 0 }
+            .map { MethodSlice(name: $0.channel.label, value: Int((Double($0.receivedMinor) / 100).rounded()), color: $0.channel.tint) }
     }
 
     fileprivate struct TrendBar: Identifiable { let m: String; let value: Int; var id: String { m } }
@@ -339,15 +439,18 @@ struct FinanceView: View {
 
     private var visibleTxns: [TransactionRow] {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return txns }
-        return txns.filter {
-            "\($0.fullName ?? "") \($0.fund ?? "") \(Int(Double($0.amountMinor) / 100)) \($0.transactionId)"
-                .lowercased().contains(q)
+        let lo = Double(minAmount.trimmingCharacters(in: .whitespaces)).map { $0 * 100 }
+        let hi = Double(maxAmount.trimmingCharacters(in: .whitespaces)).map { $0 * 100 }
+        return txns.filter { t in
+            if !q.isEmpty {
+                let hay = "\(t.fullName ?? "") \(t.fund ?? "") \(methodLabel(t.method)) \(Int(Double(t.amountMinor) / 100)) \(t.transactionId)".lowercased()
+                if !hay.contains(q) { return false }
+            }
+            if let lo, Double(t.amountMinor) < lo { return false }
+            if let hi, Double(t.amountMinor) > hi { return false }
+            return true
         }
     }
-
-    private var debitTotal: Int { ledger.filter { $0.side == "debit" }.reduce(0) { $0 + $1.amountMinor } }
-    private var creditTotal: Int { ledger.filter { $0.side == "credit" }.reduce(0) { $0 + $1.amountMinor } }
 
     // Export Report (hero): the web window.print()s the page; here we share a CSV of
     // whatever the current tab is showing — Ledger on the ledger tab, otherwise the
@@ -423,14 +526,12 @@ struct FinanceView: View {
     }
 
     private var heroStatStrip: some View {
-        // ~5 compact tiles across the narrow portrait canvas. Small value fonts so
-        // the currency reads compactly; one short hint each. No half-screen cards.
-        let avgGift = giftCount > 0 ? allTotal / giftCount : 0
+        // Compact tiles across the narrow portrait canvas. All-real figures.
         let items: [(label: String, value: String, hint: String)] = [
             ("This month", Fmt.money(minor: monthTotal, currency: currency), "\(giftCount) gifts"),
             ("All time", Fmt.money(minor: allTotal, currency: currency), "across funds"),
             ("Avg gift", Fmt.money(minor: avgGift, currency: currency), "per gift"),
-            ("Funds", String(funds.count), "active"),
+            ("Funds", String(activeFundCount), "active"),
             ("Gifts", String(giftCount), "received"),
         ]
         return LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 1)], spacing: 1) {
@@ -487,14 +588,20 @@ struct FinanceView: View {
             if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
             switch tab {
             case .overview:
-                OverviewTab(funds: funds, currency: currency, donut: donut, trendPoints: trendPoints,
-                            monthTotal: monthTotal, allTotal: allTotal, giftCount: giftCount)
+                OverviewTab(funds: funds, currency: currency, donut: donut,
+                            methodSlices: methodSlices, trendPoints: trendPoints,
+                            channels: channelStatsList,
+                            monthTotal: monthTotal, allTotal: allTotal, giftCount: giftCount,
+                            avgGift: avgGift, activeFundCount: activeFundCount,
+                            pendingCount: pendingCount, failedCount: failedCount,
+                            txnCount: txns.count)
             case .transactions:
                 TransactionsTab(txns: visibleTxns, funds: funds, search: $search,
                                 fundFilter: $fundFilter, statusFilter: $statusFilter,
+                                minAmount: $minAmount, maxAmount: $maxAmount,
                                 onView: { id in Task { await openDetail(id) } })
             case .ledger:
-                LedgerTab(ledger: ledger, debitTotal: debitTotal, creditTotal: creditTotal, currency: currency)
+                LedgerTab(ledger: ledger, currency: currency)
             case .audit:
                 AuditTab(audit: audit, actor: $auditActor)
             case .config:
@@ -509,7 +616,7 @@ struct FinanceView: View {
         do { funds = try await FinanceAPI.summary() }
         catch { self.error = (error as? APIError)?.errorDescription ?? "Could not load funds." }
         trend = (try? await FinanceAPI.trend(months: 6)) ?? trend
-        ledger = (try? await FinanceAPI.ledger(limit: 200)) ?? ledger
+        ledger = (try? await FinanceAPI.ledger(limit: 500)) ?? ledger
         config = (try? await FinanceAPI.config()) ?? config
     }
     private func loadTxns() async {
@@ -534,155 +641,255 @@ private struct OverviewTab: View {
     let funds: [FundSummary]
     let currency: String
     let donut: [FinanceView.DonutSlice]
+    let methodSlices: [FinanceView.MethodSlice]
     let trendPoints: [FinanceView.TrendBar]
+    let channels: [ChannelStat]
     let monthTotal: Int
     let allTotal: Int
     let giftCount: Int
+    let avgGift: Int
+    let activeFundCount: Int
+    let pendingCount: Int
+    let failedCount: Int
+    let txnCount: Int
 
-    // ~5 compact fund tiles per row at ~740pt portrait width.
-    private let cols = [GridItem(.adaptive(minimum: 132), spacing: 12)]
+    private let kpiCols = [GridItem(.adaptive(minimum: 138), spacing: 10)]
+    private let chanCols = [GridItem(.adaptive(minimum: 168), spacing: 12)]
+    private let fundCols = [GridItem(.adaptive(minimum: 168), spacing: 12)]
 
     var body: some View {
         VStack(spacing: 16) {
-            // fund tiles — compact stat strip, small amount font
-            if funds.isEmpty {
-                Card { Text("No funds configured.").font(.nCaption).foregroundStyle(Nuru.ink600)
-                    .frame(maxWidth: .infinity, alignment: .leading) }
-            } else {
-                LazyVGrid(columns: cols, spacing: 12) {
-                    ForEach(Array(funds.enumerated()), id: \.element.id) { i, f in
-                        fundTile(f, tone: FinanceTone.at(i))
-                    }
-                }
-            }
-
-            // monthly giving trend
-            Card {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Monthly giving").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                    Text("Last 6 months · \(currency)").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
-                    trendChart.frame(height: 200).padding(.top, 12)
-                }
-            }
-
-            // giving by fund — donut + clear legend (value + %)
-            Card {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Giving by fund").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                    Text("This month · \(currency)").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
-                    if donut.isEmpty {
-                        Text("No giving this month yet.").font(.nCaption).foregroundStyle(Nuru.ink600)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 16)
-                    } else {
-                        HStack(alignment: .center, spacing: 16) {
-                            donutChart
-                                .frame(width: 132, height: 132)
-                                .overlay {
-                                    VStack(spacing: 0) {
-                                        Text("\(currency)").font(.inter(9, .semibold)).foregroundStyle(Nuru.ink600)
-                                        Text(donutTotal.formatted()).font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
-                                            .lineLimit(1).minimumScaleFactor(0.6)
-                                        Text("this month").font(.nMicro).foregroundStyle(Nuru.ink400)
-                                    }
-                                    .padding(.horizontal, 6)
-                                }
-                            VStack(spacing: 7) {
-                                ForEach(donut) { d in donutLegendRow(d) }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding(.top, 14)
-                    }
-                }
-            }
-
-            // Discipleship / Gift / Mission breakdown — aligned bars
-            breakdownCard
-
-            // summary
-            Card {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Summary").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                    VStack(spacing: 0) {
-                        ForEach(Array(summaryRows.enumerated()), id: \.element.label) { idx, row in
-                            HStack(alignment: .firstTextBaseline) {
-                                Text(row.label).font(.inter(12.5)).foregroundStyle(Nuru.ink600)
-                                Spacer(minLength: 8)
-                                Text(row.value).font(.inter(13.5, .semibold)).monospaced().foregroundStyle(Nuru.navy)
-                                    .lineLimit(1).minimumScaleFactor(0.7)
-                            }
-                            .padding(.vertical, 9)
-                            .overlay(alignment: .top) {
-                                if idx > 0 { Rectangle().fill(Nuru.border).frame(height: 1) }
-                            }
-                        }
-                    }
-                    .padding(.top, 6)
-                }
-            }
+            kpiStrip
+            channelSection
+            fundSection
+            trendCard
+            givingByFundCard
+            givingByMethodCard
+            comingSoonNote
         }
     }
 
-    private var summaryRows: [(label: String, value: String)] {
-        let avg = giftCount > 0 ? allTotal / giftCount : 0
-        return [("This month", Fmt.money(minor: monthTotal, currency: currency)),
-                ("All time", Fmt.money(minor: allTotal, currency: currency)),
-                ("Average gift", Fmt.money(minor: avg, currency: currency)),
-                ("Funds", String(funds.count)),
-                ("Gifts received", String(giftCount))]
+    // 1 ── KPI strip (5 headline + 2 derived pending/failed)
+    private var kpiStrip: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: kpiCols, spacing: 10) {
+                kpi("This Month Received", Fmt.money(minor: monthTotal, currency: currency), "banknote.fill", Color(hex: 0x16A34A))
+                kpi("All-Time Giving", Fmt.money(minor: allTotal, currency: currency), "chart.line.uptrend.xyaxis", Nuru.gold)
+                kpi("Average Gift", Fmt.money(minor: avgGift, currency: currency), "gift.fill", Color(hex: 0x7C3AED))
+                kpi("Total Gifts", String(giftCount), "number", Nuru.navy)
+                kpi("Active Funds", String(activeFundCount), "tray.full.fill", Color(hex: 0x0D9488))
+                kpi("Pending", String(pendingCount), "clock.fill", Color(hex: 0xA87616))
+                kpi("Failed / Refunded", String(failedCount), "exclamationmark.triangle.fill", Color(hex: 0xDC2626))
+            }
+            Text("Pending and failed are counted in the \(txnCount) most-recent transactions fetched, not all-time.")
+                .font(.inter(10.5)).foregroundStyle(Nuru.ink400)
+        }
     }
 
-    // compact fund tile — small icon, small label, small amount, one hint
-    private func fundTile(_ f: FundSummary, tone: Color) -> some View {
+    private func kpi(_ label: String, _ value: String, _ icon: String, _ tint: Color) -> some View {
         Card(padding: 12) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 6) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tone.opacity(0.12))
-                        Image(systemName: "banknote.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(tone)
+                        RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tint.opacity(0.14))
+                        Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
                     }.frame(width: 24, height: 24)
                     Spacer(minLength: 0)
-                    Text("\(f.giftCount)").font(.inter(10.5, .semibold)).foregroundStyle(Nuru.ink600)
                 }
-                Text(f.name.uppercased()).font(.nOverline).tracking(0.8).foregroundStyle(Nuru.ink600)
-                    .lineLimit(1).minimumScaleFactor(0.8).padding(.top, 7)
-                Text(Fmt.money(minor: f.totalMinor, currency: f.currency))
-                    .font(.inter(15, .semibold)).foregroundStyle(Nuru.navy).padding(.top, 2)
+                Text(label.uppercased()).font(.nOverline).tracking(0.7).foregroundStyle(Nuru.ink600)
+                    .lineLimit(1).minimumScaleFactor(0.8).padding(.top, 8)
+                Text(value).font(.inter(17, .bold)).foregroundStyle(Nuru.navy).padding(.top, 2)
                     .lineLimit(1).minimumScaleFactor(0.55)
-                Text("\(Fmt.money(minor: f.monthMinor, currency: f.currency)) this mo.")
-                    .font(.nMicro).foregroundStyle(Nuru.ink400).padding(.top, 3)
-                    .lineLimit(1).minimumScaleFactor(0.7)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var donutTotal: Int { donut.reduce(0) { $0 + $1.value } }
-
-    private func donutLegendRow(_ d: FinanceView.DonutSlice) -> some View {
-        let pct = donutTotal > 0 ? Double(d.value) / Double(donutTotal) * 100 : 0
-        return HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 3, style: .continuous).fill(d.color).frame(width: 10, height: 10)
-            Text(d.name).font(.inter(12, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
-            Spacer(minLength: 6)
-            Text("\(currency) \(d.value.formatted())").font(.inter(12, .semibold)).monospaced().foregroundStyle(Nuru.navy)
-            Text("\(Int(pct.rounded()))%").font(.inter(11)).foregroundStyle(Nuru.ink600)
-                .frame(width: 34, alignment: .trailing)
+    // 2 ── Payment-channel breakdown (real: cash:* ledger + method-grouped txns)
+    private var channelSection: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Payment channels").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                Text("Money received per channel · all-time").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
+                LazyVGrid(columns: chanCols, spacing: 12) {
+                    ForEach(channels) { c in channelCard(c) }
+                }
+                .padding(.top, 14)
+                NotTracked(text: "Processor fees per channel — not tracked yet")
+                    .padding(.top, 12)
+            }
         }
     }
 
-    // Discipleship / Gift / Mission breakdown — labelled bars with amounts.
-    private var breakdownCard: some View {
+    private func channelCard(_ s: ChannelStat) -> some View {
+        let hasData = s.receivedMinor > 0 || s.count > 0
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous).fill(s.channel.tint.opacity(0.14))
+                    Image(systemName: s.channel.icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(s.channel.tint)
+                }.frame(width: 30, height: 30)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(s.channel.label).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
+                    statusLine(s)
+                }
+                Spacer(minLength: 0)
+            }
+            Text(hasData ? Fmt.money(minor: s.receivedMinor, currency: s.currency) : "—")
+                .font(.inter(17, .bold)).monospaced().foregroundStyle(Nuru.navy)
+                .padding(.top, 10).lineLimit(1).minimumScaleFactor(0.55)
+            Text("\(s.count) \(s.count == 1 ? "transaction" : "transactions")")
+                .font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
+            HStack(spacing: 6) {
+                miniStat("\(s.succeeded)", "ok", Color(hex: 0x0F6B33))
+                miniStat("\(s.pending)", "pending", Color(hex: 0xA87616))
+                miniStat("\(s.failed)", "failed", Color(hex: 0xDC2626))
+            }
+            .padding(.top, 8)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+    }
+
+    @ViewBuilder private func statusLine(_ s: ChannelStat) -> some View {
+        switch s.enabled {
+        case .some(true):
+            HStack(spacing: 4) {
+                Circle().fill(Nuru.lumGreen).frame(width: 6, height: 6)
+                Text("Wired").font(.inter(10.5, .semibold)).foregroundStyle(Color(hex: 0x0F6B33))
+            }
+        case .some(false):
+            HStack(spacing: 4) {
+                Circle().fill(Nuru.ink300).frame(width: 6, height: 6)
+                Text("Not wired").font(.inter(10.5, .semibold)).foregroundStyle(Nuru.ink400)
+            }
+        case .none:
+            Text("Status —").font(.inter(10.5)).foregroundStyle(Nuru.ink400)
+        }
+    }
+
+    private func miniStat(_ n: String, _ label: String, _ tint: Color) -> some View {
+        HStack(spacing: 3) {
+            Text(n).font(.inter(11.5, .bold)).foregroundStyle(tint)
+            Text(label).font(.inter(10)).foregroundStyle(Nuru.ink600)
+        }
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(tint.opacity(0.10))
+        .clipShape(Capsule())
+    }
+
+    // 3 ── Improved fund cards (name, month, gifts, avg, % of total)
+    private var fundSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if funds.isEmpty {
+                Card { Text("No funds configured.").font(.nCaption).foregroundStyle(Nuru.ink600)
+                    .frame(maxWidth: .infinity, alignment: .leading) }
+            } else {
+                LazyVGrid(columns: fundCols, spacing: 12) {
+                    ForEach(Array(sortedFunds.enumerated()), id: \.element.id) { i, f in
+                        fundCard(f, tone: FinanceTone.at(i))
+                    }
+                }
+            }
+        }
+    }
+
+    private var sortedFunds: [FundSummary] { funds.sorted { $0.monthMinor > $1.monthMinor } }
+
+    private func fundCard(_ f: FundSummary, tone: Color) -> some View {
+        let pct = allTotal > 0 ? Double(f.totalMinor) / Double(allTotal) : 0
+        let avg = f.giftCount > 0 ? f.totalMinor / f.giftCount : 0
+        return Card(padding: 14) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tone.opacity(0.14))
+                        Image(systemName: "banknote.fill").font(.system(size: 12, weight: .semibold)).foregroundStyle(tone)
+                    }.frame(width: 28, height: 28)
+                    Text(f.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
+                }
+                Text(Fmt.money(minor: f.monthMinor, currency: f.currency))
+                    .font(.inter(18, .bold)).foregroundStyle(Nuru.navy).padding(.top, 10)
+                    .lineLimit(1).minimumScaleFactor(0.55)
+                Text("this month").font(.nMicro).foregroundStyle(Nuru.ink400)
+
+                // % of total giving bar
+                VStack(spacing: 4) {
+                    HStack {
+                        Text("\(Int((pct * 100).rounded()))% of total").font(.inter(10.5, .semibold)).foregroundStyle(Nuru.ink600)
+                        Spacer(minLength: 0)
+                        Text(Fmt.money(minor: f.totalMinor, currency: f.currency))
+                            .font(.inter(10.5, .semibold)).monospaced().foregroundStyle(Nuru.ink600)
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Nuru.mutedBg)
+                            Capsule().fill(tone).frame(width: max(4, geo.size.width * pct))
+                        }
+                    }.frame(height: 6)
+                }
+                .padding(.top, 10)
+
+                HStack(spacing: 12) {
+                    metric("\(f.giftCount)", "gifts")
+                    metric(Fmt.money(minor: avg, currency: f.currency), "avg")
+                }
+                .padding(.top, 10)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func metric(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.7)
+            Text(label.uppercased()).font(.inter(9, .semibold)).tracking(0.5).foregroundStyle(Nuru.ink400)
+        }
+    }
+
+    // 4a ── Monthly giving trend
+    private var trendCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Breakdown").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                Text("By fund · this month").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
+                Text("Monthly giving trend").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                Text("Settled per month · last 6 · \(currency)").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
+                trendChart.frame(height: 200).padding(.top, 12)
+            }
+        }
+    }
+
+    // 4b ── Giving by fund (donut)
+    private var givingByFundCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Giving by fund").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                Text("This month · \(currency)").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
                 if donut.isEmpty {
                     Text("No giving this month yet.").font(.nCaption).foregroundStyle(Nuru.ink600)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 14)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 16)
                 } else {
-                    VStack(spacing: 12) {
-                        ForEach(donut) { d in breakdownRow(d) }
+                    HStack(alignment: .center, spacing: 16) {
+                        donutChart(donut)
+                            .frame(width: 132, height: 132)
+                            .overlay {
+                                VStack(spacing: 0) {
+                                    Text("\(currency)").font(.inter(9, .semibold)).foregroundStyle(Nuru.ink600)
+                                    Text(donutTotal.formatted()).font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
+                                        .lineLimit(1).minimumScaleFactor(0.6)
+                                    Text("this month").font(.nMicro).foregroundStyle(Nuru.ink400)
+                                }
+                                .padding(.horizontal, 6)
+                            }
+                        VStack(spacing: 7) {
+                            ForEach(donut) { d in legendRow(d.name, d.value, d.color, of: donutTotal) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.top, 14)
                 }
@@ -690,21 +897,53 @@ private struct OverviewTab: View {
         }
     }
 
-    private func breakdownRow(_ d: FinanceView.DonutSlice) -> some View {
-        let frac = donutTotal > 0 ? Double(d.value) / Double(donutTotal) : 0
-        return VStack(spacing: 5) {
-            HStack {
-                Text(d.name).font(.inter(12.5, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
-                Spacer(minLength: 8)
-                Text("\(currency) \(d.value.formatted())").font(.inter(12.5, .semibold)).monospaced().foregroundStyle(Nuru.navy)
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Nuru.mutedBg)
-                    Capsule().fill(d.color).frame(width: max(4, geo.size.width * frac))
+    // 4c ── NEW: Giving by payment method (from cash:* ledger totals)
+    private var givingByMethodCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Giving by payment method").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                Text("Money received per channel · all-time · \(currency)").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
+                if methodSlices.isEmpty {
+                    Text("No channel postings yet.").font(.nCaption).foregroundStyle(Nuru.ink600)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 16)
+                } else {
+                    methodChart.frame(height: 180).padding(.top, 12)
+                    VStack(spacing: 7) {
+                        ForEach(methodSlices) { m in legendRow(m.name, m.value, m.color, of: methodTotal) }
+                    }
+                    .padding(.top, 12)
                 }
             }
-            .frame(height: 7)
+        }
+    }
+
+    private var comingSoonNote: some View {
+        Card {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "hourglass").font(.system(size: 14)).foregroundStyle(Nuru.ink400)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Expenses & reconciliation — coming with backend support")
+                        .font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink600)
+                    Text("Net-after-fees, expense tracking, and reconciliation variance need data the finance backend doesn't expose yet. This page shows only verified giving and ledger postings.")
+                        .font(.inter(11.5)).foregroundStyle(Nuru.ink400)
+                }
+            }
+        }
+    }
+
+    // shared chart / legend helpers
+    private var donutTotal: Int { donut.reduce(0) { $0 + $1.value } }
+    private var methodTotal: Int { methodSlices.reduce(0) { $0 + $1.value } }
+
+    private func legendRow(_ name: String, _ value: Int, _ color: Color, of total: Int) -> some View {
+        let pct = total > 0 ? Double(value) / Double(total) * 100 : 0
+        return HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous).fill(color).frame(width: 10, height: 10)
+            Text(name).font(.inter(12, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
+            Spacer(minLength: 6)
+            Text("\(currency) \(value.formatted())").font(.inter(12, .semibold)).monospaced().foregroundStyle(Nuru.navy)
+            Text("\(Int(pct.rounded()))%").font(.inter(11)).foregroundStyle(Nuru.ink600)
+                .frame(width: 34, alignment: .trailing)
         }
     }
 
@@ -714,12 +953,16 @@ private struct OverviewTab: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Chart(trendPoints) { p in
+                AreaMark(x: .value("Month", p.m), y: .value("Amount", p.value))
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(LinearGradient(colors: [Nuru.gold.opacity(0.28), Nuru.gold.opacity(0.02)],
+                                                    startPoint: .top, endPoint: .bottom))
                 LineMark(x: .value("Month", p.m), y: .value("Amount", p.value))
                     .interpolationMethod(.monotone)
-                    .foregroundStyle(Color(hex: 0xC89B3C))
+                    .foregroundStyle(Nuru.gold)
                     .lineStyle(StrokeStyle(lineWidth: 2.5))
                 PointMark(x: .value("Month", p.m), y: .value("Amount", p.value))
-                    .foregroundStyle(Color(hex: 0xC89B3C))
+                    .foregroundStyle(Nuru.gold)
                     .symbolSize(30)
             }
             .chartXAxis {
@@ -741,17 +984,36 @@ private struct OverviewTab: View {
         }
     }
 
-    @ViewBuilder private var donutChart: some View {
-        if donut.isEmpty {
-            Text("No giving this month yet.").font(.nCaption).foregroundStyle(Nuru.ink600)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            Chart(donut) { d in
-                SectorMark(angle: .value("Amount", d.value), innerRadius: .ratio(0.62), angularInset: 2)
-                    .foregroundStyle(d.color)
-                    .cornerRadius(2)
+    private func donutChart(_ slices: [FinanceView.DonutSlice]) -> some View {
+        Chart(slices) { d in
+            SectorMark(angle: .value("Amount", d.value), innerRadius: .ratio(0.62), angularInset: 2)
+                .foregroundStyle(d.color)
+                .cornerRadius(2)
+        }
+        .chartLegend(.hidden)
+    }
+
+    @ViewBuilder private var methodChart: some View {
+        Chart(methodSlices) { m in
+            BarMark(x: .value("Method", m.name), y: .value("Amount", m.value))
+                .foregroundStyle(m.color)
+                .cornerRadius(4)
+        }
+        .chartXAxis {
+            AxisMarks { _ in
+                AxisValueLabel().font(.inter(11)).foregroundStyle(Color(hex: 0x6B7280))
             }
-            .chartLegend(.hidden)
+        }
+        .chartYAxis {
+            AxisMarks { value in
+                AxisGridLine().foregroundStyle(Nuru.border)
+                AxisValueLabel {
+                    if let v = value.as(Int.self) {
+                        Text(v >= 1000 ? "\(Int((Double(v) / 1000).rounded()))k" : "\(v)")
+                            .font(.inter(11)).foregroundStyle(Color(hex: 0x6B7280))
+                    }
+                }
+            }
         }
     }
 }
@@ -764,6 +1026,8 @@ private struct TransactionsTab: View {
     @Binding var search: String
     @Binding var fundFilter: String
     @Binding var statusFilter: String
+    @Binding var minAmount: String
+    @Binding var maxAmount: String
     let onView: (String) -> Void
 
     var body: some View {
@@ -779,7 +1043,7 @@ private struct TransactionsTab: View {
                     // search
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(Color(hex: 0x6B7280))
-                        TextField("Search member, fund, amount, reference", text: $search)
+                        TextField("Search donor, fund, method, amount, reference", text: $search)
                             .font(.inter(13)).textInputAutocapitalization(.never).autocorrectionDisabled()
                     }
                     .padding(.horizontal, 12).frame(height: 36)
@@ -816,6 +1080,18 @@ private struct TransactionsTab: View {
                         }
                         .disabled(txns.isEmpty)
                     }
+                    // amount range (client-side)
+                    HStack(spacing: 8) {
+                        amountField("Min", $minAmount)
+                        Text("–").font(.inter(13)).foregroundStyle(Nuru.ink400)
+                        amountField("Max", $maxAmount)
+                        Spacer(minLength: 0)
+                        if !minAmount.isEmpty || !maxAmount.isEmpty {
+                            Button { minAmount = ""; maxAmount = "" } label: {
+                                Text("Clear").font(.inter(12, .semibold)).foregroundStyle(Nuru.ink600)
+                            }.buttonStyle(.plain)
+                        }
+                    }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -826,12 +1102,12 @@ private struct TransactionsTab: View {
                     VStack(spacing: 0) {
                         HStack(spacing: 12) {
                             Th(text: "Date").frame(width: 92, alignment: .leading)
-                            Th(text: "Member").frame(width: 168, alignment: .leading)
-                            Th(text: "Fund").frame(width: 96, alignment: .leading)
+                            Th(text: "Donor").frame(width: 158, alignment: .leading)
+                            Th(text: "Fund").frame(width: 88, alignment: .leading)
+                            Th(text: "Method").frame(width: 78, alignment: .leading)
                             Th(text: "Amount").frame(width: 116, alignment: .trailing)
-                            Th(text: "Payment").frame(width: 116, alignment: .leading)
-                            Th(text: "Ledger").frame(width: 104, alignment: .leading)
-                            Th(text: "Reference").frame(width: 132, alignment: .leading)
+                            Th(text: "Status").frame(width: 112, alignment: .leading)
+                            Th(text: "Ref").frame(width: 128, alignment: .leading)
                             Th(text: "").frame(width: 64, alignment: .trailing)
                         }
                         .padding(.horizontal, 16).padding(.vertical, 10)
@@ -849,6 +1125,14 @@ private struct TransactionsTab: View {
         }
     }
 
+    private func amountField(_ placeholder: String, _ binding: Binding<String>) -> some View {
+        TextField(placeholder, text: binding)
+            .font(.inter(13)).keyboardType(.decimalPad)
+            .padding(.horizontal, 10).frame(width: 92, height: 32)
+            .background(Nuru.inputBg)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
     private func filterLabel(_ text: String) -> some View {
         HStack(spacing: 6) {
             Text(text).font(.inter(13)).foregroundStyle(Nuru.navy).lineLimit(1)
@@ -862,22 +1146,21 @@ private struct TransactionsTab: View {
 
     private func row(_ t: TransactionRow) -> some View {
         let sc = paymentChip(t.status)
-        let lc = ledgerStatus(t.status)
         return HStack(spacing: 12) {
             Text(fmtDate(t.createdAt)).font(.inter(12)).monospaced().foregroundStyle(Nuru.navy)
                 .frame(width: 92, alignment: .leading)
             Text(t.fullName ?? "Anonymous").font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
-                .frame(width: 168, alignment: .leading).lineLimit(1)
+                .frame(width: 158, alignment: .leading).lineLimit(1)
             Text(t.fund ?? "—").font(.inter(12)).foregroundStyle(Nuru.ink600)
-                .frame(width: 96, alignment: .leading).lineLimit(1)
+                .frame(width: 88, alignment: .leading).lineLimit(1)
+            Text(methodLabel(t.method)).font(.inter(12)).foregroundStyle(Nuru.ink600)
+                .frame(width: 78, alignment: .leading).lineLimit(1)
             Text(Fmt.money(minor: t.amountMinor, currency: t.currency)).font(.inter(13, .bold)).monospaced().foregroundStyle(Nuru.navy)
                 .frame(width: 116, alignment: .trailing)
             ColorPill(text: statusTitle(t.status), bg: sc.bg, fg: sc.fg)
-                .frame(width: 116, alignment: .leading)
-            ColorPill(text: lc.label, bg: lc.bg, fg: lc.fg)
-                .frame(width: 104, alignment: .leading)
+                .frame(width: 112, alignment: .leading)
             Text(shortRef(t.transactionId)).font(.inter(12)).monospaced().foregroundStyle(Nuru.ink600)
-                .frame(width: 132, alignment: .leading)
+                .frame(width: 128, alignment: .leading)
             Button("View") { onView(t.transactionId) }
                 .font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
                 .padding(.horizontal, 12).padding(.vertical, 6)
@@ -896,51 +1179,161 @@ private struct TransactionsTab: View {
 
 private struct LedgerTab: View {
     let ledger: [LedgerRow]
-    let debitTotal: Int
-    let creditTotal: Int
     let currency: String
 
+    // Group postings into the three account families that actually exist.
+    private struct AccountGroup: Identifiable {
+        let key: String          // "fund:KINGDOM"
+        let display: String      // "KINGDOM"
+        var debit: Int = 0
+        var credit: Int = 0
+        var net: Int { credit - debit }
+        var id: String { key }
+    }
+    private enum Family: String, CaseIterable {
+        case income, channels, sales
+        var title: String {
+            switch self {
+            case .income: return "Income · funds"
+            case .channels: return "Assets · channels"
+            case .sales: return "Sales"
+            }
+        }
+        var subtitle: String {
+            switch self {
+            case .income: return "Giving credited into each fund"
+            case .channels: return "Money received by payment channel"
+            case .sales: return "Media & other sales"
+            }
+        }
+        var prefix: String {
+            switch self {
+            case .income: return "fund:"
+            case .channels: return "cash:"
+            case .sales: return "sales:"
+            }
+        }
+        var tint: Color {
+            switch self {
+            case .income: return Color(hex: 0x16A34A)
+            case .channels: return Color(hex: 0x1D4E86)
+            case .sales: return Color(hex: 0xC89B3C)
+            }
+        }
+    }
+
+    private func groups(for family: Family) -> [AccountGroup] {
+        var map: [String: AccountGroup] = [:]
+        for l in ledger where l.account.hasPrefix(family.prefix) {
+            let disp = String(l.account.dropFirst(family.prefix.count)).uppercased()
+            var g = map[l.account] ?? AccountGroup(key: l.account, display: disp)
+            if l.side == "debit" { g.debit += l.amountMinor } else { g.credit += l.amountMinor }
+            map[l.account] = g
+        }
+        return map.values.sorted { abs($0.net) > abs($1.net) }
+    }
+
+    private var debitTotal: Int { ledger.filter { $0.side == "debit" }.reduce(0) { $0 + $1.amountMinor } }
+    private var creditTotal: Int { ledger.filter { $0.side == "credit" }.reduce(0) { $0 + $1.amountMinor } }
     private var balanced: Bool { debitTotal == creditTotal }
 
     var body: some View {
+        VStack(spacing: 16) {
+            // balance strip
+            Card(padding: 0) {
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Double-entry ledger").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                        Spacer(minLength: 8)
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.shield.fill").font(.system(size: 12)).foregroundStyle(Color(hex: 0x16A34A))
+                            Text("Server-authoritative · verified webhooks only").font(.nMicro).foregroundStyle(Nuru.ink600)
+                        }
+                    }
+                    .padding(.horizontal, 18).padding(.vertical, 16)
+                    .overlay(alignment: .bottom) { Rectangle().fill(Nuru.border).frame(height: 1) }
+
+                    HStack(spacing: 20) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("DEBITS").font(.nOverline).tracking(0.7).foregroundStyle(Nuru.ink600)
+                            Text(Fmt.money(minor: debitTotal, currency: currency)).font(.inter(18, .bold)).monospaced().foregroundStyle(Nuru.navy)
+                        }
+                        Rectangle().fill(Color(hex: 0x16A34A).opacity(0.2)).frame(width: 1, height: 34)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("CREDITS").font(.nOverline).tracking(0.7).foregroundStyle(Nuru.ink600)
+                            Text(Fmt.money(minor: creditTotal, currency: currency)).font(.inter(18, .bold)).monospaced().foregroundStyle(Nuru.navy)
+                        }
+                        Spacer(minLength: 8)
+                        ColorPill(text: balanced ? "Balanced" : "Review", icon: "checkmark.circle.fill",
+                                  bg: .white, fg: balanced ? Color(hex: 0x0F6B33) : Color(hex: 0xA87616))
+                    }
+                    .padding(.horizontal, 20).padding(.vertical, 14)
+                    .background(Color(hex: 0xE8F6EC))
+                }
+            }
+
+            // account-family summaries
+            ForEach(Family.allCases, id: \.self) { fam in
+                let gs = groups(for: fam)
+                if !gs.isEmpty { familyCard(fam, gs) }
+            }
+
+            // raw postings
+            rawPostings
+        }
+    }
+
+    private func familyCard(_ fam: Family, _ gs: [AccountGroup]) -> some View {
         Card(padding: 0) {
             VStack(spacing: 0) {
-                // header
-                HStack {
-                    Text("Double-entry ledger").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                    Spacer(minLength: 8)
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.shield.fill").font(.system(size: 12)).foregroundStyle(Color(hex: 0x16A34A))
-                        Text("Server-authoritative · verified webhooks only").font(.nMicro).foregroundStyle(Nuru.ink600)
+                HStack(spacing: 8) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous).fill(fam.tint.opacity(0.14))
+                        Image(systemName: "square.stack.3d.up.fill").font(.system(size: 12)).foregroundStyle(fam.tint)
+                    }.frame(width: 26, height: 26)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(fam.title).font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                        Text(fam.subtitle).font(.nMicro).foregroundStyle(Nuru.ink600)
                     }
+                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 18).padding(.vertical, 16)
+                .padding(.horizontal, 18).padding(.vertical, 14)
                 .overlay(alignment: .bottom) { Rectangle().fill(Nuru.border).frame(height: 1) }
 
-                // totals strip
-                HStack(spacing: 20) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("DEBITS").font(.nOverline).tracking(0.7).foregroundStyle(Nuru.ink600)
-                        Text(Fmt.money(minor: debitTotal, currency: currency)).font(.inter(18, .bold)).monospaced().foregroundStyle(Nuru.navy)
+                ForEach(gs) { g in
+                    HStack(spacing: 12) {
+                        Text(g.display).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
+                            .frame(maxWidth: .infinity, alignment: .leading).lineLimit(1)
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(Fmt.money(minor: abs(g.net), currency: currency))
+                                .font(.inter(13, .bold)).monospaced().foregroundStyle(Nuru.navy)
+                            Text(g.net >= 0 ? "net credit" : "net debit")
+                                .font(.inter(9.5, .semibold)).tracking(0.4)
+                                .foregroundStyle(g.net >= 0 ? Color(hex: 0x0F6B33) : Color(hex: 0x1F3A6B))
+                        }
                     }
-                    Rectangle().fill(Color(hex: 0x16A34A).opacity(0.2)).frame(width: 1, height: 34)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("CREDITS").font(.nOverline).tracking(0.7).foregroundStyle(Nuru.ink600)
-                        Text(Fmt.money(minor: creditTotal, currency: currency)).font(.inter(18, .bold)).monospaced().foregroundStyle(Nuru.navy)
-                    }
-                    Spacer(minLength: 8)
-                    ColorPill(text: balanced ? "Balanced" : "Review", icon: "checkmark.circle.fill",
-                              bg: .white, fg: balanced ? Color(hex: 0x0F6B33) : Color(hex: 0xA87616))
+                    .padding(.horizontal, 18).padding(.vertical, 11)
+                    .overlay(alignment: .top) { Rectangle().fill(Nuru.border).frame(height: 1) }
                 }
-                .padding(.horizontal, 20).padding(.vertical, 14)
-                .background(Color(hex: 0xE8F6EC))
+            }
+        }
+    }
+
+    private var rawPostings: some View {
+        Card(padding: 0) {
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("All postings").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                    Text("Most recent ledger entries.").font(.nCaption).foregroundStyle(Nuru.ink600)
+                }
+                .padding(.horizontal, 18).padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .overlay(alignment: .bottom) { Rectangle().fill(Nuru.border).frame(height: 1) }
 
-                // table
                 ScrollView(.horizontal, showsIndicators: false) {
                     VStack(spacing: 0) {
                         HStack(spacing: 12) {
-                            Th(text: "Account").frame(maxWidth: .infinity, alignment: .leading)
+                            Th(text: "Account").frame(width: 180, alignment: .leading)
                             Th(text: "Side").frame(width: 92, alignment: .leading)
                             Th(text: "Amount").frame(width: 132, alignment: .trailing)
                             Th(text: "When").frame(width: 176, alignment: .leading)
@@ -963,7 +1356,7 @@ private struct LedgerTab: View {
     private func ledgerRow(_ l: LedgerRow) -> some View {
         HStack(spacing: 12) {
             Text(l.account).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy)
-                .frame(maxWidth: .infinity, alignment: .leading).lineLimit(1)
+                .frame(width: 180, alignment: .leading).lineLimit(1)
             sideBadge(l.side).frame(width: 92, alignment: .leading)
             Text(Fmt.money(minor: l.amountMinor, currency: l.currency)).font(.inter(12.5, .semibold)).monospaced().foregroundStyle(Nuru.ink)
                 .frame(width: 132, alignment: .trailing)
@@ -1160,6 +1553,18 @@ private struct ConfigTab: View {
                         }
                     }
                 }
+
+                // honest note: fee/expense/receipt config not yet backed
+                Card {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "wrench.and.screwdriver").font(.system(size: 14)).foregroundStyle(Nuru.ink400)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Fee, expense & receipt configuration").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink600)
+                            Text("Processor-fee schedules, expense categories, and receipt numbering arrive with backend support. They are not configurable here yet.")
+                                .font(.inter(11.5)).foregroundStyle(Nuru.ink400)
+                        }
+                    }
+                }
             }
         } else {
             Card(padding: 40) {
@@ -1309,6 +1714,9 @@ private struct ReconcileSheet: View {
                         bullet("Refunds create reversal entries rather than editing history (append-only).")
                         bullet("Pending or failed payments never touch the ledger.")
                     }
+
+                    Text("Reconciliation variance against bank/processor statements is not tracked yet — it arrives with backend support.")
+                        .font(.inter(11.5)).foregroundStyle(Nuru.ink400)
                 }
                 .padding(22)
                 .frame(maxWidth: .infinity, alignment: .leading)
