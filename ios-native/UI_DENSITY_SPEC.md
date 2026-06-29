@@ -241,3 +241,27 @@ the owner wants blue gone, prefer **gold / luminous-green** over navy for the ac
 **Color-expert rule:** no clashing palettes on a page — pick a small cohesive set (navy + gold +
 bright-green as the brand triad, plus semantic green/amber/red for status). Ensure text contrast
 is always readable (no white-on-light, no dark-on-dark).
+
+---
+
+## Pass v6 — bright, roomy edit/add forms (portrait, iPad Pro M5)
+
+The app is now **forced to light** (`.preferredColorScheme(.light)` at the root) so system
+Form/sheet/picker chrome never renders dark again. On top of that, every **edit/add form sheet**
+must look like the bright web form (warm cream, readable, roomy), NOT a tiny dark scrolling card:
+
+- **Warm bright background:** give each Form/editor sheet an explicit warm background — set
+  `.scrollContentBackground(.hidden)` on the `Form` and a `.background(Nuru.paper)` (or
+  `Nuru.surface`) behind it. Field rows = white/`Nuru.white`. No gray/dark grouped look.
+- **Readable fonts & bright colors:** field LABELS in clear dark ink (`Nuru.ink`/`ink600`,
+  `Font.inter` ~12–13 semibold overline), values in `Nuru.ink` ~15–16. Section headers in navy.
+  Save = gold/brand filled; Cancel = quiet. Pickers/toggles tinted brand (gold/lumGreen).
+- **Fit the big screen — fewer scrolls:** the iPad canvas is large; lay fields in **TWO COLUMNS**
+  (paired fields per row, like the web "Add a disciple": Name|Email, Phone|Gender, DOB|Country,
+  City|Language, etc.) so the whole form is visible with little/no scrolling. Group into clear
+  sections. Wrap the form content to a sensible max width (~720–820) centered so lines aren't
+  over-long. Add `.presentationDetents([.large])` to the sheet so it opens large.
+- Keep ALL form wiring (bindings, validation, Save/Cancel/Delete actions) intact.
+- Applies to every add/edit sheet: Roles, Users, Congregations, Countries, Languages, Members
+  (Add disciple / edit), Cell edit, CMS level/module edit, Content Studio editors, Badges,
+  Events, Certificates, Finance — wherever there's a form to fill.

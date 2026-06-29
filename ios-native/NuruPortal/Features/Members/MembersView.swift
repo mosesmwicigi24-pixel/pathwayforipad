@@ -309,9 +309,13 @@ struct MembersView: View {
             if let q { vm.search = q; router.memberSearch = nil; Task { await vm.reload() } }
         }
         .refreshable { await vm.reload() }
-        .sheet(isPresented: $addOpen) { MemberFormSheet(mode: .add, cells: vm.cells, countries: vm.countries) { Task { await vm.reload() } } }
+        .sheet(isPresented: $addOpen) {
+            MemberFormSheet(mode: .add, cells: vm.cells, countries: vm.countries) { Task { await vm.reload() } }
+                .presentationDetents([.large])
+        }
         .sheet(item: Binding(get: { editId.map { IdBox(id: $0) } }, set: { editId = $0?.id })) { box in
             MemberFormSheet(mode: .edit(box.id), cells: vm.cells, countries: vm.countries) { Task { await vm.reload() } }
+                .presentationDetents([.large])
         }
         .sheet(item: Binding(get: { resultsId.map { IdBox(id: $0) } }, set: { resultsId = $0?.id })) { box in
             MemberResultsSheet(userId: box.id)
@@ -617,18 +621,32 @@ private struct MemberFormSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                personalSection
-                placementSection
-                SwiftUI.Section("Discipleship") { Toggle("Baptized", isOn: $baptized) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let error {
+                        Text(error).font(.inter(13, .semibold)).foregroundStyle(Nuru.danger)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12).background(Nuru.danger.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    personalSection
+                    placementSection
+                    discipleshipSection
+                }
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24).padding(.vertical, 22)
             }
+            .scrollContentBackground(.hidden)
+            .background(Nuru.paper)
             .navigationTitle(isEdit ? "Edit member" : "Add a disciple")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.tint(Nuru.ink600) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isEdit ? "Save" : "Add") { Task { await submit() } }.disabled(saving || (isEdit && !loaded))
+                    Button(isEdit ? "Save" : "Add") { Task { await submit() } }
+                        .font(.inter(14, .bold)).tint(Nuru.gold)
+                        .disabled(saving || (isEdit && !loaded))
                 }
             }
             .task { await setup() }
@@ -637,42 +655,83 @@ private struct MemberFormSheet: View {
     }
 
     @ViewBuilder private var personalSection: some View {
-        SwiftUI.Section("Personal details") {
-            labeledField("Full name", required: true) { TextField("e.g. Grace Wanjiru", text: $fullName) }
-            labeledField("Email", required: !isEdit) { TextField("name@email.com", text: $email).keyboardType(.emailAddress).textInputAutocapitalization(.never) }
-            labeledField("Phone") { TextField("+254 …", text: $phone).keyboardType(.phonePad) }
-            Picker("Gender", selection: $gender) { Text("—").tag(""); Text("Female").tag("female"); Text("Male").tag("male"); Text("Other").tag("other") }
-            Toggle("Set date of birth", isOn: $hasDob)
-            if hasDob { DatePicker("Date of birth", selection: $dob, displayedComponents: .date) }
-            Picker("Country", selection: $country) { Text("—").tag(""); ForEach(countries) { c in Text("\(c.flag ?? "") \(c.name)").tag(c.code) } }
-            labeledField("City") { TextField("e.g. Nairobi", text: $city) }
-            labeledField("Language") { TextField("e.g. en", text: $language).textInputAutocapitalization(.never) }
+        MFormSection("Personal details") {
+            MFieldGrid {
+                MField("Full name", required: true) { TextField("e.g. Grace Wanjiru", text: $fullName).mFieldStyle() }
+                MField("Email", required: !isEdit) { TextField("name@email.com", text: $email).keyboardType(.emailAddress).textInputAutocapitalization(.never).mFieldStyle() }
+                MField("Phone") { TextField("+254 …", text: $phone).keyboardType(.phonePad).mFieldStyle() }
+                MField("Gender") {
+                    Picker("Gender", selection: $gender) { Text("—").tag(""); Text("Female").tag("female"); Text("Male").tag("male"); Text("Other").tag("other") }
+                        .mPickerStyle()
+                }
+                MField("Date of birth") {
+                    HStack(spacing: 10) {
+                        Toggle("", isOn: $hasDob).labelsHidden().tint(Nuru.lumGreen)
+                        if hasDob {
+                            DatePicker("", selection: $dob, displayedComponents: .date).labelsHidden().tint(Nuru.gold)
+                        } else {
+                            Text("Not set").font(.inter(15)).foregroundStyle(Nuru.ink400)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .mFieldChrome()
+                }
+                MField("Country") {
+                    Picker("Country", selection: $country) { Text("—").tag(""); ForEach(countries) { c in Text("\(c.flag ?? "") \(c.name)").tag(c.code) } }
+                        .mPickerStyle()
+                }
+                MField("City") { TextField("e.g. Nairobi", text: $city).mFieldStyle() }
+                MField("Language") { TextField("e.g. en", text: $language).textInputAutocapitalization(.never).mFieldStyle() }
+            }
         }
     }
 
     @ViewBuilder private var placementSection: some View {
-        SwiftUI.Section("Pathway placement") {
-            Picker("Cell", selection: $cellId) { ForEach(cells) { c in Text(c.name).tag(c.cellGroupId) } }
-            HStack { Text("Discipler").foregroundStyle(Nuru.ink600); Spacer(); Text(selectedCell?.disciplerName ?? "—").foregroundStyle(Nuru.navy) }
-            Picker("Current level", selection: $startLevel) {
-                if levels.isEmpty { Text("Level \(startLevel)").tag(startLevel) }
-                else { ForEach(levels) { l in Text("Level \(l.levelNumber) — \(l.title)").tag(l.levelNumber) } }
-            }
-            Picker("Module reached", selection: $startModule) {
-                if modules.isEmpty { Text("Module \(startModule)").tag(startModule) }
-                else { ForEach(modules) { m in Text("Module \(m.moduleSequenceNumber) — \(m.title)").tag(m.moduleSequenceNumber) } }
-            }
-            Picker("Programme", selection: $programme) {
-                Text("—").tag("")
-                ForEach(Array(PROGRAMME_LABELS.keys).sorted(), id: \.self) { k in Text(PROGRAMME_LABELS[k] ?? k).tag(k) }
+        MFormSection("Pathway placement") {
+            MFieldGrid {
+                MField("Cell") {
+                    Picker("Cell", selection: $cellId) { ForEach(cells) { c in Text(c.name).tag(c.cellGroupId) } }
+                        .mPickerStyle()
+                }
+                MField("Discipler") {
+                    HStack { Text(selectedCell?.disciplerName ?? "—").font(.inter(15)).foregroundStyle(Nuru.navy); Spacer(minLength: 0) }
+                        .mFieldChrome()
+                }
+                MField("Current level") {
+                    Picker("Current level", selection: $startLevel) {
+                        if levels.isEmpty { Text("Level \(startLevel)").tag(startLevel) }
+                        else { ForEach(levels) { l in Text("Level \(l.levelNumber) — \(l.title)").tag(l.levelNumber) } }
+                    }.mPickerStyle()
+                }
+                MField("Module reached") {
+                    Picker("Module reached", selection: $startModule) {
+                        if modules.isEmpty { Text("Module \(startModule)").tag(startModule) }
+                        else { ForEach(modules) { m in Text("Module \(m.moduleSequenceNumber) — \(m.title)").tag(m.moduleSequenceNumber) } }
+                    }.mPickerStyle()
+                }
+                MField("Programme") {
+                    Picker("Programme", selection: $programme) {
+                        Text("—").tag("")
+                        ForEach(Array(PROGRAMME_LABELS.keys).sorted(), id: \.self) { k in Text(PROGRAMME_LABELS[k] ?? k).tag(k) }
+                    }.mPickerStyle()
+                }
             }
             Text("Unlocks every earlier level in full, plus this level up to the selected module.")
-                .font(.nMicro).foregroundStyle(Nuru.ink600)
+                .font(.inter(12)).foregroundStyle(Nuru.ink600)
         }
     }
 
-    @ViewBuilder private func labeledField<C: View>(_ label: String, required: Bool = false, @ViewBuilder _ field: () -> C) -> some View {
-        HStack { Text(label + (required ? " *" : "")).foregroundStyle(Nuru.ink600).frame(width: 110, alignment: .leading); field() }
+    @ViewBuilder private var discipleshipSection: some View {
+        MFormSection("Discipleship") {
+            Toggle(isOn: $baptized) {
+                Text("Baptized").font(.inter(15, .semibold)).foregroundStyle(Nuru.ink)
+            }
+            .tint(Nuru.lumGreen)
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background(Nuru.white)
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
     }
 
     private func setup() async {
@@ -744,6 +803,88 @@ private struct MemberFormSheet: View {
         } catch {
             self.error = (error as? APIError)?.errorDescription ?? "Could not save."; saving = false
         }
+    }
+}
+
+// MARK: - Bright form kit (Pass v6 — warm, roomy, two-column edit/add forms)
+
+/// A bright section card: navy overline title + a white-fielded content block on paper.
+private struct MFormSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title; self.content = content
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title.uppercased())
+                .font(.inter(12, .bold)).tracking(1.2).foregroundStyle(Nuru.navy)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .nuruShadow(0.5)
+    }
+}
+
+/// Two-column adaptive grid for paired fields (wraps to one column when tight).
+private struct MFieldGrid<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)],
+                  alignment: .leading, spacing: 14) {
+            content()
+        }
+    }
+}
+
+/// A labelled field cell — dark-ink overline label above the editable control.
+private struct MField<Content: View>: View {
+    let label: String
+    let required: Bool
+    @ViewBuilder let content: () -> Content
+    init(_ label: String, required: Bool = false, @ViewBuilder content: @escaping () -> Content) {
+        self.label = label; self.required = required; self.content = content
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 3) {
+                Text(label.uppercased()).font(.inter(11.5, .semibold)).tracking(0.8).foregroundStyle(Nuru.ink600)
+                if required { Text("*").font(.inter(11.5, .bold)).foregroundStyle(Nuru.danger) }
+            }
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// White, readable field chrome shared by text inputs, pickers and inline rows.
+private struct MFieldChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.inter(15))
+            .foregroundStyle(Nuru.ink)
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Nuru.white)
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+extension View {
+    fileprivate func mFieldChrome() -> some View { modifier(MFieldChrome()) }
+    fileprivate func mFieldStyle() -> some View { self.textFieldStyle(.plain).mFieldChrome() }
+    fileprivate func mPickerStyle() -> some View {
+        self.pickerStyle(.menu).tint(Nuru.navy)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8).frame(height: 44)
+            .background(Nuru.white)
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

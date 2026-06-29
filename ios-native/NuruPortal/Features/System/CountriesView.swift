@@ -192,43 +192,55 @@ private struct CountryFormSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                SwiftUI.Section("Country") {
-                    field("Flag") { TextField("🇰🇪", text: $flag) }
-                    field("Name *") { TextField("e.g. Kenya", text: $name) }
-                    field("Code *") {
-                        TextField("KE", text: $code).textInputAutocapitalization(.characters).autocorrectionDisabled()
-                            .disabled(isEdit)
-                            .onChange(of: code) { _, v in code = String(v.uppercased().prefix(2)) }
+            SysFormScaffold(error: error) {
+                SysFormSection("Country", subtitle: "Where disciples and cells are active.") {
+                    SysFieldGrid {
+                        SysField("Flag") { TextField("🇰🇪", text: $flag).sysFieldInput() }
+                        SysField("Name", required: true) { TextField("e.g. Kenya", text: $name).sysFieldInput() }
+                        SysField("Code", required: true) {
+                            TextField("KE", text: $code).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                                .disabled(isEdit)
+                                .onChange(of: code) { _, v in code = String(v.uppercased().prefix(2)) }
+                                .sysFieldInput()
+                                .foregroundStyle(isEdit ? Nuru.ink400 : Nuru.ink)
+                        }
                     }
                 }
-                SwiftUI.Section("Region") {
-                    Picker("Region", selection: $region) { ForEach(REGIONS, id: \.self) { Text($0).tag($0) } }
-                    field("Sub-region") { TextField("Eastern Africa", text: $subregion) }
-                }
-                SwiftUI.Section("Detail") {
-                    field("Dial code") { TextField("+254", text: $dialCode).keyboardType(.phonePad) }
-                    field("Currency") {
-                        TextField("KES", text: $currency).textInputAutocapitalization(.characters).autocorrectionDisabled()
-                            .onChange(of: currency) { _, v in currency = String(v.uppercased().prefix(3)) }
+                SysFormSection("Region") {
+                    SysFieldGrid {
+                        SysField("Region") {
+                            Picker("", selection: $region) { ForEach(REGIONS, id: \.self) { Text($0).tag($0) } }
+                                .labelsHidden().pickerStyle(.menu).tint(Nuru.gold)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        SysField("Sub-region") { TextField("Eastern Africa", text: $subregion).sysFieldInput() }
                     }
-                    Picker("Status", selection: $status) { Text("Active").tag("active"); Text("Inactive").tag("inactive") }
+                }
+                SysFormSection("Detail") {
+                    SysFieldGrid {
+                        SysField("Dial code") { TextField("+254", text: $dialCode).keyboardType(.phonePad).sysFieldInput() }
+                        SysField("Currency") {
+                            TextField("KES", text: $currency).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                                .onChange(of: currency) { _, v in currency = String(v.uppercased().prefix(3)) }
+                                .sysFieldInput()
+                        }
+                        SysField("Status", span: 2) {
+                            Picker("", selection: $status) { Text("Active").tag("active"); Text("Inactive").tag("inactive") }
+                                .labelsHidden().pickerStyle(.segmented)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
                 }
             }
             .navigationTitle(isEdit ? "Edit \(initial!.name)" : "Add a country")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.foregroundStyle(Nuru.ink600) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isEdit ? "Save" : "Add") { Task { await submit() } }.disabled(saving)
+                    SysSaveButton(title: isEdit ? "Save" : "Add", saving: saving) { Task { await submit() } }
                 }
             }
         }
-    }
-
-    @ViewBuilder private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
-        HStack { Text(label).foregroundStyle(Nuru.ink600).frame(width: 90, alignment: .leading); content() }
     }
 
     private func submit() async {

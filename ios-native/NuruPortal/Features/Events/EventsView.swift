@@ -1999,9 +1999,9 @@ private struct CreateEventSheet: View {
                     }
 
                     sectionLabel("Attendance")
-                    Toggle(isOn: $rsvp) { Label("Enable RSVP", systemImage: "person.2").font(.inter(13, .regular)) }.tint(Color(hex: 0x16A34A))
-                    Toggle(isOn: $qr) { Label("Enable QR check-in", systemImage: "qrcode").font(.inter(13, .regular)) }.tint(Color(hex: 0x16A34A))
-                    Toggle(isOn: $manual) { Label("Allow manual check-in", systemImage: "checkmark.circle").font(.inter(13, .regular)) }.tint(Color(hex: 0x16A34A))
+                    Toggle(isOn: $rsvp) { Label("Enable RSVP", systemImage: "person.2").font(.inter(14, .medium)).foregroundStyle(Nuru.ink) }.tint(Nuru.lumGreen)
+                    Toggle(isOn: $qr) { Label("Enable QR check-in", systemImage: "qrcode").font(.inter(14, .medium)).foregroundStyle(Nuru.ink) }.tint(Nuru.lumGreen)
+                    Toggle(isOn: $manual) { Label("Allow manual check-in", systemImage: "checkmark.circle").font(.inter(14, .medium)).foregroundStyle(Nuru.ink) }.tint(Nuru.lumGreen)
 
                     sectionLabel("Visibility")
                     formField("Visibility") {
@@ -2016,9 +2016,13 @@ private struct CreateEventSheet: View {
                     Toggle(isOn: $featured) { Label("Feature on mobile home + Events hero", systemImage: "star").font(.inter(13, .regular)) }.tint(Nuru.gold)
 
                     if let err { Text(err).font(.nCaption).foregroundStyle(Nuru.danger) }
-                }.padding(24)
+                }
+                .padding(24)
+                .frame(maxWidth: 800)
+                .frame(maxWidth: .infinity)
             }
             .background(Nuru.paper)
+            .scrollContentBackground(.hidden)
             .navigationTitle("New event").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
@@ -2026,10 +2030,17 @@ private struct CreateEventSheet: View {
                     Menu {
                         Button("Create event") { Task { await submit(asDraft: false) } }
                         Button("Save as draft") { Task { await submit(asDraft: true) } }
-                    } label: { if busy { ProgressView() } else { Text("Save").bold() } }.disabled(busy)
+                    } label: {
+                        Group { if busy { ProgressView() } else { Text("Save").bold() } }
+                            .font(.inter(14, .semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(busy ? AnyShapeStyle(Nuru.muted) : AnyShapeStyle(Nuru.goldGradient))
+                            .clipShape(Capsule())
+                    }.disabled(busy)
                 }
             }
         }
+        .presentationDetents([.large])
     }
 }
 
@@ -2150,17 +2161,28 @@ private struct CreateAnnouncementSheet: View {
                     .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
 
                     if let err { Text(err).font(.nCaption).foregroundStyle(Nuru.danger) }
-                }.padding(24)
+                }
+                .padding(24)
+                .frame(maxWidth: 800)
+                .frame(maxWidth: .infinity)
             }
             .background(Nuru.paper)
+            .scrollContentBackground(.hidden)
             .navigationTitle("New announcement").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { Task { await submit() } } label: { if busy { ProgressView() } else { Text("Save").bold() } }.disabled(busy)
+                    Button { Task { await submit() } } label: {
+                        Group { if busy { ProgressView() } else { Text("Save").bold() } }
+                            .font(.inter(14, .semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(busy ? AnyShapeStyle(Nuru.muted) : AnyShapeStyle(Nuru.goldGradient))
+                            .clipShape(Capsule())
+                    }.disabled(busy)
                 }
             }
         }
+        .presentationDetents([.large])
     }
 }
 
@@ -2222,7 +2244,7 @@ private struct ManualCheckinSheet: View {
                     Text(occ.title).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
                     Picker("", selection: $tab) {
                         Text("Member").tag("member"); Text("Guest").tag("guest")
-                    }.pickerStyle(.segmented)
+                    }.pickerStyle(.segmented).tint(Nuru.gold)
 
                     if tab == "member" {
                         formField("Search member") {
@@ -2264,13 +2286,15 @@ private struct ManualCheckinSheet: View {
                         .padding(12).background(Color(hex: 0xFFFBEB)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Color(hex: 0xF5E0A8), lineWidth: 1))
                     } else {
-                        formField("Guest name") {
-                            TextField("Visitor name", text: $guestName).textFieldStyle(.plain).font(.inter(13, .regular))
+                        HStack(alignment: .top, spacing: 12) {
+                            formField("Guest name") {
+                                TextField("Visitor name", text: $guestName).textFieldStyle(.plain).font(.inter(15, .regular))
+                            }
+                            formField("Phone") {
+                                TextField("+254 …", text: $guestPhone).textFieldStyle(.plain).font(.inter(15, .regular)).keyboardType(.phonePad)
+                            }
                         }
-                        formField("Phone") {
-                            TextField("+254 …", text: $guestPhone).textFieldStyle(.plain).font(.inter(13, .regular)).keyboardType(.phonePad)
-                        }
-                        Toggle(isOn: $firstTime) { Text("First-time visitor").font(.inter(13, .regular)) }.tint(Color(hex: 0x16A34A))
+                        Toggle(isOn: $firstTime) { Text("First-time visitor").font(.inter(14, .medium)).foregroundStyle(Nuru.ink) }.tint(Nuru.lumGreen)
                         Button { Task { await addGuest() } } label: {
                             Label("Add guest", systemImage: "person.badge.plus").font(.inter(13, .bold)).foregroundStyle(.white)
                                 .frame(maxWidth: .infinity).padding(.vertical, 12)
@@ -2278,12 +2302,17 @@ private struct ManualCheckinSheet: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }.buttonStyle(.plain).disabled(busy || guestName.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
-                }.padding(24)
+                }
+                .padding(24)
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
             }
             .background(Nuru.paper)
+            .scrollContentBackground(.hidden)
             .navigationTitle("Manual check-in").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
         }
+        .presentationDetents([.large])
     }
 }
 
@@ -2316,44 +2345,60 @@ private struct PostMomentSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     ImageUploadField(label: "Image", folder: "moments", url: $imageUrl)
-                    formField("Caption (optional)") {
-                        TextField("A moment from Sunday…", text: $caption).textFieldStyle(.plain).font(.inter(13, .regular))
-                    }
-                    formField("Tag (optional)") {
-                        TextField("e.g. Worship", text: $tag).textFieldStyle(.plain).font(.inter(13, .regular))
+                    HStack(alignment: .top, spacing: 12) {
+                        formField("Caption (optional)") {
+                            TextField("A moment from Sunday…", text: $caption).textFieldStyle(.plain).font(.inter(15, .regular))
+                        }
+                        formField("Tag (optional)") {
+                            TextField("e.g. Worship", text: $tag).textFieldStyle(.plain).font(.inter(15, .regular))
+                        }
                     }
                     if !imageUrl.trimmingCharacters(in: .whitespaces).isEmpty {
                         AsyncImage(url: URL(string: imageUrl.trimmingCharacters(in: .whitespaces))) { img in img.resizable().scaledToFill() } placeholder: { Nuru.inputBg }
                             .frame(height: 160).frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                     }
                     if let err { Text(err).font(.nCaption).foregroundStyle(Nuru.danger) }
-                }.padding(24)
+                }
+                .padding(24)
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
             }
             .background(Nuru.paper)
+            .scrollContentBackground(.hidden)
             .navigationTitle("Post moment").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { Task { await post() } } label: { if busy { ProgressView() } else { Text("Post").bold() } }.disabled(busy)
+                    Button { Task { await post() } } label: {
+                        Group { if busy { ProgressView() } else { Text("Post").bold() } }
+                            .font(.inter(14, .semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(busy ? AnyShapeStyle(Nuru.muted) : AnyShapeStyle(Nuru.goldGradient))
+                            .clipShape(Capsule())
+                    }.disabled(busy)
                 }
             }
         }
+        .presentationDetents([.large])
     }
 }
 
 // MARK: - Shared form helpers (page-local)
 
+private let eventFieldBorder = Color(hex: 0x0A2540, alpha: 0.20)
+
 private func sectionLabel(_ text: String) -> some View {
-    Text(text.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
+    Text(text).font(.fraunces(16, .medium)).foregroundStyle(Nuru.navy)
 }
 
 private func formField<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
     VStack(alignment: .leading, spacing: 6) {
-        Text(label.uppercased()).font(.system(size: 10, weight: .bold)).tracking(0.5).foregroundStyle(Nuru.muted)
+        Text(label.uppercased()).font(.inter(12, .semibold)).tracking(0.5).foregroundStyle(Nuru.ink600)
         content()
-            .padding(.horizontal, 12).padding(.vertical, 10)
+            .font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
+            .padding(.horizontal, 12).padding(.vertical, 11)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(eventFieldBorder, lineWidth: 1))
     }
 }

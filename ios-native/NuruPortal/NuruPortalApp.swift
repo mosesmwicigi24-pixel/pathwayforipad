@@ -25,6 +25,9 @@ struct NuruPortalApp: App {
             }
             .environmentObject(auth)
             .tint(Nuru.gold)
+            // The portal is designed entirely in warm light tones; never let the
+            // device's Dark Mode bleed into system Form/sheet/picker chrome.
+            .preferredColorScheme(.light)
         }
     }
 

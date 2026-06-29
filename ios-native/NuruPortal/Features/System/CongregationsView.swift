@@ -175,25 +175,34 @@ private struct CongregationFormSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                SwiftUI.Section("Congregation") {
-                    HStack { Text("Name *").foregroundStyle(Nuru.ink600).frame(width: 90, alignment: .leading)
-                        TextField("e.g. TGNM", text: $name) }
-                    HStack { Text("Country *").foregroundStyle(Nuru.ink600).frame(width: 90, alignment: .leading)
-                        TextField("KE", text: $country).textInputAutocapitalization(.characters).autocorrectionDisabled()
-                            .onChange(of: country) { _, v in country = String(v.uppercased().prefix(2)) } }
-                    Picker("Timezone", selection: $timezone) {
-                        ForEach(TIMEZONES.contains(timezone) ? TIMEZONES : [timezone] + TIMEZONES, id: \.self) { tz in Text(tz).tag(tz) }
+            SysFormScaffold(error: error) {
+                SysFormSection("Congregation", subtitle: "A branch or assembly. Cells and members belong to one.") {
+                    SysFieldGrid {
+                        SysField("Name", required: true) {
+                            TextField("e.g. TGNM", text: $name).sysFieldInput()
+                        }
+                        SysField("Country", required: true) {
+                            TextField("KE", text: $country)
+                                .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                                .onChange(of: country) { _, v in country = String(v.uppercased().prefix(2)) }
+                                .sysFieldInput()
+                        }
+                        SysField("Timezone", span: 2) {
+                            Picker("", selection: $timezone) {
+                                ForEach(TIMEZONES.contains(timezone) ? TIMEZONES : [timezone] + TIMEZONES, id: \.self) { tz in Text(tz).tag(tz) }
+                            }
+                            .labelsHidden().pickerStyle(.menu).tint(Nuru.gold)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                 }
             }
             .navigationTitle(isEdit ? "Edit \(initial!.name)" : "Add a congregation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.foregroundStyle(Nuru.ink600) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isEdit ? "Save" : "Add") { Task { await submit() } }.disabled(saving)
+                    SysSaveButton(title: isEdit ? "Save" : "Add", saving: saving) { Task { await submit() } }
                 }
             }
         }
@@ -218,6 +227,152 @@ private struct CongregationFormSheet: View {
             self.error = (error as? APIError)?.errorDescription ?? "Save failed."
         }
         saving = false
+    }
+}
+
+// MARK: - System form kit (bright, roomy, two-column edit/add sheets — Pass v6)
+// A small shared kit (internal visibility, defined once here) used by every System
+// editor sheet: Roles, Users, Congregations, Countries, Languages. Warm cream
+// background, white field rows, dark-ink labels, navy section headers, two-column
+// field grid wrapped to a sensible max width, and a gold-filled Save button.
+// Presentation only — the host sheets keep all their bindings/validation/actions.
+
+/// Warm scaffold: hides the gray grouped Form chrome, paints Nuru.paper, centers the
+/// content to ~760pt, and shows a soft error banner at the top when present.
+struct SysFormScaffold<Content: View>: View {
+    var error: String?
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if let error, !error.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 13, weight: .semibold))
+                        Text(error).font(.inter(13, .medium))
+                    }
+                    .foregroundStyle(Nuru.danger)
+                    .padding(.horizontal, 14).padding(.vertical, 11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Nuru.danger.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.danger.opacity(0.25), lineWidth: 1))
+                }
+                content()
+            }
+            .frame(maxWidth: 760)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 22).padding(.top, 18).padding(.bottom, 40)
+        }
+        .scrollContentBackground(.hidden)
+        .background(Nuru.paper)
+        .presentationDetents([.large])
+    }
+}
+
+/// A titled white section card with a navy header and optional subtitle.
+struct SysFormSection<Content: View>: View {
+    let title: String
+    var subtitle: String? = nil
+    @ViewBuilder var content: () -> Content
+    init(_ title: String, subtitle: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title; self.subtitle = subtitle; self.content = content
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                if let subtitle {
+                    Text(subtitle).font(.inter(11.5, .regular)).foregroundStyle(Nuru.ink600)
+                }
+            }
+            content()
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+    }
+}
+
+/// Lays its children in two equal columns that wrap. Each child declares a span
+/// (1 = half width, 2 = full row) via `.sysSpan(_:)`; default is 1.
+struct SysFieldGrid<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 14) { content() }
+    }
+}
+
+/// One labelled field: a small dark-ink overline label above a white value row that
+/// hosts the (unchanged) control. `span: 2` makes it occupy a full grid row.
+struct SysField<Content: View>: View {
+    let label: String
+    var required: Bool = false
+    var span: Int = 1
+    @ViewBuilder var content: () -> Content
+    init(_ label: String, required: Bool = false, span: Int = 1, @ViewBuilder content: @escaping () -> Content) {
+        self.label = label; self.required = required; self.span = span; self.content = content
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 3) {
+                Text(label.uppercased()).font(.inter(11, .semibold)).tracking(0.5).foregroundStyle(Nuru.ink600)
+                if required { Text("*").font(.inter(11, .bold)).foregroundStyle(Nuru.gold) }
+            }
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).frame(minHeight: 42)
+                .background(Nuru.white)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        }
+        .gridCellColumns(span)
+    }
+}
+
+/// Full-width container for content that brings its own surface (e.g. a TextEditor
+/// section or a checklist) — label on top, no inner field chrome.
+struct SysBlock<Content: View>: View {
+    let label: String
+    var span: Int = 2
+    @ViewBuilder var content: () -> Content
+    init(_ label: String, span: Int = 2, @ViewBuilder content: @escaping () -> Content) {
+        self.label = label; self.span = span; self.content = content
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label.uppercased()).font(.inter(11, .semibold)).tracking(0.5).foregroundStyle(Nuru.ink600)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .gridCellColumns(span)
+    }
+}
+
+/// Gold brand-filled confirm button for the sheet toolbar.
+struct SysSaveButton: View {
+    let title: String
+    var saving: Bool = false
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.inter(14, .semibold)).foregroundStyle(.white)
+                .padding(.horizontal, 18).padding(.vertical, 7)
+                .background(Nuru.gold)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(saving)
+        .opacity(saving ? 0.6 : 1)
+    }
+}
+
+extension View {
+    /// Readable value typography for a bare TextField/SecureField inside a SysField row.
+    func sysFieldInput() -> some View {
+        self.font(.inter(15)).foregroundStyle(Nuru.ink).tint(Nuru.gold)
     }
 }
 

@@ -540,8 +540,7 @@ private struct UserForm: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
+            SysFormScaffold(error: error) {
                 identitySection
                 accessSection
                 rolesSection
@@ -551,9 +550,9 @@ private struct UserForm: View {
             .navigationTitle(isEdit ? "Edit user" : "Create user")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.foregroundStyle(Nuru.ink600) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isEdit ? "Save" : "Create") { Task { await submit() } }.disabled(saving)
+                    SysSaveButton(title: isEdit ? "Save" : "Create", saving: saving) { Task { await submit() } }
                 }
             }
             .task { await setup() }
@@ -563,105 +562,129 @@ private struct UserForm: View {
     // MARK: Sections
 
     @ViewBuilder private var identitySection: some View {
-        SwiftUI.Section("Identity") {
-            labeled("Full name", required: true) { TextField("Grace Wanjiru", text: $fullName) }
-            labeled("Email", required: !isEdit) {
-                TextField("name@nuru.org", text: $email)
-                    .keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .disabled(isEdit)
-                    .foregroundStyle(isEdit ? Nuru.ink400 : Nuru.ink)
+        SysFormSection("Identity", subtitle: "Who this person is and how to reach them.") {
+            SysFieldGrid {
+                SysField("Full name", required: true) { TextField("Grace Wanjiru", text: $fullName).sysFieldInput() }
+                SysField("Email", required: !isEdit) {
+                    TextField("name@nuru.org", text: $email)
+                        .keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .disabled(isEdit)
+                        .sysFieldInput()
+                        .foregroundStyle(isEdit ? Nuru.ink400 : Nuru.ink)
+                }
+                SysField("Phone", span: 2) { TextField("+254 700 000 000", text: $phone).keyboardType(.phonePad).sysFieldInput() }
             }
-            labeled("Phone") { TextField("+254 700 000 000", text: $phone).keyboardType(.phonePad) }
         }
     }
 
     @ViewBuilder private var accessSection: some View {
-        SwiftUI.Section("Access") {
-            Picker("Status", selection: $status) {
-                Text("Active").tag("active"); Text("Invited").tag("invited"); Text("Suspended").tag("suspended")
-            }
-            Picker("Country", selection: $countryCode) {
-                Text("—").tag("")
-                ForEach(target.countries) { c in Text("\(c.flag ?? "") \(c.name)").tag(c.code) }
-            }
-            Picker("Language", selection: $locale) {
-                if target.languages.isEmpty { Text(locale).tag(locale) }
-                ForEach(target.languages) { l in Text(l.name).tag(l.code) }
+        SysFormSection("Access", subtitle: "Account state, country and language.") {
+            SysFieldGrid {
+                SysField("Status", span: 2) {
+                    Picker("", selection: $status) {
+                        Text("Active").tag("active"); Text("Invited").tag("invited"); Text("Suspended").tag("suspended")
+                    }
+                    .labelsHidden().pickerStyle(.segmented).frame(maxWidth: .infinity)
+                }
+                SysField("Country") {
+                    Picker("", selection: $countryCode) {
+                        Text("—").tag("")
+                        ForEach(target.countries) { c in Text("\(c.flag ?? "") \(c.name)").tag(c.code) }
+                    }
+                    .labelsHidden().pickerStyle(.menu).tint(Nuru.gold).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                SysField("Language") {
+                    Picker("", selection: $locale) {
+                        if target.languages.isEmpty { Text(locale).tag(locale) }
+                        ForEach(target.languages) { l in Text(l.name).tag(l.code) }
+                    }
+                    .labelsHidden().pickerStyle(.menu).tint(Nuru.gold).frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }
 
     @ViewBuilder private var rolesSection: some View {
-        SwiftUI.Section {
-            ForEach(target.roles) { r in
-                Button {
-                    if roleKeys.contains(r.roleKey) { roleKeys.removeAll { $0 == r.roleKey } }
-                    else { roleKeys.append(r.roleKey) }
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: roleKeys.contains(r.roleKey) ? "checkmark.square.fill" : "square")
-                            .font(.system(size: 18))
-                            .foregroundStyle(roleKeys.contains(r.roleKey) ? Nuru.gold : Nuru.ink400)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(r.name).font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                            Text(r.roleType.capitalized).font(.nMicro).foregroundStyle(Nuru.ink600)
+        SysFormSection("Roles", subtitle: "Assign at least one role. Disciplers also get a profile shown in the mobile carousel.") {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], alignment: .leading, spacing: 12) {
+                ForEach(target.roles) { r in
+                    let on = roleKeys.contains(r.roleKey)
+                    Button {
+                        if on { roleKeys.removeAll { $0 == r.roleKey } }
+                        else { roleKeys.append(r.roleKey) }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: on ? "checkmark.square.fill" : "square")
+                                .font(.system(size: 18))
+                                .foregroundStyle(on ? Nuru.gold : Nuru.ink400)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(r.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.85)
+                                Text(r.roleType.capitalized).font(.inter(10.5, .medium)).foregroundStyle(Nuru.ink600)
+                            }
+                            Spacer(minLength: 0)
                         }
-                        Spacer(minLength: 0)
+                        .padding(.horizontal, 12).padding(.vertical, 11)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(on ? Nuru.gold.opacity(0.08) : Nuru.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(on ? Nuru.gold.opacity(0.45) : Nuru.border, lineWidth: 1))
                     }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
-        } header: {
-            Text("Roles *")
-        } footer: {
-            Text("Assign at least one role. Disciplers also get a profile shown in the mobile carousel.")
         }
     }
 
     @ViewBuilder private var disciplerSection: some View {
-        SwiftUI.Section("Discipler profile") {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Message shown in the mobile \"Meet your discipler\" carousel.")
-                    .font(.nMicro).foregroundStyle(Nuru.ink600)
+        SysFormSection("Discipler profile", subtitle: "Message shown in the mobile \"Meet your discipler\" carousel.") {
+            VStack(alignment: .leading, spacing: 12) {
                 TextEditor(text: $disciplerMessage)
-                    .frame(minHeight: 88)
-                    .font(.inter(14)).foregroundStyle(Nuru.ink)
+                    .frame(minHeight: 88).font(.inter(15)).foregroundStyle(Nuru.ink)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 8).padding(.vertical, 6)
+                    .background(Nuru.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 ImageUploadField(label: "Profile photo", folder: "disciplers", url: $avatarUrl)
             }
         }
     }
 
     @ViewBuilder private var securitySection: some View {
-        SwiftUI.Section {
-            labeled(isEdit ? "Password" : "Password", required: !isEdit) {
-                Group {
-                    if showPw { TextField(isEdit ? "Leave blank to keep" : "Min. 8 characters", text: $password) }
-                    else { SecureField(isEdit ? "Leave blank to keep" : "Min. 8 characters", text: $password) }
-                }
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-            }
-            if !password.isEmpty || !isEdit {
-                labeled("Confirm", required: !isEdit) {
+        SysFormSection("Security", subtitle: isEdit ? "Leave the password blank to keep the current one." : "Set a sign-in password before going live.") {
+            SysFieldGrid {
+                SysField("Password", required: !isEdit) {
                     Group {
-                        if showPw { TextField("Re-enter password", text: $confirm) }
-                        else { SecureField("Re-enter password", text: $confirm) }
+                        if showPw { TextField(isEdit ? "Leave blank to keep" : "Min. 8 characters", text: $password) }
+                        else { SecureField(isEdit ? "Leave blank to keep" : "Min. 8 characters", text: $password) }
                     }
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .sysFieldInput()
+                }
+                if !password.isEmpty || !isEdit {
+                    SysField("Confirm", required: !isEdit) {
+                        Group {
+                            if showPw { TextField("Re-enter password", text: $confirm) }
+                            else { SecureField("Re-enter password", text: $confirm) }
+                        }
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .sysFieldInput()
+                    }
+                }
+                SysBlock("Options") {
+                    VStack(spacing: 10) {
+                        Toggle(isOn: $showPw) { Text("Show password").font(.inter(13.5, .medium)).foregroundStyle(Nuru.ink) }
+                            .tint(Nuru.gold)
+                        Divider().overlay(Nuru.border)
+                        Toggle(isOn: $require2fa) { Text("Require 2FA on next login").font(.inter(13.5, .medium)).foregroundStyle(Nuru.ink) }
+                            .tint(Nuru.lumGreen)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 11)
+                    .background(Nuru.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 }
             }
-            Toggle("Show password", isOn: $showPw)
-            Toggle("Require 2FA on next login", isOn: $require2fa)
-        } header: {
-            Text("Security")
-        } footer: {
-            Text(isEdit ? "Leave the password blank to keep the current one." : "Set a sign-in password before going live.")
-        }
-    }
-
-    @ViewBuilder private func labeled<C: View>(_ label: String, required: Bool = false, @ViewBuilder _ field: () -> C) -> some View {
-        HStack {
-            Text(label + (required ? " *" : "")).foregroundStyle(Nuru.ink600).frame(width: 96, alignment: .leading)
-            field()
         }
     }
 

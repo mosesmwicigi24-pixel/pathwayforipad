@@ -280,7 +280,7 @@ struct ProfileView: View {
 
 private struct PSectionTitle: View {
     let text: String
-    var body: some View { Text(text).font(.inter(14, .bold)).foregroundStyle(Nuru.navy) }
+    var body: some View { Text(text).font(.inter(15, .bold)).foregroundStyle(Nuru.navy) }
 }
 
 private struct PField: View {
@@ -292,23 +292,24 @@ private struct PField: View {
     var helper: String?
     var error: String?
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 3) {
-                Text(label).font(.inter(11.5, .semibold)).foregroundStyle(Nuru.muted)
-                if required { Text("*").foregroundStyle(Nuru.danger) }
+                Text(label.uppercased()).font(.inter(11.5, .semibold)).tracking(0.4)
+                    .foregroundStyle(Nuru.ink)
+                if required { Text("*").font(.inter(11.5, .semibold)).foregroundStyle(Nuru.danger) }
             }
             Group {
                 if secure { SecureField("", text: $value) } else { TextField("", text: $value) }
             }
-            .font(.inter(13)).foregroundStyle(disabled ? Nuru.muted : Nuru.foreground)
+            .font(.inter(15)).foregroundStyle(disabled ? Nuru.ink600 : Nuru.ink)
             .disabled(disabled).textInputAutocapitalization(.never).autocorrectionDisabled()
-            .padding(.horizontal, 12).frame(height: 40)
-            .background(disabled ? Nuru.inputBg : Nuru.white)
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .padding(.horizontal, 14).frame(height: 46)
+            .background(disabled ? Nuru.surface : Nuru.white)
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(error != nil ? Nuru.danger : Nuru.border, lineWidth: 1.5))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            if let error { Text(error).font(.inter(11)).foregroundStyle(Nuru.danger) }
-            else if let helper { Text(helper).font(.inter(11)).foregroundStyle(Nuru.muted) }
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            if let error { Text(error).font(.inter(11.5)).foregroundStyle(Nuru.danger) }
+            else if let helper { Text(helper).font(.inter(11.5)).foregroundStyle(Nuru.ink600) }
         }
     }
 }
@@ -319,9 +320,9 @@ private struct PPrimaryButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(title).font(.inter(13, .semibold)).foregroundStyle(.white)
-                .padding(.horizontal, 16).frame(height: 38)
-                .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            Text(title).font(.inter(14, .bold)).foregroundStyle(.white)
+                .padding(.horizontal, 22).frame(height: 44)
+                .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }.buttonStyle(.plain).disabled(disabled).opacity(disabled ? 0.5 : 1)
     }
 }
@@ -431,19 +432,21 @@ private struct PasswordPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             PSectionTitle(text: "Change Password")
             Text("After changing your password, all other active sessions are terminated and you'll need to sign in again on those devices.")
-                .font(.inter(12.5)).foregroundStyle(Nuru.muted).lineSpacing(3)
-                .frame(maxWidth: 520, alignment: .leading).padding(.top, 8).padding(.bottom, 22)
-            VStack(alignment: .leading, spacing: 20) {
+                .font(.inter(12.5)).foregroundStyle(Nuru.ink600).lineSpacing(3)
+                .frame(maxWidth: 720, alignment: .leading).padding(.top, 8).padding(.bottom, 22)
+            VStack(alignment: .leading, spacing: 18) {
                 PField(label: "Current Password", required: true, value: $current, secure: true, error: errCurrent)
-                PField(label: "New Password", required: true, value: $next, secure: true, helper: "Minimum 8 characters", error: errNext)
-                PField(label: "Confirm New Password", required: true, value: $confirm, secure: true, error: errConfirm)
+                HStack(alignment: .top, spacing: 16) {
+                    PField(label: "New Password", required: true, value: $next, secure: true, helper: "Minimum 8 characters", error: errNext)
+                    PField(label: "Confirm New Password", required: true, value: $confirm, secure: true, error: errConfirm)
+                }
             }
-            .frame(maxWidth: 520)
+            .frame(maxWidth: 720)
             HStack {
                 Spacer()
                 PPrimaryButton(title: "Change Password", disabled: busy) { Task { await submit() } }
             }
-            .frame(maxWidth: 520).padding(.top, 24)
+            .frame(maxWidth: 720).padding(.top, 24)
         }
     }
 

@@ -280,6 +280,7 @@ struct VideoLibraryView: View {
                 onDelete: { selected = nil; deleteFor = a },
                 onSaveMeta: { caption, level in Task { await vm.patch(a, caption: caption, levelNumber: level) } }
             )
+            .presentationDetents([.large])
         }
         // Register-external sheet (POST /admin/media/external).
         .sheet(isPresented: $showRegister) {
@@ -288,6 +289,7 @@ struct VideoLibraryView: View {
                 if ok { showRegister = false }
                 return ok
             }
+            .presentationDetents([.large])
         }
         // Hosted upload — basic native file picker → chunked PUT + finalize.
         .fileImporter(isPresented: $showFileImporter,
@@ -1131,40 +1133,48 @@ private struct PreviewSheet: View {
     // ── Editable caption + level (PATCH) ──
     @ViewBuilder private var editMetadata: some View {
         SurfaceTile {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("EDIT METADATA").font(.inter(12, .bold)).tracking(0.5).foregroundStyle(Nuru.ink)
-                TextField("Caption — a short line shown with the video", text: $caption)
-                    .font(.inter(12.5)).textFieldStyle(.plain)
-                    .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                HStack(spacing: 8) {
-                    Text("LEVEL").font(.inter(11, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("EDIT METADATA").font(.inter(12, .bold)).tracking(0.8).foregroundStyle(Nuru.navy)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("CAPTION").font(.inter(11.5, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                    TextField("A short line shown with the video", text: $caption)
+                        .font(.inter(15)).textFieldStyle(.plain).foregroundStyle(Nuru.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 13).padding(.vertical, 12)
+                        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("LEVEL").font(.inter(11.5, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
                     Menu {
                         Button("None") { level = "" }
                         ForEach(1...6, id: \.self) { n in Button("Level \(n)") { level = String(n) } }
                     } label: {
                         HStack(spacing: 6) {
-                            Text(level.isEmpty ? "None" : "Level \(level)").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink)
-                            Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(Nuru.ink600)
+                            Text(level.isEmpty ? "None" : "Level \(level)").font(.inter(15, .semibold)).foregroundStyle(Nuru.ink)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(Nuru.gold)
                         }
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .padding(.horizontal, 13).padding(.vertical, 12)
+                        .frame(maxWidth: 220, alignment: .leading)
+                        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                     }.buttonStyle(.plain)
-                    Spacer()
                 }
+
                 Button {
                     onSaveMeta(caption.trimmingCharacters(in: .whitespaces), level.isEmpty ? nil : Int(level))
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "checkmark").font(.system(size: 11))
-                        Text("Save changes").font(.inter(12, .bold))
+                        Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
+                        Text("Save changes").font(.inter(13, .bold))
                     }
                     .foregroundStyle((captionDirty || levelDirty) ? .white : Nuru.ink600)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background((captionDirty || levelDirty) ? AnyShapeStyle(Nuru.navy) : AnyShapeStyle(Nuru.inputBg))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background((captionDirty || levelDirty) ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.inputBg))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }.buttonStyle(.plain).disabled((!captionDirty && !levelDirty) || working)
             }
         }
@@ -1299,62 +1309,71 @@ private struct RegisterExternalSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 18) {
                     Text("Paste a YouTube, Vimeo, direct or private (signed) URL — no transcode, ready instantly.")
-                        .font(.inter(12.5)).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
+                        .font(.inter(13)).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
 
-                    // URL field + live provider badge
-                    HStack(spacing: 8) {
-                        Image(systemName: "link").font(.system(size: 15)).foregroundStyle(Nuru.ink600)
-                        TextField("https://youtu.be/…  ·  vimeo.com/…  ·  signed URL", text: $url)
-                            .font(.inter(13)).textFieldStyle(.plain)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        if let s = source { ProviderBadge(source: s) }
+                    // ── Video link section ──
+                    formSection("Video link") {
+                        labeledField("Video URL") {
+                            HStack(spacing: 8) {
+                                Image(systemName: "link").font(.system(size: 15)).foregroundStyle(Nuru.ink600)
+                                TextField("https://youtu.be/…  ·  vimeo.com/…  ·  signed URL", text: $url)
+                                    .font(.inter(15)).textFieldStyle(.plain).foregroundStyle(Nuru.ink)
+                                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                                if let s = source { ProviderBadge(source: s) }
+                            }
+                        }
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 11)
-                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Nuru.border, lineWidth: 1))
 
                     if parsed != nil, let s = source {
-                        TextField("Video title (e.g. Introduction to Discipleship)", text: $title)
-                            .font(.inter(13, .semibold)).textFieldStyle(.plain)
-                            .padding(.horizontal, 12).padding(.vertical, 9)
-                            .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                        TextField("Caption — a short line shown with the video", text: $caption)
-                            .font(.inter(12.5)).textFieldStyle(.plain)
-                            .padding(.horizontal, 12).padding(.vertical, 9)
-                            .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                        HStack(spacing: 8) {
-                            Text("LEVEL").font(.inter(11, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600)
-                            Menu {
-                                Button("None") { level = "" }
-                                ForEach(1...6, id: \.self) { n in Button("Level \(n)") { level = String(n) } }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Text(level.isEmpty ? "None" : "Level \(level)").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink)
-                                    Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(Nuru.ink600)
+                        // ── Details section: Title | Caption paired, then Level ──
+                        formSection("Details") {
+                            twoCol(
+                                labeledField("Title") {
+                                    TextField("e.g. Introduction to Discipleship", text: $title)
+                                        .font(.inter(15, .semibold)).textFieldStyle(.plain).foregroundStyle(Nuru.ink)
+                                },
+                                labeledField("Caption") {
+                                    TextField("A short line shown with the video", text: $caption)
+                                        .font(.inter(15)).textFieldStyle(.plain).foregroundStyle(Nuru.ink)
                                 }
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                            }.buttonStyle(.plain)
-                            Spacer()
-                        }
-                        if parsed?.provider == "direct" {
-                            Toggle(isOn: $markPrivate) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "checkmark.shield").font(.system(size: 12)).foregroundStyle(Color(hex: 0x0F766E))
-                                    Text("Private — deliver via signed, expiring URL").font(.inter(11.5)).foregroundStyle(Nuru.ink)
+                            )
+                            twoCol(
+                                labeledField("Level") {
+                                    Menu {
+                                        Button("None") { level = "" }
+                                        ForEach(1...6, id: \.self) { n in Button("Level \(n)") { level = String(n) } }
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Text(level.isEmpty ? "None" : "Level \(level)")
+                                                .font(.inter(15, .semibold)).foregroundStyle(Nuru.ink)
+                                            Spacer(minLength: 0)
+                                            Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(Nuru.gold)
+                                        }
+                                    }.buttonStyle(.plain)
+                                },
+                                EmptyView()
+                            )
+                            if parsed?.provider == "direct" {
+                                Toggle(isOn: $markPrivate) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "checkmark.shield").font(.system(size: 13)).foregroundStyle(Nuru.success)
+                                        Text("Private — deliver via signed, expiring URL")
+                                            .font(.inter(13, .medium)).foregroundStyle(Nuru.ink)
+                                    }
+                                }.tint(Nuru.lumGreen)
+                            }
+                            if s != "private" {
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: "exclamationmark.triangle").font(.system(size: 13)).foregroundStyle(Color(hex: 0x7A5410))
+                                    Text("External links are best-effort gated, not hard-gated — choose Private (signed) for true gating.")
+                                        .font(.inter(12.5)).foregroundStyle(Color(hex: 0x7A5410)).fixedSize(horizontal: false, vertical: true)
                                 }
-                            }.tint(Color(hex: 0x0F766E))
-                        }
-                        if s != "private" {
-                            HStack(alignment: .top, spacing: 6) {
-                                Image(systemName: "exclamationmark.triangle").font(.system(size: 12)).foregroundStyle(Color(hex: 0x7A5410))
-                                Text("External links are best-effort gated, not hard-gated — choose Private (signed) for true gating.")
-                                    .font(.inter(11)).foregroundStyle(Color(hex: 0x7A5410)).fixedSize(horizontal: false, vertical: true)
+                                .padding(12)
+                                .background(Color(hex: 0xFFFBEB))
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(hex: 0xF5E0A8), lineWidth: 1))
                             }
                         }
                     } else {
@@ -1362,17 +1381,26 @@ private struct RegisterExternalSheet: View {
                             Image(systemName: "play.rectangle").font(.system(size: 16)).foregroundStyle(Nuru.ink600)
                             Text(url.isEmpty ? "Paste a link above. We auto-detect the host (YouTube, Vimeo, direct, private)."
                                  : "That doesn't look like a video URL yet.")
-                                .font(.inter(12.5)).foregroundStyle(Nuru.ink600)
+                                .font(.inter(13)).foregroundStyle(Nuru.ink600)
                         }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Nuru.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                     }
                 }
-                .padding(20)
+                .padding(24)
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
             }
             .background(Nuru.paper)
             .navigationTitle("Register external video")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }.foregroundStyle(Nuru.ink600)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Register") {
                         guard let p = parsed, let s = source else { return }
@@ -1387,8 +1415,43 @@ private struct RegisterExternalSheet: View {
                     }
                     .disabled(source == nil || working)
                     .font(.inter(15, .bold))
+                    .foregroundStyle(source == nil || working ? Nuru.ink400 : Nuru.gold)
                 }
             }
+        }
+    }
+
+    // ── Bright form building blocks (Pass v6: white fields, dark labels, roomy) ──
+
+    /// A titled section: navy overline header above a card of white field rows.
+    @ViewBuilder private func formSection<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title.uppercased()).font(.inter(12, .bold)).tracking(0.8).foregroundStyle(Nuru.navy)
+            content()
+        }
+    }
+
+    /// A labeled white field row — dark-ink label, white surface, visible border.
+    @ViewBuilder private func labeledField<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label.uppercased()).font(.inter(11.5, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 13).padding(.vertical, 12)
+                .background(Nuru.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+        }
+    }
+
+    /// Pair two fields side-by-side on the wide iPad canvas; stack when tight.
+    @ViewBuilder private func twoCol<A: View, B: View>(_ a: A, _ b: B) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 14) {
+                a.frame(maxWidth: .infinity)
+                b.frame(maxWidth: .infinity)
+            }
+            VStack(alignment: .leading, spacing: 12) { a; b }
         }
     }
 }

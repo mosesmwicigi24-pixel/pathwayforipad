@@ -551,7 +551,7 @@ private struct IssueCertificateSheet: View {
                         Image(systemName: "rosette").font(.system(size: 11)).foregroundStyle(Nuru.gold)
                         Text("ISSUE").font(.nOverline).tracking(0.5).foregroundStyle(Nuru.gold)
                     }
-                    Text("Issue a certificate").font(.fraunces(21, .medium)).foregroundStyle(Nuru.ink)
+                    Text("Issue a certificate").font(.fraunces(24, .medium)).foregroundStyle(Nuru.navy)
 
                     if let m = picked {
                         HStack(spacing: 12) {
@@ -572,14 +572,14 @@ private struct IssueCertificateSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
                     } else {
                         HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass").font(.system(size: 14)).foregroundStyle(Nuru.muted)
-                            TextField("Search member…", text: $query).font(.nBody)
+                            Image(systemName: "magnifyingglass").font(.system(size: 14, weight: .medium)).foregroundStyle(Nuru.ink600)
+                            TextField("Search member…", text: $query).font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
                                 .textInputAutocapitalization(.words)
                         }
-                        .padding(.horizontal, 12).padding(.vertical, 11)
-                        .background(Nuru.inputBg)
+                        .padding(.horizontal, 12).padding(.vertical, 12)
+                        .background(Nuru.white)
                         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Self.fieldBorder, lineWidth: 1))
 
                         VStack(spacing: 6) {
                             ForEach(results) { m in
@@ -603,7 +603,7 @@ private struct IssueCertificateSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("LEVEL").font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
+                        Text("LEVEL").font(.inter(12, .semibold)).tracking(0.5).foregroundStyle(Nuru.ink600)
                         Menu {
                             Button("Full programme") { level = nil }
                             ForEach(levels) { l in
@@ -612,26 +612,35 @@ private struct IssueCertificateSheet: View {
                         } label: {
                             HStack {
                                 Text(level.flatMap { n in levels.first { $0.levelNumber == n }.map { "Level \($0.levelNumber) — \($0.title)" } } ?? "Full programme")
-                                    .font(.nBody).foregroundStyle(Nuru.ink).lineLimit(1)
+                                    .font(.inter(15, .medium)).foregroundStyle(Nuru.ink).lineLimit(1)
                                 Spacer()
-                                Image(systemName: "chevron.down").font(.system(size: 11)).foregroundStyle(Nuru.muted)
+                                Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(Nuru.gold)
                             }
-                            .padding(.horizontal, 12).padding(.vertical, 11)
-                            .background(Nuru.inputBg)
+                            .padding(.horizontal, 12).padding(.vertical, 12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Nuru.white)
                             .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Self.fieldBorder, lineWidth: 1))
                         }
                     }
                 }
-                .padding(20)
+                .padding(24)
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
             }
             .background(Nuru.paper)
+            .scrollContentBackground(.hidden)
             .navigationTitle("Issue certificate").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button { Task { await issue() } } label: {
-                        HStack(spacing: 6) { Image(systemName: "rosette"); Text("Issue") }
+                        HStack(spacing: 6) { Image(systemName: "rosette"); Text("Issue").bold() }
+                            .font(.inter(14, .semibold))
+                            .foregroundStyle((picked == nil || busy) ? AnyShapeStyle(Nuru.muted) : AnyShapeStyle(Color.white))
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background((picked == nil || busy) ? AnyShapeStyle(Nuru.inputBg) : AnyShapeStyle(Nuru.goldGradient))
+                            .clipShape(Capsule())
                     }.disabled(picked == nil || busy)
                 }
             }
@@ -650,7 +659,9 @@ private struct IssueCertificateSheet: View {
                 }
             }
         }
+        .presentationDetents([.large])
     }
+    private static let fieldBorder = Color(hex: 0x0A2540, alpha: 0.20)
 
     private func issue() async {
         guard let m = picked else { return }

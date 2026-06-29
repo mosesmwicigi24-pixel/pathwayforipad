@@ -467,51 +467,60 @@ private struct RoleForm: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                SwiftUI.Section {
-                    HStack {
-                        Text("Name *").foregroundStyle(Nuru.ink600).frame(width: 110, alignment: .leading)
-                        TextField("e.g. Cell Coordinator", text: $name)
-                    }
-                    if !isEdit, !slug.isEmpty {
-                        HStack {
-                            Text("Key").foregroundStyle(Nuru.ink600).frame(width: 110, alignment: .leading)
-                            Text(slug).font(.system(size: 13, design: .monospaced)).foregroundStyle(Nuru.navy)
+            SysFormScaffold(error: error) {
+                SysFormSection(isEdit ? "Role" : "New role", subtitle: "Define what this kind of user can do. You can fine-tune every capability in the matrix.") {
+                    SysFieldGrid {
+                        SysField("Name", required: true, span: !isEdit && !slug.isEmpty ? 1 : 2) {
+                            TextField("e.g. Cell Coordinator", text: $name).sysFieldInput()
+                        }
+                        if !isEdit, !slug.isEmpty {
+                            SysField("Key") {
+                                Text(slug).font(.system(size: 14, design: .monospaced)).foregroundStyle(Nuru.navy)
+                                    .lineLimit(1).minimumScaleFactor(0.8)
+                            }
+                        }
+                        SysField("Type", span: 2) {
+                            Picker("", selection: $roleType) {
+                                Text("Staff — office / ministry").tag("staff")
+                                Text("Field — front-line disciple-maker").tag("field")
+                                if existing?.roleType == "system" { Text("System").tag("system") }
+                            }
+                            .labelsHidden().pickerStyle(.menu).tint(Nuru.gold)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        SysBlock("Description") {
+                            TextEditor(text: $description)
+                                .frame(minHeight: 80).font(.inter(15)).foregroundStyle(Nuru.ink)
+                                .scrollContentBackground(.hidden)
+                                .padding(.horizontal, 8).padding(.vertical, 6)
+                                .background(Nuru.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                         }
                     }
-                    Picker("Type", selection: $roleType) {
-                        Text("Staff — office / ministry").tag("staff")
-                        Text("Field — front-line disciple-maker").tag("field")
-                        if existing?.roleType == "system" { Text("System").tag("system") }
-                    }
-                } header: {
-                    Text(isEdit ? "Role" : "New role")
-                }
-
-                SwiftUI.Section("Description") {
-                    TextEditor(text: $description).frame(minHeight: 72).font(.inter(14))
                 }
 
                 if !isEdit {
-                    SwiftUI.Section {
-                        Picker("Starting permissions", selection: $copyFrom) {
-                            Text("Blank — no permissions").tag("")
-                            ForEach(allRoles.filter { $0.roleKey != "super_admin" }) { r in
-                                Text("Copy from: \(r.name)").tag(r.roleKey)
+                    SysFormSection("Starting permissions", subtitle: "You can adjust every capability in the permissions matrix next.") {
+                        SysField("Copy from", span: 2) {
+                            Picker("", selection: $copyFrom) {
+                                Text("Blank — no permissions").tag("")
+                                ForEach(allRoles.filter { $0.roleKey != "super_admin" }) { r in
+                                    Text("Copy from: \(r.name)").tag(r.roleKey)
+                                }
                             }
+                            .labelsHidden().pickerStyle(.menu).tint(Nuru.gold)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                    } footer: {
-                        Text("You can adjust every capability in the permissions matrix next.")
                     }
                 }
             }
             .navigationTitle(isEdit ? "Edit role" : "Create role")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.foregroundStyle(Nuru.ink600) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isEdit ? "Save" : "Create") { Task { await submit() } }.disabled(saving)
+                    SysSaveButton(title: isEdit ? "Save" : "Create", saving: saving) { Task { await submit() } }
                 }
             }
             .task {

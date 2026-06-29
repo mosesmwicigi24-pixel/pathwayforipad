@@ -575,12 +575,12 @@ private struct CreateBadgeSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 8) {
                         Image(systemName: "sparkles").font(.system(size: 11)).foregroundStyle(Nuru.gold)
                         Text("BADGE EDITOR").font(.nOverline).tracking(0.5).foregroundStyle(Nuru.gold)
                     }
-                    Text("Create new badge").font(.fraunces(22, .medium)).foregroundStyle(Nuru.ink)
+                    Text("Create new badge").font(.fraunces(24, .medium)).foregroundStyle(Nuru.navy)
 
                     HStack(spacing: 16) {
                         field("Badge name", required: true) {
@@ -595,8 +595,8 @@ private struct CreateBadgeSheet: View {
                         Menu {
                             ForEach(BadgeCat.allCases) { c in Button(c.label) { category = c } }
                         } label: {
-                            HStack { Text(category.label).font(.nBody).foregroundStyle(Nuru.ink); Spacer()
-                                Image(systemName: "chevron.down").font(.system(size: 11)).foregroundStyle(Nuru.muted) }
+                            HStack { Text(category.label).font(.inter(15, .medium)).foregroundStyle(Nuru.ink); Spacer()
+                                Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(Nuru.gold) }
                         }
                     }
                     field("Description", required: true) {
@@ -605,24 +605,26 @@ private struct CreateBadgeSheet: View {
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         labelRow("Award when (registered rule)", required: true)
-                        HStack(spacing: 12) {
+                        HStack(alignment: .bottom, spacing: 12) {
                             Menu {
                                 ForEach(RuleKind.allCases, id: \.self) { k in Button(k.label) { kind = k } }
                             } label: {
-                                HStack { Text(kind.label).font(.nBody).foregroundStyle(Nuru.ink).lineLimit(1); Spacer()
-                                    Image(systemName: "chevron.down").font(.system(size: 11)).foregroundStyle(Nuru.muted) }
-                                .padding(.horizontal, 12).padding(.vertical, 10)
-                                .background(Nuru.inputBg)
+                                HStack { Text(kind.label).font(.inter(15, .medium)).foregroundStyle(Nuru.ink).lineLimit(1); Spacer()
+                                    Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(Nuru.gold) }
+                                .padding(.horizontal, 12).padding(.vertical, 11)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Nuru.white)
                                 .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                                .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Self.fieldBorder, lineWidth: 1))
                             }
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(kind.thresholdLabel).font(.system(size: 10)).foregroundStyle(Nuru.muted)
-                                TextField("", text: $threshold).keyboardType(.numberPad)
-                                    .padding(.horizontal, 12).padding(.vertical, 10)
-                                    .background(Nuru.inputBg)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(kind.thresholdLabel.uppercased()).font(.inter(11, .semibold)).tracking(0.5).foregroundStyle(Nuru.ink600)
+                                TextField("", text: $threshold).keyboardType(.numberPad).font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
+                                    .padding(.horizontal, 12).padding(.vertical, 11)
+                                    .frame(width: 120)
+                                    .background(Nuru.white)
                                     .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-                                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Self.fieldBorder, lineWidth: 1))
                             }
                         }
                     }
@@ -638,20 +640,29 @@ private struct CreateBadgeSheet: View {
                     .padding(12).background(Nuru.surface)
                     .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
                 }
-                .padding(20)
+                .padding(24)
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
             }
             .background(Nuru.paper)
+            .scrollContentBackground(.hidden)
             .navigationTitle("New badge").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button { Task { await submit() } } label: {
-                        HStack(spacing: 6) { Image(systemName: "rosette"); Text("Create") }
+                        HStack(spacing: 6) { Image(systemName: "rosette"); Text("Create").bold() }
+                            .font(.inter(14, .semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(busy ? AnyShapeStyle(Nuru.muted) : AnyShapeStyle(Nuru.goldGradient))
+                            .clipShape(Capsule())
                     }.disabled(busy)
                 }
             }
         }
+        .presentationDetents([.large])
     }
+    private static let fieldBorder = Color(hex: 0x0A2540, alpha: 0.20)
 
     private func submit() async {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty, !autoCode.isEmpty,
@@ -690,17 +701,19 @@ private struct CreateBadgeSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             labelRow(label, required: required)
             content()
-                .padding(.horizontal, 12).padding(.vertical, 10)
-                .background(Nuru.inputBg)
+                .font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
+                .padding(.horizontal, 12).padding(.vertical, 11)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Nuru.white)
                 .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Self.fieldBorder, lineWidth: 1))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     private func labelRow(_ label: String, required: Bool) -> some View {
         HStack(spacing: 3) {
-            Text(label.uppercased()).font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
-            if required { Text("*").font(.nMicro).foregroundStyle(Nuru.danger) }
+            Text(label.uppercased()).font(.inter(12, .semibold)).tracking(0.5).foregroundStyle(Nuru.ink600)
+            if required { Text("*").font(.inter(12, .semibold)).foregroundStyle(Nuru.danger) }
         }
     }
 }

@@ -1046,8 +1046,8 @@ private struct ModuleQuizEditor: View {
             content()
         }
         .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
-        .padding(.horizontal, 12).padding(.vertical, 11)
-        .background(Nuru.background)
+        .padding(.horizontal, 13).padding(.vertical, 12)
+        .background(Nuru.white)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
     }
@@ -1086,7 +1086,7 @@ private struct ModuleQuizEditor: View {
                     }
                     .foregroundStyle(settings.timeLimitMinutes != nil ? .white : Nuru.ink600)
                     .padding(.horizontal, 10).frame(height: 32)
-                    .background(settings.timeLimitMinutes != nil ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.white))
+                    .background(settings.timeLimitMinutes != nil ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.inputBg))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                 }
@@ -1098,9 +1098,9 @@ private struct ModuleQuizEditor: View {
                     ), format: .number)
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.center)
-                        .font(.inter(13)).foregroundStyle(Nuru.foreground)
+                        .font(.inter(13)).foregroundStyle(Nuru.ink)
                         .frame(width: 52, height: 32)
-                        .background(Nuru.white)
+                        .background(Nuru.inputBg)
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                     Text("min").font(.inter(11)).foregroundStyle(Nuru.ink600)
@@ -1327,23 +1327,24 @@ private struct QuestionCard: View {
                     .frame(minWidth: 26, alignment: .leading).padding(.top, 6)
                 TextField("Question text", text: $q.text, axis: .vertical)
                     .lineLimit(2...4)
-                    .font(.inter(15, .medium)).foregroundStyle(Nuru.navy)
+                    .font(.inter(15, .medium)).foregroundStyle(Nuru.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                 Menu {
                     ForEach(QType.all, id: \.self) { t in
                         Button(t.label) { setType(t) }
                     }
                 } label: {
-                    HStack(spacing: 4) {
-                        Text(q.type.label).font(.inter(12.5)).foregroundStyle(Nuru.foreground)
-                        Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(Nuru.ink600)
+                    HStack(spacing: 6) {
+                        Text(q.type.label).font(.inter(13, .semibold)).foregroundStyle(Nuru.ink)
+                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(Nuru.gold)
                     }
-                    .padding(.horizontal, 12).frame(height: 38)
-                    .background(Nuru.background)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    .padding(.horizontal, 12).frame(height: 40)
+                    .background(Nuru.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                 }
             }
             .padding(.bottom, 14)
@@ -1356,12 +1357,17 @@ private struct QuestionCard: View {
             }
 
             // explanation
-            TextField("Explanation (shown after submit)", text: $q.explanation, axis: .vertical)
-                .lineLimit(1...3)
-                .font(.inter(12.5)).foregroundStyle(Nuru.ink600)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 38).padding(.top, 16)
-                .overlay(Rectangle().fill(Nuru.border).frame(height: 1).padding(.leading, 38), alignment: .bottom)
+            VStack(alignment: .leading, spacing: 6) {
+                fieldLabel("Explanation")
+                TextField("Shown to the disciple after they submit", text: $q.explanation, axis: .vertical)
+                    .lineLimit(1...3)
+                    .font(.inter(14)).foregroundStyle(Nuru.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+            }
+            .padding(.leading, 38).padding(.top, 16)
 
             // footer controls
             HStack {
@@ -1443,21 +1449,28 @@ private struct QuestionCard: View {
                         }.frame(width: 20, height: 20)
                     }.buttonStyle(.plain)
                     TextField("Option text", text: $opt.text)
-                        .font(.inter(13.5)).foregroundStyle(Nuru.foreground)
-                    Spacer(minLength: 0)
+                        .font(.inter(14)).foregroundStyle(Nuru.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(opt.isCorrect ? Nuru.lumGreen.opacity(0.55) : Nuru.border, lineWidth: 1.5))
                     if q.options.count > 1 {
                         Button { q.options.removeAll { $0.id == opt.id } } label: {
-                            Image(systemName: "trash").font(.system(size: 12)).foregroundStyle(Nuru.ink600)
+                            Image(systemName: "trash").font(.system(size: 13)).foregroundStyle(Nuru.ink600)
                         }.buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 8).padding(.vertical, 6)
+                .padding(.horizontal, 8).padding(.vertical, 5)
             }
             Button {
                 q.options.append(QOption(id: newOptId(), text: "Option \(q.options.count + 1)", isCorrect: false))
             } label: {
-                Text("Add option").font(.inter(13)).foregroundStyle(Nuru.ink600)
-                    .padding(.leading, 32).padding(.vertical, 4)
+                HStack(spacing: 5) {
+                    Image(systemName: "plus.circle.fill").font(.system(size: 13)).foregroundStyle(Nuru.gold)
+                    Text("Add option").font(.inter(13, .semibold)).foregroundStyle(Nuru.goldLo)
+                }
+                .padding(.leading, 32).padding(.vertical, 6)
             }.buttonStyle(.plain)
         }
         .padding(.leading, 38)
@@ -1521,24 +1534,24 @@ private struct QuestionCard: View {
             TextField("", value: value, format: .number)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.center)
-                .font(.inter(13)).foregroundStyle(Nuru.foreground)
-                .frame(width: 72, height: 34)
-                .background(Nuru.background)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .font(.inter(14)).foregroundStyle(Nuru.ink)
+                .frame(width: 72, height: 38)
+                .background(Nuru.white)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
         }
     }
     private func scaleText(_ label: String, value: Binding<String>, placeholder: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             fieldLabel(label)
             TextField(placeholder, text: value)
-                .font(.inter(13)).foregroundStyle(Nuru.foreground)
-                .frame(height: 34)
+                .font(.inter(14)).foregroundStyle(Nuru.ink)
+                .frame(height: 38)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .background(Nuru.background)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .padding(.horizontal, 12)
+                .background(Nuru.white)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1574,7 +1587,7 @@ private struct Banner: View {
 }
 
 private func fieldLabel(_ s: String) -> some View {
-    Text(s.uppercased()).font(.inter(10.5, .bold)).tracking(0.4).foregroundStyle(Nuru.ink600)
+    Text(s.uppercased()).font(.inter(11.5, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
 }
 
 // MARK: - View helpers

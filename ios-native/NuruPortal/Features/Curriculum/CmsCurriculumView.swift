@@ -38,6 +38,81 @@ private func cssColor(_ s: String, fallback: Color = Nuru.gold) -> Color {
     return Color(hex: v)
 }
 
+// MARK: - Bright form kit (Pass v6 — roomy, readable editor sheets)
+//
+// Shared styling so the CMS editor forms read like the bright web forms: warm cream
+// background behind a hidden Form chrome, white field rows with visible borders, dark
+// readable labels, navy section headers, and paired fields in two columns to cut
+// scrolling. Layout/typography only — no field or binding changes.
+
+/// Warm bright sheet chrome: hide the system grouped background and paint Nuru.paper,
+/// constrain the content to a roomy centred column, and open the sheet large.
+private extension View {
+    func cmsFormSheet() -> some View {
+        self
+            .scrollContentBackground(.hidden)
+            .background(Nuru.paper)
+            .tint(Nuru.gold)
+            .presentationDetents([.large])
+    }
+}
+
+/// Navy section header for a Form section (replaces the faint default grey caption).
+private struct CmsSectionHeader: View {
+    let text: String
+    var body: some View {
+        Text(text.uppercased())
+            .font(.inter(12, .bold)).tracking(0.8)
+            .foregroundStyle(Nuru.navy)
+            .padding(.bottom, 2)
+    }
+}
+
+/// A bright white labelled field cell: dark-ink overline label above the control,
+/// white surface with a visible border. Used to build two-column form rows.
+private struct CmsFieldCell<Content: View>: View {
+    let label: String
+    var required = false
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 3) {
+                Text(label.uppercased()).font(.inter(11, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                if required { Text("*").font(.inter(11, .bold)).foregroundStyle(Nuru.gold) }
+            }
+            content
+                .font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).frame(minHeight: 40)
+                .background(Nuru.white)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        }
+    }
+}
+
+/// Pair two cells side-by-side on the wide canvas (falls to a sensible min width).
+private struct CmsFieldPair<L: View, R: View>: View {
+    @ViewBuilder var left: L
+    @ViewBuilder var right: R
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) { left; right }
+    }
+}
+
+/// A bright toggle/stepper tile (white surface + border) for boolean / numeric rows.
+private struct CmsControlTile<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        content
+            .padding(.horizontal, 12).frame(minHeight: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Nuru.white)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+    }
+}
+
 /// Web Status (Published / Draft / In Review / Archived) derived from the BE token.
 private enum CmsStatus: String, CaseIterable {
     case published = "Published", inReview = "In Review", draft = "Draft", archived = "Archived"
@@ -1493,40 +1568,81 @@ private struct LevelFormSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                SwiftUI.Section("Level") {
-                    TextField("Title", text: $title)
-                    TextField("Theme", text: $theme)
-                    TextField("Duration (e.g. 8 weeks)", text: $duration)
-                    Picker("Status", selection: $status) {
-                        ForEach(CmsEditStatus.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                SwiftUI.Section {
+                    // Title spans full width; the rest pair into two columns.
+                    CmsFieldCell(label: "Title", required: true) {
+                        TextField("A New Creation", text: $title)
                     }
-                    Toggle("Locked", isOn: $locked)
-                }
-                SwiftUI.Section("Accent color") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 10) {
+                    CmsFieldPair {
+                        CmsFieldCell(label: "Theme") { TextField("Foundations of faith", text: $theme) }
+                    } right: {
+                        CmsFieldCell(label: "Duration") { TextField("8 weeks", text: $duration) }
+                    }
+                    CmsFieldPair {
+                        CmsFieldCell(label: "Status") {
+                            Picker("", selection: $status) {
+                                ForEach(CmsEditStatus.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                            }
+                            .labelsHidden().pickerStyle(.menu).tint(Nuru.navy)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } right: {
+                        CmsControlTile {
+                            Toggle(isOn: $locked) {
+                                Text("Locked").font(.inter(14, .medium)).foregroundStyle(Nuru.ink)
+                            }
+                            .tint(Nuru.gold)
+                        }
+                        .padding(.top, 18)   // align with the labelled field beside it
+                    }
+                } header: { CmsSectionHeader(text: "Level") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 12) {
                         ForEach(swatches, id: \.self) { hex in
-                            Circle().fill(cssColor(hex)).frame(width: 28, height: 28)
+                            Circle().fill(cssColor(hex)).frame(width: 30, height: 30)
                                 .overlay(Circle().stroke(Nuru.navy, lineWidth: colorHex.caseInsensitiveCompare(hex) == .orderedSame ? 3 : 0))
                                 .onTapGesture { colorHex = hex }
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 6)
+                } header: { CmsSectionHeader(text: "Accent color") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    CmsFieldPair {
+                        CmsControlTile { Stepper("Pass mark: \(passMark)%", value: $passMark, in: 0...100, step: 5).tint(Nuru.gold) }
+                    } right: {
+                        CmsControlTile { Stepper("Questions: \(examQuestionCount)", value: $examQuestionCount, in: 0...100).tint(Nuru.gold) }
+                    }
+                    CmsControlTile { Toggle("Shuffle questions", isOn: $examShuffle).tint(Nuru.lumGreen) }
+                    CmsFieldPair {
+                        CmsControlTile { Toggle("Show answers", isOn: $examShowAnswers).tint(Nuru.lumGreen) }
+                    } right: {
+                        CmsControlTile { Toggle("Show score", isOn: $examShowScore).tint(Nuru.lumGreen) }
+                    }
+                } header: { CmsSectionHeader(text: "Final exam") }
+                .listRowBackground(Color.clear)
+
+                if let error {
+                    SwiftUI.Section {
+                        Text(error).font(.nCaption).foregroundStyle(Nuru.danger)
+                    }
+                    .listRowBackground(Color.clear)
                 }
-                SwiftUI.Section("Final exam") {
-                    Stepper("Pass mark: \(passMark)%", value: $passMark, in: 0...100, step: 5)
-                    Stepper("Question count: \(examQuestionCount)", value: $examQuestionCount, in: 0...100)
-                    Toggle("Shuffle questions", isOn: $examShuffle)
-                    Toggle("Show answers after submit", isOn: $examShowAnswers)
-                    Toggle("Show score after submit", isOn: $examShowScore)
-                }
-                if let error { SwiftUI.Section { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) } }
             }
+            .cmsFormSheet()
+            .frame(maxWidth: 820)
+            .frame(maxWidth: .infinity)
+            .background(Nuru.paper)
             .navigationTitle(isEdit ? "Edit Level \(levelNumber)" : "New Level \(nextNumber)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saving ? "Saving…" : "Save") { Task { await save() } }
+                        .font(.inter(15, .semibold))
                         .disabled(saving || title.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
@@ -1752,79 +1868,145 @@ private struct ModuleEditorPane: View {
 
     private var editorForm: some View {
         Form {
-            SwiftUI.Section("Module basics") {
-                TextField("Title", text: $title)
-                Picker("Difficulty", selection: $difficulty) {
-                    ForEach(difficultyOpts, id: \.v) { Text($0.l).tag($0.v) }
+            SwiftUI.Section {
+                CmsFieldCell(label: "Title", required: true) { TextField("Module title", text: $title) }
+                CmsFieldPair {
+                    CmsFieldCell(label: "Difficulty") {
+                        Picker("", selection: $difficulty) {
+                            ForEach(difficultyOpts, id: \.v) { Text($0.l).tag($0.v) }
+                        }
+                        .labelsHidden().pickerStyle(.menu).tint(Nuru.navy)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } right: {
+                    CmsControlTile {
+                        Stepper("Est. minutes: \(estimatedMinutes)", value: $estimatedMinutes, in: 0...600, step: 5).tint(Nuru.gold)
+                    }
+                    .padding(.top, 18)
                 }
-                Stepper("Estimated minutes: \(estimatedMinutes)", value: $estimatedMinutes, in: 0...600, step: 5)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Summary").font(.nMicro).foregroundStyle(Nuru.ink600)
-                    TextEditor(text: $summary).frame(minHeight: 60).font(.inter(14, .regular))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("SUMMARY").font(.inter(11, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                    TextEditor(text: $summary).frame(minHeight: 64).font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
+                        .scrollContentBackground(.hidden).padding(8).background(Nuru.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 }
-            }
+            } header: { CmsSectionHeader(text: "Module basics") }
+            .listRowBackground(Color.clear)
 
-            SwiftUI.Section("Lesson content · Markdown") {
+            SwiftUI.Section {
                 TextEditor(text: $lessonContent)
                     .frame(minHeight: 220)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(.body, design: .monospaced)).foregroundStyle(Nuru.ink)
+                    .scrollContentBackground(.hidden).padding(8).background(Nuru.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 Text("\(lessonContent.count) chars").font(.nMicro).foregroundStyle(Nuru.ink400)
-            }
+            } header: { CmsSectionHeader(text: "Lesson content · Markdown") }
+            .listRowBackground(Color.clear)
 
-            SwiftUI.Section("Objectives & scripture") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Learning objectives (one per line)").font(.nMicro).foregroundStyle(Nuru.ink600)
-                    TextEditor(text: $objectives).frame(minHeight: 80).font(.inter(14, .regular))
+            SwiftUI.Section {
+                CmsFieldPair {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("OBJECTIVES (ONE PER LINE)").font(.inter(11, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                        TextEditor(text: $objectives).frame(minHeight: 80).font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
+                            .scrollContentBackground(.hidden).padding(8).background(Nuru.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    }
+                } right: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("KEY SCRIPTURE (ONE PER LINE)").font(.inter(11, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                        TextEditor(text: $keyVersesText).frame(minHeight: 80).font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
+                            .scrollContentBackground(.hidden).padding(8).background(Nuru.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    }
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Key scripture (one per line)").font(.nMicro).foregroundStyle(Nuru.ink600)
-                    TextEditor(text: $keyVersesText).frame(minHeight: 80).font(.inter(14, .regular))
+                CmsFieldCell(label: "Tags (comma-separated)") { TextField("grace, identity", text: $tags) }
+            } header: { CmsSectionHeader(text: "Objectives & scripture") }
+            .listRowBackground(Color.clear)
+
+            SwiftUI.Section {
+                CmsFieldPair {
+                    CmsFieldCell(label: "Evaluation kind") {
+                        Picker("", selection: $evaluationKind) {
+                            ForEach(evalOpts, id: \.v) { Text($0.l).tag($0.v) }
+                        }
+                        .labelsHidden().pickerStyle(.menu).tint(Nuru.navy)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } right: {
+                    CmsFieldCell(label: "Visibility") {
+                        Picker("", selection: $visibility) {
+                            ForEach(visibilityOpts, id: \.v) { Text($0.l).tag($0.v) }
+                        }
+                        .labelsHidden().pickerStyle(.menu).tint(Nuru.navy)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
-                TextField("Tags (comma-separated)", text: $tags)
-            }
+                CmsControlTile { Toggle("Required to advance", isOn: $required).tint(Nuru.lumGreen) }
+            } header: { CmsSectionHeader(text: "Evaluation & gating") }
+            .listRowBackground(Color.clear)
 
-            SwiftUI.Section("Evaluation & gating") {
-                Picker("Evaluation kind", selection: $evaluationKind) {
-                    ForEach(evalOpts, id: \.v) { Text($0.l).tag($0.v) }
+            SwiftUI.Section {
+                CmsFieldPair {
+                    CmsControlTile { Stepper("Pass mark: \(quizPassMark)%", value: $quizPassMark, in: 0...100, step: 5).tint(Nuru.gold) }
+                        .disabled(!isQuiz)
+                } right: {
+                    CmsControlTile { Stepper("Attempts: \(maxAttempts)", value: $maxAttempts, in: 1...50).tint(Nuru.gold) }
+                        .disabled(!isQuiz)
                 }
-                Picker("Visibility", selection: $visibility) {
-                    ForEach(visibilityOpts, id: \.v) { Text($0.l).tag($0.v) }
+                CmsControlTile {
+                    Stepper(timeLimitMinutes > 0 ? "Time limit: \(timeLimitMinutes) min" : "Time limit: none",
+                            value: $timeLimitMinutes, in: 0...240, step: 5).tint(Nuru.gold)
                 }
-                Toggle("Required to advance", isOn: $required)
-            }
+                CmsControlTile { Toggle("Shuffle questions", isOn: $quizShuffle).tint(Nuru.lumGreen) }
+                CmsFieldPair {
+                    CmsControlTile { Toggle("Show answers", isOn: $quizShowAnswers).tint(Nuru.lumGreen) }
+                } right: {
+                    CmsControlTile { Toggle("Show score", isOn: $quizShowScore).tint(Nuru.lumGreen) }
+                }
+            } header: { CmsSectionHeader(text: "Quiz settings") }
+            .listRowBackground(Color.clear)
 
-            SwiftUI.Section("Quiz settings") {
-                Stepper("Pass mark: \(quizPassMark)%", value: $quizPassMark, in: 0...100, step: 5)
-                    .disabled(!isQuiz)
-                Stepper("Attempts allowed: \(maxAttempts)", value: $maxAttempts, in: 1...50)
-                    .disabled(!isQuiz)
-                Stepper(timeLimitMinutes > 0 ? "Time limit: \(timeLimitMinutes) min" : "Time limit: none",
-                        value: $timeLimitMinutes, in: 0...240, step: 5)
-                Toggle("Shuffle questions", isOn: $quizShuffle)
-                Toggle("Show answers after submit", isOn: $quizShowAnswers)
-                Toggle("Show score after submit", isOn: $quizShowScore)
-            }
+            SwiftUI.Section {
+                CmsFieldCell(label: "Lesson video URL") {
+                    TextField("https://", text: $videoUrl)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                }
+            } header: { CmsSectionHeader(text: "Lesson media") }
+            .listRowBackground(Color.clear)
 
-            SwiftUI.Section("Lesson media") {
-                TextField("Lesson video URL", text: $videoUrl)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+            if let notice {
+                SwiftUI.Section { Text(notice).font(.nCaption).foregroundStyle(Nuru.success) }.listRowBackground(Color.clear)
             }
-
-            if let notice { SwiftUI.Section { Text(notice).font(.nCaption).foregroundStyle(Nuru.success) } }
-            if let error { SwiftUI.Section { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) } }
+            if let error {
+                SwiftUI.Section { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }.listRowBackground(Color.clear)
+            }
 
             SwiftUI.Section {
                 Button { Task { await save() } } label: {
                     HStack {
                         Spacer()
-                        Text(saving ? "Saving…" : "Save module").font(.inter(14, .semibold)).foregroundStyle(.white)
+                        Text(saving ? "Saving…" : "Save module").font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                         Spacer()
                     }
+                    .frame(minHeight: 50)
+                    .background(title.trimmingCharacters(in: .whitespaces).isEmpty ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(Nuru.gold))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-                .listRowBackground(title.trimmingCharacters(in: .whitespaces).isEmpty ? Nuru.mutedBg : Nuru.navy)
+                .buttonStyle(.plain)
+                .listRowBackground(Color.clear)
                 .disabled(saving || title.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Nuru.paper)
+        .tint(Nuru.gold)
+        .frame(maxWidth: 820)
+        .frame(maxWidth: .infinity)
+        .background(Nuru.paper)
     }
 
     // ── Load / reflect / save ──

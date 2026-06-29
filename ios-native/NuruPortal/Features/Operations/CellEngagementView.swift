@@ -98,9 +98,11 @@ struct CellEngagementView: View {
         .refreshable { await vm.load() }
         .sheet(isPresented: $addOpen) {
             CellModalSheet(cell: nil) { await vm.load() }
+                .presentationDetents([.large])
         }
         .sheet(item: $editCell) { cell in
             CellModalSheet(cell: cell) { await vm.load() }
+                .presentationDetents([.large])
         }
     }
 
@@ -489,66 +491,97 @@ private struct CellModalSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                SwiftUI.Section {
-                    TextField("e.g. Lakeview Cell", text: $name)
-                    TextField("e.g. Mary Wanjiru", text: $discipler)
-                } header: { Text("Cell name & discipler") }
-
-                SwiftUI.Section {
-                    Picker("Discipler role", selection: $disciplerRole) {
-                        ForEach(cellRoleOptions, id: \.self) { Text($0).tag($0) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let error {
+                        Text(error).font(.inter(13, .semibold)).foregroundStyle(Nuru.danger)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12).background(Nuru.danger.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
-                    Picker("Curriculum level", selection: $level) {
-                        ForEach(cellLevelOptions, id: \.self) { Text($0).tag($0) }
-                    }
-                } header: { Text("Assignment") }
 
-                SwiftUI.Section {
-                    TextField("Focus — e.g. New believers", text: $focus)
-                    TextField("Meets — e.g. Tue · 6:30 PM", text: $meets)
-                    TextField("Room / venue — e.g. Hall B", text: $room)
-                    TextField("Next session — e.g. Tue, Jun 24 · 6:30 PM", text: $nextSession)
-                } header: { Text("How it meets") }
-
-                SwiftUI.Section {
-                    Picker("Card colour", selection: $tone) {
-                        ForEach(cellToneOptions, id: \.key) { opt in
-                            HStack {
-                                Circle().fill(Color(hex: opt.hex)).frame(width: 14, height: 14)
-                                Text(opt.key.capitalized)
-                            }.tag(opt.key)
+                    CFormSection("Cell name & discipler") {
+                        CFieldGrid {
+                            CField("Cell name", required: true) { TextField("e.g. Lakeview Cell", text: $name).cFieldStyle() }
+                            CField("Discipler", required: true) { TextField("e.g. Mary Wanjiru", text: $discipler).cFieldStyle() }
                         }
                     }
-                    ImageUploadField(label: "Cover photo", folder: "events", url: $coverUrl)
-                } header: { Text("Appearance") }
 
-                if !editing {
-                    SwiftUI.Section {
-                        Toggle(isOn: $featureOnHomepage) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Feature on homepage").font(.inter(13, .bold))
-                                Text("Show this cell in “This week at Nuru” on members’ home screens.")
-                                    .font(.inter(11.5)).foregroundStyle(Nuru.muted)
+                    CFormSection("Assignment") {
+                        CFieldGrid {
+                            CField("Discipler role") {
+                                Picker("Discipler role", selection: $disciplerRole) {
+                                    ForEach(cellRoleOptions, id: \.self) { Text($0).tag($0) }
+                                }.cPickerStyle()
+                            }
+                            CField("Curriculum level") {
+                                Picker("Curriculum level", selection: $level) {
+                                    ForEach(cellLevelOptions, id: \.self) { Text($0).tag($0) }
+                                }.cPickerStyle()
                             }
                         }
                     }
-                }
 
-                if let error {
-                    SwiftUI.Section { Text(error).font(.inter(12)).foregroundStyle(Nuru.danger) }
+                    CFormSection("How it meets") {
+                        CFieldGrid {
+                            CField("Focus") { TextField("e.g. New believers", text: $focus).cFieldStyle() }
+                            CField("Meets") { TextField("e.g. Tue · 6:30 PM", text: $meets).cFieldStyle() }
+                            CField("Room / venue") { TextField("e.g. Hall B", text: $room).cFieldStyle() }
+                            CField("Next session") { TextField("e.g. Tue, Jun 24 · 6:30 PM", text: $nextSession).cFieldStyle() }
+                        }
+                    }
+
+                    CFormSection("Appearance") {
+                        CFieldGrid {
+                            CField("Card colour") {
+                                Picker("Card colour", selection: $tone) {
+                                    ForEach(cellToneOptions, id: \.key) { opt in
+                                        HStack {
+                                            Circle().fill(Color(hex: opt.hex)).frame(width: 14, height: 14)
+                                            Text(opt.key.capitalized)
+                                        }.tag(opt.key)
+                                    }
+                                }.cPickerStyle()
+                            }
+                            ImageUploadField(label: "Cover photo", folder: "events", url: $coverUrl)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+
+                    if !editing {
+                        CFormSection("Homepage") {
+                            Toggle(isOn: $featureOnHomepage) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Feature on homepage").font(.inter(15, .semibold)).foregroundStyle(Nuru.ink)
+                                    Text("Show this cell in “This week at Nuru” on members’ home screens.")
+                                        .font(.inter(12)).foregroundStyle(Nuru.ink600)
+                                }
+                            }
+                            .tint(Nuru.lumGreen)
+                            .padding(.horizontal, 14).padding(.vertical, 12)
+                            .background(Nuru.white)
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
                 }
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24).padding(.vertical, 22)
             }
+            .scrollContentBackground(.hidden)
+            .background(Nuru.paper)
             .navigationTitle(editing ? "Edit cell" : "Register a new cell")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") { dismiss() }.tint(Nuru.ink600)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saving ? (editing ? "Saving…" : "Registering…") : (editing ? "Save" : "Register")) {
                         Task { await submit() }
                     }
+                    .font(.inter(14, .bold)).tint(Nuru.gold)
                     .disabled(saving)
                 }
             }
@@ -588,5 +621,87 @@ private struct CellModalSheet: View {
                 + ((error as? APIError)?.errorDescription ?? error.localizedDescription)
             saving = false
         }
+    }
+}
+
+// MARK: - Bright form kit (Pass v6 — warm, roomy, two-column edit/add forms)
+
+/// A bright section card: navy overline title + a white-fielded content block on paper.
+private struct CFormSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title; self.content = content
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title.uppercased())
+                .font(.inter(12, .bold)).tracking(1.2).foregroundStyle(Nuru.navy)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .nuruShadow(0.5)
+    }
+}
+
+/// Two-column adaptive grid for paired fields (wraps to one column when tight).
+private struct CFieldGrid<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)],
+                  alignment: .leading, spacing: 14) {
+            content()
+        }
+    }
+}
+
+/// A labelled field cell — dark-ink overline label above the editable control.
+private struct CField<Content: View>: View {
+    let label: String
+    let required: Bool
+    @ViewBuilder let content: () -> Content
+    init(_ label: String, required: Bool = false, @ViewBuilder content: @escaping () -> Content) {
+        self.label = label; self.required = required; self.content = content
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 3) {
+                Text(label.uppercased()).font(.inter(11.5, .semibold)).tracking(0.8).foregroundStyle(Nuru.ink600)
+                if required { Text("*").font(.inter(11.5, .bold)).foregroundStyle(Nuru.danger) }
+            }
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// White, readable field chrome shared by text inputs, pickers and inline rows.
+private struct CFieldChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.inter(15))
+            .foregroundStyle(Nuru.ink)
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Nuru.white)
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+extension View {
+    fileprivate func cFieldChrome() -> some View { modifier(CFieldChrome()) }
+    fileprivate func cFieldStyle() -> some View { self.textFieldStyle(.plain).cFieldChrome() }
+    fileprivate func cPickerStyle() -> some View {
+        self.pickerStyle(.menu).tint(Nuru.navy)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8).frame(height: 44)
+            .background(Nuru.white)
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }

@@ -297,42 +297,69 @@ private struct LanguageFormSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                SwiftUI.Section("Language") {
-                    field("Name *") { TextField("Swahili", text: $name) }
-                    field("Native *") { TextField("Kiswahili", text: $nativeName) }
-                    field("Code *") {
-                        TextField("sw", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .disabled(isEdit)
-                            .onChange(of: code) { _, v in code = String(v.lowercased().prefix(8)) }
+            SysFormScaffold(error: error) {
+                SysFormSection("Language", subtitle: "Curriculum and the portal can be delivered in this language.") {
+                    SysFieldGrid {
+                        SysField("Name", required: true) { TextField("Swahili", text: $name).sysFieldInput() }
+                        SysField("Native", required: true) { TextField("Kiswahili", text: $nativeName).sysFieldInput() }
+                        SysField("Code", required: true, span: 2) {
+                            TextField("sw", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled()
+                                .disabled(isEdit)
+                                .onChange(of: code) { _, v in code = String(v.lowercased().prefix(8)) }
+                                .sysFieldInput()
+                                .foregroundStyle(isEdit ? Nuru.ink400 : Nuru.ink)
+                        }
                     }
                 }
-                SwiftUI.Section("Detail") {
-                    Picker("Direction", selection: $direction) { Text("LTR").tag("ltr"); Text("RTL").tag("rtl") }
-                    HStack {
-                        Text("Coverage").foregroundStyle(Nuru.ink600)
-                        Spacer()
-                        Text("\(Int(coverage.rounded()))%").foregroundStyle(Nuru.navy)
+                SysFormSection("Detail") {
+                    SysFieldGrid {
+                        SysField("Direction") {
+                            Picker("", selection: $direction) { Text("LTR").tag("ltr"); Text("RTL").tag("rtl") }
+                                .labelsHidden().pickerStyle(.segmented)
+                                .frame(maxWidth: .infinity)
+                        }
+                        SysField("Status") {
+                            Picker("", selection: $status) { Text("Active").tag("active"); Text("Inactive").tag("inactive") }
+                                .labelsHidden().pickerStyle(.segmented)
+                                .frame(maxWidth: .infinity)
+                        }
+                        SysBlock("Coverage") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text("Translated").font(.inter(12, .medium)).foregroundStyle(Nuru.ink600)
+                                    Spacer()
+                                    Text("\(Int(coverage.rounded()))%").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                                }
+                                Slider(value: $coverage, in: 0...100, step: 1).tint(Nuru.gold)
+                            }
+                            .padding(.horizontal, 14).padding(.vertical, 12)
+                            .background(Nuru.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        }
+                        SysBlock("Default fallback") {
+                            Toggle(isOn: $isDefault) {
+                                Text("Set as the default fallback language")
+                                    .font(.inter(13.5, .medium)).foregroundStyle(Nuru.ink)
+                            }
+                            .tint(Nuru.lumGreen)
+                            .padding(.horizontal, 14).padding(.vertical, 10)
+                            .background(Nuru.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        }
                     }
-                    Slider(value: $coverage, in: 0...100, step: 1)
-                    Picker("Status", selection: $status) { Text("Active").tag("active"); Text("Inactive").tag("inactive") }
-                    Toggle("Set as the default fallback language", isOn: $isDefault)
                 }
             }
             .navigationTitle(isEdit ? "Edit \(initial!.name)" : "Add a language")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.foregroundStyle(Nuru.ink600) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isEdit ? "Save" : "Add") { Task { await submit() } }.disabled(saving)
+                    SysSaveButton(title: isEdit ? "Save" : "Add", saving: saving) { Task { await submit() } }
                 }
             }
         }
-    }
-
-    @ViewBuilder private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
-        HStack { Text(label).foregroundStyle(Nuru.ink600).frame(width: 80, alignment: .leading); content() }
     }
 
     private func submit() async {

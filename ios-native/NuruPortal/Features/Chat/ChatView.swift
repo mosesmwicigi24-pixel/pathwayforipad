@@ -1022,39 +1022,51 @@ private struct CreateSpaceSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 22) {
+                    Text("New space").font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
                     Text("A public, joinable channel in the mobile-app chat.")
-                        .font(.nCaption).foregroundStyle(Nuru.muted)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Space name").font(.nMicro).foregroundStyle(Nuru.muted)
-                        sheetField("e.g. Citywide Prayer Wall", text: $name)
-                    }
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Topic (optional)").font(.nMicro).foregroundStyle(Nuru.muted)
-                        sheetField("What is this space for?", text: $topic)
+                        .font(.inter(13)).foregroundStyle(Nuru.ink600)
+                    VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            sheetLabel("Space name", required: true)
+                            sheetField("e.g. Citywide Prayer Wall", text: $name)
+                        }
+                        VStack(alignment: .leading, spacing: 7) {
+                            sheetLabel("Topic (optional)")
+                            sheetField("What is this space for?", text: $topic)
+                        }
                     }
                     if let errorText {
-                        Text(errorText).font(.nCaption).foregroundStyle(Nuru.danger)
+                        Text(errorText).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.danger)
                     }
                 }
-                .padding(Nuru.S.screen)
+                .padding(28)
+                .frame(maxWidth: 760, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
             .background(Nuru.paper)
             .navigationTitle("Create a space").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") { submit() }.disabled(busy)
+                    Button("Create") { submit() }.font(.inter(14, .bold)).tint(Nuru.gold).disabled(busy)
                 }
             }
+        }
+        .presentationDetents([.large])
+    }
+    private func sheetLabel(_ text: String, required: Bool = false) -> some View {
+        HStack(spacing: 3) {
+            Text(text.uppercased()).font(.inter(11.5, .semibold)).tracking(0.4).foregroundStyle(Nuru.ink)
+            if required { Text("*").font(.inter(11.5, .semibold)).foregroundStyle(Nuru.danger) }
         }
     }
     private func sheetField(_ prompt: String, text: Binding<String>) -> some View {
         TextField(prompt, text: text)
-            .font(.nCaption).textFieldStyle(.plain)
-            .padding(.horizontal, 12).frame(height: 40)
-            .background(Nuru.inputBg)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.border, lineWidth: 1))
+            .font(.inter(15)).foregroundStyle(Nuru.ink).textFieldStyle(.plain)
+            .padding(.horizontal, 14).frame(height: 46)
+            .background(Nuru.white)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.border, lineWidth: 1.5))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
     private func submit() {
@@ -1079,31 +1091,35 @@ private struct NewMessageSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if loading { HStack { Spacer(); ProgressView(); Spacer() } }
-                else if people.isEmpty { Text("No one matches “\(q)”.").foregroundStyle(Nuru.muted) }
+                if loading { HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Nuru.white) }
+                else if people.isEmpty { Text("No one matches “\(q)”.").font(.inter(13)).foregroundStyle(Nuru.ink600).listRowBackground(Nuru.white) }
                 else {
                     ForEach(people) { p in
                         Button { pick(p.userId) } label: {
                             HStack(spacing: 12) {
                                 ConvAvatar(name: p.fullName, uri: p.avatarUrl, kind: "dm", size: 38)
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(p.fullName).font(.inter(13, .bold)).foregroundStyle(Nuru.navy)
-                                    Text(p.role + (p.congregation.map { " · \($0)" } ?? "")).font(.nMicro).foregroundStyle(Nuru.muted)
+                                    Text(p.fullName).font(.inter(15, .semibold)).foregroundStyle(Nuru.ink)
+                                    Text(p.role + (p.congregation.map { " · \($0)" } ?? "")).font(.inter(12)).foregroundStyle(Nuru.ink600)
                                 }
                                 Spacer()
                                 if busyId == p.userId { ProgressView().controlSize(.small) }
-                                else { Image(systemName: "paperplane").foregroundStyle(Nuru.muted) }
+                                else { Image(systemName: "paperplane").foregroundStyle(Nuru.gold) }
                             }
-                        }.disabled(busyId != nil)
+                            .padding(.vertical, 4)
+                        }.disabled(busyId != nil).listRowBackground(Nuru.white)
                     }
                 }
-                if let error { Text(error).foregroundStyle(Nuru.danger).font(.nCaption) }
+                if let error { Text(error).foregroundStyle(Nuru.danger).font(.inter(12.5, .semibold)).listRowBackground(Nuru.white) }
             }
+            .scrollContentBackground(.hidden)
+            .background(Nuru.paper)
             .searchable(text: $q, prompt: "Search people by name…")
             .navigationTitle("New message").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .task(id: q) { await load() }
         }
+        .presentationDetents([.large])
     }
     private func load() async {
         loading = true

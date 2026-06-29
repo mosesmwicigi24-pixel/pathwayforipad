@@ -131,43 +131,47 @@ struct ContentStudioView: View {
             case .devotionals:
                 AsyncView(GrowthAPI.devotionals) { rows in
                     section(filterDevotionals(rows), count: .devotionals, total: rows.count) { r in
-                        DevotionalCard(d: r,
-                                       onEdit: { editor = .devotional(r) },
-                                       onDelete: { confirmDelete(.devotional(r)) },
-                                       onToggle: { Task { await toggleDevotional(r) } })
+                        DevotionalRowView(d: r,
+                                      onEdit: { editor = .devotional(r) },
+                                      onDelete: { confirmDelete(.devotional(r)) },
+                                      onAdd: { openNew() },
+                                      onToggle: { Task { await toggleDevotional(r) } })
                     }
                 }.id(reload[.devotionals, default: 0])
             case .verses:
                 AsyncView(GrowthAPI.verses) { rows in
                     section(filterVerses(rows), count: .verses, total: rows.count) { r in
-                        VerseCard(v: r,
-                                  onEdit: { editor = .verse(r) },
-                                  onDelete: { confirmDelete(.verse(r)) },
-                                  onToggle: { Task { await toggleVerse(r) } })
+                        VerseRowView(v: r,
+                                 onEdit: { editor = .verse(r) },
+                                 onDelete: { confirmDelete(.verse(r)) },
+                                 onAdd: { openNew() },
+                                 onToggle: { Task { await toggleVerse(r) } })
                     }
                 }.id(reload[.verses, default: 0])
             case .dailyverses:
                 AsyncView(GrowthAPI.dailyVerses) { rows in
                     section(filterDaily(rows), count: .dailyverses, total: rows.count) { r in
-                        DailyVerseCard(d: r, onEdit: { editor = .dailyVerse(r) })
+                        DailyVerseRow(d: r, onEdit: { editor = .dailyVerse(r) })
                     }
                 }.id(reload[.dailyverses, default: 0])
             case .plans:
                 AsyncView(GrowthAPI.plans) { rows in
                     section(filterPlans(rows), count: .plans, total: rows.count) { r in
-                        PlanCard(p: r,
-                                 onEdit: { editor = .plan(r) },
-                                 onDelete: { confirmDelete(.plan(r)) },
-                                 onToggle: { Task { await togglePlan(r) } })
+                        PlanRowView(p: r,
+                                onEdit: { editor = .plan(r) },
+                                onDelete: { confirmDelete(.plan(r)) },
+                                onAdd: { openNew() },
+                                onToggle: { Task { await togglePlan(r) } })
                     }
                 }.id(reload[.plans, default: 0])
             case .resources:
                 AsyncView(GrowthAPI.resources) { rows in
                     section(filterResources(rows), count: .resources, total: rows.count) { r in
-                        ResourceCard(r: r,
-                                     onEdit: { editor = .resource(r) },
-                                     onDelete: { confirmDelete(.resource(r)) },
-                                     onToggle: { Task { await toggleResource(r) } })
+                        ResourceRow(r: r,
+                                    onEdit: { editor = .resource(r) },
+                                    onDelete: { confirmDelete(.resource(r)) },
+                                    onAdd: { openNew() },
+                                    onToggle: { Task { await toggleResource(r) } })
                     }
                 }.id(reload[.resources, default: 0])
             }
@@ -188,8 +192,15 @@ struct ContentStudioView: View {
             stats: heroStats
         ) {
             HStack(spacing: 8) {
-                HeroChip(label: tab.label, icon: tab.icon, style: .tag)
+                // Section identity is a NON-interactive label (the previous build made
+                // this a tappable HeroChip with an empty action, so tapping it did
+                // nothing — that "dead button" next to the real New button is what read
+                // as a mess). Only the gold "New" below is tappable.
+                HeroTagLabel(label: tab.label, icon: tab.icon)
                 if tab.canCreate {
+                    // Top-Add opens the SAME clean create sheet as the row ⋯ "Add":
+                    // both call openNew(), which sets `editor` to the current section's
+                    // `nil` (= create) case. No intermediate/confusing state.
                     HeroChip(label: "New \(tab.singular)", icon: "plus", style: .gold, action: { openNew() })
                 }
             }
@@ -272,21 +283,27 @@ struct ContentStudioView: View {
         .padding(.horizontal, 20).padding(.top, 16)
     }
 
-    // ── Generic section: adaptive grid + empty state + count capture ──
-    // THREE columns at portrait (~740pt usable): minimum ≈230 packs exactly 3-up
-    // while each card stays compact and premium; lays out 4–5-up on the wide canvas.
-    private let cols = [GridItem(.adaptive(minimum: 230), spacing: 14)]
-
+    // ── Generic section: a single white table card of full-width ROWS, hairline
+    // dividers between them (like the other list/table pages), + empty state +
+    // count capture. Each item is ONE compact row (icon → title → meta → status →
+    // ⋯ menu), columns aligned across rows, everything truncating to fit portrait.
     private func section<T: Identifiable, C: View>(
-        _ rows: [T], count tab: Tab, total: Int, @ViewBuilder _ card: @escaping (T) -> C
+        _ rows: [T], count tab: Tab, total: Int, @ViewBuilder _ row: @escaping (T) -> C
     ) -> some View {
         Group {
             if rows.isEmpty {
                 EmptyStateView(tab: self.tab, canCreate: self.tab.canCreate, onNew: { openNew() })
                     .padding(20)
             } else {
-                LazyVGrid(columns: cols, alignment: .leading, spacing: 14) {
-                    ForEach(rows) { card($0) }
+                Card(padding: 0) {
+                    VStack(spacing: 0) {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { i, item in
+                            row(item)
+                            if i < rows.count - 1 {
+                                Divider().background(Nuru.border).padding(.leading, 16)
+                            }
+                        }
+                    }
                 }
                 .padding(20)
             }
@@ -702,130 +719,70 @@ private let PLAN_CATEGORIES = ["Foundations", "Growth", "Prayer", "Devotion", "T
 private let RESOURCE_KINDS = ["book", "audio", "video", "article"]
 private let SEGMENT_KINDS = ["devotional", "scripture", "video", "talk", "reading"]
 
-// MARK: - Premium card shell
+// MARK: - Row shell
 //
-// Rebuilt for the iPad portrait redesign (Pass v3 → Content Studio): each section
-// card is now an OUTSTANDING premium card rather than a flat accent-bar row. The
-// shell composes a header (tinted icon chip + title/subtitle + status pill), an
-// optional rich body, and a footer rail of real styled buttons (a primary Edit
-// CTA + a secondary delete) — never an underlined text link. A soft accent wash
-// on the icon and a thin accent top-rule give each section its identity while the
-// card stays cohesive with the shared kit (Card, Pill, TintedIcon, Nuru tokens).
+// Rebuilt for the ROWS redesign (Pass v4 → Content Studio): every item is a single
+// FULL-WIDTH ROW laid out left-to-right — a tinted icon chip, the title + subtitle,
+// the section's meta chips, an optional one-line body preview, the status pill, and
+// a trailing ⋯ menu (Edit / Delete / Add). Rows live inside one white `Card(padding:0)`
+// with hairline dividers between them, like the other list/table pages. Rows stay
+// compact (~56–64pt), columns align across rows, and everything truncates so the
+// whole row fits portrait (~740pt). Cohesive with the shared kit (Card, Pill,
+// TintedIcon, Nuru tokens) — navy + gold accents only; status pills stay semantic.
 
-// A pill-shaped, filled or bordered button for a card CTA (NOT an underlined link).
-private struct CardButton: View {
-    let title: String
-    var icon: String? = nil
-    var tint: Color = Nuru.navy
-    var style: Style = .fill
-    let action: () -> Void
-    enum Style { case fill, outline }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                if let icon { Image(systemName: icon).font(.system(size: 12, weight: .semibold)) }
-                Text(title).font(.inter(12.5, .semibold))
-            }
-            // On a gold fill use dark navy ink (white-on-gold is too low-contrast);
-            // on navy/other fills use white. Outline uses the tint itself.
-            .foregroundStyle(style == .fill
-                ? AnyShapeStyle(tint == Nuru.gold ? Nuru.navy : Color.white)
-                : AnyShapeStyle(tint))
-            .padding(.horizontal, 14).frame(height: 34)
-            .background(style == .fill ? AnyShapeStyle(tint) : AnyShapeStyle(Color.clear))
-            .overlay {
-                if style == .outline {
-                    Capsule().stroke(tint.opacity(0.45), lineWidth: 1.2)
-                }
-            }
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// A compact icon-only capsule button for secondary destructive actions.
-private struct CardIconButton: View {
-    let icon: String
-    var tint: Color = Nuru.ink600
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon).font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 34, height: 34)
-                .background(tint.opacity(0.10))
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// The premium card: tinted accent identity + content + a footer button rail.
-private struct PremiumCard<Body: View>: View {
-    let accent: Color
-    let icon: String
-    let title: String
-    var subtitle: String? = nil
-    var status: (on: Bool, onLabel: String, offLabel: String, onTap: () -> Void)?
-    @ViewBuilder var bodyContent: Body
-    var editTitle: String = "Edit"
-    let onEdit: () -> Void
+// The trailing ⋯ row menu: Edit, Delete (destructive; omitted where onDelete is
+// nil — e.g. the edit-only daily-verses section), and Add (new item in this
+// section, same create path as the top "New …" button). Styled as a subtle navy
+// control on a light rounded hit area.
+private struct RowMenu: View {
+    var onEdit: () -> Void
     var onDelete: (() -> Void)? = nil
-
+    var onAdd: (() -> Void)? = nil
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Thin accent rule across the top for section identity.
-            Rectangle().fill(accent).frame(height: 3)
-
-            VStack(alignment: .leading, spacing: 12) {
-                // Header: icon chip + title/subtitle + status pill.
-                HStack(alignment: .top, spacing: 12) {
-                    TintedIcon(systemName: icon, color: accent, size: 44)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(title)
-                            .font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
-                            .lineLimit(2)
-                        if let subtitle, !subtitle.isEmpty {
-                            Text(subtitle)
-                                .font(.inter(12.5)).foregroundStyle(Nuru.ink600)
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    if let status {
-                        StatusPill(on: status.on, onLabel: status.onLabel,
-                                   offLabel: status.offLabel, onTap: status.onTap)
-                    }
-                }
-
-                bodyContent
-
-                // Footer rail: actions pinned to the FAR TRAILING end — a filled
-                // Edit capsule + a capsule trash button, right-aligned (no links).
-                HStack(spacing: 8) {
-                    Spacer(minLength: 0)
-                    // Edit is ALWAYS gold-filled (brand CTA), regardless of the section
-                    // accent; navy ink keeps it readable on gold. Delete stays a quiet
-                    // semantic danger-red icon — understated, not pink-heavy.
-                    CardButton(title: editTitle, icon: "pencil", tint: Nuru.gold, style: .fill, action: onEdit)
-                    if let onDelete {
-                        CardIconButton(icon: "trash", tint: Nuru.danger, action: onDelete)
-                    }
-                }
+        Menu {
+            Button { onEdit() } label: { Label("Edit", systemImage: "pencil") }
+            if let onAdd {
+                Button { onAdd() } label: { Label("Add", systemImage: "plus") }
             }
-            .padding(16)
+            if let onDelete {
+                Divider()
+                Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Nuru.navy)
+                .frame(width: 34, height: 34)
+                .background(Nuru.navy.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Nuru.white)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-        .nuruShadow()
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
     }
 }
 
-// A small metric chip used inside card bodies (icon + value, tinted).
+// Non-interactive hero identity label for the current section (gold-tinted, like
+// HeroChip's `.tag` style but NOT a button — so it can't read as a dead control
+// next to the real "New" button).
+private struct HeroTagLabel: View {
+    let label: String
+    var icon: String? = nil
+    var body: some View {
+        HStack(spacing: 6) {
+            if let icon { Image(systemName: icon).font(.system(size: 11, weight: .semibold)) }
+            Text(label).font(.inter(11.5, .bold)).textCase(.uppercase)
+        }
+        .padding(.horizontal, 12).frame(height: 32)
+        .foregroundStyle(Nuru.goldGlow)
+        .background(Nuru.gold.opacity(0.14))
+        .overlay(Capsule().stroke(Nuru.gold.opacity(0.25), lineWidth: 1))
+        .clipShape(Capsule())
+    }
+}
+
+// A small inline meta chip (icon + value, tinted) used along the row.
 private struct MetricChip: View {
     let icon: String
     let text: String
@@ -839,6 +796,7 @@ private struct MetricChip: View {
         .padding(.horizontal, 9).padding(.vertical, 5)
         .background(color.opacity(0.10))
         .clipShape(Capsule())
+        .fixedSize()
     }
 }
 
@@ -857,68 +815,117 @@ private struct StatusPill: View {
     }
 }
 
-// MARK: - Section cards
+// The generic full-width row: icon chip → (title + subtitle) → meta chips →
+// optional body preview → status pill → ⋯ menu. One row per item.
+private struct ContentRow<Meta: View>: View {
+    let accent: Color
+    let icon: String
+    let title: String
+    var subtitle: String? = nil
+    @ViewBuilder var meta: Meta
+    var preview: String? = nil
+    var status: (on: Bool, onLabel: String, offLabel: String, onTap: () -> Void)?
+    var onEdit: () -> Void
+    var onDelete: (() -> Void)? = nil
+    var onAdd: (() -> Void)? = nil
 
-private struct DevotionalCard: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            TintedIcon(systemName: icon, color: accent, size: 40)
+
+            // Title + subtitle column (fixed-ish left identity block).
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                    .lineLimit(1).minimumScaleFactor(0.85)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.inter(11.5)).foregroundStyle(Nuru.ink600)
+                        .lineLimit(1).minimumScaleFactor(0.85)
+                }
+            }
+            .frame(minWidth: 120, idealWidth: 180, maxWidth: 220, alignment: .leading)
+
+            // Meta chips, aligned across rows.
+            HStack(spacing: 6) { meta }
+                .layoutPriority(0.5)
+
+            // One-line body preview when space allows.
+            if let preview, !preview.isEmpty {
+                Text(preview)
+                    .font(.inter(11.5)).foregroundStyle(Nuru.ink600)
+                    .lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Spacer(minLength: 0)
+            }
+
+            // Status pill (semantic).
+            if let status {
+                StatusPill(on: status.on, onLabel: status.onLabel,
+                           offLabel: status.offLabel, onTap: status.onTap)
+                    .fixedSize()
+            }
+
+            // Trailing ⋯ menu.
+            RowMenu(onEdit: onEdit, onDelete: onDelete, onAdd: onAdd)
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 60)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Section rows
+
+private struct DevotionalRowView: View {
     let d: DevotionalFull
     var onEdit: () -> Void
     var onDelete: () -> Void
+    var onAdd: () -> Void
     var onToggle: () -> Void
     private let accent = Nuru.navy     // devotionals = navy (brand)
     var body: some View {
-        PremiumCard(
+        ContentRow(
             accent: accent, icon: "book.fill",
             title: d.title.isEmpty ? "Untitled devotional" : d.title,
             subtitle: d.series,
-            status: (d.isPublished, "Published", "Draft", onToggle),
-            bodyContent: {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        MetricChip(icon: "calendar", text: "Day \(d.dayNumber)", color: accent)
-                        if let r = d.scriptureRef, !r.isEmpty {
-                            MetricChip(icon: "text.quote", text: r, color: Nuru.gold)
-                        }
-                    }
-                    if !d.body.isEmpty {
-                        Text(d.body).font(.inter(12.5)).foregroundStyle(Nuru.ink600)
-                            .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                    }
+            meta: {
+                MetricChip(icon: "calendar", text: "Day \(d.dayNumber)", color: accent)
+                if let r = d.scriptureRef, !r.isEmpty {
+                    MetricChip(icon: "text.quote", text: r, color: Nuru.gold)
                 }
             },
-            onEdit: onEdit, onDelete: onDelete)
+            preview: d.body,
+            status: (d.isPublished, "Published", "Draft", onToggle),
+            onEdit: onEdit, onDelete: onDelete, onAdd: onAdd)
     }
 }
 
-private struct VerseCard: View {
+private struct VerseRowView: View {
     let v: VerseFull
     var onEdit: () -> Void
     var onDelete: () -> Void
+    var onAdd: () -> Void
     var onToggle: () -> Void
     private let accent = Nuru.gold
     var body: some View {
-        PremiumCard(
+        ContentRow(
             accent: accent, icon: "quote.bubble.fill",
             title: v.reference.isEmpty ? "Untitled verse" : v.reference,
             subtitle: v.version.isEmpty ? "Memory verse" : "\(v.version) · to memorise",
-            status: (v.isActive, "Active", "Inactive", onToggle),
-            bodyContent: {
-                VStack(alignment: .leading, spacing: 10) {
-                    if !v.verseText.isEmpty {
-                        Text("“\(v.verseText)”").font(.fraunces(14.5, .regular)).italic()
-                            .foregroundStyle(Nuru.navy).lineLimit(4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    HStack(spacing: 8) {
-                        if !v.version.isEmpty { MetricChip(icon: "book.closed", text: v.version, color: accent) }
-                        if let w = v.weekNumber { MetricChip(icon: "calendar", text: "Week \(w)", color: Nuru.ink600) }
-                    }
-                }
+            meta: {
+                if !v.version.isEmpty { MetricChip(icon: "book.closed", text: v.version, color: accent) }
+                if let w = v.weekNumber { MetricChip(icon: "calendar", text: "Week \(w)", color: Nuru.ink600) }
             },
-            onEdit: onEdit, onDelete: onDelete)
+            preview: v.verseText.isEmpty ? nil : "“\(v.verseText)”",
+            status: (v.isActive, "Active", "Inactive", onToggle),
+            onEdit: onEdit, onDelete: onDelete, onAdd: onAdd)
     }
 }
 
-private struct DailyVerseCard: View {
+private struct DailyVerseRow: View {
     let d: DailyVerseFull
     var onEdit: () -> Void
     private var dateLabel: String {
@@ -928,61 +935,54 @@ private struct DailyVerseCard: View {
     }
     private let accent = Nuru.navy
     var body: some View {
-        // Daily verses are edit-only (no delete, no toggle) — onEdit only.
-        PremiumCard(
+        // Daily verses are edit-only (no delete, no add) — onEdit only.
+        ContentRow(
             accent: accent, icon: "calendar",
             title: d.reference.isEmpty ? "Day \(d.dayIndex)" : d.reference,
             subtitle: d.dayDate.isEmpty ? "Day \(d.dayIndex)" : "Day \(d.dayIndex) · \(dateLabel)",
-            status: nil,
-            bodyContent: {
-                VStack(alignment: .leading, spacing: 10) {
-                    if !d.verseText.isEmpty {
-                        Text("“\(d.verseText)”").font(.fraunces(14.5, .regular)).italic()
-                            .foregroundStyle(Nuru.navy).lineLimit(4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    HStack(spacing: 8) {
-                        if !d.version.isEmpty { MetricChip(icon: "book.closed", text: d.version, color: accent) }
-                        if let t = d.theme, !t.isEmpty { MetricChip(icon: "sparkles", text: t, color: Nuru.ink600) }
-                    }
-                }
+            meta: {
+                if !d.version.isEmpty { MetricChip(icon: "book.closed", text: d.version, color: accent) }
+                if let t = d.theme, !t.isEmpty { MetricChip(icon: "sparkles", text: t, color: Nuru.ink600) }
             },
+            preview: d.verseText.isEmpty ? nil : "“\(d.verseText)”",
+            status: nil,
             onEdit: onEdit)
     }
 }
 
-private struct PlanCard: View {
+private struct PlanRowView: View {
     let p: PlanListItem
     var onEdit: () -> Void
     var onDelete: () -> Void
+    var onAdd: () -> Void
     var onToggle: () -> Void
     private let accent = Nuru.gold     // reading plans = gold (brand)
     var body: some View {
-        PremiumCard(
+        ContentRow(
             accent: accent, icon: "calendar.badge.clock",
             title: p.title.isEmpty ? "Untitled plan" : p.title,
             subtitle: p.subtitle,
-            status: (p.isActive, "Active", "Inactive", onToggle),
-            bodyContent: {
-                HStack(spacing: 8) {
-                    MetricChip(icon: "list.bullet.rectangle",
-                               text: "\(p.dayCount) day\(p.dayCount == 1 ? "" : "s")", color: accent)
-                    if let c = p.category, !c.isEmpty {
-                        MetricChip(icon: "folder", text: c, color: Nuru.navy)
-                    }
-                    if !p.code.isEmpty {
-                        MetricChip(icon: "number", text: p.code, color: Nuru.ink600)
-                    }
+            meta: {
+                MetricChip(icon: "list.bullet.rectangle",
+                           text: "\(p.dayCount) day\(p.dayCount == 1 ? "" : "s")", color: accent)
+                if let c = p.category, !c.isEmpty {
+                    MetricChip(icon: "folder", text: c, color: Nuru.navy)
+                }
+                if !p.code.isEmpty {
+                    MetricChip(icon: "number", text: p.code, color: Nuru.ink600)
                 }
             },
-            onEdit: onEdit, onDelete: onDelete)
+            preview: p.description,
+            status: (p.isActive, "Active", "Inactive", onToggle),
+            onEdit: onEdit, onDelete: onDelete, onAdd: onAdd)
     }
 }
 
-private struct ResourceCard: View {
+private struct ResourceRow: View {
     let r: ResourceFull
     var onEdit: () -> Void
     var onDelete: () -> Void
+    var onAdd: () -> Void
     var onToggle: () -> Void
     private var icon: String {
         switch r.kind {
@@ -995,23 +995,21 @@ private struct ResourceCard: View {
     }
     private let accent = Nuru.navy     // resources = navy (brand)
     var body: some View {
-        PremiumCard(
+        ContentRow(
             accent: accent, icon: icon,
             title: r.title.isEmpty ? "Untitled resource" : r.title,
             subtitle: (r.author?.isEmpty == false ? r.author : r.kind.capitalized),
-            status: (r.isActive, "Active", "Inactive", onToggle),
-            bodyContent: {
-                HStack(spacing: 8) {
-                    MetricChip(icon: icon, text: r.kind.capitalized, color: accent)
-                    if let dur = r.durationLabel, !dur.isEmpty {
-                        MetricChip(icon: "clock", text: dur, color: Nuru.ink600)
-                    }
-                    if r.url?.isEmpty == false {
-                        MetricChip(icon: "link", text: "Link", color: Nuru.gold)
-                    }
+            meta: {
+                MetricChip(icon: icon, text: r.kind.capitalized, color: accent)
+                if let dur = r.durationLabel, !dur.isEmpty {
+                    MetricChip(icon: "clock", text: dur, color: Nuru.ink600)
+                }
+                if r.url?.isEmpty == false {
+                    MetricChip(icon: "link", text: "Link", color: Nuru.gold)
                 }
             },
-            onEdit: onEdit, onDelete: onDelete)
+            status: (r.isActive, "Active", "Inactive", onToggle),
+            onEdit: onEdit, onDelete: onDelete, onAdd: onAdd)
     }
 }
 
@@ -1047,6 +1045,95 @@ private struct EmptyStateView: View {
     }
 }
 
+// MARK: - Bright form kit (Pass v6 — roomy, readable editor sheets)
+//
+// Shared styling so the Content Studio editor sheets read like the bright web forms:
+// warm cream behind a hidden Form chrome, white field rows with visible borders, dark
+// readable labels, navy section headers, gold Save, and paired fields in two columns
+// to cut scrolling. Navy + gold scheme. Layout/typography only — no binding changes.
+
+private extension View {
+    func csFormSheet() -> some View {
+        self
+            .scrollContentBackground(.hidden)
+            .background(Nuru.paper)
+            .tint(Nuru.gold)
+            .presentationDetents([.large])
+    }
+}
+
+private struct CSSectionHeader: View {
+    let text: String
+    var body: some View {
+        Text(text.uppercased())
+            .font(.inter(12, .bold)).tracking(0.8).foregroundStyle(Nuru.navy).padding(.bottom, 2)
+    }
+}
+
+/// Bright white labelled field cell — dark-ink overline + a bordered white control.
+private struct CSFieldCell<Content: View>: View {
+    let label: String
+    var required = false
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 3) {
+                Text(label.uppercased()).font(.inter(11, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                if required { Text("*").font(.inter(11, .bold)).foregroundStyle(Nuru.gold) }
+            }
+            content
+                .font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).frame(minHeight: 40)
+                .background(Nuru.white)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        }
+    }
+}
+
+private struct CSFieldPair<L: View, R: View>: View {
+    @ViewBuilder var left: L
+    @ViewBuilder var right: R
+    var body: some View { HStack(alignment: .top, spacing: 14) { left; right } }
+}
+
+/// Multi-line bright editor cell (TextField axis:.vertical) with label + border.
+private struct CSTextAreaCell: View {
+    let label: String
+    var required = false
+    var placeholder: String
+    @Binding var text: String
+    var lines: ClosedRange<Int> = 3...6
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 3) {
+                Text(label.uppercased()).font(.inter(11, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                if required { Text("*").font(.inter(11, .bold)).foregroundStyle(Nuru.gold) }
+            }
+            TextField(placeholder, text: $text, axis: .vertical).lineLimit(lines)
+                .font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Nuru.white)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        }
+    }
+}
+
+private struct CSControlTile<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        content
+            .padding(.horizontal, 12).frame(minHeight: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Nuru.white)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+    }
+}
+
 // MARK: - Edit / create forms (web EditModal per type)
 
 // Devotional form — web DevotionalForm. Required: day_number, title, body.
@@ -1078,32 +1165,54 @@ private struct DevotionalForm: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                SwiftUI.Section("Devotional") {
-                    field("Day number", required: true) { TextField("1", text: $dayNumber).keyboardType(.numberPad) }
-                    field("Series") { TextField("Foundations of Faith", text: $series) }
-                    field("Title", required: true) { TextField("A New Creation", text: $title) }
-                    field("Scripture ref") { TextField("2 Corinthians 5:17", text: $scriptureRef) }
-                    field("Reflection") { TextField("Where have you seen…", text: $reflectionPrompt) }
+                if let error {
+                    SwiftUI.Section { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }.listRowBackground(Color.clear)
                 }
-                SwiftUI.Section("Scripture text") {
-                    TextField("Therefore, if anyone is in Christ…", text: $scriptureText, axis: .vertical).lineLimit(2...4)
+                SwiftUI.Section {
+                    CSFieldPair {
+                        CSFieldCell(label: "Day number", required: true) { TextField("1", text: $dayNumber).keyboardType(.numberPad) }
+                    } right: {
+                        CSFieldCell(label: "Series") { TextField("Foundations of Faith", text: $series) }
+                    }
+                    CSFieldCell(label: "Title", required: true) { TextField("A New Creation", text: $title) }
+                    CSFieldPair {
+                        CSFieldCell(label: "Scripture ref") { TextField("2 Corinthians 5:17", text: $scriptureRef) }
+                    } right: {
+                        CSFieldCell(label: "Reflection") { TextField("Where have you seen…", text: $reflectionPrompt) }
+                    }
+                } header: { CSSectionHeader(text: "Devotional") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    CSTextAreaCell(label: "Scripture text", placeholder: "Therefore, if anyone is in Christ…", text: $scriptureText, lines: 2...4)
+                    CSTextAreaCell(label: "Body", required: true, placeholder: "Write the devotional…", text: $bodyText, lines: 4...10)
+                } header: { CSSectionHeader(text: "Content") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    CSFieldPair {
+                        CSFieldCell(label: "Audio URL") { TextField("https://", text: $audioUrl).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    } right: {
+                        CSFieldCell(label: "Video URL") { TextField("https://", text: $videoUrl).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    }
+                } header: { CSSectionHeader(text: "Media") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    CSControlTile { Toggle("Published to members", isOn: $isPublished).tint(Nuru.gold) }
                 }
-                SwiftUI.Section("Body *") {
-                    TextField("Write the devotional…", text: $bodyText, axis: .vertical).lineLimit(4...10)
-                }
-                SwiftUI.Section("Media") {
-                    field("Audio URL") { TextField("https://", text: $audioUrl).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                    field("Video URL") { TextField("https://", text: $videoUrl).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                }
-                SwiftUI.Section { Toggle("Published to members", isOn: $isPublished) }
+                .listRowBackground(Color.clear)
             }
+            .csFormSheet()
+            .frame(maxWidth: 820)
+            .frame(maxWidth: .infinity)
+            .background(Nuru.paper)
             .navigationTitle(isEdit ? "Edit devotional" : "New devotional")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { Task { await save() } }.disabled(!canSave || saving)
+                    Button("Save") { Task { await save() } }.font(.inter(15, .semibold)).disabled(!canSave || saving)
                 }
             }
             .onAppear(perform: prime)
@@ -1165,26 +1274,50 @@ private struct VerseForm: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                SwiftUI.Section("Memory verse") {
-                    field("Reference", required: true) { TextField("John 15:5", text: $reference) }
-                    Picker("Version", selection: $version) { ForEach(VERSIONS, id: \.self) { Text($0).tag($0) } }
-                    TextField("I am the vine…", text: $verseText, axis: .vertical).lineLimit(3...6)
+                if let error {
+                    SwiftUI.Section { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }.listRowBackground(Color.clear)
                 }
-                SwiftUI.Section("Scheduling") {
-                    field("Week number") { TextField("1", text: $weekNumber).keyboardType(.numberPad) }
-                    Toggle("Set release date", isOn: $hasDate)
-                    if hasDate { DatePicker("Date", selection: $date, displayedComponents: .date) }
-                    field("Sort") { TextField("1", text: $sort).keyboardType(.numberPad) }
+                SwiftUI.Section {
+                    CSFieldPair {
+                        CSFieldCell(label: "Reference", required: true) { TextField("John 15:5", text: $reference) }
+                    } right: {
+                        CSFieldCell(label: "Version") {
+                            Picker("", selection: $version) { ForEach(VERSIONS, id: \.self) { Text($0).tag($0) } }
+                                .labelsHidden().pickerStyle(.menu).tint(Nuru.navy).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    CSTextAreaCell(label: "Verse text", required: true, placeholder: "I am the vine…", text: $verseText, lines: 3...6)
+                } header: { CSSectionHeader(text: "Memory verse") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    CSFieldPair {
+                        CSFieldCell(label: "Week number") { TextField("1", text: $weekNumber).keyboardType(.numberPad) }
+                    } right: {
+                        CSFieldCell(label: "Sort") { TextField("1", text: $sort).keyboardType(.numberPad) }
+                    }
+                    CSControlTile { Toggle("Set release date", isOn: $hasDate).tint(Nuru.gold) }
+                    if hasDate {
+                        CSControlTile { DatePicker("Date", selection: $date, displayedComponents: .date).tint(Nuru.gold) }
+                    }
+                } header: { CSSectionHeader(text: "Scheduling") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    CSControlTile { Toggle("Active", isOn: $isActive).tint(Nuru.gold) }
                 }
-                SwiftUI.Section { Toggle("Active", isOn: $isActive) }
+                .listRowBackground(Color.clear)
             }
+            .csFormSheet()
+            .frame(maxWidth: 820)
+            .frame(maxWidth: .infinity)
+            .background(Nuru.paper)
             .navigationTitle(isEdit ? "Edit verse" : "New verse")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { Task { await save() } }.disabled(!canSave || saving)
+                    Button("Save") { Task { await save() } }.font(.inter(15, .semibold)).disabled(!canSave || saving)
                 }
             }
             .onAppear(perform: prime)
@@ -1250,21 +1383,43 @@ private struct DailyVerseForm: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                SwiftUI.Section("Day") { Text(dayLabel).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy) }
-                SwiftUI.Section("Daily verse") {
-                    field("Theme") { TextField("JOY & HAPPINESS", text: $theme) }
-                    Picker("Version", selection: $version) { ForEach(VERSIONS, id: \.self) { Text($0).tag($0) } }
-                    field("Reference", required: true) { TextField("Nehemiah 8:10", text: $reference) }
-                    TextField("Do not grieve, for the joy of the LORD…", text: $verseText, axis: .vertical).lineLimit(3...6)
+                if let error {
+                    SwiftUI.Section { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }.listRowBackground(Color.clear)
                 }
+                SwiftUI.Section {
+                    CSControlTile {
+                        HStack(spacing: 8) {
+                            Image(systemName: "calendar").font(.system(size: 13, weight: .semibold)).foregroundStyle(Nuru.gold)
+                            Text(dayLabel).font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
+                        }
+                    }
+                } header: { CSSectionHeader(text: "Day") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    CSFieldPair {
+                        CSFieldCell(label: "Theme") { TextField("JOY & HAPPINESS", text: $theme) }
+                    } right: {
+                        CSFieldCell(label: "Version") {
+                            Picker("", selection: $version) { ForEach(VERSIONS, id: \.self) { Text($0).tag($0) } }
+                                .labelsHidden().pickerStyle(.menu).tint(Nuru.navy).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    CSFieldCell(label: "Reference", required: true) { TextField("Nehemiah 8:10", text: $reference) }
+                    CSTextAreaCell(label: "Verse text", required: true, placeholder: "Do not grieve, for the joy of the LORD…", text: $verseText, lines: 3...6)
+                } header: { CSSectionHeader(text: "Daily verse") }
+                .listRowBackground(Color.clear)
             }
+            .csFormSheet()
+            .frame(maxWidth: 820)
+            .frame(maxWidth: .infinity)
+            .background(Nuru.paper)
             .navigationTitle("Edit daily verse")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { Task { await save() } }.disabled(!canSave || saving)
+                    Button("Save") { Task { await save() } }.font(.inter(15, .semibold)).disabled(!canSave || saving)
                 }
             }
             .onAppear(perform: prime)
@@ -1312,23 +1467,46 @@ private struct ResourceForm: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                SwiftUI.Section("Resource") {
-                    field("Title", required: true) { TextField("Mere Christianity", text: $title) }
-                    field("Author") { TextField("C. S. Lewis", text: $author) }
-                    Picker("Kind", selection: $kind) { ForEach(RESOURCE_KINDS, id: \.self) { Text($0.capitalized).tag($0) } }
-                    field("Duration") { TextField("12 min", text: $durationLabel) }
-                    field("Sort") { TextField("1", text: $sort).keyboardType(.numberPad) }
-                    field("URL") { TextField("https://", text: $url).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                if let error {
+                    SwiftUI.Section { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }.listRowBackground(Color.clear)
                 }
-                SwiftUI.Section { Toggle("Active", isOn: $isActive) }
+                SwiftUI.Section {
+                    CSFieldPair {
+                        CSFieldCell(label: "Title", required: true) { TextField("Mere Christianity", text: $title) }
+                    } right: {
+                        CSFieldCell(label: "Author") { TextField("C. S. Lewis", text: $author) }
+                    }
+                    CSFieldPair {
+                        CSFieldCell(label: "Kind") {
+                            Picker("", selection: $kind) { ForEach(RESOURCE_KINDS, id: \.self) { Text($0.capitalized).tag($0) } }
+                                .labelsHidden().pickerStyle(.menu).tint(Nuru.navy).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } right: {
+                        CSFieldCell(label: "Duration") { TextField("12 min", text: $durationLabel) }
+                    }
+                    CSFieldPair {
+                        CSFieldCell(label: "Sort") { TextField("1", text: $sort).keyboardType(.numberPad) }
+                    } right: {
+                        CSFieldCell(label: "URL") { TextField("https://", text: $url).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    }
+                } header: { CSSectionHeader(text: "Resource") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    CSControlTile { Toggle("Active", isOn: $isActive).tint(Nuru.gold) }
+                }
+                .listRowBackground(Color.clear)
             }
+            .csFormSheet()
+            .frame(maxWidth: 820)
+            .frame(maxWidth: .infinity)
+            .background(Nuru.paper)
             .navigationTitle(isEdit ? "Edit resource" : "New resource")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { Task { await save() } }.disabled(!canSave || saving)
+                    Button("Save") { Task { await save() } }.font(.inter(15, .semibold)).disabled(!canSave || saving)
                 }
             }
             .onAppear(perform: prime)
@@ -1405,25 +1583,42 @@ private struct PlanForm: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                SwiftUI.Section("Plan") {
-                    field("Code", required: true) { TextField("NEW-BELIEVER-21", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                    Picker("Category", selection: $category) { ForEach(PLAN_CATEGORIES, id: \.self) { Text($0).tag($0) } }
-                    field("Title", required: true) { TextField("First 21 Days", text: $title) }
-                    field("Subtitle") { TextField("A gentle on-ramp for new believers", text: $subtitle) }
-                    TextField("Description", text: $description, axis: .vertical).lineLimit(2...5)
-                    field("Cover image") { TextField("https://", text: $imageUrl).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                    field("Sort") { TextField("1", text: $sort).keyboardType(.numberPad) }
-                    Toggle("Active", isOn: $isActive)
+                if let error {
+                    SwiftUI.Section { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }.listRowBackground(Color.clear)
                 }
+                SwiftUI.Section {
+                    CSFieldPair {
+                        CSFieldCell(label: "Code", required: true) { TextField("NEW-BELIEVER-21", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    } right: {
+                        CSFieldCell(label: "Category") {
+                            Picker("", selection: $category) { ForEach(PLAN_CATEGORIES, id: \.self) { Text($0).tag($0) } }
+                                .labelsHidden().pickerStyle(.menu).tint(Nuru.navy).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    CSFieldCell(label: "Title", required: true) { TextField("First 21 Days", text: $title) }
+                    CSFieldCell(label: "Subtitle") { TextField("A gentle on-ramp for new believers", text: $subtitle) }
+                    CSTextAreaCell(label: "Description", placeholder: "Describe the plan…", text: $description, lines: 2...5)
+                    CSFieldPair {
+                        CSFieldCell(label: "Cover image") { TextField("https://", text: $imageUrl).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    } right: {
+                        CSFieldCell(label: "Sort") { TextField("1", text: $sort).keyboardType(.numberPad) }
+                    }
+                    CSControlTile { Toggle("Active", isOn: $isActive).tint(Nuru.gold) }
+                } header: { CSSectionHeader(text: "Plan") }
+                .listRowBackground(Color.clear)
+
                 daysSection
             }
+            .csFormSheet()
+            .frame(maxWidth: 820)
+            .frame(maxWidth: .infinity)
+            .background(Nuru.paper)
             .navigationTitle(isEdit ? "Edit plan" : "New plan")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { Task { await save() } }.disabled(!canSave || saving)
+                    Button("Save") { Task { await save() } }.font(.inter(15, .semibold)).disabled(!canSave || saving)
                 }
             }
             .task { await prime() }
@@ -1435,36 +1630,46 @@ private struct PlanForm: View {
             ForEach($days) { $day in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        TextField("Day #", value: $day.dayNumber, format: .number).frame(width: 56).keyboardType(.numberPad)
+                        Text("DAY").font(.inter(11, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                        TextField("#", value: $day.dayNumber, format: .number).frame(width: 56).keyboardType(.numberPad)
+                            .font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
+                        Spacer()
                         Button(role: .destructive) { days.removeAll { $0.id == day.id } } label: { Image(systemName: "trash") }
                             .buttonStyle(.plain).foregroundStyle(Nuru.danger)
                     }
-                    TextField("Reference (e.g. John 3:1-16)", text: $day.reference)
-                    TextField("Day title", text: $day.title)
+                    TextField("Reference (e.g. John 3:1-16)", text: $day.reference).font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
+                    TextField("Day title", text: $day.title).font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
                     ForEach($day.segments) { $seg in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Picker("Kind", selection: $seg.kind) { ForEach(SEGMENT_KINDS, id: \.self) { Text($0).tag($0) } }
-                                    .labelsHidden().pickerStyle(.menu)
+                                    .labelsHidden().pickerStyle(.menu).tint(Nuru.navy)
                                 Spacer()
                                 Button(role: .destructive) { $day.segments.wrappedValue.removeAll { $0.id == seg.id } } label: { Image(systemName: "minus.circle") }
                                     .buttonStyle(.plain).foregroundStyle(Nuru.danger)
                             }
-                            TextField("Segment title", text: $seg.title)
-                            TextField("Reference (optional)", text: $seg.reference)
-                            TextField("Video URL (optional)", text: $seg.videoUrl).textInputAutocapitalization(.never).autocorrectionDisabled()
-                            TextField("Content (markdown)", text: $seg.content, axis: .vertical).lineLimit(1...4)
+                            TextField("Segment title", text: $seg.title).font(.inter(14, .regular)).foregroundStyle(Nuru.ink)
+                            TextField("Reference (optional)", text: $seg.reference).font(.inter(14, .regular)).foregroundStyle(Nuru.ink)
+                            TextField("Video URL (optional)", text: $seg.videoUrl).textInputAutocapitalization(.never).autocorrectionDisabled().font(.inter(14, .regular)).foregroundStyle(Nuru.ink)
+                            TextField("Content (markdown)", text: $seg.content, axis: .vertical).lineLimit(1...4).font(.inter(14, .regular)).foregroundStyle(Nuru.ink)
                         }
-                        .padding(.leading, 10)
+                        .padding(10)
+                        .background(Nuru.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                     }
                     Button { $day.segments.wrappedValue.append(SegDraft()) } label: { Label("Segment", systemImage: "plus") }
-                        .font(.nMicro).buttonStyle(.plain).foregroundStyle(Nuru.navy)
+                        .font(.inter(12, .semibold)).buttonStyle(.plain).foregroundStyle(Nuru.gold)
                 }
-                .padding(.vertical, 4)
+                .padding(12)
+                .background(Nuru.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
             }
             Button { days.append(DayDraft(dayNumber: days.count + 1)) } label: { Label("Add day", systemImage: "plus") }
-                .buttonStyle(.plain).foregroundStyle(Nuru.navy)
-        } header: { Text("Plan days & segments") }
+                .font(.inter(14, .semibold)).buttonStyle(.plain).foregroundStyle(Nuru.navy)
+        } header: { CSSectionHeader(text: "Plan days & segments") }
+        .listRowBackground(Color.clear)
     }
 
     private func prime() async {
@@ -1530,10 +1735,3 @@ private struct PlanForm: View {
     }
 }
 
-// Shared labeled-field row used by the forms (web Field).
-@ViewBuilder private func field<C: View>(_ label: String, required: Bool = false, @ViewBuilder _ content: () -> C) -> some View {
-    HStack {
-        Text(label + (required ? " *" : "")).foregroundStyle(Nuru.ink600).frame(width: 110, alignment: .leading)
-        content()
-    }
-}
