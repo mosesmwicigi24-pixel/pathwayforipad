@@ -42,12 +42,15 @@ xcrun devicectl device install app --device <ipad-udid> \
 
 Bundle id `org.nuruplace.portal` · team `SGC7566QY6` · iOS 17+ · universal (iPhone/iPad).
 
-## Status
+## Status — 100% native
 
-**Native today** (live data): Dashboard, Members (+ detail), Cell Engagement,
-Reflection Queue, Events, Finance, Certificates, Badges, Curriculum Levels,
-Notifications, Users, Roles, Congregations, Countries, Languages, Profile, Login (+2FA).
+Every portal screen is native SwiftUI (live data): Login (+2FA), Dashboard,
+Members (+ detail), Cell Engagement, Reflection Queue, Chat (+ thread), Events,
+Finance, Certificates, Badges, Notifications, Curriculum Levels, CMS Curriculum →
+Level Detail → Quiz Builder (drill-down), Video Library, Content Studio
+(devotionals / verses / plans / resources), Users, Roles, Congregations,
+Countries, Languages, Profile.
 
-**Still web-only** (heavy editors, next to port): CMS Curriculum, Level Detail,
-Quiz Builder, Video Library, Content Studio, Chat. These show a "being rebuilt"
-placeholder in the shell.
+Read + browse is complete across the app. Write-side affordances that need
+device pickers (Cloudinary/video upload, drag-reorder, live chat compose) are
+the natural next iteration on top of these screens.
