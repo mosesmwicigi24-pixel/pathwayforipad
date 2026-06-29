@@ -258,3 +258,156 @@ struct SystemUser: Codable, Identifiable {
     let lastActive: String?
     var id: String { userId }
 }
+
+// MARK: - Curriculum (CMS / Level Detail / Quiz Builder)
+
+struct AdminLevel: Codable, Identifiable {
+    let levelNumber: Int
+    let title: String
+    let theme: String?
+    let duration: String?
+    let status: String
+    let locked: Bool
+    let color: String
+    let publishedCount: String
+    let draftCount: String
+    let archivedCount: String
+    var id: Int { levelNumber }
+}
+
+struct AdminModuleSummary: Codable, Identifiable {
+    let moduleId: String
+    let levelNumber: Int
+    let moduleSequenceNumber: Int
+    let title: String
+    let summary: String?
+    let status: String
+    let evaluationKind: String
+    let activeQuestionCount: String
+    var id: String { moduleId }
+}
+
+struct AdminQuestion: Codable, Identifiable {
+    let questionId: String
+    let qType: String
+    let questionText: String
+    let correctAnswer: String
+    let isActive: Bool
+    let explanation: String?
+    let points: Int
+    let required: Bool
+    var id: String { questionId }
+}
+
+// MARK: - Content Studio (growth)
+
+struct DevotionalRow: Codable, Identifiable {
+    let devotionalId: String
+    let dayNumber: Int
+    let series: String?
+    let title: String
+    let scriptureRef: String?
+    let body: String
+    let isPublished: Bool
+    var id: String { devotionalId }
+}
+struct VerseRow: Codable, Identifiable {
+    let memoryVerseId: String
+    let reference: String
+    let verseText: String
+    let version: String
+    let weekNumber: Int?
+    let isActive: Bool
+    var id: String { memoryVerseId }
+}
+struct PlanRow: Codable, Identifiable {
+    let planId: String
+    let code: String
+    let title: String
+    let subtitle: String?
+    let description: String?
+    let category: String?
+    let dayCount: Int
+    let isActive: Bool
+    var id: String { planId }
+}
+struct ResourceAdminRow: Codable, Identifiable {
+    let resourceId: String
+    let title: String
+    let author: String?
+    let kind: String
+    let durationLabel: String?
+    let url: String?
+    let isActive: Bool
+    var id: String { resourceId }
+}
+
+// MARK: - Video Library (media)
+
+struct MediaAssetRow: Codable, Identifiable {
+    let mediaAssetId: String
+    let kind: String
+    let status: String
+    let videoSource: String
+    let externalUrl: String?
+    let caption: String?
+    let levelNumber: Int?
+    let thumbnailUrl: String?
+    let durationSec: Int?
+    let createdAt: String
+    let attachedModuleTitle: String?
+    let views: Int?
+    let completion: Double?
+    var id: String { mediaAssetId }
+}
+struct MediaListResponse: Codable { let data: [MediaAssetRow] }
+
+// MARK: - Chat
+
+struct ChatConversationRow: Codable, Identifiable {
+    let conversationId: String
+    let kind: String
+    let isPublic: Bool
+    let title: String?
+    let topic: String?
+    let avatarUrl: String?
+    let memberCount: Int
+    let lastBody: String?
+    let lastAt: String?
+    let lastAuthor: String?
+    let unread: Int
+    var id: String { conversationId }
+    var displayName: String { title ?? topic ?? "Conversation" }
+}
+struct ChatDiscoverSpace: Codable, Identifiable {
+    let conversationId: String
+    let title: String?
+    let topic: String?
+    let memberCount: Int
+    var id: String { conversationId }
+}
+struct ChatList: Codable {
+    let conversations: [ChatConversationRow]
+    let discoverSpaces: [ChatDiscoverSpace]
+}
+struct ChatMessageRow: Codable, Identifiable {
+    let messageId: String
+    let authorName: String
+    let body: String
+    let msgType: String
+    let createdAt: String
+    let mine: Bool
+    let replyBody: String?
+    let replyAuthor: String?
+    var id: String { messageId }
+}
+struct ChatConversationDetail: Codable {
+    let conversationId: String
+    let kind: String
+    let isPublic: Bool
+    let topic: String?
+    let title: String?
+    let joined: Bool
+    let messages: [ChatMessageRow]
+    var displayName: String { title ?? topic ?? "Conversation" }
+}

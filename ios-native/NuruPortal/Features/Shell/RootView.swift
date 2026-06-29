@@ -171,32 +171,23 @@ struct RootView: View {
         case .cellEngagement:   CellEngagementView()
         case .members:          MembersView()
         case .reflectionQueue:  ReflectionQueueView()
+        case .chat:             ChatView()
         case .events:           EventsView()
         case .finance:          FinanceView()
         case .certificates:     CertificatesView()
         case .badges:           BadgesView()
         case .curriculumLevels: CurriculumLevelsView()
+        case .cms:              CmsCurriculumView(title: "CMS — Curriculum")
+        case .levelDetail:      CmsCurriculumView(title: "Level Detail")
+        case .quizBuilder:      CmsCurriculumView(title: "Quiz Builder")
+        case .videoLibrary:     VideoLibraryView()
+        case .contentStudio:    ContentStudioView()
         case .users:            UsersView()
         case .roles:            RolesView()
         case .congregations:    CongregationsView()
         case .countries:        CountriesView()
         case .languages:        LanguagesView()
         case .profile:          ProfileView()
-        default:                ComingSoonView(title: section.title)
         }
-    }
-}
-
-/// Placeholder for screens not yet ported to native (heavy editors: CMS, quiz
-/// builder, video library, content studio, chat). Keeps the shell navigable.
-struct ComingSoonView: View {
-    let title: String
-    var body: some View {
-        ContentUnavailableView {
-            Label(title, systemImage: "hammer")
-        } description: {
-            Text("This screen is being rebuilt natively. It's live in the web portal today.")
-        }
-        .portalPage(title)
     }
 }

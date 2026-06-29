@@ -112,4 +112,42 @@ enum PortalAPI {
     static func users() async throws -> [SystemUser] {
         try await api.get("/admin/users", as: DataList<SystemUser>.self).data
     }
+
+    // Curriculum
+    static func curriculumLevels() async throws -> [AdminLevel] {
+        try await api.get("/admin/levels", as: DataList<AdminLevel>.self).data
+    }
+    static func modules(level: Int) async throws -> [AdminModuleSummary] {
+        try await api.get("/admin/levels/\(level)/modules", as: DataList<AdminModuleSummary>.self).data
+    }
+    static func questions(moduleId: String) async throws -> [AdminQuestion] {
+        try await api.get("/admin/modules/\(moduleId)/questions", as: DataList<AdminQuestion>.self).data
+    }
+
+    // Content Studio (growth)
+    static func devotionals() async throws -> [DevotionalRow] {
+        try await api.get("/admin/growth/devotionals", as: DataList<DevotionalRow>.self).data
+    }
+    static func verses() async throws -> [VerseRow] {
+        try await api.get("/admin/growth/memory-verses", as: DataList<VerseRow>.self).data
+    }
+    static func plans() async throws -> [PlanRow] {
+        try await api.get("/admin/growth/plans", as: DataList<PlanRow>.self).data
+    }
+    static func resources() async throws -> [ResourceAdminRow] {
+        try await api.get("/admin/growth/resources", as: DataList<ResourceAdminRow>.self).data
+    }
+
+    // Video Library (media)
+    static func media() async throws -> [MediaAssetRow] {
+        try await api.get("/admin/media", as: MediaListResponse.self).data
+    }
+
+    // Chat
+    static func chatConversations() async throws -> ChatList {
+        try await api.get("/chat/conversations", query: ["scope": "mine"], as: ChatList.self)
+    }
+    static func chatConversation(_ id: String) async throws -> ChatConversationDetail {
+        try await api.get("/chat/conversations/\(id)", as: ChatConversationDetail.self)
+    }
 }
