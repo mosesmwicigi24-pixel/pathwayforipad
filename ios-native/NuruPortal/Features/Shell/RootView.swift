@@ -1,0 +1,202 @@
+// App shell — an iPad-native NavigationSplitView (collapsible sidebar + detail),
+// the native analogue of the web portal's navy sidebar Layout. Adapts to Split
+// View / Slide Over and a Magic Keyboard automatically. Sidebar mirrors nav.tsx.
+import SwiftUI
+
+enum Section: String, CaseIterable, Identifiable {
+    // Portal
+    case dashboard, notifications
+    // Curriculum
+    case curriculumLevels, cms, levelDetail, quizBuilder, videoLibrary, contentStudio
+    // Operations
+    case cellEngagement, members, reflectionQueue, chat, events, finance, certificates, badges
+    // System
+    case users, roles, congregations, countries, languages
+    // Reachable from the profile menu (not listed in the sidebar)
+    case profile
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dashboard: "Dashboard"
+        case .notifications: "Notifications"
+        case .curriculumLevels: "Curriculum Levels"
+        case .cms: "CMS — Curriculum"
+        case .levelDetail: "Level Detail"
+        case .quizBuilder: "Quiz Builder"
+        case .videoLibrary: "Video Library"
+        case .contentStudio: "Content Studio"
+        case .cellEngagement: "Cell Engagement"
+        case .members: "Members"
+        case .reflectionQueue: "Reflection Queue"
+        case .chat: "Chat"
+        case .events: "Events"
+        case .finance: "Finance"
+        case .certificates: "Certificates"
+        case .badges: "Badges"
+        case .users: "Users"
+        case .roles: "Roles & Permissions"
+        case .congregations: "Congregations"
+        case .countries: "Countries"
+        case .languages: "Languages"
+        case .profile: "My Profile"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .dashboard: "square.grid.2x2"
+        case .notifications: "bell"
+        case .curriculumLevels: "list.bullet.indent"
+        case .cms: "book"
+        case .levelDetail: "square.stack.3d.up"
+        case .quizBuilder: "questionmark.circle"
+        case .videoLibrary: "play.rectangle"
+        case .contentStudio: "sparkles"
+        case .cellEngagement: "chart.line.uptrend.xyaxis"
+        case .members: "person.2"
+        case .reflectionQueue: "text.bubble"
+        case .chat: "bubble.left.and.bubble.right"
+        case .events: "calendar"
+        case .finance: "creditcard"
+        case .certificates: "rosette"
+        case .badges: "star"
+        case .users: "person.badge.key"
+        case .roles: "lock.shield"
+        case .congregations: "building.columns"
+        case .countries: "globe"
+        case .languages: "character.bubble"
+        case .profile: "person.crop.circle"
+        }
+    }
+}
+
+private struct NavGroup: Identifiable {
+    let label: String
+    let items: [Section]
+    var id: String { label }
+}
+
+private let navGroups: [NavGroup] = [
+    .init(label: "Portal", items: [.dashboard, .notifications]),
+    .init(label: "Operations", items: [.cellEngagement, .members, .reflectionQueue, .chat, .events, .finance, .certificates, .badges]),
+    .init(label: "Curriculum", items: [.curriculumLevels, .cms, .levelDetail, .quizBuilder, .videoLibrary, .contentStudio]),
+    .init(label: "System", items: [.users, .roles, .congregations, .countries, .languages]),
+]
+
+struct RootView: View {
+    @EnvironmentObject private var auth: AuthStore
+    @State private var selection: Section? = .dashboard
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebar
+        } detail: {
+            NavigationStack {
+                detail(for: selection ?? .dashboard)
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    private var sidebar: some View {
+        List(selection: $selection) {
+            ForEach(navGroups) { group in
+                SwiftUI.Section {
+                    ForEach(group.items) { item in
+                        Label(item.title, systemImage: item.icon).tag(item)
+                    }
+                } header: {
+                    Text(group.label.uppercased())
+                        .font(.caption2).fontWeight(.bold)
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(Nuru.navy)
+        .tint(Nuru.gold)
+        .navigationTitle("Nuru Pathway")
+        .safeAreaInset(edge: .top) { brandHeader }
+        .safeAreaInset(edge: .bottom) { profileFooter }
+        .toolbar(removing: .sidebarToggle)
+    }
+
+    private var brandHeader: some View {
+        HStack(spacing: 12) {
+            BrandMark(size: 34)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Nuru Pathway").font(.headline).foregroundStyle(.white)
+                Text("Portal Admin").font(.caption2).foregroundStyle(.white.opacity(0.45))
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 18).padding(.vertical, 14)
+        .background(Nuru.navy)
+    }
+
+    private var profileFooter: some View {
+        let name = auth.profile?.fullName ?? "Account"
+        let role = (auth.profile?.role ?? "member").uppercased()
+        return Menu {
+            Button { selection = .profile } label: { Label("My Profile", systemImage: "person.crop.circle") }
+            Button(role: .destructive) { auth.signOut() } label: {
+                Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Monogram(name: name, size: 34, fill: Nuru.gold)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name).font(.subheadline).fontWeight(.semibold).foregroundStyle(.white).lineLimit(1)
+                    Text(role).font(.caption2).fontWeight(.bold).foregroundStyle(Nuru.gold)
+                }
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.white.opacity(0.5))
+            }
+            .padding(12)
+            .background(.white.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, 12).padding(.bottom, 12)
+        }
+        .background(Nuru.navy)
+    }
+
+    @ViewBuilder
+    private func detail(for section: Section) -> some View {
+        switch section {
+        case .dashboard:        DashboardView()
+        case .notifications:    NotificationsView()
+        case .cellEngagement:   CellEngagementView()
+        case .members:          MembersView()
+        case .reflectionQueue:  ReflectionQueueView()
+        case .events:           EventsView()
+        case .finance:          FinanceView()
+        case .certificates:     CertificatesView()
+        case .badges:           BadgesView()
+        case .curriculumLevels: CurriculumLevelsView()
+        case .users:            UsersView()
+        case .roles:            RolesView()
+        case .congregations:    CongregationsView()
+        case .countries:        CountriesView()
+        case .languages:        LanguagesView()
+        case .profile:          ProfileView()
+        default:                ComingSoonView(title: section.title)
+        }
+    }
+}
+
+/// Placeholder for screens not yet ported to native (heavy editors: CMS, quiz
+/// builder, video library, content studio, chat). Keeps the shell navigable.
+struct ComingSoonView: View {
+    let title: String
+    var body: some View {
+        ContentUnavailableView {
+            Label(title, systemImage: "hammer")
+        } description: {
+            Text("This screen is being rebuilt natively. It's live in the web portal today.")
+        }
+        .portalPage(title)
+    }
+}
