@@ -88,55 +88,54 @@ private let navGroups: [NavGroup] = [
 /// sidebar section (the iPad equivalent of the web portal's cross-page links).
 @MainActor final class NavRouter: ObservableObject {
     @Published var section: Section? = .dashboard
-    func go(_ s: Section) { withAnimation(.easeOut(duration: 0.18)) { section = s } }
+    // Instant — no transition animation, for maximum tap reactivity.
+    func go(_ s: Section) { section = s }
 }
 
 struct RootView: View {
     @EnvironmentObject private var auth: AuthStore
     @StateObject private var router = NavRouter()
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        // Fixed navy sidebar flush against the content (web-portal layout), not a
+        // NavigationSplitView column — so there's no gap/seam and switching is instant.
+        HStack(spacing: 0) {
             sidebar
-        } detail: {
             NavigationStack {
                 detail(for: router.section ?? .dashboard)
             }
+            .id(router.section)   // clean, immediate swap when the section changes
         }
-        .navigationSplitViewStyle(.balanced)
         .environmentObject(router)
+        .background(Nuru.paper.ignoresSafeArea())
     }
 
     private var sidebar: some View {
-        ZStack {
-            Nuru.navyGradient.ignoresSafeArea()
-            VStack(spacing: 0) {
-                brandHeader
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        ForEach(navGroups) { group in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(group.label.uppercased())
-                                    .font(.inter(11.5, .bold)).tracking(1.2)
-                                    .foregroundStyle(.white.opacity(0.34))
-                                    .padding(.horizontal, 14).padding(.bottom, 2)
-                                ForEach(group.items) { item in
-                                    NavRow(item: item, selected: router.section == item) {
-                                        router.go(item)
-                                    }
+        VStack(spacing: 0) {
+            brandHeader
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(navGroups) { group in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(group.label.uppercased())
+                                .font(.inter(11.5, .bold)).tracking(1.2)
+                                .foregroundStyle(.white.opacity(0.34))
+                                .padding(.horizontal, 14).padding(.bottom, 2)
+                            ForEach(group.items) { item in
+                                NavRow(item: item, selected: router.section == item) {
+                                    router.go(item)
                                 }
                             }
                         }
                     }
-                    .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 16)
                 }
-                profileFooter
+                .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 16)
             }
+            profileFooter
         }
-        .navigationTitle("Nuru Pathway")
-        .toolbar(removing: .sidebarToggle)
-        .toolbarBackground(.hidden, for: .navigationBar)
+        .frame(width: 264)
+        .frame(maxHeight: .infinity)
+        .background(Nuru.navyGradient.ignoresSafeArea())
     }
 
     private var brandHeader: some View {

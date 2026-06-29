@@ -158,11 +158,17 @@ private func interFace(_ w: Font.Weight) -> String {
     case .medium: return "Inter-Medium"
     default: return "Inter-Regular" }
 }
+// Display/headers now use clean Inter (sans) instead of the Fraunces serif — a
+// uniform, modern sans across the whole app. Display defaults to SemiBold for
+// presence; `.bold` maps to Inter-Bold. (`fraunces(...)`/`nuruDisplay(...)` call
+// sites are unchanged; they just render in Inter now.)
 private func frauncesFace(_ w: Font.Weight) -> String {
-    switch w { case .bold, .heavy, .black: return "Fraunces-Bold"
-    case .semibold: return "Fraunces-SemiBold"
-    case .medium: return "Fraunces-Medium"
-    default: return "Fraunces-Regular" }
+    switch w {
+    case .bold, .heavy, .black: return "Inter-Bold"
+    case .semibold:             return "Inter-SemiBold"
+    case .medium:               return "Inter-SemiBold"
+    default:                    return "Inter-SemiBold"
+    }
 }
 
 // MARK: - Depth (one soft shadow — never stack)

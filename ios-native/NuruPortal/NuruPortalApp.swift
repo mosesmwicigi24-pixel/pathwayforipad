@@ -43,8 +43,8 @@ struct NuruPortalApp: App {
         appearance.configureWithOpaqueBackground()
         appearance.backgroundColor = UIColor(Nuru.paper)
         appearance.shadowColor = .clear
-        appearance.largeTitleTextAttributes = [.foregroundColor: navy, .font: display("Fraunces-SemiBold", 32, .semibold)]
-        appearance.titleTextAttributes = [.foregroundColor: navy, .font: display("Fraunces-SemiBold", 18, .semibold)]
+        appearance.largeTitleTextAttributes = [.foregroundColor: navy, .font: display("Inter-SemiBold", 32, .semibold)]
+        appearance.titleTextAttributes = [.foregroundColor: navy, .font: display("Inter-SemiBold", 18, .semibold)]
         UINavigationBar.appearance().standardAppearance = appearance
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
         UINavigationBar.appearance().compactAppearance = appearance
