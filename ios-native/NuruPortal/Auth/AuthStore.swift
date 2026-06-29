@@ -18,6 +18,19 @@ final class AuthStore: ObservableObject {
         await APIClient.shared.setOnSessionExpired { [weak self] in
             Task { @MainActor in self?.signOut() }
         }
+        #if DEBUG
+        // Headless smoke-testing hook (Debug builds only): if a session token is
+        // injected via the launch environment (see scripts/run-authed-sim.sh),
+        // start signed in. Compiled out of Release entirely; a no-op when unset.
+        let env = ProcessInfo.processInfo.environment
+        if let access = env["NURU_ACCESS_TOKEN"], !access.isEmpty {
+            await APIClient.shared.setSession(access: access, refresh: env["NURU_REFRESH_TOKEN"])
+            isAuthenticated = true
+            await loadProfile()
+            booting = false
+            return
+        }
+        #endif
         if await APIClient.shared.hasSession {
             isAuthenticated = true
             await loadProfile()
