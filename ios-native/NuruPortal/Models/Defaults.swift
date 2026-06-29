@@ -20,6 +20,13 @@ struct DefaultCodable<P: DefaultValueProvider>: Codable {
     func encode(to encoder: Encoder) throws { try wrappedValue.encode(to: encoder) }
 }
 
+extension DefaultCodable: Equatable where P.Value: Equatable {
+    static func == (l: Self, r: Self) -> Bool { l.wrappedValue == r.wrappedValue }
+}
+extension DefaultCodable: Hashable where P.Value: Hashable {
+    func hash(into hasher: inout Hasher) { hasher.combine(wrappedValue) }
+}
+
 extension KeyedDecodingContainer {
     /// Missing key OR explicit null → the provider's default (never throws).
     func decode<P>(_ type: DefaultCodable<P>.Type, forKey key: Key) throws -> DefaultCodable<P> {

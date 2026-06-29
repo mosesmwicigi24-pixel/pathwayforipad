@@ -1,68 +1,807 @@
-// Member detail — profile + enrollment + engagement, from /admin/members/{id}.
+// Member Profile — native SwiftUI port of the web MemberProfile page
+// (MemberProfile.tsx). Matches the make: navy hero (breadcrumb, graduated/cell tags,
+// Message / Mark-graduated / Pastoral-note chips, avatar + name + contact line, and
+// a 9-up info strip), an optional minor/guardian banner, a 4-up KPI row (Habits /
+// Curriculum / Attendance / Badges), three progress rings (Habits/Curriculum/
+// Attendance), and the Activity / Milestones / Certificates+Badges columns. Plus a
+// "Results" section (levels → module scores, exams, badges, certificates) from
+// /admin/members/{id}/results.
+//
+// The shared MemberDetail (Models.swift) is a slim subset, so this screen fetches a
+// page-local rich model that mirrors the full web MemberDetail via
+// APIClient.shared.get (decoder does convertFromSnakeCase). PortalAPI.memberDetail
+// remains the canonical slim accessor and is left untouched.
 import SwiftUI
+
+// MARK: - Page-local rich wire models (full web MemberDetail / MemberResults shape)
+
+private struct MemberFull: Codable, Identifiable {
+    struct Enrollment: Codable {
+        var currentLevel: Int = 0
+        let levelTitle: String?
+        let startLevel: Int?
+        let state: String?
+        let startedAt: String?
+        let completedAt: String?
+        let graduatedAt: String?
+    }
+    struct Engagement: Codable { let eScore: Double?; let band: String? }
+    struct Metrics: Codable {
+        var habitsPct: Int = 0
+        var activeDays30: Int = 0
+        var curriculumPct: Int = 0
+        var modulesDone: Int = 0
+        var modulesTotal: Int = 0
+        var attendancePct: Int = 0
+        var attended: Int = 0
+        var eventsHeld: Int = 0
+        var currentStreakDays: Int = 0
+        var longestStreakDays: Int = 0
+    }
+    struct Guardian: Codable {
+        var name: String = ""
+        var relationship: String = ""
+        var consent: String = ""
+        let grantedAt: String?
+        let revokedAt: String?
+        let consentVersion: String?
+    }
+    struct Certificate: Codable, Identifiable {
+        var certificateId: String = ""
+        let levelNumber: Int?
+        var verificationCode: String = ""
+        var issuedAt: String = ""
+        var levelTitle: String = ""
+        var id: String { certificateId }
+    }
+    struct Badge: Codable, Identifiable {
+        var code: String = ""
+        var name: String = ""
+        var description: String = ""
+        var category: String = ""
+        let iconKey: String?
+        let awardedAt: String?
+        var id: String { code }
+    }
+    struct TimelineEntry: Codable, Identifiable {
+        var kind: String = ""
+        var label: String = ""
+        let moduleTitle: String?
+        var occurredAt: String = ""
+        var id: String { kind + occurredAt + label }
+    }
+
+    var userId: String = ""
+    var fullName: String = ""
+    let email: String?
+    var phoneNumber: String = ""
+    var isMinor: Bool = false
+    var isBaptized: Bool = false
+    let gender: String?
+    let city: String?
+    let programme: String?
+    let countryCode: String?
+    let dateOfBirth: String?
+    let age: Int?
+    let status: String?
+    var graduated: Bool = false
+    let graduatedAt: String?
+    let cellGroupId: String?
+    let cellName: String?
+    let language: String?
+    var createdAt: String = ""
+    let lastActivity: String?
+    let enrollment: Enrollment
+    let engagement: Engagement
+    let metrics: Metrics
+    let guardian: Guardian?
+    var certificates: [Certificate] = []
+    var badges: [Badge] = []
+    var timeline: [TimelineEntry] = []
+    var id: String { userId }
+}
+
+private struct MemberResultsFull: Codable {
+    struct User: Codable { var userId = ""; var fullName = "" }
+    struct Summary: Codable {
+        var currentLevel = 0
+        var modulesTotal = 0
+        var modulesCompleted = 0
+        var modulesPassed = 0
+        let avgModuleScore: Double?
+        let overallScore: Double?
+        var levelsCompleted = 0
+        var badges = 0
+        var certificates = 0
+    }
+    struct ModuleRow: Codable, Identifiable {
+        var moduleId = ""
+        var sequence = 0
+        var title = ""
+        var completed = false
+        let bestScore: Double?
+        var passed = false
+        var attempts = 0
+        var id: String { moduleId }
+    }
+    struct Exam: Codable { let score: Double?; var passed = false; var attempts = 0 }
+    struct LevelRow: Codable, Identifiable {
+        var levelNumber = 0
+        var title = ""
+        var moduleCount = 0
+        var modulesCompleted = 0
+        let moduleAverage: Double?
+        let levelScore: Double?
+        var completed = false
+        let exam: Exam?
+        var modules: [ModuleRow] = []
+        var id: Int { levelNumber }
+    }
+    struct Badge: Codable, Identifiable {
+        var code = ""; var name = ""; var category = ""
+        let description: String?; var awardedAt = ""
+        var id: String { code }
+    }
+    struct Cert: Codable, Identifiable {
+        let levelNumber: Int?
+        let levelTitle: String?
+        var verificationCode = ""
+        var issuedAt = ""
+        var id: String { verificationCode }
+    }
+    let user: User
+    let summary: Summary
+    var levels: [LevelRow] = []
+    var badges: [Badge] = []
+    var certificates: [Cert] = []
+}
+
+private let mpProgrammeLabels: [String: String] = [
+    "new_believer": "New Believer", "foundations": "Foundations",
+    "serving_track": "Serving Track", "leadership_prep": "Leadership Prep",
+]
+
+/// Band → pastel chip (web bandStyle).
+private func bandChip(_ band: String?) -> (bg: Color, fg: Color) {
+    switch band {
+    case "Thriving": (Color(hex: 0xE8F6EC), Color(hex: 0x16A34A))
+    case "Watch":    (Color(hex: 0xFDF0E6), Color(hex: 0xE07B28))
+    case "At-risk":  (Color(hex: 0xFDECEC), Color(hex: 0xDC2626))
+    default:         (Color(hex: 0xFFF6E0), Color(hex: 0xA87616))   // Steady
+    }
+}
+
+// MARK: - Screen
 
 struct MemberDetailView: View {
     let userId: String
-    let name: String   // shown immediately while detail loads
+    let name: String
 
     var body: some View {
-        AsyncView({ try await PortalAPI.memberDetail(userId) }) { m in
+        AsyncView({ try await APIClient.shared.get("/admin/members/\(userId)", as: MemberFull.self) }) { m in
             ScrollView {
-                VStack(spacing: 16) {
-                    Card {
-                        HStack(spacing: 14) {
-                            Monogram(name: m.fullName, size: 56)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(m.fullName).font(.fraunces(22, .semibold)).foregroundStyle(Nuru.navy)
-                                if let cell = m.cellName { Text(cell).font(.nBody).foregroundStyle(Nuru.muted) }
-                                HStack(spacing: 8) {
-                                    if let band = m.engagement.band { Pill(text: band.capitalized, color: Nuru.bandColor(band)) }
-                                    if let s = m.engagement.eScore {
-                                        Pill(text: "Score \(Int(s))", color: Nuru.gold)
-                                    }
-                                }
-                            }
-                            Spacer()
-                        }
-                    }
-
-                    Card {
-                        VStack(alignment: .leading, spacing: 12) {
-                            SectionTitle(text: "Enrollment")
-                            InfoRow("Current level", m.enrollment.levelTitle ?? "Level \(m.enrollment.currentLevel)")
-                            InfoRow("State", (m.enrollment.state ?? "—").capitalized)
-                        }
-                    }
-
-                    Card {
-                        VStack(alignment: .leading, spacing: 12) {
-                            SectionTitle(text: "Contact")
-                            InfoRow("Phone", m.phoneNumber)
-                            if let e = m.email { InfoRow("Email", e) }
-                            if let c = m.city { InfoRow("City", c) }
-                            if let l = m.language { InfoRow("Language", l) }
-                            InfoRow("Joined", Fmt.date(m.createdAt))
-                            InfoRow("Last active", Fmt.relative(m.lastActivity))
-                        }
-                    }
+                VStack(spacing: 0) {
+                    hero(m)
+                    if m.isMinor { minorBanner(m) }
+                    body(m)
                 }
-                .padding(20)
             }
+            .background(Nuru.background)
         }
         .portalPage(name)
         .navigationBarTitleDisplayMode(.inline)
     }
-}
 
-private struct InfoRow: View {
-    let label: String, value: String
-    init(_ label: String, _ value: String) { self.label = label; self.value = value }
-    var body: some View {
-        HStack {
-            Text(label).font(.nBody).foregroundStyle(Nuru.muted)
-            Spacer()
-            Text(value).font(.inter(15, .medium)).foregroundStyle(Nuru.navy)
-                .multilineTextAlignment(.trailing)
+    // MARK: Hero
+
+    private func hero(_ m: MemberFull) -> some View {
+        let lvl = m.enrollment
+        let band = bandChip(m.engagement.band)
+        let country = m.countryCode
+        let genderLabel = m.gender.map { $0.prefix(1).uppercased() + $0.dropFirst() }
+        let location = [country, m.city].compactMap { $0 }.joined(separator: " · ")
+        let ageGender = [m.age.map(String.init), genderLabel].compactMap { $0 }.joined(separator: " · ")
+
+        let items: [(String, String, Bool)] = [
+            ("Cell", m.cellName ?? "Unassigned", false),
+            ("Current level", "L\(lvl.currentLevel)\(lvl.levelTitle.map { " · \($0)" } ?? "")", false),
+            ("Engagement band", m.engagement.band ?? "—", m.engagement.band != nil),
+            ("Programme", m.programme.flatMap { mpProgrammeLabels[$0] } ?? "—", false),
+            ("Location", location.isEmpty ? "—" : location, false),
+            ("Age · Gender", ageGender.isEmpty ? "—" : ageGender, false),
+            ("Language", m.language ?? "—", false),
+            ("Joined", Fmt.date(m.createdAt), false),
+            ("Last activity", Fmt.date(m.lastActivity, style: .dateTime.month().day().hour().minute()), false),
+        ]
+
+        return VStack(alignment: .leading, spacing: 18) {
+            // Breadcrumb + action chips
+            HStack(spacing: 6) {
+                Text("Nuru Pathway").font(.nMicro).foregroundStyle(Nuru.onNavyDim)
+                Image(systemName: "chevron.right").font(.system(size: 8)).foregroundStyle(Nuru.onNavyFaint)
+                Text("Members").font(.nMicro).foregroundStyle(Nuru.onNavyDim)
+                Image(systemName: "chevron.right").font(.system(size: 8)).foregroundStyle(Nuru.onNavyFaint)
+                Text(m.fullName).font(.nMicro).foregroundStyle(.white).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if m.graduated {
+                        HeroChip(label: "Graduated", icon: "graduationcap.fill", style: .tag)
+                    }
+                    HeroChip(label: "\(m.cellName ?? "Unassigned") · L\(lvl.currentLevel)", icon: "sparkles", style: .tag)
+                    if m.email != nil { HeroChip(label: "Message", icon: "envelope", style: .ghost) }
+                    HeroChip(label: m.graduated ? "Un-graduate" : "Mark graduated", icon: "graduationcap", style: .ghost)
+                    HeroChip(label: "Pastoral note", icon: "heart.fill", style: .gold)
+                }
+            }
+
+            // Avatar + name + contact
+            HStack(spacing: 16) {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(hex: 0xF5C77E, alpha: 0.16))
+                    .frame(width: 56, height: 56)
+                    .overlay(Text(initials(m.fullName)).font(.fraunces(22, .medium)).foregroundStyle(Color(hex: 0xF5C77E)))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(hex: 0xF5C77E, alpha: 0.3), lineWidth: 1))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(m.fullName).font(.fraunces(28, .regular)).foregroundStyle(.white).lineLimit(2)
+                    Text(m.phoneNumber + (m.email.map { " · \($0)" } ?? "")).font(.inter(13)).foregroundStyle(Nuru.onNavyDim).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+
+            // 9-up info strip (2 cols)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 0), GridItem(.flexible(), spacing: 0)], spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(item.0.uppercased()).font(.nOverline).tracking(1.2).foregroundStyle(Nuru.onNavyDim)
+                        if item.2 {
+                            Text("● \(item.1)").font(.inter(12, .bold)).foregroundStyle(band.fg)
+                                .padding(.horizontal, 10).padding(.vertical, 4)
+                                .background(band.bg).clipShape(Capsule())
+                        } else {
+                            Text(item.1).font(.inter(14, .semibold)).foregroundStyle(.white).lineLimit(2)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .overlay(Rectangle().fill(.white.opacity(0.07)).frame(height: 1), alignment: .bottom)
+                }
+            }
+            .background(.white.opacity(0.04))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+        }
+        .padding(.horizontal, Nuru.S.base).padding(.top, Nuru.S.lg).padding(.bottom, Nuru.S.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.navyCeremony)
+    }
+
+    // MARK: Minor / guardian banner
+
+    private func minorBanner(_ m: MemberFull) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.shield.fill").font(.system(size: 15)).foregroundStyle(Color(hex: 0xA87616))
+                Text("Minor — Guardian consent required").font(.inter(13, .bold)).foregroundStyle(Color(hex: 0x7A5410))
+                Spacer(minLength: 0)
+                let granted = m.guardian?.consent == "Granted"
+                Text(granted ? "✓ Consent on file" : "⚠ Action needed")
+                    .font(.inter(11, .bold)).foregroundStyle(granted ? Color(hex: 0x16A34A) : Color(hex: 0xDC2626))
+                    .padding(.horizontal, 10).padding(.vertical, 3)
+                    .background(granted ? Color(hex: 0xE8F6EC) : Color(hex: 0xFDECEC)).clipShape(Capsule())
+            }
+            if let g = m.guardian {
+                Text("Consent \(g.consent.lowercased()) by \(g.name) (\(g.relationship)) on \(Fmt.date(g.grantedAt)).")
+                    .font(.inter(12)).foregroundStyle(Color(hex: 0x7A5410))
+            } else {
+                Text("No consent on file.").font(.inter(12)).foregroundStyle(Color(hex: 0x7A5410))
+            }
+        }
+        .padding(.horizontal, Nuru.S.base).padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LinearGradient(colors: [Color(hex: 0xFFFBEB), Color(hex: 0xFEF3C7)], startPoint: .leading, endPoint: .trailing))
+        .overlay(Rectangle().fill(Color(hex: 0xF5E0A8)).frame(height: 1), alignment: .bottom)
+    }
+
+    // MARK: Body
+
+    private func body(_ m: MemberFull) -> some View {
+        VStack(spacing: 20) {
+            kpiRow(m)
+            progressRings(m)
+
+            // Activity
+            activityCard(m)
+            // Milestones
+            milestonesCard(m)
+            // Certificates + Badges
+            certificatesCard(m)
+            badgesCard(m)
+
+            // Results dossier (levels/modules/exams/badges/certs)
+            ResultsSection(userId: userId)
+        }
+        .padding(.horizontal, Nuru.S.base)
+        .padding(.top, Nuru.S.lg)
+        .padding(.bottom, Nuru.S.xxl)
+    }
+
+    private func kpiRow(_ m: MemberFull) -> some View {
+        let met = m.metrics
+        let kpis: [(String, String, String, Nuru.Tint, Color, Color, String)] = [
+            ("Habits", "\(met.habitsPct)%", "sunrise.fill", Nuru.tints[2], Color(hex: 0xF3FAF5), Color(hex: 0xD6ECDF), "\(met.activeDays30) / 30 active days"),
+            ("Curriculum", "\(met.curriculumPct)%", "book.fill", Nuru.tints[0], Color(hex: 0xFDF9EF), Color(hex: 0xF0E2BD), "Level \(m.enrollment.currentLevel)"),
+            ("Attendance", "\(met.attendancePct)%", "calendar", Nuru.tints[1], Color(hex: 0xF4F6FB), Color(hex: 0xDBE2EF), "\(met.attended) present days · 90d"),
+            ("Badges", String(m.badges.count), "rosette", Nuru.tints[3], Color(hex: 0xF7F3FC), Color(hex: 0xE2D7F2), "\(m.certificates.count) certificates"),
+        ]
+        return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            ForEach(Array(kpis.enumerated()), id: \.offset) { _, k in
+                VStack(alignment: .leading, spacing: 6) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(k.3.fg.opacity(0.14))
+                        Image(systemName: k.2).font(.system(size: 15, weight: .semibold)).foregroundStyle(k.3.fg)
+                    }.frame(width: 34, height: 34)
+                    Text(k.0.uppercased()).font(.nOverline).tracking(1.2).foregroundStyle(Nuru.muted)
+                    Text(k.1).font(.fraunces(26, .medium)).foregroundStyle(Nuru.navy)
+                    Text(k.6).font(.inter(11)).foregroundStyle(Nuru.muted).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
+                .background(k.4)
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(k.5, lineWidth: 1))
+            }
         }
     }
+
+    private func progressRings(_ m: MemberFull) -> some View {
+        let met = m.metrics
+        let cards: [(String, String, Int, String, String, Color, Color, Color)] = [
+            ("Habits", "sunrise.fill", met.habitsPct, "Prayer · Word · Reflection", "\(met.activeDays30) of 30 active days · \(met.currentStreakDays)-day streak", Color(hex: 0x16A34A), Color(hex: 0xF3FAF5), Color(hex: 0xD6ECDF)),
+            ("Curriculum", "book.fill", met.curriculumPct, "Level \(m.enrollment.currentLevel)", "\(met.modulesDone) of \(met.modulesTotal) modules complete", Color(hex: 0xC89B3C), Color(hex: 0xFDF9EF), Color(hex: 0xF0E2BD)),
+            ("Attendance", "calendar", met.attendancePct, "App engagement + gatherings", "\(met.attended) present days · last 90 days", Color(hex: 0x0B1F33), Color(hex: 0xF4F6FB), Color(hex: 0xDBE2EF)),
+        ]
+        return VStack(spacing: 12) {
+            ForEach(Array(cards.enumerated()), id: \.offset) { _, c in
+                HStack(spacing: 16) {
+                    ProgressRing(value: c.2, color: c.5, size: 84)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: c.1).font(.system(size: 13)).foregroundStyle(c.5)
+                            Text(c.0.uppercased()).font(.inter(12, .bold)).tracking(0.5).foregroundStyle(Nuru.ink)
+                        }
+                        Text(c.3).font(.inter(13)).foregroundStyle(Nuru.ink)
+                        Text(c.4).font(.inter(12)).foregroundStyle(Nuru.muted)
+                        ProgressBar(pct: Double(c.2), fill: c.5, height: 4).padding(.top, 4)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(18)
+                .background(c.6)
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(c.7, lineWidth: 1))
+            }
+        }
+    }
+
+    private func activityCard(_ m: MemberFull) -> some View {
+        sectionCard(bg: Color(hex: 0xFDF9EF), border: Color(hex: 0xF0E2BD), icon: "bubble.left.fill", title: "Recent activity") {
+            if m.timeline.isEmpty {
+                Text("No recorded activity yet.").font(.inter(13)).foregroundStyle(Nuru.muted)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(m.timeline.enumerated()), id: \.offset) { i, t in
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(spacing: 0) {
+                                Circle().fill(dotColor(t.kind)).frame(width: 12, height: 12)
+                                    .overlay(Circle().stroke(Nuru.white, lineWidth: 3))
+                                if i < m.timeline.count - 1 {
+                                    Rectangle().fill(Nuru.border).frame(width: 2).frame(maxHeight: .infinity)
+                                }
+                            }
+                            .frame(width: 12)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(t.label).font(.inter(13, .semibold)).foregroundStyle(Nuru.ink)
+                                Text((t.moduleTitle.map { "\($0) · " } ?? "") + Fmt.date(t.occurredAt, style: .dateTime.month().day().hour().minute()))
+                                    .font(.inter(11.5)).foregroundStyle(Nuru.muted)
+                            }
+                            .padding(.bottom, i < m.timeline.count - 1 ? 16 : 0)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func milestonesCard(_ m: MemberFull) -> some View {
+        let lvl = m.enrollment
+        let met = m.metrics
+        struct Milestone { let title, date, note, icon: String; let color: Color; let complete: Bool }
+        let milestones: [Milestone] = [
+            Milestone(title: "Baptism", date: m.isBaptized ? "Recorded" : "Not yet recorded", note: "Water baptism", icon: "drop.fill", color: Color(hex: 0x0B1F33), complete: m.isBaptized),
+            Milestone(title: "Level \(lvl.currentLevel) Completion", date: lvl.levelTitle ?? "Level \(lvl.currentLevel)", note: "\(met.modulesDone) of \(met.modulesTotal) modules", icon: "flag.fill", color: Color(hex: 0xC89B3C), complete: met.modulesTotal > 0 && met.modulesDone >= met.modulesTotal),
+            Milestone(title: "Pathway Completion", date: lvl.completedAt != nil ? Fmt.date(lvl.completedAt) : "In progress", note: lvl.state == "completed" ? "All levels complete" : "\(6 - lvl.currentLevel) levels to go", icon: "sparkles", color: Color(hex: 0x6B7280), complete: lvl.state == "completed"),
+        ]
+        return sectionCard(bg: Color(hex: 0xF4F6FB), border: Color(hex: 0xDBE2EF), icon: "flag.fill", title: "Milestones",
+                           trailing: "\(milestones.filter { $0.complete }.count) of \(milestones.count)") {
+            VStack(spacing: 0) {
+                ForEach(Array(milestones.enumerated()), id: \.offset) { i, ms in
+                    HStack(alignment: .top, spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(ms.complete ? Color(hex: 0xE8F6EC) : Color(hex: 0xF3F4F6))
+                            Image(systemName: ms.complete ? "checkmark.circle.fill" : ms.icon)
+                                .font(.system(size: 17)).foregroundStyle(ms.complete ? Color(hex: 0x16A34A) : ms.color)
+                        }.frame(width: 38, height: 38)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(ms.title).font(.inter(13, .bold)).foregroundStyle(Nuru.ink)
+                                if ms.complete {
+                                    Text("COMPLETE").font(.inter(10, .bold)).tracking(0.5).foregroundStyle(Color(hex: 0x16A34A))
+                                        .padding(.horizontal, 8).padding(.vertical, 2)
+                                        .background(Color(hex: 0xE8F6EC)).clipShape(Capsule())
+                                }
+                            }
+                            Text(ms.date).font(.inter(12)).foregroundStyle(Nuru.muted)
+                            Text(ms.note).font(.inter(11.5)).foregroundStyle(Nuru.muted)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 12)
+                    if i < milestones.count - 1 {
+                        Rectangle().fill(Nuru.border).frame(height: 1)
+                    }
+                }
+            }
+        }
+    }
+
+    private func certificatesCard(_ m: MemberFull) -> some View {
+        sectionCard(bg: Color(hex: 0xF3FAF5), border: Color(hex: 0xD6ECDF), icon: "rosette", title: "Certificates",
+                    trailing: "\(m.certificates.count) earned") {
+            if m.certificates.isEmpty {
+                Text("None issued yet.").font(.inter(12.5)).foregroundStyle(Nuru.muted)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(m.certificates.enumerated()), id: \.element.id) { i, c in
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color(hex: 0xFFF6E0))
+                                Image(systemName: "rosette").font(.system(size: 17)).foregroundStyle(Color(hex: 0xA87616))
+                            }.frame(width: 36, height: 36)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text((c.levelNumber.map { "Level \($0) — " } ?? "") + c.levelTitle)
+                                    .font(.inter(13, .semibold)).foregroundStyle(Nuru.ink)
+                                Text("Issued \(Fmt.date(c.issuedAt))").font(.inter(11)).foregroundStyle(Nuru.muted)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 10)
+                        if i < m.certificates.count - 1 { Rectangle().fill(Nuru.border).frame(height: 1) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func badgesCard(_ m: MemberFull) -> some View {
+        sectionCard(bg: Color(hex: 0xF7F3FC), border: Color(hex: 0xE2D7F2), icon: "sparkles", title: "Badges",
+                    trailing: "\(m.badges.count) earned") {
+            if m.badges.isEmpty {
+                Text("No badges yet.").font(.inter(12.5)).foregroundStyle(Nuru.muted)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(m.badges) { b in
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle().fill(Nuru.white)
+                                Image(systemName: "flame.fill").font(.system(size: 17)).foregroundStyle(Color(hex: 0xA87616))
+                            }.frame(width: 36, height: 36)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(b.name).font(.inter(13, .semibold)).foregroundStyle(Nuru.ink)
+                                Text(b.description).font(.inter(11)).foregroundStyle(Nuru.muted)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(10)
+                        .background(Nuru.inputBg)
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+
+    // Generic pastel section card with header.
+    private func sectionCard<Content: View>(
+        bg: Color, border: Color, icon: String, title: String, trailing: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                HStack(spacing: 8) {
+                    Image(systemName: icon).font(.system(size: 15)).foregroundStyle(Nuru.gold)
+                    Text(title).font(.inter(14, .bold)).foregroundStyle(Nuru.ink)
+                }
+                Spacer()
+                if let trailing { Text(trailing).font(.inter(11)).foregroundStyle(Nuru.muted) }
+            }
+            content()
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(bg)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(border, lineWidth: 1))
+    }
+
+    private func dotColor(_ kind: String) -> Color {
+        if kind.contains("quiz") || kind.contains("completed") { return Color(hex: 0x16A34A) }
+        if kind.contains("badge") { return Color(hex: 0xC89B3C) }
+        return Color(hex: 0x9CA3AF)
+    }
+
+    private func initials(_ n: String) -> String {
+        let p = n.split(separator: " ").prefix(2).compactMap { $0.first }
+        return p.isEmpty ? "?" : String(p).uppercased()
+    }
+}
+
+// MARK: - Progress ring (web Ring)
+
+private struct ProgressRing: View {
+    let value: Int
+    let color: Color
+    var size: CGFloat = 84
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color(hex: 0xEEF0F3), lineWidth: 8)
+            Circle()
+                .trim(from: 0, to: min(max(Double(value) / 100, 0), 1))
+                .stroke(color, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text("\(value)%").font(.fraunces(21, .medium)).foregroundStyle(Nuru.ink)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+// MARK: - Results dossier (member results endpoint)
+
+private struct ResultsSection: View {
+    let userId: String
+    @State private var state: Loadable<MemberResultsFull> = .idle
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 8) {
+                Image(systemName: "chart.bar.fill").font(.system(size: 15)).foregroundStyle(Nuru.gold)
+                Text("Results").font(.inter(14, .bold)).foregroundStyle(Nuru.ink)
+            }
+            switch state {
+            case .idle, .loading:
+                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 12)
+            case .failed(let m):
+                Text(m).font(.inter(13)).foregroundStyle(Nuru.danger)
+            case .loaded(let r):
+                results(r)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .task {
+            if case .idle = state {
+                state = .loading
+                do { state = .loaded(try await APIClient.shared.get("/admin/members/\(userId)/results", as: MemberResultsFull.self)) }
+                catch { state = .failed((error as? APIError)?.errorDescription ?? error.localizedDescription) }
+            }
+        }
+    }
+
+    private func results(_ r: MemberResultsFull) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Summary strip (navy mini-tiles, web drawer header)
+            let stats: [(String, String)] = [
+                ("Overall", pctLabel(r.summary.overallScore)),
+                ("Modules", "\(r.summary.modulesCompleted)/\(r.summary.modulesTotal)"),
+                ("Levels", String(r.summary.levelsCompleted)),
+                ("Badges·Certs", "\(r.summary.badges)·\(r.summary.certificates)"),
+            ]
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(Array(stats.enumerated()), id: \.offset) { _, s in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.1).font(.inter(16, .bold)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+                        Text(s.0.uppercased()).font(.inter(9, .semibold)).tracking(0.4).foregroundStyle(.white.opacity(0.6))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .background(.white.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+            .padding(12)
+            .background(Nuru.navy)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+
+            ForEach(r.levels) { lv in LevelResultCard(lv: lv) }
+
+            // Badges attained
+            sub("Badges attained")
+            if r.badges.isEmpty {
+                Text("No badges yet.").font(.inter(12.5)).foregroundStyle(Nuru.muted)
+            } else {
+                FlowChips(items: r.badges.map { $0.name })
+            }
+
+            // Certificates earned
+            sub("Certificates earned")
+            if r.certificates.isEmpty {
+                Text("No certificates yet.").font(.inter(12.5)).foregroundStyle(Nuru.muted)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(r.certificates) { c in
+                        HStack(spacing: 12) {
+                            Image(systemName: "rosette").font(.system(size: 18)).foregroundStyle(Color(hex: 0x7C3AED))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Level \(c.levelNumber.map(String.init) ?? "")" + (c.levelTitle.map { " — \($0)" } ?? ""))
+                                    .font(.inter(13, .bold)).foregroundStyle(Nuru.navy)
+                                Text("Issued \(Fmt.date(c.issuedAt)) · \(c.verificationCode)").font(.inter(11)).foregroundStyle(Nuru.muted)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .background(Nuru.white)
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    }
+                }
+            }
+        }
+    }
+
+    private func sub(_ t: String) -> some View {
+        HStack(spacing: 8) {
+            Text(t.uppercased()).font(.inter(11, .bold)).tracking(0.8).foregroundStyle(Nuru.navy)
+            Rectangle().fill(Nuru.border).frame(height: 1)
+        }
+    }
+}
+
+// Level result card (web LevelResultCard).
+private struct LevelResultCard: View {
+    let lv: MemberResultsFull.LevelRow
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "book.fill").font(.system(size: 14)).foregroundStyle(Nuru.gold)
+                        Text("Level \(lv.levelNumber) — \(lv.title)").font(.inter(13.5, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                        if lv.completed {
+                            Text("Complete").font(.inter(10, .bold)).foregroundStyle(Color(hex: 0x16A34A))
+                                .padding(.horizontal, 8).padding(.vertical, 2)
+                                .background(Color(hex: 0xE8F6EC)).clipShape(Capsule())
+                        }
+                    }
+                    Text("Modules avg \(pctLabel(lv.moduleAverage))" + (lv.exam.map { " · Exam \(pctLabel($0.score))" } ?? " · Exam —"))
+                        .font(.inter(10.5)).foregroundStyle(Nuru.muted).padding(.leading, 23)
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(pctLabel(lv.levelScore)).font(.inter(17, .heavy)).foregroundStyle(scoreColor(lv.levelScore))
+                    Text("LEVEL OVERALL").font(.inter(9, .regular)).tracking(0.4).foregroundStyle(Nuru.muted)
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            Rectangle().fill(Nuru.border).frame(height: 1)
+            VStack(spacing: 0) {
+                if lv.modules.isEmpty {
+                    Text("No published modules.").font(.inter(12)).foregroundStyle(Nuru.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 8)
+                } else {
+                    ForEach(Array(lv.modules.enumerated()), id: \.element.id) { i, m in
+                        if i > 0 { Rectangle().fill(Nuru.border).frame(height: 1).padding(.horizontal, 16) }
+                        HStack(spacing: 12) {
+                            Circle().fill(m.completed ? Color(hex: 0x16A34A) : (m.attempts > 0 ? Color(hex: 0xA87616) : Color(hex: 0xD1D5DB)))
+                                .frame(width: 8, height: 8)
+                            Text("M\(m.sequence)").font(.inter(11)).foregroundStyle(Nuru.muted).frame(width: 26, alignment: .leading)
+                            Text(m.title).font(.inter(12.5)).foregroundStyle(Nuru.navy).lineLimit(1)
+                            Spacer(minLength: 0)
+                            if m.attempts > 0 {
+                                Text("\(m.attempts) tr\(m.attempts > 1 ? "ies" : "y")").font(.inter(10.5)).foregroundStyle(Nuru.muted)
+                            }
+                            Text(pctLabel(m.bestScore)).font(.inter(13, .bold)).foregroundStyle(scoreColor(m.bestScore))
+                                .frame(width: 46, alignment: .trailing)
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                    }
+                }
+                if let exam = lv.exam {
+                    Rectangle().fill(Nuru.border).frame(height: 2).padding(.horizontal, 16)
+                    HStack(spacing: 12) {
+                        Image(systemName: "rosette").font(.system(size: 14)).foregroundStyle(Color(hex: 0x7C3AED))
+                        Text("Level exam" + (exam.passed ? " · passed" : "")).font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy)
+                        Spacer(minLength: 0)
+                        Text(pctLabel(exam.score)).font(.inter(13, .bold)).foregroundStyle(scoreColor(exam.score))
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                }
+            }
+        }
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+    }
+}
+
+// Simple wrapping chip row for badges.
+private struct FlowChips: View {
+    let items: [String]
+    var body: some View {
+        // Vertical stack of horizontal rows; SwiftUI lacks a native flow, so wrap manually.
+        FlexibleWrap(items: items) { name in
+            HStack(spacing: 6) {
+                Image(systemName: "star.fill").font(.system(size: 11)).foregroundStyle(Color(hex: 0xA87616))
+                Text(name).font(.inter(12, .bold)).foregroundStyle(Color(hex: 0xA87616))
+            }
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(Color(hex: 0xFFF6E0))
+            .overlay(Capsule().stroke(Color(hex: 0xF5E0A8), lineWidth: 1))
+            .clipShape(Capsule())
+        }
+    }
+}
+
+/// Minimal flow layout (wraps chips to available width).
+private struct FlexibleWrap<Data: RandomAccessCollection, Content: View>: View where Data.Element: Hashable {
+    let items: Data
+    let content: (Data.Element) -> Content
+    init(items: Data, @ViewBuilder content: @escaping (Data.Element) -> Content) {
+        self.items = items; self.content = content
+    }
+    var body: some View {
+        FlowLayout(spacing: 8) {
+            ForEach(Array(items), id: \.self) { content($0) }
+        }
+    }
+}
+
+/// iOS 16+ Layout that flows children left-to-right, wrapping rows.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxW = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x + s.width > maxW, x > 0 { x = 0; y += rowH + spacing; rowH = 0 }
+            x += s.width + spacing; rowH = max(rowH, s.height)
+        }
+        return CGSize(width: maxW == .infinity ? x : maxW, height: y + rowH)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let maxW = bounds.width
+        var x: CGFloat = bounds.minX, y: CGFloat = bounds.minY, rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x + s.width > bounds.minX + maxW, x > bounds.minX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
+            v.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s))
+            x += s.width + spacing; rowH = max(rowH, s.height)
+        }
+    }
+}
+
+// MARK: - Result score helpers (web pctLabel / scoreColor)
+
+private func pctLabel(_ n: Double?) -> String { n == nil ? "—" : "\(Int(n!.rounded()))%" }
+private func scoreColor(_ n: Double?) -> Color {
+    guard let n else { return Nuru.muted }
+    if n >= 70 { return Color(hex: 0x16A34A) }
+    if n > 0 { return Color(hex: 0xA87616) }
+    return Color(hex: 0xDC2626)
 }

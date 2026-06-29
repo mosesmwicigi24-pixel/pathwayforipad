@@ -83,6 +83,23 @@ actor APIClient {
         try await send(path, method: "POST", body: body, as: T.self)
     }
 
+    func put<B: Encodable, T: Decodable>(_ path: String, body: B, as type: T.Type) async throws -> T {
+        try await send(path, method: "PUT", body: body, as: T.self)
+    }
+
+    func patch<B: Encodable, T: Decodable>(_ path: String, body: B, as type: T.Type) async throws -> T {
+        try await send(path, method: "PATCH", body: body, as: T.self)
+    }
+
+    func delete<T: Decodable>(_ path: String, as type: T.Type) async throws -> T {
+        try await send(path, method: "DELETE", body: Optional<Int>.none, as: T.self)
+    }
+
+    /// POST with no request body (action endpoints like /publish, /homepage).
+    func postEmpty<T: Decodable>(_ path: String, as type: T.Type) async throws -> T {
+        try await send(path, method: "POST", body: Optional<Int>.none, as: T.self)
+    }
+
     /// Core request with one transparent token refresh + replay on 401.
     private func send<B: Encodable, T: Decodable>(
         _ path: String, method: String, query: [String: String] = [:],

@@ -188,7 +188,7 @@ struct RootView: View {
         case .curriculumLevels: CurriculumLevelsView()
         case .cms:              CmsCurriculumView(title: "CMS — Curriculum")
         case .levelDetail:      CmsCurriculumView(title: "Level Detail")
-        case .quizBuilder:      CmsCurriculumView(title: "Quiz Builder")
+        case .quizBuilder:      QuizBuilderView()
         case .videoLibrary:     VideoLibraryView()
         case .contentStudio:    ContentStudioView()
         case .users:            UsersView()
