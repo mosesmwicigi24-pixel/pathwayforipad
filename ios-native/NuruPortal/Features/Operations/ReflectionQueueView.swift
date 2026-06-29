@@ -452,12 +452,37 @@ private struct QueueList: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
             .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            // Status filter
-            Picker("Status", selection: $statusFilter) {
-                ForEach(RQ.statusFilters, id: \.self) { Text($0).tag($0) }
-            }
-            .pickerStyle(.segmented)
+            // Status filter — custom segmented control. The native
+            // .segmented Picker rendered near-white labels on a light-gray
+            // track (invisible). Selected = solid navy fill + white text;
+            // unselected = dark ink on a bordered white chip.
+            statusSegments
         }
+    }
+
+    private var statusSegments: some View {
+        HStack(spacing: 6) {
+            ForEach(RQ.statusFilters, id: \.self) { f in
+                let on = statusFilter == f
+                Button { statusFilter = f } label: {
+                    Text(f).font(.inter(11.5, .semibold))
+                        .foregroundStyle(on ? .white : Nuru.ink)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .background(on ? AnyShapeStyle(Nuru.navy) : AnyShapeStyle(Nuru.white))
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .stroke(on ? .clear : Color(hex: 0x0A2540, alpha: 0.22), lineWidth: 1)
+                        )
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(Nuru.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     private func row(_ r: ReflectionRow, selected: Bool) -> some View {

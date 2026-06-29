@@ -66,7 +66,8 @@ enum Nuru {
 
     // MARK: Luminous accents (shiny brand set — for notifications & status color-coding).
     // Brighter than the deep status colors; used where we want vivid, "shiny" chips.
-    static let lumGreen = Color(hex: 0x17A45A)   // thriving, luminous
+    static let lumGreen = Color(hex: 0x22C55E)   // thriving, luminous LED/lime green (bright)
+    static let lumGreenHi = Color(hex: 0x3BE066) // even brighter lime, for glows/accents on dark
     static let lumGold  = Color(hex: 0xE0B85E)   // gold, luminous (== goldHi)
     static let lumAmber = Color(hex: 0xE08A1E)   // watch, luminous
     static let lumRed   = Color(hex: 0xF0405F)   // at-risk, luminous

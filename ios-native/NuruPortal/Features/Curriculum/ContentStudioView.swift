@@ -52,16 +52,16 @@ struct ContentStudioView: View {
             case .resources:   return "books.vertical"
             }
         }
-        // Per-section brand accent — distinct, all on-palette, NO off-brand blue.
-        // Drawn from {success green, gold, navy, lumGreen, lumAmber} so each of the
-        // five sections has its own identity while staying cohesive with the kit.
+        // Per-section accent — ONLY the two main brand colors: dark navy and golden
+        // yellow. Sections alternate navy/gold so each has its own identity while the
+        // whole page reads as one cohesive navy+gold palette (no green/amber/blue).
         var accent: Color {
             switch self {
-            case .devotionals: return Nuru.success    // thriving green
-            case .verses:      return Nuru.gold        // gold
-            case .dailyverses: return Nuru.navy        // brand navy
-            case .plans:       return Nuru.lumGreen     // luminous green
-            case .resources:   return Nuru.lumAmber     // amber
+            case .devotionals: return Nuru.navy    // navy
+            case .verses:      return Nuru.gold    // gold
+            case .dailyverses: return Nuru.navy    // navy
+            case .plans:       return Nuru.gold    // gold
+            case .resources:   return Nuru.navy    // navy
             }
         }
         // web: dailyverses has no New button (fixed-schedule, edit-only).
@@ -224,19 +224,22 @@ struct ContentStudioView: View {
             HStack(spacing: 8) {
                 ForEach(Tab.allCases) { t in
                     let on = t == tab
+                    // On a gold fill, dark navy ink reads better than white; on a navy
+                    // fill, white reads best. Keep both selected states on-brand.
+                    let onText: Color = (t.accent == Nuru.gold) ? Nuru.navy : .white
                     Button { tab = t; query = "" } label: {
                         HStack(spacing: 7) {
                             Image(systemName: t.icon).font(.system(size: 12.5, weight: .medium))
                             Text(t.label).font(.inter(13, on ? .semibold : .medium))
                             Text(counts[t].map(String.init) ?? "·")
                                 .font(.inter(10.5, .semibold))
-                                .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(t.accent))
+                                .foregroundStyle(on ? AnyShapeStyle(onText) : AnyShapeStyle(t.accent))
                                 .padding(.horizontal, 6.5).padding(.vertical, 1.5)
-                                .background(on ? AnyShapeStyle(Color.white.opacity(0.22))
+                                .background(on ? AnyShapeStyle(onText.opacity(0.18))
                                               : AnyShapeStyle(t.accent.opacity(0.12)))
                                 .clipShape(Capsule())
                         }
-                        .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(Nuru.ink600))
+                        .foregroundStyle(on ? AnyShapeStyle(onText) : AnyShapeStyle(Nuru.ink600))
                         .padding(.horizontal, 14).frame(height: 38)
                         .background(on ? AnyShapeStyle(t.accent) : AnyShapeStyle(Nuru.white))
                         .clipShape(Capsule())
@@ -724,7 +727,11 @@ private struct CardButton: View {
                 if let icon { Image(systemName: icon).font(.system(size: 12, weight: .semibold)) }
                 Text(title).font(.inter(12.5, .semibold))
             }
-            .foregroundStyle(style == .fill ? AnyShapeStyle(Color.white) : AnyShapeStyle(tint))
+            // On a gold fill use dark navy ink (white-on-gold is too low-contrast);
+            // on navy/other fills use white. Outline uses the tint itself.
+            .foregroundStyle(style == .fill
+                ? AnyShapeStyle(tint == Nuru.gold ? Nuru.navy : Color.white)
+                : AnyShapeStyle(tint))
             .padding(.horizontal, 14).frame(height: 34)
             .background(style == .fill ? AnyShapeStyle(tint) : AnyShapeStyle(Color.clear))
             .overlay {
@@ -799,7 +806,10 @@ private struct PremiumCard<Body: View>: View {
                 // Edit capsule + a capsule trash button, right-aligned (no links).
                 HStack(spacing: 8) {
                     Spacer(minLength: 0)
-                    CardButton(title: editTitle, icon: "pencil", tint: accent, style: .fill, action: onEdit)
+                    // Edit is ALWAYS gold-filled (brand CTA), regardless of the section
+                    // accent; navy ink keeps it readable on gold. Delete stays a quiet
+                    // semantic danger-red icon — understated, not pink-heavy.
+                    CardButton(title: editTitle, icon: "pencil", tint: Nuru.gold, style: .fill, action: onEdit)
                     if let onDelete {
                         CardIconButton(icon: "trash", tint: Nuru.danger, action: onDelete)
                     }
@@ -854,7 +864,7 @@ private struct DevotionalCard: View {
     var onEdit: () -> Void
     var onDelete: () -> Void
     var onToggle: () -> Void
-    private let accent = Nuru.success     // thriving green (was off-brand blue)
+    private let accent = Nuru.navy     // devotionals = navy (brand)
     var body: some View {
         PremiumCard(
             accent: accent, icon: "book.fill",
@@ -946,7 +956,7 @@ private struct PlanCard: View {
     var onEdit: () -> Void
     var onDelete: () -> Void
     var onToggle: () -> Void
-    private let accent = Nuru.lumGreen
+    private let accent = Nuru.gold     // reading plans = gold (brand)
     var body: some View {
         PremiumCard(
             accent: accent, icon: "calendar.badge.clock",
@@ -958,7 +968,7 @@ private struct PlanCard: View {
                     MetricChip(icon: "list.bullet.rectangle",
                                text: "\(p.dayCount) day\(p.dayCount == 1 ? "" : "s")", color: accent)
                     if let c = p.category, !c.isEmpty {
-                        MetricChip(icon: "folder", text: c, color: Color(hex: 0x0F6B33))
+                        MetricChip(icon: "folder", text: c, color: Nuru.navy)
                     }
                     if !p.code.isEmpty {
                         MetricChip(icon: "number", text: p.code, color: Nuru.ink600)
@@ -983,7 +993,7 @@ private struct ResourceCard: View {
         default:        return "doc.text"
         }
     }
-    private let accent = Nuru.lumAmber
+    private let accent = Nuru.navy     // resources = navy (brand)
     var body: some View {
         PremiumCard(
             accent: accent, icon: icon,

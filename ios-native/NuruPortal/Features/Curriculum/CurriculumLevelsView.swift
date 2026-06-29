@@ -50,11 +50,17 @@ private enum CL {
         try await APIClient.shared.get("/admin/reports/levels", as: Report.self)
     }
 
-    /// Stable per-level accent — mirrors the make's level-coloured cards.
+    /// Stable per-level accent — on-brand, mutually distinct, NO off-brand bright blue.
+    /// L1 = bright luminous green (Nuru.lumGreen), L2 = gold (replaces the old sky-blue),
+    /// then teal · violet · pink · amber · deep navy, cycling for any extra levels.
     static let palette: [Color] = [
-        Color(hex: 0x16A34A), Color(hex: 0x0EA5E9), Color(hex: 0xC89B3C),
-        Color(hex: 0x7C3AED), Color(hex: 0xEC4899), Color(hex: 0xF97316),
-        Color(hex: 0x0B1F33), Color(hex: 0x059669),
+        Nuru.lumGreen,           // L1 — bright LED/lime green
+        Nuru.gold,               // L2 — gold (was off-brand blue 0x0EA5E9)
+        Color(hex: 0x0E8C8C),    // L3 — brand teal (distinct hue, not bright blue)
+        Color(hex: 0x7C3AED),    // L4 — violet
+        Color(hex: 0xEC4899),    // L5 — pink
+        Nuru.lumAmber,           // L6 — amber/orange
+        Nuru.navy,               // L7 — deep navy
     ]
     static func color(_ levelNumber: Int) -> Color {
         palette[((levelNumber - 1) % palette.count + palette.count) % palette.count]
@@ -264,20 +270,32 @@ private struct CompletionByLevel: View {
     }
 }
 
-// MARK: - Enrolment trend (area)
+// MARK: - Enrolment trend (per-month breakdown rows)
 
-private struct TrendBar: Identifiable { let id = UUID(); let month: String; let series: String; let value: Int; let color: Color }
+/// One month's roll-up for the breakdown: total new enrolments that month, plus the
+/// per-level split (level number → count) so the bar can be segmented by level colour.
+private struct MonthRoll: Identifiable {
+    let month: String
+    let total: Int
+    let perLevel: [(level: Int, value: Int)]
+    var id: String { month }
+}
 
 private struct EnrolmentTrend: View {
     let levels: [LevelAnalyticsRow]
     let trend: [CL.TrendPoint]
-    var body: some View {
-        let points: [TrendBar] = trend.flatMap { p -> [TrendBar] in
-            levels.map { l in
-                TrendBar(month: p.month, series: "L\(l.levelNumber)",
-                         value: p.counts[l.levelNumber] ?? 0, color: CL.color(l.levelNumber))
-            }
+
+    private var rolls: [MonthRoll] {
+        // Last ~6 months, oldest → newest (the API already returns them in order).
+        trend.suffix(6).map { p in
+            let split = levels.map { (level: $0.levelNumber, value: p.counts[$0.levelNumber] ?? 0) }
+            return MonthRoll(month: p.month, total: split.reduce(0) { $0 + $1.value }, perLevel: split)
         }
+    }
+
+    var body: some View {
+        let months = rolls
+        let peak = max(months.map { $0.total }.max() ?? 0, 1)
         return Card(padding: 20) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -295,49 +313,78 @@ private struct EnrolmentTrend: View {
                         }
                     }
                 }
-                Text("New enrolments per level, by month started")
+                Text("New enrolments by month started — bar segments coloured by level")
                     .font(.nCaption).foregroundStyle(Nuru.ink600)
-                if points.isEmpty {
-                    Text("No enrolment trend recorded yet.").font(.nCaption).foregroundStyle(Nuru.ink600).frame(height: 230)
+
+                if months.isEmpty {
+                    Text("No enrolment trend recorded yet.")
+                        .font(.nCaption).foregroundStyle(Nuru.ink600)
+                        .frame(maxWidth: .infinity, minHeight: 120)
                 } else {
-                    Chart(points) { p in
-                        AreaMark(x: .value("Month", p.month), y: .value("Enrolments", p.value))
-                            .foregroundStyle(by: .value("Level", p.series))
-                            .opacity(0.18)
-                        LineMark(x: .value("Month", p.month), y: .value("Enrolments", p.value))
-                            .foregroundStyle(by: .value("Level", p.series))
-                            .lineStyle(StrokeStyle(lineWidth: 2))
-                            .symbol(.circle)
-                    }
-                    .chartForegroundStyleScale(domain: levels.map { "L\($0.levelNumber)" },
-                                               range: levels.map { CL.color($0.levelNumber) })
-                    .chartLegend(.hidden)
-                    .chartXAxis {
-                        AxisMarks { value in
-                            AxisGridLine().foregroundStyle(Nuru.border)
-                            AxisTick().foregroundStyle(Nuru.border)
-                            AxisValueLabel {
-                                if let s = value.as(String.self) {
-                                    Text(s).font(.inter(10, .medium)).foregroundStyle(Nuru.ink600)
-                                }
-                            }
+                    VStack(spacing: 9) {
+                        ForEach(months) { m in
+                            EnrolmentMonthRow(roll: m, peak: peak)
                         }
                     }
-                    .chartYAxis {
-                        AxisMarks { value in
-                            AxisGridLine().foregroundStyle(Nuru.border)
-                            AxisTick().foregroundStyle(Nuru.border)
-                            AxisValueLabel {
-                                if let v = value.as(Int.self) {
-                                    Text("\(v)").font(.inter(10, .medium)).foregroundStyle(Nuru.ink600)
-                                }
-                            }
-                        }
-                    }
-                    .frame(height: 230)
                 }
             }
         }
+    }
+}
+
+/// A single month: label · count · a proportional, level-segmented horizontal bar.
+/// Months with 0 enrolments show a faint empty track so the cadence stays readable.
+private struct EnrolmentMonthRow: View {
+    let roll: MonthRoll
+    let peak: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(monthLabel(roll.month))
+                .font(.inter(11.5, .semibold)).foregroundStyle(Nuru.navy)
+                .frame(width: 58, alignment: .leading)
+                .lineLimit(1).minimumScaleFactor(0.8)
+
+            GeometryReader { geo in
+                let w = geo.size.width
+                ZStack(alignment: .leading) {
+                    // Faint empty track (also the bar for 0-count months).
+                    Capsule().fill(Nuru.ink600.opacity(0.08))
+                        .frame(height: 16)
+                    if roll.total > 0 {
+                        // Filled width proportional to the busiest month; segmented by level.
+                        let filled = w * CGFloat(roll.total) / CGFloat(peak)
+                        HStack(spacing: 0) {
+                            ForEach(roll.perLevel.filter { $0.value > 0 }, id: \.level) { seg in
+                                Rectangle()
+                                    .fill(CL.color(seg.level))
+                                    .frame(width: max(filled * CGFloat(seg.value) / CGFloat(roll.total), 2))
+                            }
+                        }
+                        .frame(height: 16)
+                        .clipShape(Capsule())
+                    }
+                }
+                .frame(height: 16)
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
+            .frame(height: 16)
+
+            Text("\(roll.total)")
+                .font(.inter(12, .bold))
+                .foregroundStyle(roll.total > 0 ? Nuru.navy : Nuru.ink600.opacity(0.6))
+                .frame(width: 26, alignment: .trailing)
+                .monospacedDigit()
+        }
+    }
+
+    /// "2026-01" → "Jan ’26"; falls back to the raw string if it doesn't parse.
+    private func monthLabel(_ raw: String) -> String {
+        let parts = raw.split(separator: "-")
+        guard parts.count >= 2, let m = Int(parts[1]), (1...12).contains(m) else { return raw }
+        let names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        let yr = parts[0].suffix(2)
+        return "\(names[m - 1]) ’\(yr)"
     }
 }
 
@@ -439,11 +486,12 @@ private struct ActiveLevelDeepDive: View {
     private var color: Color { CL.color(level.levelNumber) }
 
     var body: some View {
-        let line: [TrendBar] = trend.map {
-            TrendBar(month: $0.month, series: "L\(level.levelNumber)",
-                     value: $0.counts[level.levelNumber] ?? 0, color: color)
+        // Last ~6 months of this level's new enrolments, for the momentum breakdown.
+        let months: [(month: String, value: Int)] = trend.suffix(6).map {
+            (month: $0.month, value: $0.counts[level.levelNumber] ?? 0)
         }
-        Card(padding: 20) {
+        let peak = max(months.map { $0.value }.max() ?? 0, 1)
+        return Card(padding: 20) {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -466,21 +514,50 @@ private struct ActiveLevelDeepDive: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("ENROLMENT MOMENTUM").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.ink600)
-                    if line.allSatisfy({ $0.value == 0 }) {
-                        Text("No enrolment momentum recorded.").font(.nCaption).foregroundStyle(Nuru.ink600).frame(height: 90)
+                    if months.allSatisfy({ $0.value == 0 }) {
+                        Text("No enrolment momentum recorded.").font(.nCaption).foregroundStyle(Nuru.ink600)
+                            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
                     } else {
-                        Chart(line) { p in
-                            LineMark(x: .value("Month", p.month), y: .value("Enrolments", p.value))
-                                .foregroundStyle(color)
-                                .lineStyle(StrokeStyle(lineWidth: 2.5))
-                                .symbol(.circle)
+                        // Compact per-month breakdown: month label · proportional bar · count.
+                        VStack(spacing: 7) {
+                            ForEach(months, id: \.month) { m in
+                                HStack(spacing: 10) {
+                                    Text(momentumLabel(m.month))
+                                        .font(.inter(11, .semibold)).foregroundStyle(Nuru.navy)
+                                        .frame(width: 52, alignment: .leading)
+                                        .lineLimit(1).minimumScaleFactor(0.8)
+                                    GeometryReader { geo in
+                                        ZStack(alignment: .leading) {
+                                            Capsule().fill(Nuru.ink600.opacity(0.08)).frame(height: 12)
+                                            if m.value > 0 {
+                                                Capsule().fill(color)
+                                                    .frame(width: max(geo.size.width * CGFloat(m.value) / CGFloat(peak), 3),
+                                                           height: 12)
+                                            }
+                                        }
+                                        .frame(maxHeight: .infinity, alignment: .center)
+                                    }
+                                    .frame(height: 12)
+                                    Text("\(m.value)")
+                                        .font(.inter(11, .bold))
+                                        .foregroundStyle(m.value > 0 ? Nuru.navy : Nuru.ink600.opacity(0.6))
+                                        .frame(width: 22, alignment: .trailing)
+                                        .monospacedDigit()
+                                }
+                            }
                         }
-                        .chartLegend(.hidden)
-                        .frame(height: 90)
                     }
                 }
             }
         }
+    }
+
+    /// "2026-01" → "Jan ’26"; falls back to the raw string if it doesn't parse.
+    private func momentumLabel(_ raw: String) -> String {
+        let parts = raw.split(separator: "-")
+        guard parts.count >= 2, let m = Int(parts[1]), (1...12).contains(m) else { return raw }
+        let names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        return "\(names[m - 1]) ’\(parts[0].suffix(2))"
     }
 
     private func deepStat(_ label: String, _ value: String, _ icon: String) -> some View {

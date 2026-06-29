@@ -198,3 +198,46 @@ likes it). Only kill *decorative* blue accents on the pages named below.
   Security) should be **color-coded** chips; notification rows tinted by type. Shiny, premium.
 - **Dashboard:** liked — but make the KPI row at the top (the "modules / published" stats)
   **FIVE cards in a row**, and ensure each card's content is well captured (no clipped values).
+
+---
+
+## Pass v5 — color expert pass + fixes (from screenshots)
+
+**THE GREEN:** the brand luminous green is now **bright LED/lime** — `Nuru.lumGreen 0x22C55E`
+(and `Nuru.lumGreenHi 0x3BE066`). Wherever a vivid/positive green accent is wanted (pathway,
+levels, charts, status), use `Nuru.lumGreen`, NOT the dark `0x1E7F4F`. (Keep dark `Nuru.success`
+only for green TEXT on light backgrounds where the bright green wouldn't be readable.)
+
+**NO off-brand blue, anywhere on these pages** — and note navy can still read as "blue", so where
+the owner wants blue gone, prefer **gold / luminous-green** over navy for the accent.
+
+- **Reflection Queue:** the inner segmented filter (**All / Oldest / New / Needs attention**) is
+  light-gray with near-white labels → invisible. Fix contrast: selected segment = solid brand fill
+  (navy or gold) with white text; unselected = readable dark ink on a clearly bordered light chip.
+- **Chat:** there are still **black bands** above the hero and below the messenger — the page
+  background is painting black. Find every black fill (`Color.black`, `.background(.black)`, a dark
+  ZStack/scroll background, or a leftover large-title strip) and make the whole page
+  `Nuru.paper`. Hero attaches flush under the top bar; no black anywhere.
+- **Events — Today's ministry flow:** the card is empty when there are no events today. Make it
+  **fall back to the next ~10 upcoming events** (today's first, then upcoming) so it's never empty.
+- **Curriculum Levels:** the **Enrolment trend (6 months)** and **Enrolment momentum** are just
+  lonely dots on an empty grid. Replace with a clearer presentation — e.g. a compact **breakdown
+  with colored rows/bars per month** (month label · count · a colored bar, colored by level or
+  recency) rather than a sparse line-with-dots. Make the **L2 off-brand blue** (and the blue in the
+  donut legend / level cards) a brand color, and use **bright `lumGreen`** for the green.
+- **CMS Curriculum + Level Detail (pathway report):** the owner now wants **Overview / Modules /
+  Engagement as SEPARATE small cards shown together** (NOT a tab switcher) — all visible "in one
+  go", each reduced to a small card: Status mix small, Breakdown small, Modules-per-level small,
+  Engagement small. Lay them as a tidy grid of compact cards. Replace decorative **blue → bright
+  lumGreen / gold**; green must be the bright `lumGreen`.
+- **Quiz Builder:** still shows blue — change remaining blue accents to **gold or bright lumGreen**
+  (avoid navy here since it still reads blue to the owner).
+- **Content Studio:** recolor to ONLY **dark navy (`Nuru.navy`)** and **golden yellow
+  (`Nuru.gold`)** — the two main brand colors. Remove the greens/ambers/purples from section
+  accents: alternate sections between navy and gold; **Edit** button = gold filled; the section
+  selector chips selected = navy or gold. (Delete may keep a quiet danger-red icon — it's
+  semantic.) No green/blue on this page.
+
+**Color-expert rule:** no clashing palettes on a page — pick a small cohesive set (navy + gold +
+bright-green as the brand triad, plus semantic green/amber/red for status). Ensure text contrast
+is always readable (no white-on-light, no dark-on-dark).

@@ -189,13 +189,21 @@ struct ChatView: View {
             switch model.listState {
             case .idle, .loading:
                 ScrollView { SkeletonList(rows: 7).padding(Nuru.S.screen) }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             case .failed(let m):
                 ScrollView { ErrorBanner(message: m) { Task { await model.loadList() } }.padding(Nuru.S.screen) }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             case .loaded:
                 content
             }
         }
-        .background(Nuru.paper)
+        // Paint the ENTIRE page warm paper, edge to edge (and under the safe area), so
+        // no system black shows above the navy hero, between elements, or below the
+        // content. The Group hugs its content height, so force it to fill the whole
+        // detail area first, then lay paper behind it. The hero (navyCeremony) then
+        // sits flush under the global top bar with paper everywhere around the cards.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Nuru.paper.ignoresSafeArea())
         .task { if case .idle = model.listState { await model.loadList() } }
         // Use the inline title mode (like Finance / Events) — `.portalPage` requests a
         // `.large` title which, under the hidden root nav bar, paints a stray black
@@ -229,10 +237,18 @@ struct ChatView: View {
                     } else {
                         InboxPaneCompact(model: model)
                     }
+                    // Push the warm paper down to the bottom edge so no black band
+                    // shows below the messenger panes when content is short.
+                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, Nuru.S.screen)
                 .padding(.vertical, 18)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
+            // Fill the detail area top-aligned (hero flush at the very top) and paint
+            // paper behind everything so it's warm, never black, edge to edge.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Nuru.paper)
         }
     }
 

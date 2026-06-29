@@ -215,13 +215,16 @@ private enum QType: String {
         }
     }
     var tint: Color {
+        // v5 brand palette — NO blue/teal/purple. The six question types stay
+        // distinguishable using only on-brand hues: gold, bright lumGreen, amber
+        // (warning), goldLo and a warm neutral. (Pink linear-scale → warm neutral.)
         switch self {
-        case .multipleChoice: return Color(hex: 0x7C3AED)
-        case .checkbox: return Nuru.navy           // was off-brand blue 0x0B84E8 → brand navy
-        case .dropdown: return Color(hex: 0x0EA5A4)
-        case .shortAnswer: return Color(hex: 0x16A34A)
-        case .paragraph: return Color(hex: 0xD97706)
-        case .linearScale: return Color(hex: 0xDB2777)
+        case .multipleChoice: return Nuru.gold      // was purple 0x7C3AED
+        case .checkbox: return Nuru.lumGreen        // was navy (read blue)
+        case .dropdown: return Nuru.goldLo          // was teal 0x0EA5A4
+        case .shortAnswer: return Nuru.lumGreen     // green (was dark 0x16A34A)
+        case .paragraph: return Nuru.warning        // amber
+        case .linearScale: return Color(hex: 0x8A6B3A) // warm neutral (was pink 0xDB2777)
         }
     }
     static let all: [QType] = [.multipleChoice, .checkbox, .dropdown, .shortAnswer, .paragraph, .linearScale]
@@ -454,8 +457,9 @@ private func qbStatusStyle(_ s: String) -> StatusStyle {
     switch s {
     case "published": return StatusStyle(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33))
     case "in_review": return StatusStyle(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F))
-    // draft/archived — was off-brand blue tint (0xEEF1F8 / 0x1F3A6B); now brand navy pair (Nuru.brandTint(2))
-    default:          return StatusStyle(bg: Nuru.brandTint(2).bg, fg: Nuru.brandTint(2).fg)
+    // draft/archived — was off-brand blue; the Nuru.brandTint(2) navy pair still
+    // reads as blue to the owner. Use a warm neutral (ink) pair instead.
+    default:          return StatusStyle(bg: Color(hex: 0xF1EEE7), fg: Color(hex: 0x6B5E45))
     }
 }
 
@@ -527,8 +531,8 @@ struct QuizBuilderView: View {
     /// near-empty hero cards. Small tiles in an HStack, sized to content.
     private var statStrip: some View {
         HStack(spacing: Nuru.S.md) {
-            statTile("LEVELS", "\(levels.count)", "Total", "square.stack.3d.up.fill", Nuru.navy)
-            statTile("PUBLISHED", "\(publishedCount)", "Live", "checkmark.seal.fill", Nuru.gold)
+            statTile("LEVELS", "\(levels.count)", "Total", "square.stack.3d.up.fill", Nuru.gold)
+            statTile("PUBLISHED", "\(publishedCount)", "Live", "checkmark.seal.fill", Nuru.lumGreen)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, Nuru.S.lg)
@@ -932,9 +936,10 @@ private struct ModuleQuizEditor: View {
             Image(systemName: icon).font(.system(size: 10))
             Text(label).font(.inter(11, .semibold))
         }
-        .foregroundStyle(Nuru.navy)
+        // on-brand gold pill (was Nuru.navy text → read blue)
+        .foregroundStyle(Nuru.goldLo)
         .padding(.horizontal, 9).frame(height: 24)
-        .background(Nuru.mutedBg).clipShape(Capsule())
+        .background(Nuru.gold.opacity(0.14)).clipShape(Capsule())
     }
 
     // MARK: Questions column
@@ -955,9 +960,10 @@ private struct ModuleQuizEditor: View {
                         Text("Add question").font(.inter(13, .semibold))
                         Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
                     }
-                    .foregroundStyle(.white)
+                    // gold fill (was navy → read blue); dark text for contrast on gold
+                    .foregroundStyle(Nuru.navy)
                     .padding(.horizontal, 14).frame(height: 36)
-                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 Spacer()
                 Button { Task { await save() } } label: {
@@ -1371,11 +1377,13 @@ private struct QuestionCard: View {
                     }
                     Button { q.required.toggle() } label: {
                         Text("Required").font(.inter(12, .semibold))
-                            .foregroundStyle(q.required ? Nuru.navy : Nuru.ink600)
+                            // active/positive accent → gold (was navy/blue)
+                            .foregroundStyle(q.required ? Nuru.goldLo : Nuru.ink600)
                     }.buttonStyle(.plain)
                     Button { q.active.toggle() } label: {
                         Text(q.active ? "Active" : "Draft").font(.inter(12, .semibold))
-                            .foregroundStyle(q.active ? Nuru.navy : Nuru.ink600)
+                            // active/positive accent → bright lumGreen (was navy/blue)
+                            .foregroundStyle(q.active ? Nuru.lumGreen : Nuru.ink600)
                     }.buttonStyle(.plain)
                 }
                 Spacer()
@@ -1426,7 +1434,7 @@ private struct QuestionCard: View {
                         ZStack {
                             if opt.isCorrect {
                                 (q.type.isMulti ? MarkerShape(RoundedRectangle(cornerRadius: 4)) : MarkerShape(Circle()))
-                                    .fill(Color(hex: 0x16A34A))
+                                    .fill(Nuru.lumGreen)   // bright positive green (was dark 0x16A34A)
                                 Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
                             } else {
                                 (q.type.isMulti ? MarkerShape(RoundedRectangle(cornerRadius: 4)) : MarkerShape(Circle()))
@@ -1535,7 +1543,7 @@ private struct QuestionCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func iconBtn(_ name: String, disabled: Bool = false, tone: Color = Nuru.navy, action: @escaping () -> Void) -> some View {
+    private func iconBtn(_ name: String, disabled: Bool = false, tone: Color = Nuru.ink600, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: name).font(.system(size: 13))
                 .foregroundStyle(tone).frame(width: 28, height: 28)

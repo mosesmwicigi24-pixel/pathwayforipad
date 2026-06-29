@@ -417,6 +417,20 @@ struct EventsView: View {
         Dictionary(grouping: events, by: \.iso).mapValues { $0.sorted { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) } }
     }
     private var todayOccs: [UiOcc] { byDay[UiOcc.isoDay(now)] ?? [] }
+    /// Ministry-flow feed for the Today panel: today's events first, then the
+    /// soonest upcoming ones appended (de-duped) until we have ~10 — so the panel
+    /// is never empty when nothing is scheduled today. `flowIsFallback` is true
+    /// once we've had to borrow from the upcoming list.
+    private var flowOccs: [UiOcc] {
+        let today = todayOccs
+        guard today.count < 10 else { return Array(today.prefix(10)) }
+        let todayIds = Set(today.map(\.id))
+        let next = events
+            .filter { ($0.date ?? .distantPast) > now && !todayIds.contains($0.id) }
+            .sorted { ($0.date ?? .distantFuture) < ($1.date ?? .distantFuture) }
+        return today + next.prefix(10 - today.count)
+    }
+    private var flowIsFallback: Bool { flowOccs.count > todayOccs.count }
     private var upcoming: [UiOcc] {
         events.filter { ($0.date ?? .distantPast) >= now }.sorted { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) }.prefix(6).map { $0 }
     }
@@ -825,18 +839,22 @@ struct EventsView: View {
         Card(padding: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("TODAY'S MINISTRY FLOW").font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
+                    Text(flowIsFallback ? "TODAY & UPCOMING" : "TODAY'S MINISTRY FLOW")
+                        .font(.nOverline).tracking(0.6).foregroundStyle(Nuru.muted)
                     Text(now.formatted(.dateTime.weekday(.wide).day().month(.wide).year()))
                         .font(.fraunces(18, .medium)).foregroundStyle(Nuru.ink)
-                    Text("\(todayOccs.count) events").font(.nCaption).monospaced().foregroundStyle(Nuru.muted)
+                    Text(flowIsFallback
+                         ? "\(todayOccs.count) today · next \(flowOccs.count - todayOccs.count) upcoming"
+                         : "\(todayOccs.count) events")
+                        .font(.nCaption).monospaced().foregroundStyle(Nuru.muted)
                 }.padding(20)
                 Divider().overlay(Nuru.border)
                 VStack(spacing: 12) {
-                    if todayOccs.isEmpty {
+                    if flowOccs.isEmpty {
                         emptyState(icon: "calendar", title: "Nothing scheduled today",
                                    body: "Scheduled events appear here as a timeline.")
                     } else {
-                        ForEach(todayOccs) { o in todayRow(o) }
+                        ForEach(flowOccs) { o in todayRow(o) }
                     }
                 }.padding(20)
             }

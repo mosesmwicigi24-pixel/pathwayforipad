@@ -333,7 +333,6 @@ private struct CmsCurriculumContent: View {
 
     @State private var search = ""
     @State private var filter: FilterPill = .all
-    @State private var reportTab: ReportTab = .overview
     @State private var selectedNo: Int?
 
     // Authoring action state.
@@ -347,7 +346,6 @@ private struct CmsCurriculumContent: View {
     @State private var docked = false
 
     enum FilterPill: String, CaseIterable { case all = "All", published = "Published", inReview = "In Review", draft = "Draft" }
-    enum ReportTab: String, CaseIterable { case overview = "Overview", modules = "Modules", engagement = "Engagement" }
 
     /// New Level vs. Edit Level (carries the level to edit).
     enum LevelSheetMode: Identifiable {
@@ -384,9 +382,10 @@ private struct CmsCurriculumContent: View {
     // Donut slices (web donutData) — Published / In Review / Drafts.
     private struct StatusSlice: Identifiable { let name: String; let value: Int; let color: Color; var id: String { name } }
     private var donutData: [StatusSlice] {
-        [StatusSlice(name: "Published", value: published, color: Nuru.success),
+        // Brand triad, no decorative blue: bright lumGreen · gold · neutral ink for drafts.
+        [StatusSlice(name: "Published", value: published, color: Nuru.lumGreen),
          StatusSlice(name: "In Review", value: inReview, color: Nuru.gold),
-         StatusSlice(name: "Drafts", value: drafts, color: Nuru.navy)]
+         StatusSlice(name: "Drafts", value: drafts, color: Nuru.ink400)]
     }
     private var totalLevels: Int { donutData.reduce(0) { $0 + $1.value } }
 
@@ -607,42 +606,17 @@ private struct CmsCurriculumContent: View {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Pathway report").font(.nTitle).foregroundStyle(Nuru.navy)
-                    Text(reportSubtitle).font(.nCaption).foregroundStyle(Nuru.ink600)
+                    Text("Status mix, breakdown, modules and engagement — all in one view.")
+                        .font(.nCaption).foregroundStyle(Nuru.ink600)
                 }
-                // Working segmented tabs — tapping switches the panel below.
-                HStack(spacing: 6) {
-                    ForEach(ReportTab.allCases, id: \.self) { t in
-                        let active = reportTab == t
-                        Button { reportTab = t } label: {
-                            Text(t.rawValue).font(.inter(12.5, active ? .bold : .medium))
-                                .foregroundStyle(active ? .white : Nuru.ink600)
-                                .padding(.horizontal, 14).frame(height: 30)
-                                .background(active ? AnyShapeStyle(Nuru.navy) : AnyShapeStyle(Color.clear))
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                .nuruShadow(active ? 0.5 : 0)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(4)
-                .background(Nuru.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                // Panel content switches with the selected tab.
-                switch reportTab {
-                case .overview:
-                    // THREE COLUMNS in one row: status mix (narrower/smaller) · breakdown · modules per level.
-                    HStack(alignment: .top, spacing: 12) {
-                        statusMixTile.layoutPriority(0.8)
-                        breakdownTile.frame(maxWidth: .infinity).layoutPriority(1)
-                        modulesPerLevelTile.frame(maxWidth: .infinity).layoutPriority(1)
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                case .modules:
-                    modulesPanel
-                case .engagement:
-                    engagementPanel
+                // No tab switcher: Status mix · Breakdown · Modules per level · Engagement
+                // are FOUR separate compact cards, all visible together in a tidy grid
+                // (2-up at portrait ~740pt; more columns when wider).
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12, alignment: .top)], spacing: 12) {
+                    statusMixTile
+                    breakdownTile
+                    modulesPerLevelTile
+                    engagementTile
                 }
 
                 Text("Source: Curriculum CMS · \(totalLevels) levels covering \(totalModules) modules and \(totalLearners.formatted()) active learners.")
@@ -651,31 +625,25 @@ private struct CmsCurriculumContent: View {
         }
     }
 
-    private var reportSubtitle: String {
-        switch reportTab {
-        case .overview:   return "Authoring progress, status mix and modules across all levels."
-        case .modules:    return "Module counts and completion for every level."
-        case .engagement: return "Active learners and pass marks across the pathway."
-        }
-    }
-
-    // Modules tab — per-level module/completion rows.
-    private var modulesPanel: some View {
-        VStack(spacing: 10) {
-            ForEach(levels) { l in
-                SurfaceTile {
-                    HStack(spacing: 12) {
-                        Text("L\(l.number)").font(.inter(11, .bold)).tracking(0.4)
-                            .foregroundStyle(.white).frame(width: 30, height: 26)
-                            .background(l.color).clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(l.title).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                            ProgressBar(pct: Double(l.progress), fill: l.color, height: 5)
-                        }
-                        Spacer(minLength: 0)
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("\(l.completedModules)/\(l.modules)").font(.fraunces(15, .medium)).foregroundStyle(Nuru.navy)
-                            Text("modules").font(.nMicro).foregroundStyle(Nuru.ink600)
+    // Engagement — compact card: two summary stats + a tight per-level learners list.
+    private var engagementTile: some View {
+        SurfaceTile {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("ENGAGEMENT").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.ink600)
+                HStack(spacing: 8) {
+                    engagementStat("Learners", totalLearners.formatted(), "person.2", Nuru.lumGreen)
+                    engagementStat("Live", "\(levels.reduce(0) { $0 + $1.completedModules })", "rosette", Nuru.gold)
+                }
+                VStack(spacing: 6) {
+                    ForEach(levels) { l in
+                        HStack(spacing: 8) {
+                            Text("L\(l.number)").font(.inter(10, .bold)).tracking(0.3)
+                                .foregroundStyle(.white).frame(width: 24, height: 20)
+                                .background(l.color).clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                            Text(l.title).font(.inter(11.5, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
+                            Spacer(minLength: 0)
+                            Label(l.learners.formatted(), systemImage: "person.2")
+                                .font(.inter(10.5, .medium)).foregroundStyle(Nuru.ink600).labelStyle(.titleAndIcon)
                         }
                     }
                 }
@@ -683,46 +651,23 @@ private struct CmsCurriculumContent: View {
         }
     }
 
-    // Engagement tab — learners + pass-mark per level.
-    private var engagementPanel: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                engagementStat("Active learners", totalLearners.formatted(), "person.2", Nuru.brandTint(0))
-                engagementStat("Live modules", "\(levels.reduce(0) { $0 + $1.completedModules })", "rosette", Nuru.brandTint(1))
-            }
-            ForEach(levels) { l in
-                SurfaceTile {
-                    HStack(spacing: 12) {
-                        Text("L\(l.number)").font(.inter(11, .bold)).tracking(0.4)
-                            .foregroundStyle(.white).frame(width: 30, height: 26)
-                            .background(l.color).clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        Text(l.title).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                        Spacer(minLength: 0)
-                        Label(l.learners.formatted(), systemImage: "person.2")
-                            .font(.inter(11.5, .medium)).foregroundStyle(Nuru.ink600).labelStyle(.titleAndIcon)
-                    }
-                }
-            }
-        }
-    }
-
-    private func engagementStat(_ label: String, _ value: String, _ icon: String, _ tint: Nuru.Tint) -> some View {
-        HStack(spacing: 10) {
+    private func engagementStat(_ label: String, _ value: String, _ icon: String, _ accent: Color) -> some View {
+        HStack(spacing: 8) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.fg.opacity(0.14))
-                Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(tint.fg)
-            }.frame(width: 30, height: 30)
+                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(accent.opacity(0.14))
+                Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(accent)
+            }.frame(width: 26, height: 26)
             VStack(alignment: .leading, spacing: 0) {
-                Text(value).font(.fraunces(18, .semibold)).foregroundStyle(Nuru.navy)
-                Text(label).font(.inter(10.5, .medium)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.85)
+                Text(value).font(.fraunces(16, .semibold)).foregroundStyle(Nuru.navy)
+                Text(label).font(.inter(9.5, .medium)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.85)
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
+        .padding(.horizontal, 10).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Nuru.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     private var statusMixTile: some View {
@@ -794,7 +739,7 @@ private struct CmsCurriculumContent: View {
                         .position(by: .value("Series", b.series))
                         .cornerRadius(4)
                 }
-                .chartForegroundStyleScale(["Modules": Color(hex: 0xF4E4BD), "Done": Color(hex: 0xC89B3C)])
+                .chartForegroundStyleScale(["Modules": Color(hex: 0xF4E4BD), "Done": Nuru.lumGreen])
                 .chartLegend(.hidden)
                 .chartYAxis(.hidden)
                 .chartXAxis {
