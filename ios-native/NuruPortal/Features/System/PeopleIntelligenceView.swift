@@ -97,14 +97,22 @@ private struct IntelAppVersion: Codable, Identifiable {
     @DefaultZero var members: Int
     var id: String { appVersion }
 }
+private struct IntelDeviceModel: Codable, Identifiable {
+    @DefaultEmpty var model: String
+    @DefaultZero var members: Int
+    var id: String { model }
+}
 private struct IntelDevices: Codable {
     private let platformsRaw: [IntelPlatform]?
     private let appVersionsRaw: [IntelAppVersion]?
+    private let modelsRaw: [IntelDeviceModel]?
     @DefaultFalse var modelCapture: Bool
     var platforms: [IntelPlatform] { platformsRaw ?? [] }
     var appVersions: [IntelAppVersion] { appVersionsRaw ?? [] }
+    var models: [IntelDeviceModel] { modelsRaw ?? [] }
     enum CodingKeys: String, CodingKey {
-        case platformsRaw = "platforms", appVersionsRaw = "appVersions", modelCapture
+        case platformsRaw = "platforms", appVersionsRaw = "appVersions"
+        case modelsRaw = "models", modelCapture
     }
 }
 
@@ -231,7 +239,7 @@ private struct IntelPayload: Codable {
 // Defaulted memberwise inits so the optional-fallback empties above compile.
 private extension IntelKpis { init() { _totalMembers = .init(wrappedValue: 0); _active7d = .init(wrappedValue: 0); _active30d = .init(wrappedValue: 0); _avgEngagement = .init(wrappedValue: 0); _membersAtRisk = .init(wrappedValue: 0); _cohorts = .init(wrappedValue: 0); _givers = .init(wrappedValue: 0); _recurringGivers = .init(wrappedValue: 0); _certificatesThisMonth = .init(wrappedValue: 0) } }
 private extension IntelGiving { init() { _totalMinor = .init(wrappedValue: 0); _giftCount = .init(wrappedValue: 0); _avgPerTxnMinor = .init(wrappedValue: 0); _medianMinor = .init(wrappedValue: 0); _givers = .init(wrappedValue: 0); _currency = .init(wrappedValue: ""); byFundRaw = nil; byMethodRaw = nil; topGiversRaw = nil; frequencyRaw = nil; trendRaw = nil } }
-private extension IntelDevices { init() { platformsRaw = nil; appVersionsRaw = nil; _modelCapture = .init(wrappedValue: false) } }
+private extension IntelDevices { init() { platformsRaw = nil; appVersionsRaw = nil; modelsRaw = nil; _modelCapture = .init(wrappedValue: false) } }
 private extension IntelActivity { init() { activeTrendRaw = nil; activeDaysRaw = nil } }
 private extension IntelEngagement { init() { bandsRaw = nil; byKindRaw = nil; byHourRaw = nil; _screenDwellCapture = .init(wrappedValue: false); _loginCapture = .init(wrappedValue: false) } }
 private extension IntelGrowth { init() { byLevelRaw = nil; _verseLearners = .init(wrappedValue: 0); _versesMastered = .init(wrappedValue: 0); _plansCompleted = .init(wrappedValue: 0); _plansActive = .init(wrappedValue: 0); _quizAttempts = .init(wrappedValue: 0); _quizPassed = .init(wrappedValue: 0) } }
@@ -865,6 +873,7 @@ private struct AppUsageSection: View {
             activeTrendCard
             activeDaysCard
             platformAndVersionCard
+            deviceModelsCard
             activityByHourCard
             comingNotes
         }
@@ -1050,6 +1059,44 @@ private struct AppUsageSection: View {
                                     if i < min(devices.appVersions.count, 8) - 1 { Divider().overlay(Nuru.border.opacity(0.5)) }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // REAL (graceful upgrade) — top device models, only once capture is on AND we have rows.
+    // When modelCapture == false this renders nothing; the honest "coming" note in
+    // comingNotes still shows. So the page upgrades from "coming" to real data in place.
+    @ViewBuilder private var deviceModelsCard: some View {
+        let models = devices.models.filter { $0.members > 0 }.sorted { $0.members > $1.members }
+        if devices.modelCapture, !models.isEmpty {
+            let maxM = models.map(\.members).max() ?? 1
+            Card(padding: 18) {
+                VStack(alignment: .leading, spacing: 14) {
+                    PiCardHeader(icon: "ipad.and.iphone", title: "Top device models",
+                                 caption: "top \(min(models.count, 8)) · members")
+                    VStack(spacing: 0) {
+                        ForEach(Array(models.prefix(8).enumerated()), id: \.element.id) { i, m in
+                            HStack(spacing: 10) {
+                                Text(m.model.isEmpty ? "—" : m.model)
+                                    .font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy)
+                                    .lineLimit(1).minimumScaleFactor(0.8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        Capsule().fill(Nuru.track)
+                                        Capsule().fill(Nuru.brandTint(i).fg)
+                                            .frame(width: geo.size.width * CGFloat(m.members) / CGFloat(Swift.max(maxM, 1)))
+                                    }
+                                }
+                                .frame(width: 120, height: 9)
+                                Text("\(m.members)").font(.inter(12, .semibold)).monospacedDigit().foregroundStyle(Nuru.ink600)
+                                    .frame(width: 44, alignment: .trailing)
+                            }
+                            .frame(minHeight: 36)
+                            if i < min(models.count, 8) - 1 { Divider().overlay(Nuru.border.opacity(0.5)) }
                         }
                     }
                 }
