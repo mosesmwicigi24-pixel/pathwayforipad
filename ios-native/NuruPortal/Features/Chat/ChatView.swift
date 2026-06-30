@@ -1050,14 +1050,14 @@ private struct AttachmentView: View {
 
 // MARK: - Right-hand context column (soft pastel dashboard cards on the light page)
 
-/// Three stacked pastel cards: Today's pulse (rose) · Nuru Light (green) · Profile (blue).
+/// Three stacked pastel cards: Today's pulse (rose) · Needs review (green) · Profile (blue).
 private struct ContextColumn: View {
     @ObservedObject var model: ChatModel
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 14) {
                 PulseCard(model: model)
-                NuruLightCard(model: model)
+                NeedsReviewCard(model: model)
                 ProfileCard(model: model)
                 Spacer(minLength: 0)
             }
@@ -1084,7 +1084,7 @@ private struct CardScheme {
         fill: Color(hex: 0xFCEFEF), stroke: Color(hex: 0xF3D6D6),
         iconTint: Nuru.danger, iconChipBg: Color(hex: 0xF7DADA),
         title: Color(hex: 0xA8281F))
-    // Soft GREEN — Nuru Light.
+    // Soft GREEN — Needs review.
     static let green = CardScheme(
         fill: Color(hex: 0xEFF6F1), stroke: Color(hex: 0xD2E7DA),
         iconTint: Color(hex: 0x166534), iconChipBg: Color(hex: 0xDCFCE7),
@@ -1094,18 +1094,6 @@ private struct CardScheme {
         fill: Color(hex: 0xF1F4FA), stroke: Color(hex: 0xD8E1EF),
         iconTint: Color(hex: 0x1D4E86), iconChipBg: Color(hex: 0xE3EAF3),
         title: Color(hex: 0x1D4E86))
-}
-
-/// Nuru branding — PURPLE/VIOLET. Applies to every Nuru AI element regardless of
-/// which card it lives in (e.g. the green Nuru Light card uses a purple Nuru icon
-/// + purple Draft-a-reply button).
-private enum NuruBrand {
-    static let solid  = Color(hex: 0x6D28D9)   // filled button / icon chip base
-    static let solidHi = Color(hex: 0x7C3AED)  // gradient top
-    static let title  = Color(hex: 0x5B21B6)   // title text
-    static let soft   = Color(hex: 0xEDE9FE)   // light lavender chip fill
-    static let chip = LinearGradient(colors: [Color(hex: 0x7C3AED), Color(hex: 0x6D28D9)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
 /// Shared pastel surface for the context cards — soft tinted fill, dark ink text,
@@ -1215,73 +1203,142 @@ private struct Sparkline: View {
     }
 }
 
-// 2) Nuru Light — the existing this-thread AI summary + Draft / Prayer / Encourage
-//    (identical model wiring), restyled into the navy card.
-private struct NuruLightCard: View {
-    @ObservedObject var model: ChatModel
-    private let scheme = CardScheme.green
-    var body: some View {
-        TintCard(scheme: scheme) {
-            // Nuru element → PURPLE icon chip + violet title, even on the green card.
-            cardEyebrow("sparkles", "Nuru Light", scheme: scheme,
-                        chipBg: AnyShapeStyle(NuruBrand.chip), glyph: .white, title: NuruBrand.title)
-            if model.active == nil {
-                Text("Select a conversation for Nuru's read.")
-                    .font(.inter(12)).foregroundStyle(Nuru.ink600)
-            } else {
-                if model.summaryBusy {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small).tint(NuruBrand.solid)
-                        Text("Nuru is reading the thread…").font(.inter(12)).foregroundStyle(Nuru.ink600)
-                    }
-                } else if let s = model.summary {
-                    Text(s).font(.inter(12.5)).foregroundStyle(Nuru.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Button { Task { await model.loadSummary() } } label: {
-                        Text("Summarise this conversation")
-                            .font(.inter(12.5, .bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 12).frame(height: 34)
-                            .background(NuruBrand.solid).clipShape(Capsule())
-                    }.buttonStyle(.plain)
-                }
-                if !model.isArchived {
-                    FlowChips {
-                        nuruChip("Draft a reply", icon: "wand.and.stars", filled: true) {
-                            model.runAssist(.reply); model.assistOpen = true
-                        }
-                        nuruChip("🙏 Offer a prayer") { model.runAssist(.prayer); model.assistOpen = true }
-                        nuruChip("💛 Encourage") { model.runAssist(.encourage); model.assistOpen = true }
-                    }
-                }
-            }
+// 2) Needs review — actionable chat-oversight items derived from REAL conversation
+//    rows: flagged messages, then unread, then awaiting an admin reply. Tapping an
+//    item selects that conversation (same action the inbox rows use), opening it in
+//    the thread pane. Honest: no data → a clean "all clear" empty state.
+private struct ReviewItem: Identifiable {
+    enum Reason { case flagged(Int), unread(Int), awaiting }
+    let row: PConversationRow
+    let reason: Reason
+    var id: String { row.conversationId }
+    var icon: String {
+        switch reason {
+        case .flagged:  return "exclamationmark.triangle.fill"
+        case .unread:   return "envelope.badge.fill"
+        case .awaiting: return "arrowshape.turn.up.left.fill"
         }
     }
-    // Purple Nuru action chips: filled = violet w/ white; secondary = light lavender w/ violet.
-    private func nuruChip(_ label: String, icon: String? = nil, filled: Bool = false, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if let icon { Image(systemName: icon).font(.system(size: 10)) }
-                Text(label).font(.inter(11, .bold))
-            }
-            .foregroundStyle(filled ? .white : NuruBrand.title)
-            .padding(.horizontal, 11).padding(.vertical, 7)
-            .background(filled ? AnyShapeStyle(NuruBrand.solid) : AnyShapeStyle(NuruBrand.soft))
-            .overlay(Capsule().stroke(filled ? .clear : NuruBrand.solid.opacity(0.18), lineWidth: 1))
-            .clipShape(Capsule())
+    var tint: Color {
+        switch reason {
+        case .flagged:  return Nuru.danger
+        case .unread:   return Nuru.gold
+        case .awaiting: return Color(hex: 0x166534)
         }
-        .buttonStyle(.plain).disabled(model.assistBusy).opacity(model.assistBusy ? 0.6 : 1)
+    }
+    var text: String {
+        switch reason {
+        case .flagged(let n):  return n == 1 ? "Flagged for review" : "\(n) flagged for review"
+        case .unread(let n):   return "\(n) unread"
+        case .awaiting:        return "Awaiting reply"
+        }
     }
 }
 
-/// Wrapping HStack for the action chips (so they don't clip the narrow column).
-private struct FlowChips<Content: View>: View {
-    @ViewBuilder var content: Content
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) { content }
-            VStack(alignment: .leading, spacing: 6) { content }
+private struct NeedsReviewCard: View {
+    @ObservedObject var model: ChatModel
+    private let scheme = CardScheme.green
+
+    /// Build the prioritised list from real rows. Each conversation appears once,
+    /// at its highest-priority reason: flagged → unread → awaiting a reply (last
+    /// message present and not authored by the admin). No fabrication.
+    private var items: [ReviewItem] {
+        func reason(for r: PConversationRow) -> ReviewItem.Reason? {
+            if r.flagged > 0 { return .flagged(r.flagged) }
+            if r.unread > 0 { return .unread(r.unread) }
+            let lastAuthor = (r.lastAuthor ?? "").trimmed
+            if r.lastAt != nil, !lastAuthor.isEmpty, lastAuthor.lowercased() != "you" {
+                return .awaiting
+            }
+            return nil
         }
+        return model.rows
+            .compactMap { r in reason(for: r).map { ReviewItem(row: r, reason: $0) } }
+            .sorted { a, b in
+                func rank(_ x: ReviewItem) -> Int {
+                    switch x.reason { case .flagged: return 0; case .unread: return 1; case .awaiting: return 2 }
+                }
+                if rank(a) != rank(b) { return rank(a) < rank(b) }
+                // within a tier, most recent activity first
+                let da = isoSort(a.row.lastAt), db = isoSort(b.row.lastAt)
+                return da > db
+            }
+    }
+
+    var body: some View {
+        let list = items
+        let shown = Array(list.prefix(5))
+        TintCard(scheme: scheme) {
+            cardEyebrow("checklist", "Needs review", scheme: scheme)
+            if list.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.seal.fill").font(.system(size: 14))
+                        .foregroundStyle(scheme.iconTint)
+                    Text("All clear — nothing needs review.")
+                        .font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                HStack(spacing: 6) {
+                    Text("\(list.count)").font(.inter(12, .heavy)).foregroundStyle(.white)
+                        .padding(.horizontal, 7).frame(minWidth: 22, minHeight: 20)
+                        .background(scheme.iconTint).clipShape(Capsule())
+                    Text(list.count == 1 ? "conversation needs attention" : "conversations need attention")
+                        .font(.inter(11.5, .semibold)).foregroundStyle(Nuru.ink600)
+                    Spacer(minLength: 0)
+                }
+                VStack(spacing: 0) {
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { i, item in
+                        Button { model.select(item.row.conversationId) } label: {
+                            reviewRow(item)
+                        }.buttonStyle(.plain)
+                        if i < shown.count - 1 {
+                            Rectangle().fill(scheme.stroke).frame(height: 1)
+                        }
+                    }
+                }
+                if list.count > shown.count {
+                    Text("+\(list.count - shown.count) more")
+                        .font(.inter(10.5, .bold)).foregroundStyle(Nuru.ink600)
+                        .padding(.top, 2)
+                }
+            }
+        }
+    }
+
+    private func reviewRow(_ item: ReviewItem) -> some View {
+        let r = item.row
+        let active = model.activeId == r.conversationId
+        return HStack(spacing: 10) {
+            ConvAvatar(name: r.displayName, uri: r.kind == "dm" ? r.avatarUrl : nil, kind: r.kind, size: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(r.displayName).font(.inter(12.5, .bold)).foregroundStyle(Nuru.ink).lineLimit(1)
+                HStack(spacing: 5) {
+                    Image(systemName: item.icon).font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(item.tint)
+                        .frame(width: 18, height: 18)
+                        .background(item.tint.opacity(0.14))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    Text(item.text).font(.inter(10.5, .semibold)).foregroundStyle(Nuru.ink600).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 4)
+            if r.lastAt != nil {
+                Text(Fmt.relative(r.lastAt)).font(.inter(9.5, .semibold)).foregroundStyle(Nuru.ink600)
+            }
+        }
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(active ? Nuru.white.opacity(0.6) : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(Rectangle())
+    }
+
+    /// Sortable key from an ISO timestamp (empty/unparsable sorts oldest).
+    private func isoSort(_ s: String?) -> Double {
+        guard let s else { return 0 }
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return (f.date(from: s) ?? ISO8601DateFormatter().date(from: s))?.timeIntervalSince1970 ?? 0
     }
 }
 
@@ -1350,7 +1407,13 @@ private struct ProfileCard: View {
                     .padding(.vertical, 8)
                 }
             }
-            Button { router.member(p.userId, p.fullName) } label: {
+            Button {
+                // Use the id we actually fetched the profile with (dmMemberId) —
+                // p.userId can be empty if the payload key doesn't map.
+                let mid = model.dmMemberId ?? (p.userId.isEmpty ? "" : p.userId)
+                let nm = p.fullName.isEmpty ? conv.displayName : p.fullName
+                if !mid.isEmpty { router.member(mid, nm) }
+            } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.up.right.square").font(.system(size: 12, weight: .bold))
                     Text("View full profile").font(.inter(12.5, .bold))

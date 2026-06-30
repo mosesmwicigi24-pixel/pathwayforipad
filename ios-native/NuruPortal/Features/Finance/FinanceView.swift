@@ -653,9 +653,7 @@ private struct OverviewTab: View {
     let failedCount: Int
     let txnCount: Int
 
-    // Five-to-six pastel KPI cards per row at portrait width (Dashboard's row feel).
-    private let kpiCols = [GridItem(.adaptive(minimum: 150), spacing: 12)]
-    private let chanCols = [GridItem(.adaptive(minimum: 172), spacing: 12)]
+    // Grid columns for the remaining pastel card sections (status / fund rows).
     private let fundCols = [GridItem(.adaptive(minimum: 172), spacing: 12)]
     private let statusCols = [GridItem(.adaptive(minimum: 150), spacing: 12)]
 
@@ -683,45 +681,76 @@ private struct OverviewTab: View {
     private static let kpiAmber  = FinTint(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0xA87616))
     private static let kpiRed    = FinTint(bg: Color(hex: 0xFDECEC), fg: Color(hex: 0xB42318))
 
-    // 1 ── KPI strip — soft pastel tinted cards (TintedIcon chip + big Fraunces value
-    //      + label + small sub-line), mirroring the Dashboard's 6-up KPI row.
+    // 1 ── KPI summary table — a clean, premium table inside a white Card(padding: 0):
+    //      a tinted uppercase header band (METRIC · VALUE), then one ~52pt row per
+    //      metric with a rounded TintedIcon chip + name (+ sub-note), and the value
+    //      right-aligned in Fraunces (monospaced digits). Hairline Dividers + a gentle
+    //      alternating row tint for legibility across the seven rows.
+    private struct KpiRow: Identifiable {
+        let name: String
+        let sub: String
+        let value: String
+        let icon: String
+        let tint: FinTint
+        var id: String { name }
+    }
+    private var kpiRows: [KpiRow] {
+        [
+            KpiRow(name: "This Month Received", sub: "this term",      value: Fmt.money(minor: monthTotal, currency: currency), icon: "banknote.fill",                 tint: Self.kpiGreen),
+            KpiRow(name: "All-Time Giving",     sub: "across funds",   value: Fmt.money(minor: allTotal, currency: currency),   icon: "chart.line.uptrend.xyaxis",     tint: Self.kpiGold),
+            KpiRow(name: "Average Gift",        sub: "per gift",       value: Fmt.money(minor: avgGift, currency: currency),    icon: "gift.fill",                     tint: Self.kpiViolet),
+            KpiRow(name: "Total Gifts",         sub: "received",       value: giftCount.formatted(),                          icon: "number",                        tint: Self.kpiNavy),
+            KpiRow(name: "Active Funds",        sub: "with giving",    value: activeFundCount.formatted(),                    icon: "tray.full.fill",                tint: Self.kpiTeal),
+            KpiRow(name: "Pending",             sub: "in recent page", value: pendingCount.formatted(),                       icon: "clock.fill",                    tint: Self.kpiAmber),
+            KpiRow(name: "Failed / Refunded",   sub: "in recent page", value: failedCount.formatted(),                       icon: "exclamationmark.triangle.fill", tint: Self.kpiRed),
+        ]
+    }
+
     private var kpiStrip: some View {
         VStack(alignment: .leading, spacing: 10) {
-            LazyVGrid(columns: kpiCols, spacing: 12) {
-                kpi("This Month Received", Fmt.money(minor: monthTotal, currency: currency), "this term", "banknote.fill", Self.kpiGreen)
-                kpi("All-Time Giving", Fmt.money(minor: allTotal, currency: currency), "across funds", "chart.line.uptrend.xyaxis", Self.kpiGold)
-                kpi("Average Gift", Fmt.money(minor: avgGift, currency: currency), "per gift", "gift.fill", Self.kpiViolet)
-                kpi("Total Gifts", String(giftCount), "received", "number", Self.kpiNavy)
-                kpi("Active Funds", String(activeFundCount), "with giving", "tray.full.fill", Self.kpiTeal)
-                kpi("Pending", String(pendingCount), "in recent page", "clock.fill", Self.kpiAmber)
-                kpi("Failed / Refunded", String(failedCount), "in recent page", "exclamationmark.triangle.fill", Self.kpiRed)
+            Card(padding: 0) {
+                VStack(spacing: 0) {
+                    // uppercase column-header band
+                    HStack(spacing: 12) {
+                        Text("METRIC").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("VALUE").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                            .frame(width: 140, alignment: .trailing)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 11)
+                    .background(Nuru.surface)
+                    Divider().overlay(Nuru.border)
+
+                    ForEach(Array(kpiRows.enumerated()), id: \.element.id) { i, r in
+                        kpiTableRow(r, zebra: i % 2 == 1)
+                        if i < kpiRows.count - 1 { Divider().overlay(Nuru.border.opacity(0.6)) }
+                    }
+                }
             }
             Text("Pending and failed are counted in the \(txnCount) most-recent transactions fetched, not all-time.")
                 .font(.inter(10.5)).foregroundStyle(Nuru.ink400)
         }
     }
 
-    /// Soft pastel KPI card — mirrors the Dashboard's `DashKpiTile`: tinted bg, a
-    /// rounded TintedIcon chip, a big Fraunces number, a label, and a small sub-line.
-    private func kpi(_ label: String, _ value: String, _ sub: String, _ icon: String, _ t: FinTint) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TintedIcon(systemName: icon, color: t.fg, size: 34)
-            Text(value)
-                .font(.fraunces(22, .semibold))
-                .foregroundStyle(Nuru.navy)
-                .lineLimit(1).minimumScaleFactor(0.5)
-            Text(label)
-                .font(.inter(11.5, .medium)).foregroundStyle(Nuru.ink600)
-                .lineLimit(1).minimumScaleFactor(0.8)
-            Text(sub)
-                .font(.nMicro).foregroundStyle(t.fg.opacity(0.85))
-                .lineLimit(1).minimumScaleFactor(0.85)
+    /// One ~52pt metric row: tinted icon chip · name (+ sub-note) · right-aligned value.
+    private func kpiTableRow(_ r: KpiRow, zebra: Bool) -> some View {
+        HStack(spacing: 12) {
+            TintedIcon(systemName: r.icon, color: r.tint.fg, size: 30)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(r.name).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Text(r.sub).font(.nMicro).foregroundStyle(Nuru.ink400)
+                    .lineLimit(1).minimumScaleFactor(0.85)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(r.value)
+                .font(.fraunces(16, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .frame(width: 140, alignment: .trailing)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(t.bg)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(t.fg.opacity(0.18), lineWidth: 1))
+        .padding(.horizontal, 16)
+        .frame(minHeight: 52)
+        .background(zebra ? Nuru.surface.opacity(0.45) : Color.clear)
     }
 
     // 1b ── Transaction-status strip — pipeline-style tinted tiles (like the
@@ -752,61 +781,126 @@ private struct OverviewTab: View {
         }
     }
 
-    // 2 ── Payment-channel breakdown (real: cash:* ledger + method-grouped txns).
-    //      Color-keyed soft pastel cards (M-Pesa green, PayPal navy, Card gold,
-    //      Airtel red) with a tinted icon chip, inside a clean white Card.
+    // 2 ── Payment-channels table (real: cash:* ledger debits + method-grouped txns).
+    //      A premium table inside a white Card(padding: 0): an uppercase column-header
+    //      row, then one ~54pt row per channel — a color-keyed icon chip + name, then
+    //      aligned numeric columns (Received in Fraunces/monospaced, Txns/OK/Pend/Fail
+    //      counts) and a Wired / Not-wired status pill. Hairline Dividers, fixed numeric
+    //      column widths so everything aligns across rows at portrait width.
+
+    // Fixed column widths (name flexes; numerics fixed & right-aligned).
+    private enum ChanCol {
+        static let received: CGFloat = 96
+        static let txns: CGFloat = 42
+        static let ok: CGFloat = 38
+        static let pend: CGFloat = 42
+        static let fail: CGFloat = 38
+        static let status: CGFloat = 78
+    }
+
     private var channelSection: some View {
-        Card(padding: 18) {
-            VStack(alignment: .leading, spacing: 14) {
-                cardHeader(icon: "creditcard.fill", title: "Payment channels", caption: "received · all-time")
-                LazyVGrid(columns: chanCols, spacing: 12) {
-                    ForEach(channels) { c in channelCard(c) }
+        Card(padding: 0) {
+            VStack(spacing: 0) {
+                // title bar (keeps the serif-weight header + caption feel)
+                HStack(spacing: 6) {
+                    Image(systemName: "creditcard.fill").font(.system(size: 13)).foregroundStyle(Nuru.navy)
+                    Text("Payment channels").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
+                    Spacer(minLength: 8)
+                    Text("received · all-time").font(.nMicro).foregroundStyle(Nuru.ink600)
                 }
+                .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+
+                // uppercase column-header row
+                HStack(spacing: 10) {
+                    Text("CHANNEL").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    chanHead("RECEIVED", ChanCol.received)
+                    chanHead("TXNS", ChanCol.txns)
+                    chanHead("OK", ChanCol.ok)
+                    chanHead("PEND", ChanCol.pend)
+                    chanHead("FAIL", ChanCol.fail)
+                    Text("STATUS").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                        .frame(width: ChanCol.status, alignment: .trailing)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .background(Nuru.surface)
+                Divider().overlay(Nuru.border)
+
+                ForEach(Array(channels.enumerated()), id: \.element.id) { i, s in
+                    channelTableRow(s, zebra: i % 2 == 1)
+                    if i < channels.count - 1 { Divider().overlay(Nuru.border.opacity(0.6)) }
+                }
+
                 NotTracked(text: "Processor fees per channel — not tracked yet")
+                    .padding(.horizontal, 16).padding(.vertical, 12)
             }
         }
     }
 
-    /// A soft per-channel tint (light pastel bg keyed to the channel's brand color).
-    private func channelTint(_ c: Channel) -> Nuru.Tint {
+    private func chanHead(_ s: String, _ w: CGFloat) -> some View {
+        Text(s).font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+            .frame(width: w, alignment: .trailing)
+    }
+
+    /// A solid per-channel brand color for the leading icon chip.
+    private func channelKey(_ c: Channel) -> Color {
         switch c.id {
-        case "mpesa":  return Nuru.Tint(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33))
-        case "airtel": return Nuru.Tint(bg: Color(hex: 0xFDECEC), fg: Color(hex: 0xB42318))
-        case "paypal": return Nuru.Tint(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86))
-        case "card":   return Nuru.Tint(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F))
-        default:       return Nuru.Tint(bg: Color(hex: 0xFBF1DC), fg: Color(hex: 0x8A6B1F))
+        case "mpesa":  return Color(hex: 0x0F6B33)   // M-Pesa green
+        case "airtel": return Color(hex: 0xB42318)   // Airtel red
+        case "paypal": return Color(hex: 0x1D4E86)   // PayPal navy
+        case "card":   return Color(hex: 0x8A6B1F)   // Card gold
+        default:       return Color(hex: 0x8A6B1F)
         }
     }
 
-    private func channelCard(_ s: ChannelStat) -> some View {
+    private func channelTableRow(_ s: ChannelStat, zebra: Bool) -> some View {
+        let key = channelKey(s.channel)
         let hasData = s.receivedMinor > 0 || s.count > 0
-        let t = channelTint(s.channel)
-        return VStack(alignment: .leading, spacing: 0) {
+        return HStack(spacing: 10) {
+            // channel — color-keyed icon chip + name
             HStack(spacing: 10) {
-                TintedIcon(systemName: s.channel.icon, color: t.fg, size: 34)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(s.channel.label).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
-                    statusLine(s)
-                }
+                TintedIcon(systemName: s.channel.icon, color: key, size: 30)
+                Text(s.channel.label).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
+                    .lineLimit(1).minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Received — fraunces, monospaced, right-aligned
             Text(hasData ? Fmt.money(minor: s.receivedMinor, currency: s.currency) : "—")
-                .font(.fraunces(20, .semibold)).foregroundStyle(Nuru.navy)
-                .padding(.top, 10).lineLimit(1).minimumScaleFactor(0.55)
-            Text("\(s.count) \(s.count == 1 ? "transaction" : "transactions")")
-                .font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
-            HStack(spacing: 6) {
-                miniStat("\(s.succeeded)", "ok", Color(hex: 0x0F6B33))
-                miniStat("\(s.pending)", "pending", Color(hex: 0xA87616))
-                miniStat("\(s.failed)", "failed", Color(hex: 0xDC2626))
-            }
-            .padding(.top, 8)
+                .font(.fraunces(15, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
+                .lineLimit(1).minimumScaleFactor(0.55)
+                .frame(width: ChanCol.received, alignment: .trailing)
+
+            chanCount(s.count, Nuru.ink600, ChanCol.txns)
+            chanCount(s.succeeded, Color(hex: 0x0F6B33), ChanCol.ok)
+            chanCount(s.pending, Color(hex: 0xA87616), ChanCol.pend)
+            chanCount(s.failed, Color(hex: 0xB42318), ChanCol.fail)
+
+            statusPill(s).frame(width: ChanCol.status, alignment: .trailing)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(t.bg)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(t.fg.opacity(0.18), lineWidth: 1))
+        .padding(.horizontal, 16)
+        .frame(minHeight: 54)
+        .background(zebra ? Nuru.surface.opacity(0.45) : Color.clear)
+    }
+
+    private func chanCount(_ n: Int, _ tint: Color, _ w: CGFloat) -> some View {
+        Text("\(n)").font(.inter(13, .semibold)).monospacedDigit()
+            .foregroundStyle(n == 0 ? Nuru.ink400 : tint)
+            .frame(width: w, alignment: .trailing)
+    }
+
+    /// Wired / Not-wired status pill, keyed off config providers.
+    @ViewBuilder private func statusPill(_ s: ChannelStat) -> some View {
+        switch s.enabled {
+        case .some(true):
+            ColorPill(text: "Wired", icon: "checkmark.circle.fill",
+                      bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33))
+        case .some(false):
+            ColorPill(text: "Not wired", bg: Color(hex: 0xEEF0F3), fg: Nuru.ink600)
+        case .none:
+            ColorPill(text: "—", bg: Color(hex: 0xEEF0F3), fg: Nuru.ink400)
+        }
     }
 
     /// Tidy card header: a small icon + serif-weight title + right-aligned caption,
@@ -818,33 +912,6 @@ private struct OverviewTab: View {
             Spacer(minLength: 8)
             Text(caption).font(.nMicro).foregroundStyle(Nuru.ink600)
         }
-    }
-
-    @ViewBuilder private func statusLine(_ s: ChannelStat) -> some View {
-        switch s.enabled {
-        case .some(true):
-            HStack(spacing: 4) {
-                Circle().fill(Nuru.lumGreen).frame(width: 6, height: 6)
-                Text("Wired").font(.inter(10.5, .semibold)).foregroundStyle(Color(hex: 0x0F6B33))
-            }
-        case .some(false):
-            HStack(spacing: 4) {
-                Circle().fill(Nuru.ink300).frame(width: 6, height: 6)
-                Text("Not wired").font(.inter(10.5, .semibold)).foregroundStyle(Nuru.ink400)
-            }
-        case .none:
-            Text("Status —").font(.inter(10.5)).foregroundStyle(Nuru.ink400)
-        }
-    }
-
-    private func miniStat(_ n: String, _ label: String, _ tint: Color) -> some View {
-        HStack(spacing: 3) {
-            Text(n).font(.inter(11.5, .bold)).foregroundStyle(tint)
-            Text(label).font(.inter(10)).foregroundStyle(Nuru.ink600)
-        }
-        .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(tint.opacity(0.10))
-        .clipShape(Capsule())
     }
 
     // 3 ── Fund cards — soft pastel tinted cards (one fill each via Nuru.tint),
