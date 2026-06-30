@@ -403,18 +403,9 @@ struct PeopleIntelligenceView: View {
                     } else if !loaded && payload == nil {
                         SkeletonList(rows: 7)
                     } else if let p = payload {
-                        KpiStripSection(k: p.kpis)                                   // 1
-                        GivingSection(g: p.giving)                                   // 2
-                        AppUsageSection(devices: p.devices, engagement: p.engagement,
-                                        activity: p.activity,
-                                        active7d: p.kpis.active7d, active30d: p.kpis.active30d,
-                                        totalMembers: p.kpis.totalMembers)           // 3
-                        AffinitySection(kinds: p.engagement.byKind,
-                                        engagement: p.engagement)                    // 4
-                        EngagementGrowthSection(bands: p.engagement.bands,
-                                                avgEngagement: p.kpis.avgEngagement,
-                                                growth: p.growth)                    // 5
-                        LocationSection(loc: p.location)                             // 6
+                        KpiStripSection(k: p.kpis)                                   // Overview KPI strip (unchanged)
+                        // Regrouped people-intelligence rows (presentation only).
+                        PeopleRowsSection(p: p)
                         if let at = p.generatedAt, !at.isEmpty { asOfCaption(at) }
                     }
                 }
@@ -591,6 +582,124 @@ private func emptyNote(_ s: String) -> some View {
 // X-axis label style shared by the bar charts (visible, brand-muted).
 private let axisLabelColor = Color(hex: 0x6B7280)
 
+// MARK: - Row layout helpers (presentation only)
+//
+// The page is laid out as fixed-intent rows: "row of N" at the wide iPad width,
+// collapsing gracefully when narrow via an adaptive minimum. We don't pin a literal
+// column count — instead each row picks a per-card adaptive minimum tuned so N cards
+// sit side-by-side at iPad width and reflow (N→2→1) as the container narrows.
+
+/// Adaptive per-card minimum widths for the row sizes we use. Tuned so the stated
+/// card count fills a wide iPad column and reflows cleanly on narrower widths.
+private enum RowMin {
+    static let three: CGFloat = 300
+    static let four: CGFloat  = 230
+    static let six: CGFloat   = 150
+}
+
+/// A row of cards in an adaptive grid. Cells are top-aligned; callers opt cards into
+/// height-equalisation per-cell via `.rowEqual(true)` when the cards are visual peers.
+private struct CardRow<C: View>: View {
+    let minWidth: CGFloat
+    @ViewBuilder var content: () -> C
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: minWidth), spacing: 12, alignment: .top)], spacing: 12) {
+            content()
+        }
+    }
+}
+
+/// Wrap a card so it fills the full height of its grid row (height equalisation).
+private extension View {
+    @ViewBuilder func rowEqual(_ on: Bool) -> some View {
+        if on { self.frame(maxHeight: .infinity) } else { self }
+    }
+}
+
+/// Full-width section divider/header (kept as its own full-bleed row).
+private func piSectionHeader(icon: String, _ title: String, _ caption: String) -> some View {
+    piSectionTitle(icon: icon, title, caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+}
+
+// MARK: - ===================== People-intelligence rows (regrouped layout) =====================
+//
+// Presentation-only composer. It pulls every card from the per-topic card factories
+// (GivingCards / AppUsageCards / AffinityCards / EngagementGrowthCards / LocationCards)
+// and lays them into the owner-specified rows. No data/decoding/gating changed.
+
+private struct PeopleRowsSection: View {
+    let p: IntelPayload
+
+    private var giving: GivingCards { GivingCards(g: p.giving) }
+    private var usage: AppUsageCards {
+        AppUsageCards(devices: p.devices, engagement: p.engagement, activity: p.activity,
+                      active7d: p.kpis.active7d, active30d: p.kpis.active30d, totalMembers: p.kpis.totalMembers)
+    }
+    private var affinity: AffinityCards { AffinityCards(kinds: p.engagement.byKind, engagement: p.engagement) }
+    private var eng: EngagementGrowthCards {
+        EngagementGrowthCards(bands: p.engagement.bands, avgEngagement: p.kpis.avgEngagement, growth: p.growth)
+    }
+    private var location: LocationCards { LocationCards(loc: p.location) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+
+            // ROW 1 — Givers · Giving frequency · App usage & devices (active in app) · How often members use the app
+            CardRow(minWidth: RowMin.four) {
+                giving.giversCard.rowEqual(true)
+                giving.frequencyCard.rowEqual(true)
+                usage.activeHighlight.rowEqual(true)
+                usage.activeDaysCard.rowEqual(true)
+            }
+
+            // ROW 2 — Top givers (full-width table)
+            giving.topGiversCard
+
+            // ROW 3 — Top device models · Activity by hour · App-area affinity (content areas) · Time per app area (dwell)
+            CardRow(minWidth: RowMin.four) {
+                usage.deviceModelsCard.rowEqual(true)
+                usage.activityByHourCard.rowEqual(true)
+                affinity.contentAreasCard.rowEqual(true)
+                affinity.timePerAreaCard.rowEqual(true)
+            }
+
+            // ROW 4 — Platform split · App-version adoption · Active users last 12 weeks
+            CardRow(minWidth: RowMin.three) {
+                usage.platformCard.rowEqual(true)
+                usage.appVersionCard.rowEqual(true)
+                usage.activeTrendCard.rowEqual(true)
+            }
+
+            // Login-capture caveat (no card of its own).
+            usage.comingNotes
+
+            // SECTION — Engagement & growth
+            piSectionHeader(icon: "chart.pie.fill", "Engagement & growth",
+                            "\(eng.total) members · \(Pctf1(p.kpis.avgEngagement)) avg score")
+            // Row of 3: Engagement bands (donut) · Band breakdown · Per-level distribution
+            CardRow(minWidth: RowMin.three) {
+                eng.bandsDonutCard.rowEqual(true)
+                eng.bandBreakdownCard.rowEqual(true)
+                eng.levelCard.rowEqual(true)
+            }
+            // Row of 6: growth stat tiles
+            CardRow(minWidth: RowMin.six) {
+                eng.growthTiles
+            }
+
+            // SECTION — Location
+            piSectionHeader(icon: "mappin.and.ellipse", "Location", "Where your people are — coarse, free-text")
+            // Row of 3: Members by city · Members by country · Location & proximity matching
+            CardRow(minWidth: RowMin.three) {
+                location.byCityCard.rowEqual(true)
+                location.byCountryCard.rowEqual(true)
+                location.proximityCard.rowEqual(true)
+            }
+        }
+    }
+}
+
 // MARK: - ===================== 1 · KPI strip =====================
 
 private struct KpiStripSection: View {
@@ -623,32 +732,42 @@ private struct KpiStripSection: View {
 
 // MARK: - ===================== 2 · Giving intelligence =====================
 
-private struct GivingSection: View {
+private struct GivingCards {
     let g: IntelGiving
-    private var currency: String { g.currency.isEmpty ? "KES" : g.currency }
-    private let kpiGrid = [GridItem(.adaptive(minimum: 150), spacing: 12)]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            piSectionTitle(icon: "gift.fill", "Giving — the people", "Who gives & how often · \(g.givers) givers")
-            // PEOPLE KPI tiles only — givers + recurring givers. Money totals (total
-            // giving, avg/median per transaction) and fund/channel breakdowns live in
-            // Finance, so they're intentionally not duplicated here.
-            LazyVGrid(columns: kpiGrid, spacing: 12) {
-                PiKpiTile(label: "Givers", value: "\(g.givers)", icon: "person.2.fill",
-                          tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)))
-                PiKpiTile(label: "Recurring givers", value: "\(recurringGivers)", icon: "arrow.triangle.2.circlepath",
-                          tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)))
-            }
-            frequencyCard          // how often members give
-            topGiversCard          // who gives
-            financeNote            // pointer: fund & channel detail lives in Finance
-        }
-    }
+    var currency: String { g.currency.isEmpty ? "KES" : g.currency }
 
     /// Distinct recurring givers, summed across active recurring-schedule methods.
     /// People-framed (a count of members), not a money figure.
     private var recurringGivers: Int { g.byMethod.reduce(0) { $0 + $1.givers } }
+
+    /// Givers card — folds the recurring-givers stat into the one Givers card
+    /// (people-framed: count of givers + how many give on a recurring schedule).
+    /// Money totals / fund / channel breakdowns stay in Finance (see financeNote).
+    var giversCard: some View {
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                PiCardHeader(icon: "person.2.fill", title: "Givers", caption: "who gives")
+                HStack(alignment: .top, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(g.givers)").font(.fraunces(30, .semibold)).foregroundStyle(Nuru.navy)
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                        Text("TOTAL GIVERS").font(.inter(9, .bold)).tracking(0.6).foregroundStyle(Nuru.ink400)
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(recurringGivers)").font(.fraunces(30, .semibold)).foregroundStyle(Color(hex: 0x6D28D9))
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 8)).foregroundStyle(Color(hex: 0x6D28D9))
+                            Text("RECURRING").font(.inter(9, .bold)).tracking(0.6).foregroundStyle(Nuru.ink400)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+                financeNote            // pointer: fund & channel detail lives in Finance
+            }
+        }
+    }
 
     /// Quiet pointer where the money breakdowns used to be — dim caption, no nav.
     private var financeNote: some View {
@@ -657,7 +776,6 @@ private struct GivingSection: View {
             Text("Fund & channel detail in Finance").font(.inter(11.5)).foregroundStyle(Nuru.ink400)
             Spacer(minLength: 0)
         }
-        .padding(.top, 2)
     }
 
     // ── Giving frequency (buckets 1 / 2-3 / 4-6 / 7+)
@@ -668,7 +786,7 @@ private struct GivingSection: View {
         let byBucket = Dictionary(uniqueKeysWithValues: g.frequency.map { ($0.bucket, $0.givers) })
         return frequencyOrder.enumerated().map { i, b in FreqBar(bucket: b, givers: byBucket[b] ?? 0, color: palette[i % palette.count]) }
     }
-    private var frequencyCard: some View {
+    var frequencyCard: some View {
         let bars = freqBars
         let total = bars.reduce(0) { $0 + $1.givers }
         return Card(padding: 18) {
@@ -709,7 +827,7 @@ private struct GivingSection: View {
 
     // ── Top givers (premium table: Name · Gifts · Total · Avg · Last)
     private enum Col { static let gifts: CGFloat = 48; static let total: CGFloat = 100; static let avg: CGFloat = 88; static let last: CGFloat = 64 }
-    private var topGiversCard: some View {
+    var topGiversCard: some View {
         Card(padding: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
@@ -793,7 +911,7 @@ private func weekShort(_ s: String) -> String {
 
 // MARK: - ===================== 3 · App usage & devices =====================
 
-private struct AppUsageSection: View {
+private struct AppUsageCards {
     let devices: IntelDevices
     let engagement: IntelEngagement
     let activity: IntelActivity
@@ -801,22 +919,9 @@ private struct AppUsageSection: View {
     let active30d: Int
     let totalMembers: Int
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            piSectionTitle(icon: "iphone.gen3", "App usage & devices", "Platforms, versions & when the app is used")
-            activeHighlight
-            activeTrendCard
-            activeDaysCard
-            platformAndVersionCard
-            deviceModelsCard
-            activityByHourCard
-            comingNotes
-        }
-    }
-
     // REAL — active users, last 12 weeks (oldest→newest)
     private struct WeekBar: Identifiable { let week: String; let label: String; let active: Int; var id: String { week } }
-    private var activeTrendCard: some View {
+    var activeTrendCard: some View {
         let bars = activity.activeTrend.map { WeekBar(week: $0.week, label: weekShort($0.week), active: $0.active) }
         let total = bars.reduce(0) { $0 + $1.active }
         let peak = bars.max { $0.active < $1.active }
@@ -856,7 +961,7 @@ private struct AppUsageSection: View {
     // REAL — active days over 30d (login-frequency signal). Fixed 5-bucket order.
     private struct DaysBar: Identifiable { let bucket: String; let members: Int; let color: Color; var id: String { bucket } }
     private var activeDaysOrder: [String] { ["1", "2-3", "4-7", "8-15", "16+"] }
-    private var activeDaysCard: some View {
+    var activeDaysCard: some View {
         let palette: [Color] = [Color(hex: 0x1D4E86), Color(hex: 0x0D7E73), Nuru.gold, Color(hex: 0x0F6B33), Nuru.lumGreen]
         let byBucket = Dictionary(activity.activeDays.map { ($0.bucket, $0.members) }, uniquingKeysWith: { a, _ in a })
         let bars = activeDaysOrder.enumerated().map { i, b in DaysBar(bucket: b, members: byBucket[b] ?? 0, color: palette[i % palette.count]) }
@@ -899,7 +1004,7 @@ private struct AppUsageSection: View {
     }
 
     // REAL — active 7d / 30d highlighted
-    private var activeHighlight: some View {
+    var activeHighlight: some View {
         let pct7 = totalMembers > 0 ? Double(active7d) / Double(totalMembers) * 100 : 0
         return Card(padding: 18) {
             HStack(spacing: 14) {
@@ -926,74 +1031,78 @@ private struct AppUsageSection: View {
         }
     }
 
-    // REAL — platform donut + app-version table
+    // REAL — platform donut (own card)
     private struct PlatSlice: Identifiable { let name: String; let value: Int; let color: Color; var id: String { name } }
-    private var platformAndVersionCard: some View {
+    var platformCard: some View {
         let slices = devices.platforms.filter { $0.members > 0 }
             .map { PlatSlice(name: platformLabel($0.platform), value: $0.members, color: platformColor($0.platform)) }
         let total = slices.reduce(0) { $0 + $1.value }
         return Card(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
-                PiCardHeader(icon: "circle.lefthalf.filled", title: "Platform & app version", caption: "members per platform")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 14, alignment: .top)], spacing: 14) {
-                    PiPanel(title: "Platform split", trailing: "\(total) members") {
-                        if total == 0 {
-                            emptyNote("No platform data yet.").frame(height: 150)
-                        } else {
-                            HStack(spacing: 14) {
-                                ZStack {
-                                    Chart(slices) { s in
-                                        SectorMark(angle: .value("v", s.value), innerRadius: .ratio(0.62), angularInset: 1.5)
-                                            .foregroundStyle(s.color).cornerRadius(3)
-                                    }
-                                    .chartLegend(.hidden).frame(width: 120, height: 120)
-                                    VStack(spacing: 0) {
-                                        Text("\(total)").font(.fraunces(20, .semibold)).foregroundStyle(Nuru.navy)
-                                        Text("DEVICES").font(.inter(8, .bold)).tracking(0.8).foregroundStyle(Nuru.ink600)
-                                    }
-                                }
-                                VStack(spacing: 8) {
-                                    ForEach(slices) { s in
-                                        HStack(spacing: 7) {
-                                            Circle().fill(s.color).frame(width: 9, height: 9)
-                                            Text(s.name).font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
-                                            Spacer(minLength: 6)
-                                            Text("\(s.value)").font(.inter(12.5, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
-                                            Text(total > 0 ? "\(Int((Double(s.value)/Double(total)*100).rounded()))%" : "0%")
-                                                .font(.nMicro).foregroundStyle(Nuru.ink600).frame(width: 34, alignment: .trailing)
-                                        }
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                PiCardHeader(icon: "circle.lefthalf.filled", title: "Platform split", caption: "\(total) members")
+                if total == 0 {
+                    emptyNote("No platform data yet.").frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
+                } else {
+                    HStack(spacing: 14) {
+                        ZStack {
+                            Chart(slices) { s in
+                                SectorMark(angle: .value("v", s.value), innerRadius: .ratio(0.62), angularInset: 1.5)
+                                    .foregroundStyle(s.color).cornerRadius(3)
+                            }
+                            .chartLegend(.hidden).frame(width: 120, height: 120)
+                            VStack(spacing: 0) {
+                                Text("\(total)").font(.fraunces(20, .semibold)).foregroundStyle(Nuru.navy)
+                                Text("DEVICES").font(.inter(8, .bold)).tracking(0.8).foregroundStyle(Nuru.ink600)
                             }
                         }
-                    }
-                    PiPanel(title: "App-version adoption", trailing: "top \(min(devices.appVersions.count, 8))") {
-                        if devices.appVersions.isEmpty {
-                            emptyNote("No version data yet.")
-                        } else {
-                            let maxV = devices.appVersions.map(\.members).max() ?? 1
-                            VStack(spacing: 0) {
-                                ForEach(Array(devices.appVersions.prefix(8).enumerated()), id: \.element.id) { i, v in
-                                    HStack(spacing: 10) {
-                                        Text(v.appVersion.isEmpty ? "—" : v.appVersion)
-                                            .font(.inter(12, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
-                                            .frame(width: 64, alignment: .leading)
-                                        GeometryReader { geo in
-                                            ZStack(alignment: .leading) {
-                                                Capsule().fill(Nuru.track)
-                                                Capsule().fill(i == 0 ? Nuru.lumGreen : Nuru.gold)
-                                                    .frame(width: geo.size.width * CGFloat(v.members) / CGFloat(Swift.max(maxV, 1)))
-                                            }
-                                        }
-                                        .frame(height: 9)
-                                        Text("\(v.members)").font(.inter(12, .semibold)).monospacedDigit().foregroundStyle(Nuru.ink600)
-                                            .frame(width: 44, alignment: .trailing)
-                                    }
-                                    .frame(minHeight: 34)
-                                    if i < min(devices.appVersions.count, 8) - 1 { Divider().overlay(Nuru.border.opacity(0.5)) }
+                        VStack(spacing: 8) {
+                            ForEach(slices) { s in
+                                HStack(spacing: 7) {
+                                    Circle().fill(s.color).frame(width: 9, height: 9)
+                                    Text(s.name).font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
+                                    Spacer(minLength: 6)
+                                    Text("\(s.value)").font(.inter(12.5, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
+                                    Text(total > 0 ? "\(Int((Double(s.value)/Double(total)*100).rounded()))%" : "0%")
+                                        .font(.nMicro).foregroundStyle(Nuru.ink600).frame(width: 34, alignment: .trailing)
                                 }
                             }
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+    }
+
+    // REAL — app-version adoption (own card)
+    var appVersionCard: some View {
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                PiCardHeader(icon: "number.square.fill", title: "App-version adoption", caption: "top \(min(devices.appVersions.count, 8))")
+                if devices.appVersions.isEmpty {
+                    emptyNote("No version data yet.").frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
+                } else {
+                    let maxV = devices.appVersions.map(\.members).max() ?? 1
+                    VStack(spacing: 0) {
+                        ForEach(Array(devices.appVersions.prefix(8).enumerated()), id: \.element.id) { i, v in
+                            HStack(spacing: 10) {
+                                Text(v.appVersion.isEmpty ? "—" : v.appVersion)
+                                    .font(.inter(12, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
+                                    .frame(width: 64, alignment: .leading)
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        Capsule().fill(Nuru.track)
+                                        Capsule().fill(i == 0 ? Nuru.lumGreen : Nuru.gold)
+                                            .frame(width: geo.size.width * CGFloat(v.members) / CGFloat(Swift.max(maxV, 1)))
+                                    }
+                                }
+                                .frame(height: 9)
+                                Text("\(v.members)").font(.inter(12, .semibold)).monospacedDigit().foregroundStyle(Nuru.ink600)
+                                    .frame(width: 44, alignment: .trailing)
+                            }
+                            .frame(minHeight: 34)
+                            if i < min(devices.appVersions.count, 8) - 1 { Divider().overlay(Nuru.border.opacity(0.5)) }
                         }
                     }
                 }
@@ -1002,9 +1111,9 @@ private struct AppUsageSection: View {
     }
 
     // REAL (graceful upgrade) — top device models, only once capture is on AND we have rows.
-    // When modelCapture == false this renders nothing; the honest "coming" note in
-    // comingNotes still shows. So the page upgrades from "coming" to real data in place.
-    @ViewBuilder private var deviceModelsCard: some View {
+    // When modelCapture == false (or no rows yet) the card shows its own honest "coming"
+    // note in place, so the cell still reads as a gated card rather than disappearing.
+    @ViewBuilder var deviceModelsCard: some View {
         let models = devices.models.filter { $0.members > 0 }.sorted { $0.members > $1.members }
         if devices.modelCapture, !models.isEmpty {
             let maxM = models.map(\.members).max() ?? 1
@@ -1036,12 +1145,21 @@ private struct AppUsageSection: View {
                     }
                 }
             }
+        } else {
+            // Gated: capture off or no rows yet — honest "coming" note keeps the cell.
+            Card(padding: 18) {
+                VStack(alignment: .leading, spacing: 10) {
+                    PiCardHeader(icon: "ipad.and.iphone", title: "Top device models", caption: "by members")
+                    ComingNote(text: "Exact device model — coming")
+                    Spacer(minLength: 0)
+                }
+            }
         }
     }
 
     // REAL — activity by hour (0..23)
     private struct HourBar: Identifiable { let hour: Int; let label: String; let events: Int; var id: Int { hour } }
-    private var activityByHourCard: some View {
+    var activityByHourCard: some View {
         let byHour = Dictionary(uniqueKeysWithValues: engagement.byHour.map { ($0.hour, $0.events) })
         let bars = (0..<24).map { HourBar(hour: $0, label: hourLabel($0), events: byHour[$0] ?? 0) }
         let total = bars.reduce(0) { $0 + $1.events }
@@ -1075,12 +1193,13 @@ private struct AppUsageSection: View {
     }
 
     // Gated coming notes — only the genuinely-missing bits.
-    @ViewBuilder private var comingNotes: some View {
+    @ViewBuilder var comingNotes: some View {
+        // Device-model & per-screen "coming" notes now live inside their own gated
+        // cards (deviceModelsCard / timePerAreaCard). This block carries only the
+        // login-capture caveat, which has no card of its own.
         let notes: [String] = {
             var out: [String] = []
-            if devices.modelCapture == false { out.append("Exact device model — coming") }
-            if engagement.screenDwellCapture == false { out.append("Per-screen time — coming") }
-            if engagement.loginCapture == false { out.append("Active-days distribution & weekly trend above are real; exact login timestamps are still not captured, so active-days stands in for sign-in frequency.") }
+            if engagement.loginCapture == false { out.append("Active-days distribution & weekly trend are real; exact login timestamps are still not captured, so active-days stands in for sign-in frequency.") }
             return out
         }()
         if !notes.isEmpty {
@@ -1095,25 +1214,17 @@ private struct AppUsageSection: View {
 
 // MARK: - ===================== 4 · App-area affinity =====================
 
-private struct AffinitySection: View {
+private struct AffinityCards {
     let kinds: [IntelKind]
     let engagement: IntelEngagement
     private enum Col { static let events: CGFloat = 80; static let members: CGFloat = 72 }
     // Columns for the time-per-area mini-table.
     private enum DCol { static let time: CGFloat = 78; static let sessions: CGFloat = 64; static let members: CGFloat = 64 }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            piSectionTitle(icon: "heart.text.square.fill", "App-area affinity", "Which content members engage with most")
-            card
-            timePerAreaCard
-        }
-    }
-
     // #3 app-area dwell — only render once the client actually captures screen
     // dwell AND we have rows; otherwise fall back to the honest "coming" note,
     // so the page upgrades from "coming" to real data in place.
-    @ViewBuilder private var timePerAreaCard: some View {
+    @ViewBuilder var timePerAreaCard: some View {
         let rows = engagement.areaDwell
             .filter { $0.totalMs > 0 }
             .sorted { $0.totalMs > $1.totalMs }
@@ -1163,8 +1274,13 @@ private struct AffinitySection: View {
                 }
             }
         } else {
-            Card(padding: 14) {
-                ComingNote(text: "Per-screen time — coming")
+            // Gated: per-screen dwell not captured yet — honest note keeps the cell.
+            Card(padding: 18) {
+                VStack(alignment: .leading, spacing: 10) {
+                    PiCardHeader(icon: "hourglass", title: "Time per app area", caption: "per-screen dwell")
+                    ComingNote(text: "Per-screen time — coming")
+                    Spacer(minLength: 0)
+                }
             }
         }
     }
@@ -1172,7 +1288,7 @@ private struct AffinitySection: View {
     private var sorted: [IntelKind] { kinds.sorted { $0.events > $1.events } }
     private var maxEvents: Int { sorted.map(\.events).max() ?? 1 }
 
-    private var card: some View {
+    var contentAreasCard: some View {
         Card(padding: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
@@ -1222,7 +1338,7 @@ private struct AffinitySection: View {
 
 // MARK: - ===================== 5 · Engagement & growth =====================
 
-private struct EngagementGrowthSection: View {
+private struct EngagementGrowthCards {
     let bands: [IntelBand]
     let avgEngagement: Double
     let growth: IntelGrowth
@@ -1233,59 +1349,57 @@ private struct EngagementGrowthSection: View {
         let byBand = Dictionary(uniqueKeysWithValues: bands.map { ($0.band, $0.members) })
         return BANDS.map { Slice(name: $0.name, value: byBand[$0.key] ?? 0, color: $0.color) }
     }
-    private var total: Int { slices.reduce(0) { $0 + $1.value } }
+    var total: Int { slices.reduce(0) { $0 + $1.value } }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            piSectionTitle(icon: "chart.pie.fill", "Engagement & growth", "\(total) members · \(Pctf1(avgEngagement)) avg score")
-            bandsCard
-            levelCard
-            growthTiles
-        }
-    }
-
-    private var bandsCard: some View {
+    // Engagement bands — donut (own card)
+    var bandsDonutCard: some View {
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
                 PiCardHeader(icon: "chart.pie.fill", title: "Engagement bands", caption: "\(total) members")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 14, alignment: .top)], spacing: 14) {
-                    PiPanel(title: "Distribution", trailing: "\(total) members") {
-                        ZStack {
-                            Chart(total == 0 ? [Slice(name: "None", value: 1, color: Nuru.border)] : slices) { s in
-                                SectorMark(angle: .value("v", s.value), innerRadius: .ratio(0.62), angularInset: 1.5)
-                                    .foregroundStyle(s.color).cornerRadius(3)
-                            }
-                            .chartLegend(.hidden).frame(height: 160)
-                            VStack(spacing: 2) {
-                                Text("\(total)").font(.fraunces(24, .semibold)).foregroundStyle(Nuru.navy)
-                                Text("MEMBERS").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                            }
-                        }
+                ZStack {
+                    Chart(total == 0 ? [Slice(name: "None", value: 1, color: Nuru.border)] : slices) { s in
+                        SectorMark(angle: .value("v", s.value), innerRadius: .ratio(0.62), angularInset: 1.5)
+                            .foregroundStyle(s.color).cornerRadius(3)
                     }
-                    PiPanel(title: "Band breakdown", trailing: "by band") {
-                        VStack(spacing: 0) {
-                            ForEach(Array(slices.enumerated()), id: \.element.id) { i, d in
-                                HStack {
-                                    Circle().fill(d.color).frame(width: 9, height: 9)
-                                    Text(d.name).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy)
-                                    Spacer()
-                                    Text("\(d.value)").font(.fraunces(16, .medium)).foregroundStyle(Nuru.navy)
-                                    Text(total > 0 ? "\(Int((Double(d.value)/Double(total)*100).rounded()))%" : "0%")
-                                        .font(.nMicro).foregroundStyle(Nuru.ink600).frame(width: 38, alignment: .trailing)
-                                }
-                                .padding(.vertical, 10)
-                                .overlay(alignment: .top) { if i > 0 { Rectangle().fill(Nuru.border).frame(height: 1) } }
-                            }
-                        }
+                    .chartLegend(.hidden).frame(height: 160)
+                    VStack(spacing: 2) {
+                        Text("\(total)").font(.fraunces(24, .semibold)).foregroundStyle(Nuru.navy)
+                        Text("MEMBERS").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
                     }
                 }
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    // Band breakdown — list (own card)
+    var bandBreakdownCard: some View {
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                PiCardHeader(icon: "list.bullet", title: "Band breakdown", caption: "by band")
+                VStack(spacing: 0) {
+                    ForEach(Array(slices.enumerated()), id: \.element.id) { i, d in
+                        HStack {
+                            Circle().fill(d.color).frame(width: 9, height: 9)
+                            Text(d.name).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy)
+                            Spacer()
+                            Text("\(d.value)").font(.fraunces(16, .medium)).foregroundStyle(Nuru.navy)
+                            Text(total > 0 ? "\(Int((Double(d.value)/Double(total)*100).rounded()))%" : "0%")
+                                .font(.nMicro).foregroundStyle(Nuru.ink600).frame(width: 38, alignment: .trailing)
+                        }
+                        .padding(.vertical, 10)
+                        .overlay(alignment: .top) { if i > 0 { Rectangle().fill(Nuru.border).frame(height: 1) } }
+                    }
+                }
+                Spacer(minLength: 0)
             }
         }
     }
 
     // Per-level distribution (learners + completed)
     private struct LevelBar: Identifiable { let level: String; let series: String; let value: Int; var id: String { "\(level)-\(series)" } }
-    private var levelCard: some View {
+    var levelCard: some View {
         let rows = growth.byLevel.sorted { $0.levelNumber < $1.levelNumber }
         let bars = rows.flatMap { r -> [LevelBar] in
             [LevelBar(level: "L\(r.levelNumber)", series: "Learners", value: r.learners),
@@ -1327,41 +1441,30 @@ private struct EngagementGrowthSection: View {
         HStack(spacing: 6) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 9, height: 9); Text(t).font(.nMicro).foregroundStyle(Nuru.ink600) }
     }
 
-    // Word & curriculum growth tiles
-    private let grid = [GridItem(.adaptive(minimum: 150), spacing: 12)]
-    private var growthTiles: some View {
-        LazyVGrid(columns: grid, spacing: 12) {
-            PiKpiTile(label: "Verse learners", value: "\(growth.verseLearners)", icon: "text.book.closed.fill",
-                      tint: .init(bg: Color(hex: 0xDCFCE7), fg: Color(hex: 0x166534)))
-            PiKpiTile(label: "Verses mastered", value: "\(growth.versesMastered)", icon: "checkmark.seal.fill",
-                      tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F)))
-            PiKpiTile(label: "Plans completed", value: "\(growth.plansCompleted)", icon: "calendar.badge.checkmark",
-                      tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)))
-            PiKpiTile(label: "Plans active", value: "\(growth.plansActive)", icon: "calendar",
-                      tint: .init(bg: Color(hex: 0xE2F4F1), fg: Color(hex: 0x0D7E73)))
-            PiKpiTile(label: "Quiz attempts", value: "\(growth.quizAttempts)", icon: "questionmark.circle.fill",
-                      tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)))
-            PiKpiTile(label: "Quiz passed", value: "\(growth.quizPassed)", icon: "checkmark.circle.fill",
-                      tint: .init(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0xA87616)))
-        }
+    // Word & curriculum growth tiles — six stat tiles, emitted bare so the composer
+    // can lay them out as a "row of 6" in the shared adaptive grid.
+    @ViewBuilder var growthTiles: some View {
+        PiKpiTile(label: "Verse learners", value: "\(growth.verseLearners)", icon: "text.book.closed.fill",
+                  tint: .init(bg: Color(hex: 0xDCFCE7), fg: Color(hex: 0x166534)))
+        PiKpiTile(label: "Verses mastered", value: "\(growth.versesMastered)", icon: "checkmark.seal.fill",
+                  tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F)))
+        PiKpiTile(label: "Plans completed", value: "\(growth.plansCompleted)", icon: "calendar.badge.checkmark",
+                  tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)))
+        PiKpiTile(label: "Plans active", value: "\(growth.plansActive)", icon: "calendar",
+                  tint: .init(bg: Color(hex: 0xE2F4F1), fg: Color(hex: 0x0D7E73)))
+        PiKpiTile(label: "Quiz attempts", value: "\(growth.quizAttempts)", icon: "questionmark.circle.fill",
+                  tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)))
+        PiKpiTile(label: "Quiz passed", value: "\(growth.quizPassed)", icon: "checkmark.circle.fill",
+                  tint: .init(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0xA87616)))
     }
 }
 
 // MARK: - ===================== 6 · Location =====================
 
-private struct LocationSection: View {
+private struct LocationCards {
     let loc: IntelLocation
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            piSectionTitle(icon: "mappin.and.ellipse", "Location", "Where your people are — coarse, free-text")
-            byCityCard
-            byCountryCard
-            if loc.geoCapture == false { proximityComingCard }
-        }
-    }
-
-    private var byCityCard: some View {
+    var byCityCard: some View {
         let rows = loc.byCity.sorted { $0.members > $1.members }.filter { $0.members > 0 }
         let maxV = rows.map(\.members).max() ?? 1
         return Card(padding: 0) {
@@ -1402,7 +1505,7 @@ private struct LocationSection: View {
         }
     }
 
-    private var byCountryCard: some View {
+    var byCountryCard: some View {
         let rows = loc.byCountry.sorted { $0.members > $1.members }.filter { $0.members > 0 }
         let total = rows.reduce(0) { $0 + $1.members }
         return Card(padding: 18) {
@@ -1433,6 +1536,9 @@ private struct LocationSection: View {
     }
 
     // geo_capture == false → forward-looking proximity card. No fake coordinates.
+    @ViewBuilder var proximityCard: some View {
+        if loc.geoCapture == false { proximityComingCard }
+    }
     private var proximityComingCard: some View {
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 12) {
