@@ -1048,9 +1048,9 @@ private struct AttachmentView: View {
     }
 }
 
-// MARK: - Right-hand context column (navy cards on the light page)
+// MARK: - Right-hand context column (soft pastel dashboard cards on the light page)
 
-/// Three stacked navy cards: Today's pulse · Nuru Light (AI summary) · Profile.
+/// Three stacked pastel cards: Today's pulse (rose) · Nuru Light (green) · Profile (blue).
 private struct ContextColumn: View {
     @ObservedObject var model: ChatModel
     var body: some View {
@@ -1070,29 +1070,73 @@ private struct ContextColumn: View {
     }
 }
 
-/// Shared navy surface for the context cards — rich navy gradient, white text,
-/// bright lumGreen accents, sitting on the otherwise light/paper page.
-private struct NavyCard<Content: View>: View {
+/// Color scheme for a pastel context card — light tinted fill, tinted icon chip,
+/// dark readable ink text. Mirrors the dashboard KPI tiles.
+private struct CardScheme {
+    let fill: Color        // soft tinted card background
+    let stroke: Color      // hairline border
+    let iconTint: Color    // icon glyph + accent colour
+    let iconChipBg: Color  // tinted square behind the icon
+    let title: Color       // eyebrow / accent title text
+
+    // Soft ROSE/pink — Today's pulse.
+    static let rose = CardScheme(
+        fill: Color(hex: 0xFCEFEF), stroke: Color(hex: 0xF3D6D6),
+        iconTint: Nuru.danger, iconChipBg: Color(hex: 0xF7DADA),
+        title: Color(hex: 0xA8281F))
+    // Soft GREEN — Nuru Light.
+    static let green = CardScheme(
+        fill: Color(hex: 0xEFF6F1), stroke: Color(hex: 0xD2E7DA),
+        iconTint: Color(hex: 0x166534), iconChipBg: Color(hex: 0xDCFCE7),
+        title: Color(hex: 0x166534))
+    // Soft BLUE/lavender — Profile.
+    static let blue = CardScheme(
+        fill: Color(hex: 0xF1F4FA), stroke: Color(hex: 0xD8E1EF),
+        iconTint: Color(hex: 0x1D4E86), iconChipBg: Color(hex: 0xE3EAF3),
+        title: Color(hex: 0x1D4E86))
+}
+
+/// Nuru branding — PURPLE/VIOLET. Applies to every Nuru AI element regardless of
+/// which card it lives in (e.g. the green Nuru Light card uses a purple Nuru icon
+/// + purple Draft-a-reply button).
+private enum NuruBrand {
+    static let solid  = Color(hex: 0x6D28D9)   // filled button / icon chip base
+    static let solidHi = Color(hex: 0x7C3AED)  // gradient top
+    static let title  = Color(hex: 0x5B21B6)   // title text
+    static let soft   = Color(hex: 0xEDE9FE)   // light lavender chip fill
+    static let chip = LinearGradient(colors: [Color(hex: 0x7C3AED), Color(hex: 0x6D28D9)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing)
+}
+
+/// Shared pastel surface for the context cards — soft tinted fill, dark ink text,
+/// clean dashboard-style rounding + shadow, sitting on the light/paper page.
+private struct TintCard<Content: View>: View {
+    let scheme: CardScheme
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 12) { content }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Nuru.navyGradient)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(.white.opacity(0.08), lineWidth: 1))
+            .background(scheme.fill)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous)
+                .stroke(scheme.stroke, lineWidth: 1))
             .nuruShadow()
     }
 }
 
-private func cardEyebrow(_ icon: String, _ text: String, tint: Color = Nuru.lumGreen) -> some View {
+/// Card eyebrow — tinted icon chip + dark uppercase title. Pass a brand override
+/// (e.g. purple) for the icon chip / title when this is a Nuru AI element.
+private func cardEyebrow(_ icon: String, _ text: String, scheme: CardScheme,
+                         chipBg: AnyShapeStyle? = nil, glyph: Color? = nil, title: Color? = nil) -> some View {
     HStack(spacing: 8) {
-        Image(systemName: icon).font(.system(size: 12, weight: .bold)).foregroundStyle(tint)
+        Image(systemName: icon).font(.system(size: 12, weight: .bold))
+            .foregroundStyle(glyph ?? scheme.iconTint)
             .frame(width: 26, height: 26)
-            .background(tint.opacity(0.16))
+            .background(chipBg ?? AnyShapeStyle(scheme.iconChipBg))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        Text(text.uppercased()).font(.inter(11, .heavy)).tracking(1.2).foregroundStyle(.white.opacity(0.92))
+        Text(text.uppercased()).font(.inter(11, .heavy)).tracking(1.2)
+            .foregroundStyle(title ?? scheme.title)
         Spacer(minLength: 0)
     }
 }
@@ -1101,19 +1145,20 @@ private func cardEyebrow(_ icon: String, _ text: String, tint: Color = Nuru.lumG
 //    real 7-day "active conversations / day" sparkline derived from rows' lastAt.
 private struct PulseCard: View {
     @ObservedObject var model: ChatModel
+    private let scheme = CardScheme.rose
     var body: some View {
-        NavyCard {
-            cardEyebrow("waveform.path.ecg", "Today's pulse")
+        TintCard(scheme: scheme) {
+            cardEyebrow("waveform.path.ecg", "Today's pulse", scheme: scheme)
             HStack(spacing: 6) {
                 let flagged = model.totalFlagged
                 Image(systemName: flagged > 0 ? "exclamationmark.shield.fill" : "checkmark.seal.fill")
-                    .font(.system(size: 12)).foregroundStyle(flagged > 0 ? Nuru.gold : Nuru.lumGreen)
+                    .font(.system(size: 12)).foregroundStyle(flagged > 0 ? Nuru.danger : Color(hex: 0x166534))
                 Text(flagged > 0 ? "\(flagged) flagged · needs review" : "0 flagged · All clear")
-                    .font(.inter(12.5, .semibold)).foregroundStyle(.white)
+                    .font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink)
             }
             let stats = model.heroStats
             let icons = ["bubble.left.and.bubble.right.fill", "bolt.fill", "envelope.fill", "exclamationmark.shield.fill"]
-            let tints: [Color] = [Nuru.lumGreen, Nuru.lumGreen, Nuru.gold, Nuru.gold]
+            let tints: [Color] = [Color(hex: 0x166534), Color(hex: 0x166534), Nuru.gold, Nuru.danger]
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 ForEach(Array(stats.enumerated()), id: \.element.id) { i, s in
                     miniTile(icon: icons[i % icons.count], tint: tints[i % tints.count], value: s.value, label: s.label)
@@ -1122,7 +1167,7 @@ private struct PulseCard: View {
             if let series = model.activitySeries {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("LAST 7 DAYS · ACTIVE CHATS").font(.inter(8.5, .bold)).tracking(0.6)
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(Nuru.ink600)
                     Sparkline(values: series).frame(height: 34)
                 }
                 .padding(.top, 2)
@@ -1132,18 +1177,19 @@ private struct PulseCard: View {
     private func miniTile(icon: String, tint: Color, value: String, label: String) -> some View {
         HStack(spacing: 9) {
             Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(tint)
-                .frame(width: 28, height: 28).background(tint.opacity(0.16))
+                .frame(width: 28, height: 28).background(tint.opacity(0.14))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 0) {
-                Text(value).font(.inter(16, .heavy)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+                Text(value).font(.inter(16, .heavy)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.6)
                 Text(label.uppercased()).font(.inter(8, .bold)).tracking(0.4)
-                    .foregroundStyle(.white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.7)
+                    .foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.7)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 9).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.06))
+        .background(Nuru.white)
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(scheme.stroke, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
@@ -1154,13 +1200,14 @@ private struct Sparkline: View {
     let values: [Int]
     var body: some View {
         let pts = Array(values.enumerated())
+        let line = Color(hex: 0x16A34A)   // readable green on the light rose card
         Chart(pts, id: \.offset) { p in
             LineMark(x: .value("Day", p.offset), y: .value("Chats", p.element))
                 .interpolationMethod(.catmullRom)
-                .foregroundStyle(Nuru.lumGreen)
+                .foregroundStyle(line)
             AreaMark(x: .value("Day", p.offset), y: .value("Chats", p.element))
                 .interpolationMethod(.catmullRom)
-                .foregroundStyle(LinearGradient(colors: [Nuru.lumGreen.opacity(0.32), .clear],
+                .foregroundStyle(LinearGradient(colors: [line.opacity(0.22), .clear],
                                                 startPoint: .top, endPoint: .bottom))
         }
         .chartXAxis(.hidden).chartYAxis(.hidden)
@@ -1172,51 +1219,55 @@ private struct Sparkline: View {
 //    (identical model wiring), restyled into the navy card.
 private struct NuruLightCard: View {
     @ObservedObject var model: ChatModel
+    private let scheme = CardScheme.green
     var body: some View {
-        NavyCard {
-            cardEyebrow("sparkles", "Nuru Light")
+        TintCard(scheme: scheme) {
+            // Nuru element → PURPLE icon chip + violet title, even on the green card.
+            cardEyebrow("sparkles", "Nuru Light", scheme: scheme,
+                        chipBg: AnyShapeStyle(NuruBrand.chip), glyph: .white, title: NuruBrand.title)
             if model.active == nil {
                 Text("Select a conversation for Nuru's read.")
-                    .font(.inter(12)).foregroundStyle(.white.opacity(0.7))
+                    .font(.inter(12)).foregroundStyle(Nuru.ink600)
             } else {
                 if model.summaryBusy {
                     HStack(spacing: 6) {
-                        ProgressView().controlSize(.small).tint(.white)
-                        Text("Nuru is reading the thread…").font(.inter(12)).foregroundStyle(.white.opacity(0.75))
+                        ProgressView().controlSize(.small).tint(NuruBrand.solid)
+                        Text("Nuru is reading the thread…").font(.inter(12)).foregroundStyle(Nuru.ink600)
                     }
                 } else if let s = model.summary {
-                    Text(s).font(.inter(12.5)).foregroundStyle(.white.opacity(0.92))
+                    Text(s).font(.inter(12.5)).foregroundStyle(Nuru.ink)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Button { Task { await model.loadSummary() } } label: {
                         Text("Summarise this conversation")
-                            .font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy)
+                            .font(.inter(12.5, .bold)).foregroundStyle(.white)
                             .padding(.horizontal, 12).frame(height: 34)
-                            .background(Nuru.lumGreen).clipShape(Capsule())
+                            .background(NuruBrand.solid).clipShape(Capsule())
                     }.buttonStyle(.plain)
                 }
                 if !model.isArchived {
                     FlowChips {
-                        navyChip("Draft a reply", icon: "wand.and.stars", filled: true) {
+                        nuruChip("Draft a reply", icon: "wand.and.stars", filled: true) {
                             model.runAssist(.reply); model.assistOpen = true
                         }
-                        navyChip("🙏 Offer a prayer") { model.runAssist(.prayer); model.assistOpen = true }
-                        navyChip("💛 Encourage") { model.runAssist(.encourage); model.assistOpen = true }
+                        nuruChip("🙏 Offer a prayer") { model.runAssist(.prayer); model.assistOpen = true }
+                        nuruChip("💛 Encourage") { model.runAssist(.encourage); model.assistOpen = true }
                     }
                 }
             }
         }
     }
-    private func navyChip(_ label: String, icon: String? = nil, filled: Bool = false, _ action: @escaping () -> Void) -> some View {
+    // Purple Nuru action chips: filled = violet w/ white; secondary = light lavender w/ violet.
+    private func nuruChip(_ label: String, icon: String? = nil, filled: Bool = false, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
                 if let icon { Image(systemName: icon).font(.system(size: 10)) }
                 Text(label).font(.inter(11, .bold))
             }
-            .foregroundStyle(filled ? Nuru.navy : .white)
+            .foregroundStyle(filled ? .white : NuruBrand.title)
             .padding(.horizontal, 11).padding(.vertical, 7)
-            .background(filled ? AnyShapeStyle(Nuru.lumGreen) : AnyShapeStyle(Color.white.opacity(0.10)))
-            .overlay(Capsule().stroke(filled ? .clear : .white.opacity(0.18), lineWidth: 1))
+            .background(filled ? AnyShapeStyle(NuruBrand.solid) : AnyShapeStyle(NuruBrand.soft))
+            .overlay(Capsule().stroke(filled ? .clear : NuruBrand.solid.opacity(0.18), lineWidth: 1))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain).disabled(model.assistBusy).opacity(model.assistBusy ? 0.6 : 1)
@@ -1238,40 +1289,46 @@ private struct FlowChips<Content: View>: View {
 private struct ProfileCard: View {
     @ObservedObject var model: ChatModel
     @EnvironmentObject private var router: NavRouter
+    private let scheme = CardScheme.blue
     var body: some View {
-        NavyCard {
+        TintCard(scheme: scheme) {
             if let conv = model.active, conv.kind != "dm" {
                 groupBody(conv)
             } else if let conv = model.active {
                 dmBody(conv)
             } else {
-                cardEyebrow("person.crop.circle", "Profile")
+                cardEyebrow("person.crop.circle", "Profile", scheme: scheme)
                 Text("Pick a chat to see who you're talking with.")
-                    .font(.inter(12)).foregroundStyle(.white.opacity(0.7))
+                    .font(.inter(12)).foregroundStyle(Nuru.ink600)
             }
         }
     }
 
+    // Badge pill — tinted blue chip on the light card.
+    private func badge(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.inter(9, .heavy)).tracking(0.6).foregroundStyle(scheme.iconTint)
+            .padding(.horizontal, 8).padding(.vertical, 2)
+            .background(scheme.iconChipBg).clipShape(Capsule())
+    }
+
     // DM → disciple profile
     @ViewBuilder private func dmBody(_ conv: PConversationRow) -> some View {
-        cardEyebrow("person.crop.circle", "Profile")
+        cardEyebrow("person.crop.circle", "Profile", scheme: scheme)
         HStack(spacing: 12) {
             ConvAvatar(name: model.profile?.fullName ?? conv.displayName,
                        uri: conv.avatarUrl, kind: "dm", size: 46)
             VStack(alignment: .leading, spacing: 3) {
                 Text(model.profile?.fullName ?? conv.displayName)
-                    .font(.inter(15, .bold)).foregroundStyle(.white).lineLimit(1)
-                Text((model.profile?.programme?.capitalized ?? "Disciple").uppercased())
-                    .font(.inter(9, .heavy)).tracking(0.6).foregroundStyle(Nuru.navy)
-                    .padding(.horizontal, 8).padding(.vertical, 2)
-                    .background(Nuru.lumGreen).clipShape(Capsule())
+                    .font(.inter(15, .bold)).foregroundStyle(Nuru.ink).lineLimit(1)
+                badge(model.profile?.programme?.capitalized ?? "Disciple")
             }
             Spacer(minLength: 0)
         }
         if model.profileLoading {
             HStack(spacing: 6) {
-                ProgressView().controlSize(.small).tint(.white)
-                Text("Loading profile…").font(.inter(11.5)).foregroundStyle(.white.opacity(0.7))
+                ProgressView().controlSize(.small).tint(scheme.iconTint)
+                Text("Loading profile…").font(.inter(11.5)).foregroundStyle(Nuru.ink600)
             }.padding(.top, 2)
         } else if let p = model.profile {
             VStack(spacing: 0) {
@@ -1284,11 +1341,11 @@ private struct ProfileCard: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text("Pathway · Level \(en.currentLevel)").font(.inter(11.5, .semibold))
-                                .foregroundStyle(.white.opacity(0.85))
+                                .foregroundStyle(Nuru.ink600)
                             Spacer()
-                            Text("\(Int(pct))%").font(.inter(11.5, .heavy)).foregroundStyle(Nuru.lumGreen)
+                            Text("\(Int(pct))%").font(.inter(11.5, .heavy)).foregroundStyle(scheme.iconTint)
                         }
-                        ProgressBar(pct: pct, fill: Nuru.lumGreen, height: 7)
+                        ProgressBar(pct: pct, fill: scheme.iconTint, height: 7)
                     }
                     .padding(.vertical, 8)
                 }
@@ -1298,13 +1355,13 @@ private struct ProfileCard: View {
                     Image(systemName: "arrow.up.right.square").font(.system(size: 12, weight: .bold))
                     Text("View full profile").font(.inter(12.5, .bold))
                 }
-                .foregroundStyle(Nuru.navy).frame(maxWidth: .infinity).frame(height: 38)
-                .background(Nuru.lumGreen).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 38)
+                .background(scheme.iconTint).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
             }.buttonStyle(.plain)
         } else {
             // Member id couldn't be resolved (e.g. no inbound message yet).
             Text("Profile will appear once \(conv.displayName) has messaged here.")
-                .font(.inter(11.5)).foregroundStyle(.white.opacity(0.65))
+                .font(.inter(11.5)).foregroundStyle(Nuru.ink600)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -1312,15 +1369,12 @@ private struct ProfileCard: View {
     // Group / space → real conversation context
     @ViewBuilder private func groupBody(_ conv: PConversationRow) -> some View {
         let isSpace = conv.kind == "space"
-        cardEyebrow(isSpace ? "number" : "person.3.fill", isSpace ? "Space" : "Group")
+        cardEyebrow(isSpace ? "number" : "person.3.fill", isSpace ? "Space" : "Group", scheme: scheme)
         HStack(spacing: 12) {
             ConvAvatar(name: conv.displayName, uri: nil, kind: conv.kind, size: 46)
             VStack(alignment: .leading, spacing: 3) {
-                Text(conv.displayName).font(.inter(15, .bold)).foregroundStyle(.white).lineLimit(2)
-                Text(ChatType.of(conv.kind).label.uppercased())
-                    .font(.inter(9, .heavy)).tracking(0.6).foregroundStyle(Nuru.navy)
-                    .padding(.horizontal, 8).padding(.vertical, 2)
-                    .background(Nuru.lumGreen).clipShape(Capsule())
+                Text(conv.displayName).font(.inter(15, .bold)).foregroundStyle(Nuru.ink).lineLimit(2)
+                badge(ChatType.of(conv.kind).label)
             }
             Spacer(minLength: 0)
         }
@@ -1334,13 +1388,13 @@ private struct ProfileCard: View {
 
     private func statRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .top) {
-            Text(label).font(.inter(11.5, .semibold)).foregroundStyle(.white.opacity(0.6))
+            Text(label).font(.inter(11.5, .semibold)).foregroundStyle(Nuru.ink600)
             Spacer(minLength: 12)
-            Text(value).font(.inter(12.5, .semibold)).foregroundStyle(.white)
+            Text(value).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink)
                 .multilineTextAlignment(.trailing).lineLimit(2)
         }
         .padding(.vertical, 7)
-        .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.08)).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(scheme.stroke).frame(height: 1) }
     }
 }
 

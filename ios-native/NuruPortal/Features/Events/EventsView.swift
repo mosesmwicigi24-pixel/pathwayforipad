@@ -499,11 +499,9 @@ struct EventsView: View {
                 }
                 alertStrip
 
-                // 1. Insights — moved to the top, 4-up single row.
-                insightsCard
-
-                // 2. Follow-up queue — full-width row.
-                followUpCard
+                // 1. Insights & follow-up — one 8-column row (4 insight tiles + 4
+                //    follow-up cards), replacing the old separate insights / queue cards.
+                insightsFollowUpCard
 
                 // 3. Calendar + Today panel
                 ViewThatFits(in: .horizontal) {
@@ -1217,70 +1215,84 @@ struct EventsView: View {
         }
     }
 
-    // MARK: Insights + Follow-up (display-only, as on the web)
+    // MARK: Insights & follow-up (one 8-column row — display-only, as on the web)
 
-    private var insightsCard: some View {
+    /// A single compact tile model shared by the insight tiles and the follow-up
+    /// cards so all eight sit in one even row.
+    private struct MergedTile: Identifiable {
+        let id = UUID()
+        let label: String      // short caption (overline)
+        let value: String      // big value / count
+        let hint: String       // tiny sub-label
+        let icon: String       // tinted icon-chip glyph
+        let tint: Color        // icon-chip foreground tint
+        let action: (() -> Void)?   // tap target (follow-up cards keep their action)
+    }
+
+    /// 4 insight tiles + the top 4 follow-up items, rendered as one tile list.
+    private var mergedTiles: [MergedTile] {
+        let insights: [MergedTile] = [
+            MergedTile(label: "Checked in", value: "\(checkedThisWeek)", hint: "Recent events",
+                       icon: "checkmark.circle", tint: Color(hex: 0x15803D), action: nil),
+            MergedTile(label: "Recent events", value: "\(recent.count)", hint: "Last 8 weeks",
+                       icon: "calendar", tint: Nuru.navy, action: nil),
+            MergedTile(label: "RSVP conversion", value: "74%", hint: "RSVP → attended",
+                       icon: "chart.line.uptrend.xyaxis", tint: Color(hex: 0x15803D), action: nil),
+            MergedTile(label: "Follow-up needed", value: "23", hint: "RSVP'd, absent",
+                       icon: "chart.line.downtrend.xyaxis", tint: Color(hex: 0xB91C1C), action: nil),
+        ]
+        // The follow-up queue items, highest-priority first; each keeps its existing
+        // tap target (open the create-announcement composer to follow up).
+        let followUps: [MergedTile] = [
+            ("RSVP'd absent", 23, "exclamationmark.circle", Color(hex: 0xB91C1C)),
+            ("First-time guests", 12, "person.badge.plus", Color(hex: 0x15803D)),
+            ("Manual check-ins", 5, "checkmark.shield", Color(hex: 0xA87616)),
+            ("No response", 48, "person.2", Color(hex: 0x6B7280)),
+        ].prefix(4).map { r in
+            MergedTile(label: r.0, value: "\(r.1)", hint: "members",
+                       icon: r.2, tint: r.3, action: { showCreateAnnouncement = true })
+        }
+        return insights + followUps
+    }
+
+    private var insightsFollowUpCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
-                cardHeader("Event insights", "Patterns across recent occurrences")
-                // Fixed 4-column grid so all four tiles sit on one row at portrait width.
-                let cols = Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
-                LazyVGrid(columns: cols, alignment: .leading, spacing: 12) {
-                    insightTile("Checked in", "\(checkedThisWeek)", "Across recent events", up: true)
-                    insightTile("Recent events", "\(recent.count)", "Last 8 weeks", up: true)
-                    insightTile("RSVP conversion", "74%", "RSVP members checked in", up: true)
-                    insightTile("Follow-up needed", "23", "RSVP'd but did not attend", up: false)
+                cardHeader("Insights & follow-up", "Patterns across recent occurrences and who needs care")
+                // Fixed 8-column grid: 4 insight tiles + 4 follow-up cards in one row.
+                let cols = Array(repeating: GridItem(.flexible(), spacing: 10), count: 8)
+                LazyVGrid(columns: cols, alignment: .leading, spacing: 10) {
+                    ForEach(mergedTiles) { mergedTile($0) }
                 }
             }
         }
     }
 
-    private func insightTile(_ label: String, _ value: String, _ hint: String, up: Bool) -> some View {
-        SurfaceTile(padding: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(label.uppercased()).font(.nOverline).tracking(0.5).foregroundStyle(Nuru.muted)
-                    Spacer()
-                    Image(systemName: up ? "chart.line.uptrend.xyaxis" : "chart.line.downtrend.xyaxis")
-                        .font(.system(size: 11)).foregroundStyle(up ? Color(hex: 0x15803D) : Color(hex: 0xB91C1C))
-                }
-                Text(value).font(.fraunces(24, .medium)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.7)
-                Text(hint).font(.nMicro).foregroundStyle(Nuru.muted).lineLimit(1)
-            }
+    @ViewBuilder
+    private func mergedTile(_ t: MergedTile) -> some View {
+        if let action = t.action {
+            Button(action: action) { mergedTileBody(t) }.buttonStyle(.plain)
+        } else {
+            mergedTileBody(t)
         }
     }
 
-    private var followUpCard: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 12) {
-                cardHeader("Follow-up queue", "Connect attendance to discipleship care")
-                let items: [(String, Int, String, Color)] = [
-                    ("RSVP'd but absent", 23, "exclamationmark.circle", Color(hex: 0xB91C1C)),
-                    ("First-time guests", 12, "person.badge.plus", Color(hex: 0x15803D)),
-                    ("Manual check-ins", 5, "checkmark.shield", Color(hex: 0xA87616)),
-                    ("No response", 48, "person.2", Color(hex: 0x6B7280)),
-                ]
-                VStack(spacing: 0) {
-                    ForEach(Array(items.enumerated()), id: \.offset) { i, r in
-                        if i > 0 { Divider().overlay(Nuru.border) }
-                        HStack(spacing: 12) {
-                            Image(systemName: r.2).font(.system(size: 14)).foregroundStyle(r.3)
-                                .frame(width: 32, height: 32).background(Nuru.inputBg)
-                                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(r.0).font(.inter(13, .bold)).foregroundStyle(Nuru.ink)
-                                Text("\(r.1) members").font(.nMicro).foregroundStyle(Nuru.muted)
-                            }
-                            Spacer()
-                            Button { showCreateAnnouncement = true } label: {
-                                Label("Follow-up", systemImage: "paperplane").font(.inter(11, .semibold)).foregroundStyle(.white)
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            }.buttonStyle(.plain)
-                        }.padding(.vertical, 12)
-                    }
-                }
+    private func mergedTileBody(_ t: MergedTile) -> some View {
+        SurfaceTile(padding: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                // Small tinted icon chip.
+                Image(systemName: t.icon).font(.system(size: 13)).foregroundStyle(t.tint)
+                    .frame(width: 30, height: 30)
+                    .background(t.tint.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                Text(t.value).font(.fraunces(20, .medium)).foregroundStyle(Nuru.ink)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                Text(t.label.uppercased()).font(.nOverline).tracking(0.4).foregroundStyle(Nuru.muted)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                Text(t.hint).font(.nMicro).foregroundStyle(Nuru.muted)
+                    .lineLimit(1).minimumScaleFactor(0.7)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
