@@ -653,13 +653,16 @@ private struct OverviewTab: View {
     let failedCount: Int
     let txnCount: Int
 
-    private let kpiCols = [GridItem(.adaptive(minimum: 138), spacing: 10)]
-    private let chanCols = [GridItem(.adaptive(minimum: 168), spacing: 12)]
-    private let fundCols = [GridItem(.adaptive(minimum: 168), spacing: 12)]
+    // Five-to-six pastel KPI cards per row at portrait width (Dashboard's row feel).
+    private let kpiCols = [GridItem(.adaptive(minimum: 150), spacing: 12)]
+    private let chanCols = [GridItem(.adaptive(minimum: 172), spacing: 12)]
+    private let fundCols = [GridItem(.adaptive(minimum: 172), spacing: 12)]
+    private let statusCols = [GridItem(.adaptive(minimum: 150), spacing: 12)]
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 18) {
             kpiStrip
+            statusStrip
             channelSection
             fundSection
             trendCard
@@ -669,74 +672,126 @@ private struct OverviewTab: View {
         }
     }
 
-    // 1 ── KPI strip (5 headline + 2 derived pending/failed)
+    // ── Pastel KPI palette (Dashboard's 6-card row feel: green / gold / violet /
+    //    soft-navy / teal / amber / pink-red). Soft tinted bg + a deeper fg per card.
+    private struct FinTint { let bg: Color; let fg: Color }
+    private static let kpiGreen  = FinTint(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33))
+    private static let kpiGold   = FinTint(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F))
+    private static let kpiViolet = FinTint(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9))
+    private static let kpiNavy   = FinTint(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86))
+    private static let kpiTeal   = FinTint(bg: Color(hex: 0xE2F4F1), fg: Color(hex: 0x0D7E73))
+    private static let kpiAmber  = FinTint(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0xA87616))
+    private static let kpiRed    = FinTint(bg: Color(hex: 0xFDECEC), fg: Color(hex: 0xB42318))
+
+    // 1 ── KPI strip — soft pastel tinted cards (TintedIcon chip + big Fraunces value
+    //      + label + small sub-line), mirroring the Dashboard's 6-up KPI row.
     private var kpiStrip: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: kpiCols, spacing: 10) {
-                kpi("This Month Received", Fmt.money(minor: monthTotal, currency: currency), "banknote.fill", Color(hex: 0x16A34A))
-                kpi("All-Time Giving", Fmt.money(minor: allTotal, currency: currency), "chart.line.uptrend.xyaxis", Nuru.gold)
-                kpi("Average Gift", Fmt.money(minor: avgGift, currency: currency), "gift.fill", Color(hex: 0x7C3AED))
-                kpi("Total Gifts", String(giftCount), "number", Nuru.navy)
-                kpi("Active Funds", String(activeFundCount), "tray.full.fill", Color(hex: 0x0D9488))
-                kpi("Pending", String(pendingCount), "clock.fill", Color(hex: 0xA87616))
-                kpi("Failed / Refunded", String(failedCount), "exclamationmark.triangle.fill", Color(hex: 0xDC2626))
+        VStack(alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: kpiCols, spacing: 12) {
+                kpi("This Month Received", Fmt.money(minor: monthTotal, currency: currency), "this term", "banknote.fill", Self.kpiGreen)
+                kpi("All-Time Giving", Fmt.money(minor: allTotal, currency: currency), "across funds", "chart.line.uptrend.xyaxis", Self.kpiGold)
+                kpi("Average Gift", Fmt.money(minor: avgGift, currency: currency), "per gift", "gift.fill", Self.kpiViolet)
+                kpi("Total Gifts", String(giftCount), "received", "number", Self.kpiNavy)
+                kpi("Active Funds", String(activeFundCount), "with giving", "tray.full.fill", Self.kpiTeal)
+                kpi("Pending", String(pendingCount), "in recent page", "clock.fill", Self.kpiAmber)
+                kpi("Failed / Refunded", String(failedCount), "in recent page", "exclamationmark.triangle.fill", Self.kpiRed)
             }
             Text("Pending and failed are counted in the \(txnCount) most-recent transactions fetched, not all-time.")
                 .font(.inter(10.5)).foregroundStyle(Nuru.ink400)
         }
     }
 
-    private func kpi(_ label: String, _ value: String, _ icon: String, _ tint: Color) -> some View {
-        Card(padding: 12) {
-            VStack(alignment: .leading, spacing: 0) {
+    /// Soft pastel KPI card — mirrors the Dashboard's `DashKpiTile`: tinted bg, a
+    /// rounded TintedIcon chip, a big Fraunces number, a label, and a small sub-line.
+    private func kpi(_ label: String, _ value: String, _ sub: String, _ icon: String, _ t: FinTint) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TintedIcon(systemName: icon, color: t.fg, size: 34)
+            Text(value)
+                .font(.fraunces(22, .semibold))
+                .foregroundStyle(Nuru.navy)
+                .lineLimit(1).minimumScaleFactor(0.5)
+            Text(label)
+                .font(.inter(11.5, .medium)).foregroundStyle(Nuru.ink600)
+                .lineLimit(1).minimumScaleFactor(0.8)
+            Text(sub)
+                .font(.nMicro).foregroundStyle(t.fg.opacity(0.85))
+                .lineLimit(1).minimumScaleFactor(0.85)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(t.bg)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(t.fg.opacity(0.18), lineWidth: 1))
+    }
+
+    // 1b ── Transaction-status strip — pipeline-style tinted tiles (like the
+    //       Dashboard "Curriculum pipeline"): Succeeded / Pending / Failed / In page,
+    //       derived from the most-recent transactions page. Reuses shared `PipelineTile`.
+    private var statusStrip: some View {
+        let succeeded = max(0, txnCount - pendingCount - failedCount)
+        let items: [(String, Int, String, Nuru.Tint)] = [
+            ("Succeeded", succeeded, "checkmark.seal", Nuru.Tint(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33))),
+            ("Pending",   pendingCount, "clock", Nuru.Tint(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0x8A6B1F))),
+            ("Failed",    failedCount, "xmark.octagon", Nuru.Tint(bg: Color(hex: 0xFDECEC), fg: Color(hex: 0xA8281F))),
+            ("In page",   txnCount, "tray.full", Nuru.Tint(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86))),
+        ]
+        return Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 6) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tint.opacity(0.14))
-                        Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
-                    }.frame(width: 24, height: 24)
-                    Spacer(minLength: 0)
+                    Image(systemName: "list.bullet.rectangle").font(.system(size: 13)).foregroundStyle(Nuru.navy)
+                    Text("Transaction status").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
+                    Text("· recent page").font(.nCaption).foregroundStyle(Nuru.ink600)
+                    Spacer()
                 }
-                Text(label.uppercased()).font(.nOverline).tracking(0.7).foregroundStyle(Nuru.ink600)
-                    .lineLimit(1).minimumScaleFactor(0.8).padding(.top, 8)
-                Text(value).font(.inter(17, .bold)).foregroundStyle(Nuru.navy).padding(.top, 2)
-                    .lineLimit(1).minimumScaleFactor(0.55)
+                LazyVGrid(columns: statusCols, spacing: 12) {
+                    ForEach(items, id: \.0) { it in
+                        PipelineTile(label: it.0, value: "\(it.1)", icon: it.2, tint: it.3)
+                    }
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    // 2 ── Payment-channel breakdown (real: cash:* ledger + method-grouped txns)
+    // 2 ── Payment-channel breakdown (real: cash:* ledger + method-grouped txns).
+    //      Color-keyed soft pastel cards (M-Pesa green, PayPal navy, Card gold,
+    //      Airtel red) with a tinted icon chip, inside a clean white Card.
     private var channelSection: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Payment channels").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                Text("Money received per channel · all-time").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                cardHeader(icon: "creditcard.fill", title: "Payment channels", caption: "received · all-time")
                 LazyVGrid(columns: chanCols, spacing: 12) {
                     ForEach(channels) { c in channelCard(c) }
                 }
-                .padding(.top, 14)
                 NotTracked(text: "Processor fees per channel — not tracked yet")
-                    .padding(.top, 12)
             }
+        }
+    }
+
+    /// A soft per-channel tint (light pastel bg keyed to the channel's brand color).
+    private func channelTint(_ c: Channel) -> Nuru.Tint {
+        switch c.id {
+        case "mpesa":  return Nuru.Tint(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33))
+        case "airtel": return Nuru.Tint(bg: Color(hex: 0xFDECEC), fg: Color(hex: 0xB42318))
+        case "paypal": return Nuru.Tint(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86))
+        case "card":   return Nuru.Tint(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F))
+        default:       return Nuru.Tint(bg: Color(hex: 0xFBF1DC), fg: Color(hex: 0x8A6B1F))
         }
     }
 
     private func channelCard(_ s: ChannelStat) -> some View {
         let hasData = s.receivedMinor > 0 || s.count > 0
+        let t = channelTint(s.channel)
         return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous).fill(s.channel.tint.opacity(0.14))
-                    Image(systemName: s.channel.icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(s.channel.tint)
-                }.frame(width: 30, height: 30)
-                VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 10) {
+                TintedIcon(systemName: s.channel.icon, color: t.fg, size: 34)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(s.channel.label).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
                     statusLine(s)
                 }
                 Spacer(minLength: 0)
             }
             Text(hasData ? Fmt.money(minor: s.receivedMinor, currency: s.currency) : "—")
-                .font(.inter(17, .bold)).monospaced().foregroundStyle(Nuru.navy)
+                .font(.fraunces(20, .semibold)).foregroundStyle(Nuru.navy)
                 .padding(.top, 10).lineLimit(1).minimumScaleFactor(0.55)
             Text("\(s.count) \(s.count == 1 ? "transaction" : "transactions")")
                 .font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
@@ -749,9 +804,20 @@ private struct OverviewTab: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Nuru.surface)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .background(t.bg)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(t.fg.opacity(0.18), lineWidth: 1))
+    }
+
+    /// Tidy card header: a small icon + serif-weight title + right-aligned caption,
+    /// matching the Dashboard's "Pathway Report" / pipeline card headers.
+    private func cardHeader(icon: String, title: String, caption: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 13)).foregroundStyle(Nuru.navy)
+            Text(title).font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
+            Spacer(minLength: 8)
+            Text(caption).font(.nMicro).foregroundStyle(Nuru.ink600)
+        }
     }
 
     @ViewBuilder private func statusLine(_ s: ChannelStat) -> some View {
@@ -781,7 +847,8 @@ private struct OverviewTab: View {
         .clipShape(Capsule())
     }
 
-    // 3 ── Improved fund cards (name, month, gifts, avg, % of total)
+    // 3 ── Fund cards — soft pastel tinted cards (one fill each via Nuru.tint),
+    //      with a tinted icon chip, big serif amount, % bar and gifts/avg metrics.
     private var fundSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             if funds.isEmpty {
@@ -790,7 +857,7 @@ private struct OverviewTab: View {
             } else {
                 LazyVGrid(columns: fundCols, spacing: 12) {
                     ForEach(Array(sortedFunds.enumerated()), id: \.element.id) { i, f in
-                        fundCard(f, tone: FinanceTone.at(i))
+                        fundCard(f, tint: Nuru.tint(i))
                     }
                 }
             }
@@ -799,51 +866,45 @@ private struct OverviewTab: View {
 
     private var sortedFunds: [FundSummary] { funds.sorted { $0.monthMinor > $1.monthMinor } }
 
-    private func fundCard(_ f: FundSummary, tone: Color) -> some View {
+    private func fundCard(_ f: FundSummary, tint: Nuru.Tint) -> some View {
         let pct = allTotal > 0 ? Double(f.totalMinor) / Double(allTotal) : 0
         let avg = f.giftCount > 0 ? f.totalMinor / f.giftCount : 0
-        return Card(padding: 14) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 8) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tone.opacity(0.14))
-                        Image(systemName: "banknote.fill").font(.system(size: 12, weight: .semibold)).foregroundStyle(tone)
-                    }.frame(width: 28, height: 28)
-                    Text(f.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
-                        .lineLimit(1).minimumScaleFactor(0.8)
-                    Spacer(minLength: 0)
-                }
-                Text(Fmt.money(minor: f.monthMinor, currency: f.currency))
-                    .font(.inter(18, .bold)).foregroundStyle(Nuru.navy).padding(.top, 10)
-                    .lineLimit(1).minimumScaleFactor(0.55)
-                Text("this month").font(.nMicro).foregroundStyle(Nuru.ink400)
-
-                // % of total giving bar
-                VStack(spacing: 4) {
-                    HStack {
-                        Text("\(Int((pct * 100).rounded()))% of total").font(.inter(10.5, .semibold)).foregroundStyle(Nuru.ink600)
-                        Spacer(minLength: 0)
-                        Text(Fmt.money(minor: f.totalMinor, currency: f.currency))
-                            .font(.inter(10.5, .semibold)).monospaced().foregroundStyle(Nuru.ink600)
-                            .lineLimit(1).minimumScaleFactor(0.7)
-                    }
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Nuru.mutedBg)
-                            Capsule().fill(tone).frame(width: max(4, geo.size.width * pct))
-                        }
-                    }.frame(height: 6)
-                }
-                .padding(.top, 10)
-
-                HStack(spacing: 12) {
-                    metric("\(f.giftCount)", "gifts")
-                    metric(Fmt.money(minor: avg, currency: f.currency), "avg")
-                }
-                .padding(.top, 10)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                TintedIcon(systemName: "banknote.fill", color: tint.fg, size: 32)
+                Text(f.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(Fmt.money(minor: f.monthMinor, currency: f.currency))
+                .font(.fraunces(20, .semibold)).foregroundStyle(Nuru.navy).padding(.top, 10)
+                .lineLimit(1).minimumScaleFactor(0.55)
+            Text("this month").font(.nMicro).foregroundStyle(Nuru.ink600)
+
+            // % of total giving bar (shared ProgressBar, keyed to the fund tint)
+            VStack(spacing: 4) {
+                HStack {
+                    Text("\(Int((pct * 100).rounded()))% of total").font(.inter(10.5, .semibold)).foregroundStyle(Nuru.ink600)
+                    Spacer(minLength: 0)
+                    Text(Fmt.money(minor: f.totalMinor, currency: f.currency))
+                        .font(.inter(10.5, .semibold)).monospaced().foregroundStyle(Nuru.ink600)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                ProgressBar(pct: pct * 100, fill: tint.fg, height: 6)
+            }
+            .padding(.top, 10)
+
+            HStack(spacing: 12) {
+                metric("\(f.giftCount)", "gifts")
+                metric(Fmt.money(minor: avg, currency: f.currency), "avg")
+            }
+            .padding(.top, 10)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(tint.bg)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(tint.fg.opacity(0.18), lineWidth: 1))
     }
 
     private func metric(_ value: String, _ label: String) -> some View {
@@ -853,23 +914,21 @@ private struct OverviewTab: View {
         }
     }
 
-    // 4a ── Monthly giving trend
+    // 4a ── Monthly giving trend (white card, tidy header, visible axes)
     private var trendCard: some View {
-        Card {
+        Card(padding: 18) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Monthly giving trend").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                Text("Settled per month · last 6 · \(currency)").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
+                cardHeader(icon: "chart.line.uptrend.xyaxis", title: "Monthly giving trend", caption: "last 6 · \(currency)")
                 trendChart.frame(height: 200).padding(.top, 12)
             }
         }
     }
 
-    // 4b ── Giving by fund (donut)
+    // 4b ── Giving by fund (donut, white card)
     private var givingByFundCard: some View {
-        Card {
+        Card(padding: 18) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Giving by fund").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                Text("This month · \(currency)").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
+                cardHeader(icon: "chart.pie.fill", title: "Giving by fund", caption: "this month · \(currency)")
                 if donut.isEmpty {
                     Text("No giving this month yet.").font(.nCaption).foregroundStyle(Nuru.ink600)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 16)
@@ -897,12 +956,11 @@ private struct OverviewTab: View {
         }
     }
 
-    // 4c ── NEW: Giving by payment method (from cash:* ledger totals)
+    // 4c ── Giving by payment method (from cash:* ledger totals, white card)
     private var givingByMethodCard: some View {
-        Card {
+        Card(padding: 18) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Giving by payment method").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                Text("Money received per channel · all-time · \(currency)").font(.nMicro).foregroundStyle(Nuru.ink600).padding(.top, 2)
+                cardHeader(icon: "chart.bar.fill", title: "Giving by payment method", caption: "all-time · \(currency)")
                 if methodSlices.isEmpty {
                     Text("No channel postings yet.").font(.nCaption).foregroundStyle(Nuru.ink600)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 16)
