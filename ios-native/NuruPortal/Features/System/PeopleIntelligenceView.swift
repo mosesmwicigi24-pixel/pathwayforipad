@@ -108,6 +108,26 @@ private struct IntelDevices: Codable {
     }
 }
 
+private struct IntelActiveTrendRow: Codable, Identifiable {
+    @DefaultEmpty var week: String       // "YYYY-MM-DD" (week start), oldest→newest
+    @DefaultZero var active: Int
+    var id: String { week }
+}
+private struct IntelActiveDaysRow: Codable, Identifiable {
+    @DefaultEmpty var bucket: String     // "1" | "2-3" | "4-7" | "8-15" | "16+"
+    @DefaultZero var members: Int
+    var id: String { bucket }
+}
+private struct IntelActivity: Codable {
+    private let activeTrendRaw: [IntelActiveTrendRow]?
+    private let activeDaysRaw: [IntelActiveDaysRow]?
+    var activeTrend: [IntelActiveTrendRow] { activeTrendRaw ?? [] }
+    var activeDays: [IntelActiveDaysRow] { activeDaysRaw ?? [] }
+    enum CodingKeys: String, CodingKey {
+        case activeTrendRaw = "activeTrend", activeDaysRaw = "activeDays"
+    }
+}
+
 private struct IntelBand: Codable, Identifiable {
     @DefaultEmpty var band: String       // thriving | steady | watch | at_risk
     @DefaultZero var members: Int
@@ -187,6 +207,7 @@ private struct IntelPayload: Codable {
     private let kpisRaw: IntelKpis?
     private let givingRaw: IntelGiving?
     private let devicesRaw: IntelDevices?
+    private let activityRaw: IntelActivity?
     private let engagementRaw: IntelEngagement?
     private let growthRaw: IntelGrowth?
     private let locationRaw: IntelLocation?
@@ -194,6 +215,7 @@ private struct IntelPayload: Codable {
     var kpis: IntelKpis { kpisRaw ?? IntelKpis() }
     var giving: IntelGiving { givingRaw ?? IntelGiving() }
     var devices: IntelDevices { devicesRaw ?? IntelDevices() }
+    var activity: IntelActivity { activityRaw ?? IntelActivity() }
     var engagement: IntelEngagement { engagementRaw ?? IntelEngagement() }
     var growth: IntelGrowth { growthRaw ?? IntelGrowth() }
     var location: IntelLocation { locationRaw ?? IntelLocation() }
@@ -201,6 +223,7 @@ private struct IntelPayload: Codable {
     enum CodingKeys: String, CodingKey {
         case generatedAt
         case kpisRaw = "kpis", givingRaw = "giving", devicesRaw = "devices"
+        case activityRaw = "activity"
         case engagementRaw = "engagement", growthRaw = "growth", locationRaw = "location"
     }
 }
@@ -209,6 +232,7 @@ private struct IntelPayload: Codable {
 private extension IntelKpis { init() { _totalMembers = .init(wrappedValue: 0); _active7d = .init(wrappedValue: 0); _active30d = .init(wrappedValue: 0); _avgEngagement = .init(wrappedValue: 0); _membersAtRisk = .init(wrappedValue: 0); _cohorts = .init(wrappedValue: 0); _givers = .init(wrappedValue: 0); _recurringGivers = .init(wrappedValue: 0); _certificatesThisMonth = .init(wrappedValue: 0) } }
 private extension IntelGiving { init() { _totalMinor = .init(wrappedValue: 0); _giftCount = .init(wrappedValue: 0); _avgPerTxnMinor = .init(wrappedValue: 0); _medianMinor = .init(wrappedValue: 0); _givers = .init(wrappedValue: 0); _currency = .init(wrappedValue: ""); byFundRaw = nil; byMethodRaw = nil; topGiversRaw = nil; frequencyRaw = nil; trendRaw = nil } }
 private extension IntelDevices { init() { platformsRaw = nil; appVersionsRaw = nil; _modelCapture = .init(wrappedValue: false) } }
+private extension IntelActivity { init() { activeTrendRaw = nil; activeDaysRaw = nil } }
 private extension IntelEngagement { init() { bandsRaw = nil; byKindRaw = nil; byHourRaw = nil; _screenDwellCapture = .init(wrappedValue: false); _loginCapture = .init(wrappedValue: false) } }
 private extension IntelGrowth { init() { byLevelRaw = nil; _verseLearners = .init(wrappedValue: 0); _versesMastered = .init(wrappedValue: 0); _plansCompleted = .init(wrappedValue: 0); _plansActive = .init(wrappedValue: 0); _quizAttempts = .init(wrappedValue: 0); _quizPassed = .init(wrappedValue: 0) } }
 private extension IntelLocation { init() { byCityRaw = nil; byCountryRaw = nil; _geoCapture = .init(wrappedValue: false) } }
@@ -331,6 +355,7 @@ struct PeopleIntelligenceView: View {
                         KpiStripSection(k: p.kpis)                                   // 1
                         GivingSection(g: p.giving)                                   // 2
                         AppUsageSection(devices: p.devices, engagement: p.engagement,
+                                        activity: p.activity,
                                         active7d: p.kpis.active7d, active30d: p.kpis.active30d,
                                         totalMembers: p.kpis.totalMembers)           // 3
                         AffinitySection(kinds: p.engagement.byKind)                  // 4
@@ -805,6 +830,15 @@ private struct GivingSection: View {
     }
 }
 
+/// "YYYY-MM-DD" week start → compact "d MMM" label (e.g. "3 Mar").
+private func weekShort(_ s: String) -> String {
+    let parts = s.split(separator: "-")
+    if parts.count >= 3, let m = Int(parts[1]), (1...12).contains(m), let d = Int(parts[2]) {
+        return "\(d) \(Calendar.current.shortMonthSymbols[m - 1])"
+    }
+    return Fmt.date(s, style: .dateTime.day().month(.abbreviated))
+}
+
 /// "2026-03" or ISO → short month label.
 private func monthShort(_ s: String) -> String {
     let parts = s.split(separator: "-")
@@ -819,6 +853,7 @@ private func monthShort(_ s: String) -> String {
 private struct AppUsageSection: View {
     let devices: IntelDevices
     let engagement: IntelEngagement
+    let activity: IntelActivity
     let active7d: Int
     let active30d: Int
     let totalMembers: Int
@@ -827,9 +862,95 @@ private struct AppUsageSection: View {
         VStack(alignment: .leading, spacing: 12) {
             piSectionTitle(icon: "iphone.gen3", "App usage & devices", "Platforms, versions & when the app is used")
             activeHighlight
+            activeTrendCard
+            activeDaysCard
             platformAndVersionCard
             activityByHourCard
             comingNotes
+        }
+    }
+
+    // REAL — active users, last 12 weeks (oldest→newest)
+    private struct WeekBar: Identifiable { let week: String; let label: String; let active: Int; var id: String { week } }
+    private var activeTrendCard: some View {
+        let bars = activity.activeTrend.map { WeekBar(week: $0.week, label: weekShort($0.week), active: $0.active) }
+        let total = bars.reduce(0) { $0 + $1.active }
+        let peak = bars.max { $0.active < $1.active }
+        return Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 0) {
+                PiCardHeader(icon: "chart.line.uptrend.xyaxis", title: "Active users — last 12 weeks",
+                             caption: peak.map { "peak \($0.active)" } ?? "weekly active members")
+                if total == 0 {
+                    emptyNote("No weekly activity recorded yet.").padding(.top, 14)
+                } else {
+                    Chart(bars) { b in
+                        AreaMark(x: .value("Week", b.label), y: .value("Active", b.active))
+                            .interpolationMethod(.monotone)
+                            .foregroundStyle(LinearGradient(colors: [Nuru.lumGreen.opacity(0.26), Nuru.lumGreen.opacity(0.02)], startPoint: .top, endPoint: .bottom))
+                        LineMark(x: .value("Week", b.label), y: .value("Active", b.active))
+                            .interpolationMethod(.monotone).foregroundStyle(Color(hex: 0x0F6B33)).lineStyle(StrokeStyle(lineWidth: 2.5))
+                        PointMark(x: .value("Week", b.label), y: .value("Active", b.active))
+                            .foregroundStyle(Color(hex: 0x0F6B33)).symbolSize(26)
+                    }
+                    .chartXAxis {
+                        AxisMarks { value in
+                            AxisValueLabel { if let s = value.as(String.self) { Text(s).font(.inter(9)).foregroundStyle(axisLabelColor) } }
+                        }
+                    }
+                    .chartYAxis {
+                        AxisMarks { value in
+                            AxisGridLine().foregroundStyle(Nuru.border)
+                            AxisValueLabel { if let v = value.as(Int.self) { Text("\(v)").font(.inter(10)).foregroundStyle(axisLabelColor) } }
+                        }
+                    }
+                    .frame(height: 188).padding(.top, 12)
+                }
+            }
+        }
+    }
+
+    // REAL — active days over 30d (login-frequency signal). Fixed 5-bucket order.
+    private struct DaysBar: Identifiable { let bucket: String; let members: Int; let color: Color; var id: String { bucket } }
+    private var activeDaysOrder: [String] { ["1", "2-3", "4-7", "8-15", "16+"] }
+    private var activeDaysCard: some View {
+        let palette: [Color] = [Color(hex: 0x1D4E86), Color(hex: 0x0D7E73), Nuru.gold, Color(hex: 0x0F6B33), Nuru.lumGreen]
+        let byBucket = Dictionary(activity.activeDays.map { ($0.bucket, $0.members) }, uniquingKeysWith: { a, _ in a })
+        let bars = activeDaysOrder.enumerated().map { i, b in DaysBar(bucket: b, members: byBucket[b] ?? 0, color: palette[i % palette.count]) }
+        let total = bars.reduce(0) { $0 + $1.members }
+        return Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 0) {
+                PiCardHeader(icon: "chart.bar.doc.horizontal.fill", title: "How often members use the app",
+                             caption: "active days · last 30 days")
+                if total == 0 {
+                    emptyNote("No active-day data recorded yet.").padding(.top, 14)
+                } else {
+                    Chart(bars) { b in
+                        BarMark(x: .value("Active days", b.bucket), y: .value("Members", b.members), width: .fixed(32))
+                            .foregroundStyle(b.color).cornerRadius(5)
+                            .annotation(position: .top) {
+                                Text("\(b.members)").font(.inter(10, .bold)).foregroundStyle(Nuru.navy)
+                            }
+                    }
+                    .chartXAxis { AxisMarks { _ in AxisValueLabel().font(.inter(11)).foregroundStyle(axisLabelColor) } }
+                    .chartYAxis {
+                        AxisMarks { value in
+                            AxisGridLine().foregroundStyle(Nuru.border)
+                            AxisValueLabel { if let v = value.as(Int.self) { Text("\(v)").font(.inter(10)).foregroundStyle(axisLabelColor) } }
+                        }
+                    }
+                    .frame(height: 168).padding(.top, 14)
+                    HStack(spacing: 14) {
+                        ForEach(bars) { b in
+                            HStack(spacing: 5) {
+                                RoundedRectangle(cornerRadius: 3).fill(b.color).frame(width: 9, height: 9)
+                                Text("\(b.bucket) days").font(.inter(10.5)).foregroundStyle(Nuru.ink600)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.top, 10)
+                }
+            }
         }
     }
 
@@ -977,7 +1098,7 @@ private struct AppUsageSection: View {
             var out: [String] = []
             if devices.modelCapture == false { out.append("Exact device model — coming") }
             if engagement.screenDwellCapture == false { out.append("Per-screen time — coming") }
-            if engagement.loginCapture == false { out.append("Active-days used as the login proxy (exact login timestamps not captured)") }
+            if engagement.loginCapture == false { out.append("Active-days distribution & weekly trend above are real; exact login timestamps are still not captured, so active-days stands in for sign-in frequency.") }
             return out
         }()
         if !notes.isEmpty {
