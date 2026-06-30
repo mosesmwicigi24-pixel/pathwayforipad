@@ -152,17 +152,29 @@ private struct IntelHour: Codable, Identifiable {
     @DefaultZero var events: Int
     var id: Int { hour }
 }
+// #3 app-area dwell — time spent per app area (only meaningful once
+// screen_dwell_capture is true; rows arrive sorted by total_ms desc).
+private struct IntelAreaDwell: Codable, Identifiable {
+    @DefaultEmpty var screen: String
+    @DefaultZero var totalMs: Int
+    @DefaultZero var sessions: Int
+    @DefaultZero var members: Int
+    var id: String { screen }
+}
 private struct IntelEngagement: Codable {
     private let bandsRaw: [IntelBand]?
     private let byKindRaw: [IntelKind]?
     private let byHourRaw: [IntelHour]?
+    private let areaDwellRaw: [IntelAreaDwell]?
     @DefaultFalse var screenDwellCapture: Bool
     @DefaultFalse var loginCapture: Bool
     var bands: [IntelBand] { bandsRaw ?? [] }
     var byKind: [IntelKind] { byKindRaw ?? [] }
     var byHour: [IntelHour] { byHourRaw ?? [] }
+    var areaDwell: [IntelAreaDwell] { areaDwellRaw ?? [] }
     enum CodingKeys: String, CodingKey {
         case bandsRaw = "bands", byKindRaw = "byKind", byHourRaw = "byHour"
+        case areaDwellRaw = "areaDwell"
         case screenDwellCapture, loginCapture
     }
 }
@@ -241,7 +253,7 @@ private extension IntelKpis { init() { _totalMembers = .init(wrappedValue: 0); _
 private extension IntelGiving { init() { _totalMinor = .init(wrappedValue: 0); _giftCount = .init(wrappedValue: 0); _avgPerTxnMinor = .init(wrappedValue: 0); _medianMinor = .init(wrappedValue: 0); _givers = .init(wrappedValue: 0); _currency = .init(wrappedValue: ""); byFundRaw = nil; byMethodRaw = nil; topGiversRaw = nil; frequencyRaw = nil; trendRaw = nil } }
 private extension IntelDevices { init() { platformsRaw = nil; appVersionsRaw = nil; modelsRaw = nil; _modelCapture = .init(wrappedValue: false) } }
 private extension IntelActivity { init() { activeTrendRaw = nil; activeDaysRaw = nil } }
-private extension IntelEngagement { init() { bandsRaw = nil; byKindRaw = nil; byHourRaw = nil; _screenDwellCapture = .init(wrappedValue: false); _loginCapture = .init(wrappedValue: false) } }
+private extension IntelEngagement { init() { bandsRaw = nil; byKindRaw = nil; byHourRaw = nil; areaDwellRaw = nil; _screenDwellCapture = .init(wrappedValue: false); _loginCapture = .init(wrappedValue: false) } }
 private extension IntelGrowth { init() { byLevelRaw = nil; _verseLearners = .init(wrappedValue: 0); _versesMastered = .init(wrappedValue: 0); _plansCompleted = .init(wrappedValue: 0); _plansActive = .init(wrappedValue: 0); _quizAttempts = .init(wrappedValue: 0); _quizPassed = .init(wrappedValue: 0) } }
 private extension IntelLocation { init() { byCityRaw = nil; byCountryRaw = nil; _geoCapture = .init(wrappedValue: false) } }
 
@@ -309,6 +321,37 @@ private func kindIcon(_ k: String) -> String {
     }
 }
 
+/// Humanise a screen / app-area key (e.g. "lesson_player" → "Lesson player",
+/// "GiveScreen" → "Give") into a friendly label for the time-per-area card.
+private func areaLabel(_ s: String) -> String {
+    if s.isEmpty { return "—" }
+    var t = s
+    // Strip common route/component suffixes the client may emit.
+    for suffix in ["Screen", "View", "Page", "_screen", "_view", "_page"] {
+        if t.hasSuffix(suffix) { t = String(t.dropLast(suffix.count)) }
+    }
+    t = t.replacingOccurrences(of: "_", with: " ")
+    // Split camelCase / PascalCase into words.
+    var out = ""
+    for (i, ch) in t.enumerated() {
+        if ch.isUppercase, i > 0, let prev = out.last, !prev.isUppercase, prev != " " { out.append(" ") }
+        out.append(ch)
+    }
+    out = out.trimmingCharacters(in: .whitespaces)
+    if out.isEmpty { return s }
+    return out.prefix(1).uppercased() + out.dropFirst()
+}
+
+/// Format a millisecond duration as "Xh Ym", "Xm", or "Xs".
+private func dwellDuration(_ ms: Int) -> String {
+    let totalSeconds = max(ms, 0) / 1000
+    let h = totalSeconds / 3600
+    let m = (totalSeconds % 3600) / 60
+    if h > 0 { return m > 0 ? "\(h)h \(m)m" : "\(h)h" }
+    if m > 0 { return "\(m)m" }
+    return "\(totalSeconds)s"
+}
+
 private func platformLabel(_ p: String) -> String {
     switch p.lowercased() {
     case "ios": return "iOS"
@@ -366,7 +409,8 @@ struct PeopleIntelligenceView: View {
                                         activity: p.activity,
                                         active7d: p.kpis.active7d, active30d: p.kpis.active30d,
                                         totalMembers: p.kpis.totalMembers)           // 3
-                        AffinitySection(kinds: p.engagement.byKind)                  // 4
+                        AffinitySection(kinds: p.engagement.byKind,
+                                        engagement: p.engagement)                    // 4
                         EngagementGrowthSection(bands: p.engagement.bands,
                                                 avgEngagement: p.kpis.avgEngagement,
                                                 growth: p.growth)                    // 5
@@ -1162,12 +1206,75 @@ private struct AppUsageSection: View {
 
 private struct AffinitySection: View {
     let kinds: [IntelKind]
+    let engagement: IntelEngagement
     private enum Col { static let events: CGFloat = 80; static let members: CGFloat = 72 }
+    // Columns for the time-per-area mini-table.
+    private enum DCol { static let time: CGFloat = 78; static let sessions: CGFloat = 64; static let members: CGFloat = 64 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             piSectionTitle(icon: "heart.text.square.fill", "App-area affinity", "Which content members engage with most")
             card
+            timePerAreaCard
+        }
+    }
+
+    // #3 app-area dwell — only render once the client actually captures screen
+    // dwell AND we have rows; otherwise fall back to the honest "coming" note,
+    // so the page upgrades from "coming" to real data in place.
+    @ViewBuilder private var timePerAreaCard: some View {
+        let rows = engagement.areaDwell
+            .filter { $0.totalMs > 0 }
+            .sorted { $0.totalMs > $1.totalMs }
+        if engagement.screenDwellCapture, !rows.isEmpty {
+            let maxMs = rows.map(\.totalMs).max() ?? 1
+            Card(padding: 0) {
+                VStack(spacing: 0) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "hourglass").font(.system(size: 13)).foregroundStyle(Nuru.navy)
+                        Text("Time per app area").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
+                        Spacer(minLength: 8)
+                        Text("total time · sessions · members").font(.nMicro).foregroundStyle(Nuru.ink600)
+                    }
+                    .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+                    HStack(spacing: 10) {
+                        Text("AREA").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("TIME").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600).frame(width: DCol.time, alignment: .trailing)
+                        Text("SESS.").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600).frame(width: DCol.sessions, alignment: .trailing)
+                        Text("MEMBERS").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600).frame(width: DCol.members, alignment: .trailing)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Nuru.surface)
+                    Divider().overlay(Nuru.border)
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { i, d in
+                        VStack(spacing: 8) {
+                            HStack(spacing: 10) {
+                                HStack(spacing: 10) {
+                                    TintedIcon(systemName: "clock.fill", color: Nuru.tint(i).fg, size: 30)
+                                    Text(areaLabel(d.screen)).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.85)
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(dwellDuration(d.totalMs)).font(.fraunces(15, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
+                                    .lineLimit(1).minimumScaleFactor(0.6).frame(width: DCol.time, alignment: .trailing)
+                                Text("\(d.sessions)").font(.inter(12.5, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
+                                    .frame(width: DCol.sessions, alignment: .trailing)
+                                Text("\(d.members)").font(.inter(12.5, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
+                                    .frame(width: DCol.members, alignment: .trailing)
+                            }
+                            ProgressBar(pct: Double(d.totalMs) / Double(Swift.max(maxMs, 1)) * 100, fill: Nuru.tint(i).fg, height: 5)
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 11)
+                        .background(i % 2 == 1 ? Nuru.surface.opacity(0.45) : Color.clear)
+                        if i < rows.count - 1 { Divider().overlay(Nuru.border.opacity(0.6)) }
+                    }
+                }
+            }
+        } else {
+            Card(padding: 14) {
+                ComingNote(text: "Per-screen time — coming")
+            }
         }
     }
 

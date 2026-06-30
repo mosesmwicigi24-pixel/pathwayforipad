@@ -11,7 +11,7 @@ enum Section: String, CaseIterable, Identifiable {
     // Operations
     case cellEngagement, members, reflectionQueue, chat, events, finance, certificates, badges
     // System
-    case users, roles, congregations, countries, languages, peopleIntelligence
+    case users, roles, congregations, countries, languages, peopleIntelligence, proximity
     // Reachable from the profile menu (not listed in the sidebar)
     case profile
     var id: String { rawValue }
@@ -40,6 +40,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .countries: "Countries"
         case .languages: "Languages"
         case .peopleIntelligence: "People Intelligence"
+        case .proximity: "Nearby & pairing"
         case .profile: "My Profile"
         }
     }
@@ -68,6 +69,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .countries: "globe"
         case .languages: "character.bubble"
         case .peopleIntelligence: "brain.head.profile"
+        case .proximity: "person.2.wave.2"
         case .profile: "person.crop.circle"
         }
     }
@@ -83,7 +85,7 @@ private let navGroups: [NavGroup] = [
     .init(label: "Portal", items: [.dashboard, .notifications]),
     .init(label: "Operations", items: [.cellEngagement, .members, .reflectionQueue, .chat, .events, .finance, .certificates, .badges]),
     .init(label: "Curriculum", items: [.curriculumLevels, .cms, .levelDetail, .quizBuilder, .videoLibrary, .contentStudio]),
-    .init(label: "System", items: [.users, .roles, .congregations, .countries, .languages, .peopleIntelligence]),
+    .init(label: "System", items: [.users, .roles, .congregations, .countries, .languages, .peopleIntelligence, .proximity]),
 ]
 
 /// App-wide navigation router — lets any detail screen jump to another top-level
@@ -253,6 +255,7 @@ struct RootView: View {
         case .countries:        CountriesView()
         case .languages:        LanguagesView()
         case .peopleIntelligence: PeopleIntelligenceView()
+        case .proximity:        ProximityView()
         case .profile:          ProfileView()
         }
     }
