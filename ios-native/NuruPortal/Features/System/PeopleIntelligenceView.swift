@@ -630,23 +630,34 @@ private struct GivingSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            piSectionTitle(icon: "gift.fill", "Giving intelligence", "\(g.giftCount) gifts · \(g.givers) givers")
+            piSectionTitle(icon: "gift.fill", "Giving — the people", "Who gives & how often · \(g.givers) givers")
+            // PEOPLE KPI tiles only — givers + recurring givers. Money totals (total
+            // giving, avg/median per transaction) and fund/channel breakdowns live in
+            // Finance, so they're intentionally not duplicated here.
             LazyVGrid(columns: kpiGrid, spacing: 12) {
-                PiKpiTile(label: "Total giving", value: Fmt.money(minor: g.totalMinor, currency: currency), icon: "banknote.fill",
-                          tint: .init(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33)))
-                PiKpiTile(label: "Avg / transaction", value: Fmt.money(minor: g.avgPerTxnMinor, currency: currency), icon: "divide.circle.fill",
-                          tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F)))
-                PiKpiTile(label: "Median gift", value: Fmt.money(minor: g.medianMinor, currency: currency), icon: "chart.bar.fill",
-                          tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)))
                 PiKpiTile(label: "Givers", value: "\(g.givers)", icon: "person.2.fill",
                           tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)))
+                PiKpiTile(label: "Recurring givers", value: "\(recurringGivers)", icon: "arrow.triangle.2.circlepath",
+                          tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)))
             }
-            frequencyCard
-            topGiversCard
-            trendCard
-            byFundCard
-            byMethodCard
+            frequencyCard          // how often members give
+            topGiversCard          // who gives
+            financeNote            // pointer: fund & channel detail lives in Finance
         }
+    }
+
+    /// Distinct recurring givers, summed across active recurring-schedule methods.
+    /// People-framed (a count of members), not a money figure.
+    private var recurringGivers: Int { g.byMethod.reduce(0) { $0 + $1.givers } }
+
+    /// Quiet pointer where the money breakdowns used to be — dim caption, no nav.
+    private var financeNote: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.up.right.square").font(.system(size: 11)).foregroundStyle(Nuru.ink400)
+            Text("Fund & channel detail in Finance").font(.inter(11.5)).foregroundStyle(Nuru.ink400)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 2)
     }
 
     // ── Giving frequency (buckets 1 / 2-3 / 4-6 / 7+)
@@ -764,122 +775,11 @@ private struct GivingSection: View {
         .background(zebra ? Nuru.surface.opacity(0.45) : Color.clear)
     }
 
-    // ── Giving trend (6mo line)
-    private struct TrendPoint: Identifiable { let month: String; let value: Int; var id: String { month } }
-    private var trendCard: some View {
-        let pts = g.trend.map { TrendPoint(month: monthShort($0.month), value: Int((Double($0.totalMinor) / 100).rounded())) }
-        return Card(padding: 18) {
-            VStack(alignment: .leading, spacing: 0) {
-                PiCardHeader(icon: "chart.line.uptrend.xyaxis", title: "Giving trend", caption: "last 6 months · \(currency)")
-                if pts.isEmpty {
-                    emptyNote("No giving recorded yet.").padding(.top, 14)
-                } else {
-                    Chart(pts) { p in
-                        AreaMark(x: .value("Month", p.month), y: .value("Amount", p.value))
-                            .interpolationMethod(.monotone)
-                            .foregroundStyle(LinearGradient(colors: [Nuru.gold.opacity(0.28), Nuru.gold.opacity(0.02)], startPoint: .top, endPoint: .bottom))
-                        LineMark(x: .value("Month", p.month), y: .value("Amount", p.value))
-                            .interpolationMethod(.monotone).foregroundStyle(Nuru.gold).lineStyle(StrokeStyle(lineWidth: 2.5))
-                        PointMark(x: .value("Month", p.month), y: .value("Amount", p.value))
-                            .foregroundStyle(Nuru.gold).symbolSize(30)
-                    }
-                    .chartXAxis { AxisMarks { _ in AxisValueLabel().font(.inter(11)).foregroundStyle(axisLabelColor) } }
-                    .chartYAxis {
-                        AxisMarks { value in
-                            AxisGridLine().foregroundStyle(Nuru.border)
-                            AxisValueLabel {
-                                if let v = value.as(Int.self) {
-                                    Text(v >= 1000 ? "\(Int((Double(v)/1000).rounded()))k" : "\(v)").font(.inter(10)).foregroundStyle(axisLabelColor)
-                                }
-                            }
-                        }
-                    }
-                    .frame(height: 196).padding(.top, 12)
-                }
-            }
-        }
-    }
-
-    // ── By fund (pastel % bars)
-    private var byFundCard: some View {
-        let total = g.byFund.reduce(0) { $0 + $1.totalMinor }
-        let sorted = g.byFund.sorted { $0.totalMinor > $1.totalMinor }.filter { $0.totalMinor > 0 }
-        return Card(padding: 18) {
-            VStack(alignment: .leading, spacing: 14) {
-                PiCardHeader(icon: "tray.full.fill", title: "Giving by fund", caption: "all-time · \(currency)")
-                if sorted.isEmpty {
-                    emptyNote("No fund giving recorded yet.")
-                } else {
-                    VStack(spacing: 12) {
-                        ForEach(Array(sorted.enumerated()), id: \.element.id) { i, f in
-                            let pct = total > 0 ? Double(f.totalMinor) / Double(total) : 0
-                            let tint = Nuru.brandTint(i)
-                            VStack(spacing: 6) {
-                                HStack {
-                                    Circle().fill(tint.fg).frame(width: 9, height: 9)
-                                    Text(f.code.isEmpty ? "—" : f.code.capitalized).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                                    Text("· \(f.count)").font(.nMicro).foregroundStyle(Nuru.ink400)
-                                    Spacer(minLength: 6)
-                                    Text(Fmt.money(minor: f.totalMinor, currency: currency))
-                                        .font(.inter(12.5, .semibold)).monospaced().foregroundStyle(Nuru.navy)
-                                        .lineLimit(1).minimumScaleFactor(0.7)
-                                    Text("\(Int((pct*100).rounded()))%").font(.nMicro).foregroundStyle(Nuru.ink600).frame(width: 34, alignment: .trailing)
-                                }
-                                ProgressBar(pct: pct * 100, fill: tint.fg, height: 6)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ── By method (recurring schedules) — mini table
-    private enum MCol { static let sched: CGFloat = 88; static let givers: CGFloat = 72 }
-    private var byMethodCard: some View {
-        let rows = g.byMethod.sorted { $0.schedules > $1.schedules }
-        return Card(padding: 0) {
-            VStack(spacing: 0) {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 13)).foregroundStyle(Nuru.navy)
-                    Text("Recurring giving by method").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
-                    Spacer(minLength: 8)
-                    Text("active schedules").font(.nMicro).foregroundStyle(Nuru.ink600)
-                }
-                .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
-                HStack(spacing: 10) {
-                    Text("METHOD").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    head("SCHEDULES", MCol.sched)
-                    head("GIVERS", MCol.givers)
-                }
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(Nuru.surface)
-                Divider().overlay(Nuru.border)
-                if rows.isEmpty {
-                    emptyNote("No active recurring schedules.").padding(16)
-                } else {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { i, m in
-                        HStack(spacing: 10) {
-                            HStack(spacing: 10) {
-                                TintedIcon(systemName: "creditcard.fill", color: Nuru.brandTint(i).fg, size: 28)
-                                Text(methodLabel(m.method)).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
-                                Spacer(minLength: 0)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            Text("\(m.schedules)").font(.fraunces(15, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
-                                .frame(width: MCol.sched, alignment: .trailing)
-                            Text("\(m.givers)").font(.inter(12.5, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
-                                .frame(width: MCol.givers, alignment: .trailing)
-                        }
-                        .padding(.horizontal, 16).frame(minHeight: 50)
-                        .background(i % 2 == 1 ? Nuru.surface.opacity(0.45) : Color.clear)
-                        if i < rows.count - 1 { Divider().overlay(Nuru.border.opacity(0.6)) }
-                    }
-                }
-            }
-        }
-    }
+    // Money breakdowns intentionally removed — Giving trend (6mo), Giving by fund,
+    // and Recurring/by-method duplicated the Finance page. Finance owns money detail;
+    // this section stays people-framed (who gives + how often). The decoders for
+    // byFund/byMethod/trend remain on IntelGiving (resilient decoding) — those fields
+    // simply aren't rendered here. `recurringGivers` above still reads byMethod.
 }
 
 /// "YYYY-MM-DD" week start → compact "d MMM" label (e.g. "3 Mar").
@@ -889,15 +789,6 @@ private func weekShort(_ s: String) -> String {
         return "\(d) \(Calendar.current.shortMonthSymbols[m - 1])"
     }
     return Fmt.date(s, style: .dateTime.day().month(.abbreviated))
-}
-
-/// "2026-03" or ISO → short month label.
-private func monthShort(_ s: String) -> String {
-    let parts = s.split(separator: "-")
-    if parts.count >= 2, let m = Int(parts[1]), (1...12).contains(m) {
-        return Calendar.current.shortMonthSymbols[m - 1]
-    }
-    return Fmt.date(s, style: .dateTime.month(.abbreviated))
 }
 
 // MARK: - ===================== 3 · App usage & devices =====================
