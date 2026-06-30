@@ -1,0 +1,707 @@
+// Cell Engagement — native port of the web CellEngagement.tsx: a navy hero with a
+// 4-stat strip and action chips, the "Cell roster" grid of cell cards (each a
+// NavigationLink into CellDetailView), an engagement leaderboard, and an at-risk
+// watch list. Wired to PortalAPI.engagement() → EngagementReport.cells.
+import SwiftUI
+
+// Tone palette mirrors the web (TONES) — deterministic per cell id so a cell keeps
+// the same accent colour across the roster, leaderboard and watch list.
+private let cellTones: [Color] = [
+    Color(hex: 0x16A34A), Color(hex: 0x0B84E8), Color(hex: 0x7C3AED),
+    Color(hex: 0xC89B3C), Color(hex: 0xDC2626), Color(hex: 0x0D9488),
+]
+private func toneOf(_ id: String) -> Color {
+    var h = 0
+    for ch in id.unicodeScalars { h = (h &* 31 &+ Int(ch.value)) % cellTones.count }
+    return cellTones[((h % cellTones.count) + cellTones.count) % cellTones.count]
+}
+private func cellInitials(_ name: String) -> String {
+    let cleaned = name.replacingOccurrences(
+        of: #"^(pastor|rev|dr|mr|mrs|ms)\.?\s+"#, with: "",
+        options: [.regularExpression, .caseInsensitive])
+    let parts = cleaned.split(separator: " ").prefix(2).compactMap { $0.first }
+    return parts.isEmpty ? "C" : String(parts).uppercased()
+}
+private func engPct(_ v: Double) -> Int { Int((v).rounded()) }
+
+// MARK: - Page state (mirrors CellEngagement.tsx's load/handleCreate/handleUpdate/
+// toggleFeatured). Refetches the engagement report after every write so the derived
+// metrics + single-featured invariant reflect server truth.
+@MainActor
+private final class CellEngagementViewModel: ObservableObject {
+    @Published var cells: [EngagementCellRow] = []
+    @Published var loading = true
+    @Published var error: String?
+    // EngagementCellRow (shared model) lacks is_featured, so we track which cell is
+    // featured locally, keyed by cell_group_id, refreshed from each homepage write.
+    @Published var featuredId: String?
+    @Published var featuringId: String?
+
+    func load() async {
+        loading = true
+        do {
+            cells = try await PortalAPI.engagement().cells
+            error = nil
+        } catch {
+            self.error = (error as? APIError)?.errorDescription ?? error.localizedDescription
+        }
+        loading = false
+    }
+
+    // Toggle the homepage-featured cell ("This week at Nuru"). The server keeps the
+    // single-featured invariant; we reflect it locally (POST sets, DELETE clears).
+    func toggleFeatured(_ cell: EngagementCellRow) async {
+        guard featuringId == nil else { return }
+        featuringId = cell.cellGroupId
+        error = nil
+        do {
+            if featuredId == cell.cellGroupId {
+                _ = try await APIClient.shared.delete("/admin/cells/\(cell.cellGroupId)/homepage", as: FeaturedResult.self)
+                featuredId = nil
+            } else {
+                _ = try await APIClient.shared.postEmpty("/admin/cells/\(cell.cellGroupId)/homepage", as: FeaturedResult.self)
+                featuredId = cell.cellGroupId
+            }
+        } catch {
+            self.error = "Could not update the homepage-featured cell. " + ((error as? APIError)?.errorDescription ?? error.localizedDescription)
+        }
+        featuringId = nil
+    }
+}
+
+/// Tolerant response for the homepage feature endpoints ({ is_featured: bool }).
+private struct FeaturedResult: Decodable { @DefaultFalse var isFeatured: Bool }
+
+struct CellEngagementView: View {
+    @StateObject private var vm = CellEngagementViewModel()
+    @EnvironmentObject private var router: NavRouter
+    @State private var addOpen = false
+    @State private var editCell: EngagementCellRow?
+    // Portrait roster grid: ~720–760pt usable → 3-up at minimum 220.
+    private let grid = [GridItem(.adaptive(minimum: 220), spacing: 14)]
+    // Top summary: four compact tiles in a row at portrait width (~740pt → min 165 = 4-up).
+    private let summaryGrid = [GridItem(.adaptive(minimum: 165), spacing: 12)]
+
+    var body: some View {
+        Group {
+            if vm.loading && vm.cells.isEmpty {
+                ScrollView { SkeletonList(rows: 6).padding(Nuru.S.screen) }
+            } else if let error = vm.error, vm.cells.isEmpty {
+                ScrollView { ErrorBanner(message: error) { Task { await vm.load() } }.padding(Nuru.S.screen) }
+            } else {
+                content
+            }
+        }
+        .background(Nuru.paper)
+        .portalPage("Cell Engagement")
+        .task { if vm.cells.isEmpty { await vm.load() } }
+        .refreshable { await vm.load() }
+        .sheet(isPresented: $addOpen) {
+            CellModalSheet(cell: nil) { await vm.load() }
+                .presentationDetents([.large])
+        }
+        .sheet(item: $editCell) { cell in
+            CellModalSheet(cell: cell) { await vm.load() }
+                .presentationDetents([.large])
+        }
+    }
+
+    private var content: some View {
+        let cells = vm.cells
+        let totalMembers = cells.reduce(0) { $0 + $1.members }
+        let totalAtRisk = cells.reduce(0) { $0 + $1.atRisk }
+        let overallAvg = totalMembers > 0
+            ? Int((cells.reduce(0.0) { $0 + $1.avgEngagement * Double($1.members) } / Double(totalMembers)).rounded())
+            : 0
+        let ranked = cells.sorted { $0.avgEngagement > $1.avgEngagement }
+        let byRisk = cells.sorted { $0.atRisk > $1.atRisk }
+        // Engagement bands per cell — thriving (≥70%) vs watch (40–69%); at-risk is the
+        // count of cells that have any at-risk members (a pastoral-call signal).
+        let thriving = cells.filter { engPct($0.avgEngagement) >= 70 }.count
+        let watch = cells.filter { let p = engPct($0.avgEngagement); return p >= 40 && p < 70 }.count
+        let atRiskCells = cells.filter { $0.atRisk > 0 }.count
+
+        return ScrollView {
+            VStack(spacing: 18) {
+                PortalHero(
+                    breadcrumb: ["Nuru Pathway", "Operations", "Cell Engagement"],
+                    eyebrow: "Cells & disciplers",
+                    title: "Cell Engagement",
+                    subtitle: "A high-level read on how every cell is doing. Open a cell to see its members, progress and activity in detail.",
+                    stats: [
+                        HeroStat(label: "Active cells", value: "\(cells.count)", hint: "with members"),
+                        HeroStat(label: "Disciples", value: "\(totalMembers)", hint: "across all cells"),
+                        HeroStat(label: "At-risk", value: "\(totalAtRisk)", hint: "need pastoral call"),
+                        HeroStat(label: "Avg engagement", value: "\(overallAvg)%", hint: "all cells"),
+                    ]
+                ) {
+                    HStack(spacing: 8) {
+                        // "Pastoral overview" has no destination in the web (static tag) — leave inert.
+                        HeroChip(label: "Pastoral overview", icon: "sparkles", style: .tag)
+                        // Web: navigate("/reflection-queue").
+                        HeroChip(label: "Action queue", icon: "arrow.up.right", style: .ghost) { router.go(.reflectionQueue) }
+                        // Web: setAddOpen(true) → CellModal (create).
+                        HeroChip(label: "New Cell", icon: "plus", style: .gold) { addOpen = true }
+                    }
+                }
+
+                // Top summary — four compact tiles in a row (portrait ~740pt). Band
+                // colours: avg engagement → navy, thriving → green, watch → amber,
+                // at-risk → red. Real metrics derived from the engagement report.
+                LazyVGrid(columns: summaryGrid, spacing: 12) {
+                    SummaryTile(icon: "gauge.with.dots.needle.67percent",
+                                value: "\(overallAvg)%", label: "Avg engagement",
+                                hint: "all cells", color: Nuru.navy)
+                    SummaryTile(icon: "checkmark.seal.fill",
+                                value: "\(thriving)", label: "Thriving",
+                                hint: "≥ 70% engaged", color: Nuru.success)
+                    SummaryTile(icon: "eye.fill",
+                                value: "\(watch)", label: "Watch",
+                                hint: "40–69% engaged", color: Nuru.warning)
+                    SummaryTile(icon: "exclamationmark.triangle.fill",
+                                value: "\(atRiskCells)", label: "At-risk cells",
+                                hint: "\(totalAtRisk) members", color: Nuru.danger)
+                }
+                .padding(.horizontal, 20)
+
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(alignment: .bottom) {
+                        SectionHeader(overline: "Cell roster", title: "Cells & their disciplers")
+                        // Web: second "New cell" button next to the section heading.
+                        Button { addOpen = true } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "plus").font(.system(size: 12, weight: .bold))
+                                Text("New cell").font(.inter(12.5, .bold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12).frame(height: 34)
+                            .background(Nuru.gold)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .fixedSize()
+                    }
+
+                    if cells.isEmpty {
+                        Text("No cells with engagement data yet.")
+                            .font(.nCaption).foregroundStyle(Nuru.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        LazyVGrid(columns: grid, spacing: 14) {
+                            ForEach(cells) { cell in
+                                CellCard(
+                                    cell: cell,
+                                    isFeatured: vm.featuredId == cell.cellGroupId,
+                                    isFeaturing: vm.featuringId == cell.cellGroupId,
+                                    onEdit: { editCell = cell },
+                                    onToggleFeatured: { Task { await vm.toggleFeatured(cell) } }
+                                )
+                            }
+                        }
+                    }
+
+                    if !cells.isEmpty {
+                        // Side-by-side on the wide canvas so neither panel runs tall
+                        // with empty width; stacks naturally when space is tight.
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 380), spacing: 16)], alignment: .leading, spacing: 16) {
+                            leaderboard(ranked)
+                            atRiskList(byRisk)
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+            .padding(.bottom, 40)
+        }
+        .background(Nuru.paper)
+    }
+
+    // Cell engagement leaderboard — ranked by average engagement.
+    private func leaderboard(_ ranked: [EngagementCellRow]) -> some View {
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    TintedIcon(systemName: "chart.line.uptrend.xyaxis", color: Nuru.success, size: 30)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("PERFORMANCE").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.goldLo)
+                        Text("Cell engagement leaderboard").font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                    }
+                }
+                VStack(spacing: 11) {
+                    ForEach(Array(ranked.enumerated()), id: \.element.id) { idx, cell in
+                        let avg = engPct(cell.avgEngagement)
+                        NavigationLink {
+                            CellDetailView(cellGroupId: cell.cellGroupId, name: cell.name)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    HStack(spacing: 8) {
+                                        ZStack {
+                                            Circle().fill(Nuru.navy)
+                                            Text("\(idx + 1)").font(.inter(11, .bold)).foregroundStyle(.white)
+                                        }.frame(width: 24, height: 24)
+                                        Text(cell.name).font(.inter(13.5, .bold)).foregroundStyle(Nuru.navy)
+                                    }
+                                    Spacer()
+                                    Text("\(avg)%").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
+                                }
+                                ProgressBar(pct: Double(avg), fill: toneOf(cell.cellGroupId), height: 10)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Text("Ranked by average engagement. Tap a cell to drill in.")
+                    .font(.nMicro).foregroundStyle(Nuru.muted)
+            }
+        }
+    }
+
+    // At-risk by cell — prioritise pastoral calls where the count is highest.
+    private func atRiskList(_ byRisk: [EngagementCellRow]) -> some View {
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    TintedIcon(systemName: "exclamationmark.circle", color: Nuru.danger, size: 30)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("NEEDS ATTENTION").font(.nOverline).tracking(1.4).foregroundStyle(Nuru.goldLo)
+                        Text("At-risk by cell").font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                    }
+                }
+                VStack(spacing: 8) {
+                    ForEach(byRisk) { cell in
+                        let tone = toneOf(cell.cellGroupId)
+                        NavigationLink {
+                            CellDetailView(cellGroupId: cell.cellGroupId, name: cell.name)
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 11, style: .continuous).fill(tone.opacity(0.12))
+                                    Text(cellInitials(cell.name)).font(.inter(11, .bold)).foregroundStyle(tone)
+                                }.frame(width: 36, height: 36)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(cell.name).font(.inter(13, .bold)).foregroundStyle(Nuru.navy)
+                                    Text("\(cell.members) members").font(.nMicro).foregroundStyle(Nuru.muted)
+                                }
+                                Spacer()
+                                if cell.atRisk > 0 {
+                                    Pill(text: "\(cell.atRisk) at-risk", color: Nuru.danger)
+                                } else {
+                                    Pill(text: "Healthy", color: Nuru.success)
+                                }
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 9)
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Text("Prioritise pastoral calls where the at-risk count is highest.")
+                    .font(.nMicro).foregroundStyle(Nuru.muted)
+            }
+        }
+    }
+}
+
+// MARK: - Top summary tile
+
+/// Compact summary tile for the four-up top row. Clean vertical hierarchy —
+/// tinted icon chip, one value, one short label, one quiet hint. Band-coloured
+/// (navy / green / amber / red); thin Inter fonts; values never clipped.
+private struct SummaryTile: View {
+    let icon: String, value: String, label: String, hint: String
+    let color: Color
+    var body: some View {
+        Card(padding: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(color.opacity(0.12))
+                    Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(color)
+                }.frame(width: 30, height: 30)
+                Text(value)
+                    .font(.inter(22, .semibold)).foregroundStyle(Nuru.navy)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(label).font(.inter(11.5, .medium)).foregroundStyle(Nuru.ink600)
+                        .lineLimit(1).minimumScaleFactor(0.85)
+                    Text(hint).font(.inter(10, .regular)).foregroundStyle(Nuru.muted)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+// MARK: - Cell roster card
+
+private struct CellCard: View {
+    let cell: EngagementCellRow
+    let isFeatured: Bool
+    let isFeaturing: Bool
+    let onEdit: () -> Void
+    let onToggleFeatured: () -> Void
+    var body: some View {
+        let tone = toneOf(cell.cellGroupId)
+        let avg = engPct(cell.avgEngagement)
+        return Card(padding: 16) {
+            VStack(alignment: .leading, spacing: 14) {
+                // 1) Identity — monogram, name, members. One clean row.
+                HStack(alignment: .center, spacing: 10) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tone.opacity(0.12))
+                        Text(cellInitials(cell.name)).font(.inter(14, .semibold)).foregroundStyle(tone)
+                    }.frame(width: 40, height: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(cell.name).font(.inter(14.5, .semibold)).foregroundStyle(Nuru.navy)
+                            .lineLimit(1).minimumScaleFactor(0.85)
+                        Text("\(cell.members) members").font(.inter(11, .regular)).foregroundStyle(Nuru.muted)
+                    }
+                    Spacer(minLength: 0)
+                    // Feature toggle reduced to a single star affordance so it no longer
+                    // competes with the identity line (POST/DELETE /admin/cells/{id}/homepage).
+                    Button(action: onToggleFeatured) {
+                        Image(systemName: isFeatured ? "star.fill" : "star")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(isFeatured ? Nuru.gold : Nuru.ink300)
+                            .frame(width: 30, height: 30)
+                            .background(isFeatured ? Nuru.gold.opacity(0.12) : Color.black.opacity(0.03))
+                            .clipShape(Circle())
+                            .opacity(isFeaturing ? 0.5 : 1)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isFeaturing)
+                }
+
+                // 2) Engagement — one short label, one value, one bar.
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Engagement").font(.inter(10.5, .medium)).tracking(0.4)
+                            .foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.85)
+                        Spacer()
+                        Text("\(avg)%").font(.inter(16, .semibold)).foregroundStyle(Nuru.navy)
+                    }
+                    ProgressBar(pct: Double(avg), fill: tone, height: 6)
+                }
+
+                // 3) Status — single quiet line.
+                if cell.atRisk > 0 {
+                    statusLabel("exclamationmark.circle.fill", "\(cell.atRisk) at-risk", Nuru.danger)
+                } else {
+                    statusLabel("checkmark.circle.fill", "On track", Nuru.success)
+                }
+
+                // 4) Actions — Edit & View: identical style, identical size, one row.
+                HStack(spacing: 8) {
+                    Button(action: onEdit) { actionLabel("Edit", "pencil") }
+                        .buttonStyle(.plain)
+                    NavigationLink {
+                        CellDetailView(cellGroupId: cell.cellGroupId, name: cell.name)
+                    } label: { actionLabel("View", "arrow.up.right") }
+                        .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    // Identical pill button used for both Edit and View (same size + style).
+    private func actionLabel(_ title: String, _ icon: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 10, weight: .medium))
+            Text(title).font(.inter(12, .medium)).lineLimit(1)
+        }
+        .foregroundStyle(Nuru.navy)
+        .frame(maxWidth: .infinity)
+        .frame(height: 34)
+        .overlay(Capsule().stroke(Nuru.border, lineWidth: 1))
+    }
+
+    private func statusLabel(_ icon: String, _ text: String, _ color: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 10))
+            Text(text).font(.inter(11, .medium)).lineLimit(1).minimumScaleFactor(0.85)
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 9).padding(.vertical, 4)
+        .background(color.opacity(0.10))
+        .clipShape(Capsule())
+    }
+}
+
+// MARK: - Cell create/edit sheet (web CellModal → POST /admin/cells, PATCH /admin/cells/{id})
+
+private let cellRoleOptions = ["Lead discipler", "Discipler", "Assistant discipler"]
+private let cellLevelOptions = [
+    "Level 1 · New Life", "Level 2 · Foundations", "Level 3 · Walking in Faith",
+    "Level 4 · Serving Others", "Level 5 · Multiplier Track",
+]
+private let cellToneOptions: [(key: String, hex: UInt32)] = [
+    ("amber", 0xC89B3C), ("blue", 0x1F3A6B), ("green", 0x16A34A),
+    ("violet", 0x7C3AED), ("rose", 0xDB2777), ("red", 0xDC2626),
+]
+
+/// Request body for POST/PATCH /admin/cells (snake_case via encoder.convertToSnakeCase).
+/// Optional fields omitted when blank, like the web's spread builder.
+private struct CellWriteBody: Encodable {
+    let name: String
+    let disciplerName: String
+    let disciplerRole: String
+    let levelLabel: String
+    let tone: String
+    let focus: String?
+    let meets: String?
+    let room: String?
+    let nextSession: String?
+    let imageUrl: String?
+}
+
+private struct CellModalSheet: View {
+    let cell: EngagementCellRow?          // nil → create
+    let onSaved: () async -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String
+    @State private var discipler: String
+    @State private var disciplerRole: String
+    @State private var level: String
+    @State private var focus = ""
+    @State private var meets = ""
+    @State private var room = ""
+    @State private var nextSession = ""
+    @State private var tone: String
+    @State private var featureOnHomepage = false
+    @State private var coverUrl = ""
+    @State private var saving = false
+    @State private var error: String?
+
+    init(cell: EngagementCellRow?, onSaved: @escaping () async -> Void) {
+        self.cell = cell
+        self.onSaved = onSaved
+        // Prefill what the shared EngagementCellRow carries (name, discipler, level).
+        // role/focus/meets/room/next_session/tone aren't on the slim model, so they
+        // start empty on edit — see NEEDS.
+        _name = State(initialValue: cell?.name ?? "")
+        _discipler = State(initialValue: cell?.disciplerName ?? "")
+        _disciplerRole = State(initialValue: cellRoleOptions[0])
+        _level = State(initialValue: cell?.levelLabel ?? cellLevelOptions[1])
+        _tone = State(initialValue: "amber")
+    }
+
+    private var editing: Bool { cell != nil }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let error {
+                        Text(error).font(.inter(13, .semibold)).foregroundStyle(Nuru.danger)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12).background(Nuru.danger.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+
+                    CFormSection("Cell name & discipler") {
+                        CFieldGrid {
+                            CField("Cell name", required: true) { TextField("e.g. Lakeview Cell", text: $name).cFieldStyle() }
+                            CField("Discipler", required: true) { TextField("e.g. Mary Wanjiru", text: $discipler).cFieldStyle() }
+                        }
+                    }
+
+                    CFormSection("Assignment") {
+                        CFieldGrid {
+                            CField("Discipler role") {
+                                Picker("Discipler role", selection: $disciplerRole) {
+                                    ForEach(cellRoleOptions, id: \.self) { Text($0).tag($0) }
+                                }.cPickerStyle()
+                            }
+                            CField("Curriculum level") {
+                                Picker("Curriculum level", selection: $level) {
+                                    ForEach(cellLevelOptions, id: \.self) { Text($0).tag($0) }
+                                }.cPickerStyle()
+                            }
+                        }
+                    }
+
+                    CFormSection("How it meets") {
+                        CFieldGrid {
+                            CField("Focus") { TextField("e.g. New believers", text: $focus).cFieldStyle() }
+                            CField("Meets") { TextField("e.g. Tue · 6:30 PM", text: $meets).cFieldStyle() }
+                            CField("Room / venue") { TextField("e.g. Hall B", text: $room).cFieldStyle() }
+                            CField("Next session") { TextField("e.g. Tue, Jun 24 · 6:30 PM", text: $nextSession).cFieldStyle() }
+                        }
+                    }
+
+                    CFormSection("Appearance") {
+                        CFieldGrid {
+                            CField("Card colour") {
+                                Picker("Card colour", selection: $tone) {
+                                    ForEach(cellToneOptions, id: \.key) { opt in
+                                        HStack {
+                                            Circle().fill(Color(hex: opt.hex)).frame(width: 14, height: 14)
+                                            Text(opt.key.capitalized)
+                                        }.tag(opt.key)
+                                    }
+                                }.cPickerStyle()
+                            }
+                            ImageUploadField(label: "Cover photo", folder: "events", url: $coverUrl)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+
+                    if !editing {
+                        CFormSection("Homepage") {
+                            Toggle(isOn: $featureOnHomepage) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Feature on homepage").font(.inter(15, .semibold)).foregroundStyle(Nuru.ink)
+                                    Text("Show this cell in “This week at Nuru” on members’ home screens.")
+                                        .font(.inter(12)).foregroundStyle(Nuru.ink600)
+                                }
+                            }
+                            .tint(Nuru.lumGreen)
+                            .padding(.horizontal, 14).padding(.vertical, 12)
+                            .background(Nuru.white)
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
+                }
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24).padding(.vertical, 22)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Nuru.paper)
+            .navigationTitle(editing ? "Edit cell" : "Register a new cell")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.tint(Nuru.ink600)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saving ? (editing ? "Saving…" : "Registering…") : (editing ? "Save" : "Register")) {
+                        Task { await submit() }
+                    }
+                    .font(.inter(14, .bold)).tint(Nuru.gold)
+                    .disabled(saving)
+                }
+            }
+        }
+    }
+
+    private func submit() async {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let trimmedDiscipler = discipler.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else { error = "Cell name is required."; return }
+        guard !trimmedDiscipler.isEmpty else { error = "A discipler is required."; return }
+        func nilIfBlank(_ s: String) -> String? {
+            let t = s.trimmingCharacters(in: .whitespaces); return t.isEmpty ? nil : t
+        }
+        let body = CellWriteBody(
+            name: trimmedName, disciplerName: trimmedDiscipler, disciplerRole: disciplerRole,
+            levelLabel: level, tone: tone,
+            focus: nilIfBlank(focus), meets: nilIfBlank(meets),
+            room: nilIfBlank(room), nextSession: nilIfBlank(nextSession),
+            imageUrl: nilIfBlank(coverUrl)
+        )
+        error = nil; saving = true
+        do {
+            if let cell {
+                _ = try await APIClient.shared.patch("/admin/cells/\(cell.cellGroupId)", body: body, as: EngagementCellRow.self)
+            } else {
+                let created = try await APIClient.shared.post("/admin/cells", body: body, as: EngagementCellRow.self)
+                if featureOnHomepage {
+                    // Set the new cell featured (server keeps single-featured invariant).
+                    _ = try? await APIClient.shared.postEmpty("/admin/cells/\(created.cellGroupId)/homepage", as: FeaturedResult.self)
+                }
+            }
+            await onSaved()
+            dismiss()
+        } catch {
+            self.error = (editing ? "Could not update the cell. " : "Could not register the cell. ")
+                + ((error as? APIError)?.errorDescription ?? error.localizedDescription)
+            saving = false
+        }
+    }
+}
+
+// MARK: - Bright form kit (Pass v6 — warm, roomy, two-column edit/add forms)
+
+/// A bright section card: navy overline title + a white-fielded content block on paper.
+private struct CFormSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title; self.content = content
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title.uppercased())
+                .font(.inter(12, .bold)).tracking(1.2).foregroundStyle(Nuru.navy)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .nuruShadow(0.5)
+    }
+}
+
+/// Two-column adaptive grid for paired fields (wraps to one column when tight).
+private struct CFieldGrid<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)],
+                  alignment: .leading, spacing: 14) {
+            content()
+        }
+    }
+}
+
+/// A labelled field cell — dark-ink overline label above the editable control.
+private struct CField<Content: View>: View {
+    let label: String
+    let required: Bool
+    @ViewBuilder let content: () -> Content
+    init(_ label: String, required: Bool = false, @ViewBuilder content: @escaping () -> Content) {
+        self.label = label; self.required = required; self.content = content
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 3) {
+                Text(label.uppercased()).font(.inter(11.5, .semibold)).tracking(0.8).foregroundStyle(Nuru.ink600)
+                if required { Text("*").font(.inter(11.5, .bold)).foregroundStyle(Nuru.danger) }
+            }
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// White, readable field chrome shared by text inputs, pickers and inline rows.
+private struct CFieldChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.inter(15))
+            .foregroundStyle(Nuru.ink)
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Nuru.white)
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+extension View {
+    fileprivate func cFieldChrome() -> some View { modifier(CFieldChrome()) }
+    fileprivate func cFieldStyle() -> some View { self.textFieldStyle(.plain).cFieldChrome() }
+    fileprivate func cPickerStyle() -> some View {
+        self.pickerStyle(.menu).tint(Nuru.navy)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8).frame(height: 44)
+            .background(Nuru.white)
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
