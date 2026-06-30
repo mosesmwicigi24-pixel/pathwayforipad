@@ -1,23 +1,54 @@
 // Cell Detail — native port of the web CellDetail.tsx: a navy hero (cell monogram,
 // member/at-risk counts, a 4-stat strip), an "Engagement bands" health-mix card with
-// a stacked bar, KPI tiles, and the per-member engagement table. The roster comes
-// from the cohort endpoint (`/cohorts/{cellId}/members` → CohortPage), which carries
-// each member's engagement score and band; the summary KPIs are computed from it.
+// a stacked bar, KPI tiles, and the per-member engagement table.
+//
+// Data sourcing mirrors the web CellDetail exactly (parity fix D-01): instead of the
+// legacy `/cohorts/{cellId}/members` cohort endpoint, the cell is reconstructed from
+// the two canonical admin reads the web portal uses —
+//   • GET /admin/reports/engagement → EngagementReport; find this cell by cellGroupId
+//     for the header summary (name, member count, at-risk, discipler).
+//   • GET /admin/members → the directory; the roster is the rows whose `cell_group_id`
+//     matches this cell, filtered client-side.
+// The per-member engagement metrics (e_score, band, last activity) ride on the member
+// rows, and the band breakdown / KPIs are computed from that real roster.
 import SwiftUI
 
-// MARK: - Page-local models (cohort members endpoint)
+// MARK: - Page-local models (canonical /admin/members roster row)
 
-private struct CohortMemberRow: Decodable, Identifiable {
-    let userId: String
+// The shared MemberRow (Models.swift) does not carry the cell id, so this slim
+// decoder picks up exactly the fields CellDetail needs from /admin/members —
+// including `cell_group_id`, the field MembersView uses to associate a member with
+// a cell. Snake_case is converted by APIClient's decoder (convertFromSnakeCase).
+private struct RosterMemberRow: Decodable, Identifiable {
+    @DefaultEmpty var userId: String
     let fullName: String?
-    let eScore: Double
-    let band: String
-    let lastActiveDaysAgo: Int?
+    let eScore: Double?
+    let band: String?
+    let cellGroupId: String?
+    let lastActivity: String?
     var id: String { userId }
+
+    // Days since last activity (ISO-8601), or nil when unknown — matches the
+    // "Nd ago" affordance the table already renders.
+    var lastActiveDaysAgo: Int? {
+        guard let lastActivity, let d = ISO8601DateFormatter().date(from: lastActivity) else { return nil }
+        return max(0, Int(Date().timeIntervalSince(d) / 86_400))
+    }
 }
-private struct CohortPageDTO: Decodable {
-    let data: [CohortMemberRow]
-    let nextCursor: String?
+private struct RosterPageDTO: Decodable {
+    @MListDefaultCD var data: [RosterMemberRow]
+}
+
+// Resilient list default (an absent/malformed `data` decodes to []), local to this file.
+@propertyWrapper private struct MListDefaultCD<E: Decodable>: Decodable {
+    var wrappedValue: [E]
+    init() { wrappedValue = [] }
+    init(from decoder: Decoder) throws { wrappedValue = (try? [E](from: decoder)) ?? [] }
+}
+extension KeyedDecodingContainer {
+    fileprivate func decode<E>(_ t: MListDefaultCD<E>.Type, forKey k: Key) throws -> MListDefaultCD<E> {
+        try decodeIfPresent(t, forKey: k) ?? MListDefaultCD<E>()
+    }
 }
 
 // Engagement bands, ordered worst→display like the web.
@@ -52,31 +83,43 @@ private enum Band: String, CaseIterable {
 
 @MainActor
 private final class CellDetailViewModel: ObservableObject {
-    @Published var roster: [CohortMemberRow] = []
+    @Published var roster: [RosterMemberRow] = []
+    @Published var cell: EngagementCellRow?     // header summary from the engagement report
+    @Published var cellFound = true             // false when the report omits this cell
     @Published var loading = true
     @Published var error: String?
     @Published var sortAsc = true
 
+    // D-01 parity: source the cell exactly like the web CellDetail —
+    // the engagement report for the header summary + the members directory,
+    // filtered client-side to the rows whose cell_group_id is this cell.
     func load(cellId: String) async {
         loading = true; error = nil
         do {
-            let page = try await APIClient.shared.get("/cohorts/\(cellId)/members", as: CohortPageDTO.self)
-            roster = page.data
+            async let reportT = APIClient.shared.get("/admin/reports/engagement", as: EngagementReport.self)
+            async let membersT = APIClient.shared.get("/admin/members", as: RosterPageDTO.self)
+            let report = try await reportT
+            let members = try await membersT
+            cell = report.cells.first { $0.cellGroupId == cellId }
+            cellFound = cell != nil
+            roster = members.data.filter { $0.cellGroupId == cellId }
         } catch {
             self.error = (error as? APIError)?.errorDescription ?? error.localizedDescription
         }
         loading = false
     }
 
-    var sorted: [CohortMemberRow] {
-        roster.sorted { sortAsc ? $0.eScore < $1.eScore : $0.eScore > $1.eScore }
+    private func score(_ m: RosterMemberRow) -> Double { m.eScore ?? 0 }
+
+    var sorted: [RosterMemberRow] {
+        roster.sorted { sortAsc ? score($0) < score($1) : score($0) > score($1) }
     }
-    func count(_ band: Band) -> Int { roster.filter { $0.band == band.rawValue }.count }
+    func count(_ band: Band) -> Int { roster.filter { ($0.band ?? "steady") == band.rawValue }.count }
     var atRisk: Int { count(.at_risk) }
     var watch: Int { count(.watch) }
     var avg: Int {
         guard !roster.isEmpty else { return 0 }
-        return Int(((roster.reduce(0.0) { $0 + $1.eScore } / Double(roster.count)) * 100).rounded())
+        return Int(((roster.reduce(0.0) { $0 + score($1) } / Double(roster.count)) * 100).rounded())
     }
 }
 
@@ -95,6 +138,10 @@ struct CellDetailView: View {
                 } else if let error = vm.error, vm.roster.isEmpty {
                     ErrorBanner(message: error) { Task { await vm.load(cellId: cellGroupId) } }
                         .padding(.horizontal, 20)
+                } else if !vm.cellFound && vm.roster.isEmpty {
+                    // The engagement report doesn't include this cell and no members
+                    // map to it — show the not-found/empty state (parity with web).
+                    notFound.padding(.horizontal, 20)
                 } else {
                     VStack(spacing: 14) {
                         // Health mix + KPI tiles share one row on the wide canvas
@@ -140,6 +187,19 @@ struct CellDetailView: View {
             // (the web merely cross-navigates to the reflection queue). See NEEDS.
             HeroChip(label: "Message cell", icon: "paperplane.fill", style: .gold)
         }
+    }
+
+    // Not-found / empty state — the engagement report has no row for this cell and
+    // no members map to it. Mirrors the web's empty fallback.
+    private var notFound: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "person.2.slash").font(.title).foregroundStyle(Nuru.ink300)
+            Text("This cell has no members yet.").font(.nBody).foregroundStyle(Nuru.ink600)
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 48)
+        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous)
+            .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [5])).foregroundStyle(Nuru.border))
     }
 
     // Health mix — stacked band bar + per-band counts.
@@ -253,9 +313,9 @@ struct CellDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
     }
 
-    private func memberRow(_ m: CohortMemberRow) -> some View {
-        let score = Int((m.eScore * 100).rounded())
-        let band = Band(rawValue: m.band) ?? .steady
+    private func memberRow(_ m: RosterMemberRow) -> some View {
+        let score = Int(((m.eScore ?? 0) * 100).rounded())
+        let band = Band(rawValue: m.band ?? "steady") ?? .steady
         let nm = m.fullName ?? "—"
         let days = m.lastActiveDaysAgo
         return HStack(spacing: 12) {

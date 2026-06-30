@@ -22,34 +22,37 @@ struct ContentStudioView: View {
 
     // ── Section model (mirrors web `TABS`) ──────────────────────────────────
     enum Tab: String, CaseIterable, Identifiable {
-        case devotionals, verses, dailyverses, plans, resources
+        case devotionals, verses, dailyverses, plans, resources, encouragements
         var id: String { rawValue }
 
         var label: String {
             switch self {
-            case .devotionals: return "Devotionals"
-            case .verses:      return "Memory Verses"
-            case .dailyverses: return "Daily Verses"
-            case .plans:       return "Reading Plans"
-            case .resources:   return "Resources"
+            case .devotionals:    return "Devotionals"
+            case .verses:         return "Memory Verses"
+            case .dailyverses:    return "Daily Verses"
+            case .plans:          return "Reading Plans"
+            case .resources:      return "Resources"
+            case .encouragements: return "Encouragements"
             }
         }
         var singular: String {
             switch self {
-            case .devotionals: return "devotional"
-            case .verses:      return "memory verse"
-            case .dailyverses: return "daily verse"
-            case .plans:       return "reading plan"
-            case .resources:   return "resource"
+            case .devotionals:    return "devotional"
+            case .verses:         return "memory verse"
+            case .dailyverses:    return "daily verse"
+            case .plans:          return "reading plan"
+            case .resources:      return "resource"
+            case .encouragements: return "encouragement"
             }
         }
         var icon: String {
             switch self {
-            case .devotionals: return "book"
-            case .verses:      return "quote.bubble"
-            case .dailyverses: return "calendar"
-            case .plans:       return "calendar.badge.clock"
-            case .resources:   return "books.vertical"
+            case .devotionals:    return "book"
+            case .verses:         return "quote.bubble"
+            case .dailyverses:    return "calendar"
+            case .plans:          return "calendar.badge.clock"
+            case .resources:      return "books.vertical"
+            case .encouragements: return "sparkles"
             }
         }
         // Per-section accent — ONLY the two main brand colors: dark navy and golden
@@ -57,11 +60,12 @@ struct ContentStudioView: View {
         // whole page reads as one cohesive navy+gold palette (no green/amber/blue).
         var accent: Color {
             switch self {
-            case .devotionals: return Nuru.navy    // navy
-            case .verses:      return Nuru.gold    // gold
-            case .dailyverses: return Nuru.navy    // navy
-            case .plans:       return Nuru.gold    // gold
-            case .resources:   return Nuru.navy    // navy
+            case .devotionals:    return Nuru.navy    // navy
+            case .verses:         return Nuru.gold    // gold
+            case .dailyverses:    return Nuru.navy    // navy
+            case .plans:          return Nuru.gold    // gold
+            case .resources:      return Nuru.navy    // navy
+            case .encouragements: return Nuru.gold    // gold
             }
         }
         // web: dailyverses has no New button (fixed-schedule, edit-only).
@@ -70,6 +74,9 @@ struct ContentStudioView: View {
 
     @State private var tab: Tab = .devotionals
     @State private var query = ""
+
+    // Encouragements are per-level (1..6); this picker scopes their list + create.
+    @State private var encLevel = 1
 
     // Counts for the tab badges — captured from each section's loaded rows.
     @State private var counts: [Tab: Int] = [:]
@@ -88,6 +95,7 @@ struct ContentStudioView: View {
         case dailyVerse(DailyVerseFull)
         case plan(PlanListItem?)        // edit loads days lazily by id
         case resource(ResourceFull?)
+        case encouragement(EncouragementFull?, level: Int)  // per-level; create defaults to `level`
         var id: String {
             switch self {
             case .devotional(let r): return "dev:\(r?.devotionalId ?? "new")"
@@ -95,6 +103,7 @@ struct ContentStudioView: View {
             case .dailyVerse(let r): return "day:\(r.dayIndex)"
             case .plan(let r):       return "plan:\(r?.planId ?? "new")"
             case .resource(let r):   return "res:\(r?.resourceId ?? "new")"
+            case .encouragement(let r, let lvl): return "enc:\(r?.encouragementId ?? "new"):L\(lvl)"
             }
         }
     }
@@ -118,6 +127,8 @@ struct ContentStudioView: View {
             case .dailyVerse(let r): DailyVerseForm(row: r) { bump(.dailyverses) }
             case .plan(let r):       PlanForm(row: r) { bump(.plans) }
             case .resource(let r):   ResourceForm(row: r) { bump(.resources) }
+            case .encouragement(let r, let lvl):
+                EncouragementForm(row: r, defaultLevel: lvl) { bump(.encouragements) }
             }
         }
     }
@@ -174,6 +185,21 @@ struct ContentStudioView: View {
                                     onToggle: { Task { await toggleResource(r) } })
                     }
                 }.id(reload[.resources, default: 0])
+            case .encouragements:
+                VStack(alignment: .leading, spacing: 0) {
+                    levelPicker
+                    AsyncView({ try await GrowthAPI.encouragements(level: encLevel) }) { rows in
+                        section(filterEncouragements(rows), count: .encouragements, total: rows.count) { r in
+                            EncouragementRow(e: r,
+                                             onEdit: { editor = .encouragement(r, level: encLevel) },
+                                             onDelete: { confirmDelete(.encouragement(r)) },
+                                             onAdd: { openNew() },
+                                             onToggle: { Task { await toggleEncouragement(r) } })
+                        }
+                    }
+                    // Re-mount on reload OR when the selected level changes (re-fetches that level).
+                    .id("enc-\(encLevel)-\(reload[.encouragements, default: 0])")
+                }
             }
         }
         .alert("Delete this item?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
@@ -223,6 +249,7 @@ struct ContentStudioView: View {
         case .verses:      editor = .verse(nil)
         case .plans:       editor = .plan(nil)
         case .resources:   editor = .resource(nil)
+        case .encouragements: editor = .encouragement(nil, level: encLevel)
         case .dailyverses: break   // no create
         }
     }
@@ -283,6 +310,32 @@ struct ContentStudioView: View {
         .padding(.horizontal, 20).padding(.top, 16)
     }
 
+    // ── Level picker (encouragements only) — scopes the list + create to one
+    // level. Capsule segmented buttons (1..6) in the section's gold accent, matching
+    // the section switcher style. Navy + gold only.
+    private var levelPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Text("LEVEL").font(.inter(11, .bold)).tracking(0.8).foregroundStyle(Nuru.ink600)
+                ForEach(1...6, id: \.self) { lvl in
+                    let on = lvl == encLevel
+                    Button { encLevel = lvl } label: {
+                        Text("\(lvl)")
+                            .font(.inter(13.5, on ? .bold : .semibold))
+                            .foregroundStyle(on ? AnyShapeStyle(Nuru.navy) : AnyShapeStyle(Nuru.ink600))
+                            .frame(width: 38, height: 34)
+                            .background(on ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.white))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(on ? Color.clear : Nuru.border, lineWidth: 1))
+                            .shadow(color: on ? Nuru.gold.opacity(0.28) : .clear, radius: 6, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 20).padding(.top, 16)
+        }
+    }
+
     // ── Generic section: a single white table card of full-width ROWS, hairline
     // dividers between them (like the other list/table pages), + empty state +
     // count capture. Each item is ONE compact row (icon → title → meta → status →
@@ -331,16 +384,21 @@ struct ContentStudioView: View {
     private func filterResources(_ r: [ResourceFull]) -> [ResourceFull] {
         r.filter { match("\($0.title) \($0.author ?? "") \($0.kind)") }
     }
+    private func filterEncouragements(_ r: [EncouragementFull]) -> [EncouragementFull] {
+        r.filter { match("\($0.title) \($0.body) \($0.kind) \($0.scriptureRef ?? "")") }
+    }
 
     // ── Delete (web `remove`): confirm via alert, then DELETE + reload tab ──
     enum DeleteTarget: Identifiable {
         case devotional(DevotionalFull), verse(VerseFull), plan(PlanListItem), resource(ResourceFull)
+        case encouragement(EncouragementFull)
         var id: String {
             switch self {
             case .devotional(let r): return r.devotionalId
             case .verse(let r):      return r.memoryVerseId
             case .plan(let r):       return r.planId
             case .resource(let r):   return r.resourceId
+            case .encouragement(let r): return r.encouragementId
             }
         }
     }
@@ -357,6 +415,7 @@ struct ContentStudioView: View {
                 case .verse(let r):      try await GrowthAPI.deleteVerse(r.memoryVerseId); bump(.verses)
                 case .plan(let r):       try await GrowthAPI.deletePlan(r.planId); bump(.plans)
                 case .resource(let r):   try await GrowthAPI.deleteResource(r.resourceId); bump(.resources)
+                case .encouragement(let r): try await GrowthAPI.deleteEncouragement(r.encouragementId); bump(.encouragements)
                 }
             } catch { /* surfaced on next load; deletes are idempotent server-side */ }
         }
@@ -380,6 +439,10 @@ struct ContentStudioView: View {
     private func toggleResource(_ r: ResourceFull) async {
         try? await GrowthAPI.updateResource(r.resourceId, ResourceBody(from: r, isActive: !r.isActive))
         bump(.resources)
+    }
+    private func toggleEncouragement(_ r: EncouragementFull) async {
+        try? await GrowthAPI.updateEncouragement(r.encouragementId, EncouragementBody(from: r, isActive: !r.isActive))
+        bump(.encouragements)
     }
 }
 
@@ -481,6 +544,23 @@ struct ResourceFull: Codable, Identifiable {
     let sort: Int?
     @DefaultFalse var isActive: Bool
     var id: String { resourceId }
+}
+
+// Encouragement (per-level trail interstitials). All optional / @Default* so a
+// stray null never breaks a load. `kind` drives the row icon/label.
+struct EncouragementFull: Codable, Identifiable {
+    @DefaultEmpty var encouragementId: String
+    @DefaultZero var levelNumber: Int
+    @DefaultZero var afterModuleSequence: Int
+    @DefaultEmpty var kind: String
+    @DefaultEmpty var title: String
+    @DefaultEmpty var body: String
+    let imageUrl: String?
+    let scriptureRef: String?
+    let emoji: String?
+    @DefaultFalse var isActive: Bool
+    @DefaultZero var sortOrder: Int
+    var id: String { encouragementId }
 }
 
 // MARK: - JSON body helper (conditional keys, mirrors web's object spread)
@@ -586,6 +666,36 @@ private struct ResourceBody: Encodable {
     init(from r: ResourceFull, isActive: Bool) {
         self.init(title: r.title, kind: r.kind, isActive: isActive, author: r.author ?? "",
                   durationLabel: r.durationLabel ?? "", url: r.url ?? "", sort: r.sort)
+    }
+    func encode(to encoder: Encoder) throws { try body.encode(to: encoder) }
+}
+
+/// Encouragement create/update body. Required: kind, title, body. The optional
+/// strings spread in only when non-empty (mirrors the web object spread).
+private struct EncouragementBody: Encodable {
+    var body: [String: JSONValue]
+    init(kind: String, title: String, body bodyText: String, afterModuleSequence: Int,
+         sortOrder: Int, isActive: Bool, levelNumber: Int,
+         scriptureRef: String, emoji: String, imageUrl: String) {
+        var b: [String: JSONValue] = [
+            "kind": .string(kind.isEmpty ? "note" : kind),
+            "title": .string(title),
+            "body": .string(bodyText),
+            "after_module_sequence": .int(afterModuleSequence),
+            "sort_order": .int(sortOrder),
+            "is_active": .bool(isActive),
+            "level_number": .int(levelNumber),
+        ]
+        if !scriptureRef.isEmpty { b["scripture_ref"] = .string(scriptureRef) }
+        if !emoji.isEmpty { b["emoji"] = .string(emoji) }
+        if !imageUrl.isEmpty { b["image_url"] = .string(imageUrl) }
+        self.body = b
+    }
+    init(from r: EncouragementFull, isActive: Bool) {
+        self.init(kind: r.kind, title: r.title, body: r.body,
+                  afterModuleSequence: r.afterModuleSequence, sortOrder: r.sortOrder,
+                  isActive: isActive, levelNumber: r.levelNumber,
+                  scriptureRef: r.scriptureRef ?? "", emoji: r.emoji ?? "", imageUrl: r.imageUrl ?? "")
     }
     func encode(to encoder: Encoder) throws { try body.encode(to: encoder) }
 }
@@ -711,6 +821,27 @@ private enum GrowthAPI {
     static func updateDailyVerse(_ dayIndex: Int, _ b: DailyVerseBody) async throws {
         _ = try await APIClient.shared.put("\(G)/daily-verses/\(dayIndex)", body: b, as: OkResponse.self)
     }
+
+    // Encouragements live OUTSIDE /admin/growth: list/create are level-scoped
+    // (/admin/levels/{n}/encouragements), update/delete are by id
+    // (/admin/encouragements/{id}). The list endpoint returns a bare array, so we
+    // decode tolerantly whether the server wraps it in {data:[…]} or not.
+    static func encouragements(level n: Int) async throws -> [EncouragementFull] {
+        let path = "/admin/levels/\(n)/encouragements"
+        if let wrapped = try? await APIClient.shared.get(path, as: DataList<EncouragementFull>.self) {
+            return wrapped.data
+        }
+        return try await APIClient.shared.get(path, as: [EncouragementFull].self)
+    }
+    static func createEncouragement(level n: Int, _ b: EncouragementBody) async throws {
+        _ = try await APIClient.shared.post("/admin/levels/\(n)/encouragements", body: b, as: OkResponse.self)
+    }
+    static func updateEncouragement(_ id: String, _ b: EncouragementBody) async throws {
+        _ = try await APIClient.shared.put("/admin/encouragements/\(id)", body: b, as: OkResponse.self)
+    }
+    static func deleteEncouragement(_ id: String) async throws {
+        _ = try await APIClient.shared.delete("/admin/encouragements/\(id)", as: OkResponse.self)
+    }
 }
 
 // Picker option lists (web VERSIONS / PLAN_CATEGORIES / RESOURCE_KINDS).
@@ -718,6 +849,7 @@ private let VERSIONS = ["WEB", "NIV", "ESV", "KJV", "NLT", "MSG"]
 private let PLAN_CATEGORIES = ["Foundations", "Growth", "Prayer", "Devotion", "Topical"]
 private let RESOURCE_KINDS = ["book", "audio", "video", "article"]
 private let SEGMENT_KINDS = ["devotional", "scripture", "video", "talk", "reading"]
+private let ENCOURAGEMENT_KINDS = ["splash", "cheer", "sticker", "note", "celebration", "nudge", "verse"]
 
 // MARK: - Row shell
 //
@@ -1010,6 +1142,46 @@ private struct ResourceRow: View {
             },
             status: (r.isActive, "Active", "Inactive", onToggle),
             onEdit: onEdit, onDelete: onDelete, onAdd: onAdd)
+    }
+}
+
+private struct EncouragementRow: View {
+    let e: EncouragementFull
+    var onEdit: () -> Void
+    var onDelete: () -> Void
+    var onAdd: () -> Void
+    var onToggle: () -> Void
+    private let accent = Nuru.gold     // encouragements = gold (brand)
+    var body: some View {
+        ContentRow(
+            accent: accent, icon: encIcon(e.kind),
+            title: e.title.isEmpty ? "Untitled encouragement" : e.title,
+            subtitle: e.emoji.flatMap { $0.isEmpty ? nil : "\($0)  \(e.kind.capitalized)" } ?? e.kind.capitalized,
+            meta: {
+                MetricChip(icon: "sparkles", text: e.kind.capitalized, color: accent)
+                MetricChip(icon: "arrow.turn.down.right",
+                           text: "after module \(e.afterModuleSequence)", color: Nuru.navy)
+                if let s = e.scriptureRef, !s.isEmpty {
+                    MetricChip(icon: "text.quote", text: s, color: Nuru.ink600)
+                }
+            },
+            preview: e.body,
+            status: (e.isActive, "Active", "Inactive", onToggle),
+            onEdit: onEdit, onDelete: onDelete, onAdd: onAdd)
+    }
+}
+
+// Map an encouragement `kind` to an SF Symbol for its tinted row chip.
+private func encIcon(_ kind: String) -> String {
+    switch kind {
+    case "splash":      return "drop.fill"
+    case "cheer":       return "hands.clap.fill"
+    case "sticker":     return "star.circle.fill"
+    case "note":        return "note.text"
+    case "celebration": return "party.popper.fill"
+    case "nudge":       return "hand.point.right.fill"
+    case "verse":       return "text.quote"
+    default:            return "sparkles"
     }
 }
 
@@ -1730,6 +1902,133 @@ private struct PlanForm: View {
         do {
             if let r = row { try await GrowthAPI.updatePlan(r.planId, b) }
             else { try await GrowthAPI.createPlan(b) }
+            saving = false; onDone(); dismiss()
+        } catch { self.error = (error as? APIError)?.errorDescription ?? "Could not save."; saving = false }
+    }
+}
+
+// Encouragement form — the per-level trail interstitials the web Content Studio
+// authors. Required: kind, title, body. Create POSTs to the selected level; edit
+// PUTs by id (and may move the row to another level via the Level picker).
+private struct EncouragementForm: View {
+    let row: EncouragementFull?
+    let defaultLevel: Int
+    let onDone: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var levelNumber = 1
+    @State private var kind = "note"
+    @State private var title = ""
+    @State private var bodyText = ""
+    @State private var scriptureRef = ""
+    @State private var emoji = ""
+    @State private var afterModuleSequence = ""
+    @State private var sortOrder = ""
+    @State private var imageUrl = ""
+    @State private var isActive = true
+    @State private var saving = false
+    @State private var error: String?
+
+    private var isEdit: Bool { row != nil }
+    private var canSave: Bool {
+        !title.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !bodyText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let error {
+                    SwiftUI.Section { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }.listRowBackground(Color.clear)
+                }
+                SwiftUI.Section {
+                    CSFieldPair {
+                        CSFieldCell(label: "Level") {
+                            Picker("", selection: $levelNumber) { ForEach(1...6, id: \.self) { Text("Level \($0)").tag($0) } }
+                                .labelsHidden().pickerStyle(.menu).tint(Nuru.navy).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } right: {
+                        CSFieldCell(label: "Kind", required: true) {
+                            Picker("", selection: $kind) { ForEach(ENCOURAGEMENT_KINDS, id: \.self) { Text($0.capitalized).tag($0) } }
+                                .labelsHidden().pickerStyle(.menu).tint(Nuru.navy).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    CSFieldCell(label: "Title", required: true) { TextField("You made it!", text: $title) }
+                    CSTextAreaCell(label: "Body", required: true, placeholder: "Write the encouragement…", text: $bodyText, lines: 3...8)
+                } header: { CSSectionHeader(text: "Encouragement") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    CSFieldPair {
+                        CSFieldCell(label: "Scripture ref") { TextField("Philippians 4:13", text: $scriptureRef) }
+                    } right: {
+                        CSFieldCell(label: "Emoji") { TextField("🎉", text: $emoji) }
+                    }
+                    CSFieldPair {
+                        CSFieldCell(label: "After module") { TextField("3", text: $afterModuleSequence).keyboardType(.numberPad) }
+                    } right: {
+                        CSFieldCell(label: "Sort order") { TextField("1", text: $sortOrder).keyboardType(.numberPad) }
+                    }
+                } header: { CSSectionHeader(text: "Placement") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    ImageUploadField(label: "Image", folder: "moments", url: $imageUrl)
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Nuru.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                } header: { CSSectionHeader(text: "Media") }
+                .listRowBackground(Color.clear)
+
+                SwiftUI.Section {
+                    CSControlTile { Toggle("Active", isOn: $isActive).tint(Nuru.gold) }
+                }
+                .listRowBackground(Color.clear)
+            }
+            .csFormSheet()
+            .frame(maxWidth: 820)
+            .frame(maxWidth: .infinity)
+            .background(Nuru.paper)
+            .navigationTitle(isEdit ? "Edit encouragement" : "New encouragement")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await save() } }.font(.inter(15, .semibold)).disabled(!canSave || saving)
+                }
+            }
+            .onAppear(perform: prime)
+        }
+    }
+
+    private func prime() {
+        guard let r = row else { levelNumber = (1...6).contains(defaultLevel) ? defaultLevel : 1; return }
+        levelNumber = (1...6).contains(r.levelNumber) ? r.levelNumber : defaultLevel
+        kind = r.kind.isEmpty ? "note" : r.kind
+        title = r.title; bodyText = r.body
+        scriptureRef = r.scriptureRef ?? ""; emoji = r.emoji ?? ""
+        afterModuleSequence = String(r.afterModuleSequence)
+        sortOrder = String(r.sortOrder)
+        imageUrl = r.imageUrl ?? ""; isActive = r.isActive
+    }
+    private func save() async {
+        saving = true; error = nil
+        let b = EncouragementBody(
+            kind: kind,
+            title: title.trimmingCharacters(in: .whitespaces),
+            body: bodyText.trimmingCharacters(in: .whitespaces),
+            afterModuleSequence: Int(afterModuleSequence.trimmingCharacters(in: .whitespaces)) ?? 0,
+            sortOrder: Int(sortOrder.trimmingCharacters(in: .whitespaces)) ?? 0,
+            isActive: isActive,
+            levelNumber: levelNumber,
+            scriptureRef: scriptureRef.trimmingCharacters(in: .whitespaces),
+            emoji: emoji.trimmingCharacters(in: .whitespaces),
+            imageUrl: imageUrl.trimmingCharacters(in: .whitespaces))
+        do {
+            if let r = row { try await GrowthAPI.updateEncouragement(r.encouragementId, b) }
+            else { try await GrowthAPI.createEncouragement(level: levelNumber, b) }
             saving = false; onDone(); dismiss()
         } catch { self.error = (error as? APIError)?.errorDescription ?? "Could not save."; saving = false }
     }
