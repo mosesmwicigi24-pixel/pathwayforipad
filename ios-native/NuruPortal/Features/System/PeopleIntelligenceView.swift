@@ -528,38 +528,24 @@ private struct PiKpiTile: View {
     }
 }
 
-/// White-card header band (icon + serif title + right caption), matches Finance.
+/// Uniform white-card header band — a small TintedIcon chip + title + optional right
+/// caption — matching the Dashboard's card headers. Every card on this page (padded or
+/// table-style) uses this so the headers read as one consistent family. `tint` colours
+/// the chip; the title stays navy for a calm, even rhythm across the grid.
 private struct PiCardHeader: View {
     let icon: String, title: String, caption: String
+    var tint: Color = Nuru.navy
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 13)).foregroundStyle(Nuru.navy)
+        HStack(spacing: 9) {
+            TintedIcon(systemName: icon, color: tint, size: 28)
             Text(title).font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
+                .lineLimit(1).minimumScaleFactor(0.85)
             Spacer(minLength: 8)
-            Text(caption).font(.nMicro).foregroundStyle(Nuru.ink600)
-        }
-    }
-}
-
-/// Inset panel used inside section cards (matches Finance/Dashboard report panels).
-private struct PiPanel<C: View>: View {
-    let title: String
-    var trailing: String? = nil
-    @ViewBuilder var content: () -> C
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(title).font(.inter(13, .bold)).foregroundStyle(Nuru.navy)
-                Spacer()
-                if let trailing { Text(trailing).font(.nMicro).foregroundStyle(Nuru.ink600) }
+            if !caption.isEmpty {
+                Text(caption).font(.nMicro).foregroundStyle(Nuru.ink600)
+                    .lineLimit(1).fixedSize()
             }
-            content()
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Nuru.surface)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 }
 
@@ -746,7 +732,7 @@ private struct GivingCards {
     var giversCard: some View {
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
-                PiCardHeader(icon: "person.2.fill", title: "Givers", caption: "who gives")
+                PiCardHeader(icon: "person.2.fill", title: "Givers", caption: "who gives", tint: Color(hex: 0x166534))
                 HStack(alignment: .top, spacing: 14) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(g.givers)").font(.fraunces(30, .semibold)).foregroundStyle(Nuru.navy)
@@ -791,9 +777,11 @@ private struct GivingCards {
         let total = bars.reduce(0) { $0 + $1.givers }
         return Card(padding: 18) {
             VStack(alignment: .leading, spacing: 0) {
-                PiCardHeader(icon: "chart.bar.doc.horizontal.fill", title: "Giving frequency", caption: "givers by gift count")
+                PiCardHeader(icon: "chart.bar.doc.horizontal.fill", title: "Giving frequency",
+                             caption: "by gift count", tint: Nuru.gold)
                 if total == 0 {
                     emptyNote("No giving recorded yet.").padding(.top, 14)
+                    Spacer(minLength: 0)
                 } else {
                     Chart(bars) { b in
                         BarMark(x: .value("Gifts", b.bucket), y: .value("Givers", b.givers), width: .fixed(34))
@@ -821,6 +809,7 @@ private struct GivingCards {
                     }
                     .padding(.top, 10)
                 }
+                Spacer(minLength: 0)
             }
         }
     }
@@ -830,13 +819,8 @@ private struct GivingCards {
     var topGiversCard: some View {
         Card(padding: 0) {
             VStack(spacing: 0) {
-                HStack(spacing: 6) {
-                    Image(systemName: "trophy.fill").font(.system(size: 13)).foregroundStyle(Nuru.navy)
-                    Text("Top givers").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
-                    Spacer(minLength: 8)
-                    Text("by total").font(.nMicro).foregroundStyle(Nuru.ink600)
-                }
-                .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+                PiCardHeader(icon: "trophy.fill", title: "Top givers", caption: "by total", tint: Nuru.gold)
+                    .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
 
                 HStack(spacing: 10) {
                     Text("GIVER").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
@@ -928,9 +912,10 @@ private struct AppUsageCards {
         return Card(padding: 18) {
             VStack(alignment: .leading, spacing: 0) {
                 PiCardHeader(icon: "chart.line.uptrend.xyaxis", title: "Active users — last 12 weeks",
-                             caption: peak.map { "peak \($0.active)" } ?? "weekly active members")
+                             caption: peak.map { "peak \($0.active)" } ?? "weekly active", tint: Color(hex: 0x0F6B33))
                 if total == 0 {
                     emptyNote("No weekly activity recorded yet.").padding(.top, 14)
+                    Spacer(minLength: 0)
                 } else {
                     Chart(bars) { b in
                         AreaMark(x: .value("Week", b.label), y: .value("Active", b.active))
@@ -954,6 +939,7 @@ private struct AppUsageCards {
                     }
                     .frame(height: 188).padding(.top, 12)
                 }
+                Spacer(minLength: 0)
             }
         }
     }
@@ -969,9 +955,10 @@ private struct AppUsageCards {
         return Card(padding: 18) {
             VStack(alignment: .leading, spacing: 0) {
                 PiCardHeader(icon: "chart.bar.doc.horizontal.fill", title: "How often members use the app",
-                             caption: "active days · last 30 days")
+                             caption: "active days · 30d", tint: Color(hex: 0x0D7E73))
                 if total == 0 {
                     emptyNote("No active-day data recorded yet.").padding(.top, 14)
+                    Spacer(minLength: 0)
                 } else {
                     Chart(bars) { b in
                         BarMark(x: .value("Active days", b.bucket), y: .value("Members", b.members), width: .fixed(32))
@@ -999,6 +986,7 @@ private struct AppUsageCards {
                     }
                     .padding(.top, 10)
                 }
+                Spacer(minLength: 0)
             }
         }
     }
@@ -1007,26 +995,23 @@ private struct AppUsageCards {
     var activeHighlight: some View {
         let pct7 = totalMembers > 0 ? Double(active7d) / Double(totalMembers) * 100 : 0
         return Card(padding: 18) {
-            HStack(spacing: 14) {
-                TintedIcon(systemName: "wave.3.right", color: Color(hex: 0x0F6B33), size: 52)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Active in app").font(.inter(13, .semibold)).foregroundStyle(Nuru.ink600)
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text("\(active7d)").font(.fraunces(30, .semibold)).foregroundStyle(Nuru.navy)
-                            Text("LAST 7 DAYS").font(.inter(9, .bold)).tracking(0.6).foregroundStyle(Nuru.ink400)
-                        }
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text("\(active30d)").font(.fraunces(30, .semibold)).foregroundStyle(Color(hex: 0x0F6B33))
-                            Text("LAST 30 DAYS").font(.inter(9, .bold)).tracking(0.6).foregroundStyle(Nuru.ink400)
-                        }
+            VStack(alignment: .leading, spacing: 14) {
+                PiCardHeader(icon: "wave.3.right", title: "Active in app",
+                             caption: "\(Int(pct7.rounded()))% of \(totalMembers)", tint: Color(hex: 0x0F6B33))
+                HStack(alignment: .top, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(active7d)").font(.fraunces(30, .semibold)).foregroundStyle(Nuru.navy)
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                        Text("LAST 7 DAYS").font(.inter(9, .bold)).tracking(0.6).foregroundStyle(Nuru.ink400)
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(active30d)").font(.fraunces(30, .semibold)).foregroundStyle(Color(hex: 0x0F6B33))
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                        Text("LAST 30 DAYS").font(.inter(9, .bold)).tracking(0.6).foregroundStyle(Nuru.ink400)
                     }
                 }
                 Spacer(minLength: 0)
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(Int(pct7.rounded()))%").font(.fraunces(24, .semibold)).foregroundStyle(Color(hex: 0x0F6B33))
-                    Text("of \(totalMembers)").font(.nMicro).foregroundStyle(Nuru.ink600)
-                }
             }
         }
     }
@@ -1039,7 +1024,8 @@ private struct AppUsageCards {
         let total = slices.reduce(0) { $0 + $1.value }
         return Card(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
-                PiCardHeader(icon: "circle.lefthalf.filled", title: "Platform split", caption: "\(total) members")
+                PiCardHeader(icon: "circle.lefthalf.filled", title: "Platform split",
+                             caption: "\(total) members", tint: Color(hex: 0x1D4E86))
                 if total == 0 {
                     emptyNote("No platform data yet.").frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
                 } else {
@@ -1071,6 +1057,7 @@ private struct AppUsageCards {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+                Spacer(minLength: 0)
             }
         }
     }
@@ -1079,7 +1066,8 @@ private struct AppUsageCards {
     var appVersionCard: some View {
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
-                PiCardHeader(icon: "number.square.fill", title: "App-version adoption", caption: "top \(min(devices.appVersions.count, 8))")
+                PiCardHeader(icon: "number.square.fill", title: "App-version adoption",
+                             caption: "top \(min(devices.appVersions.count, 8))", tint: Nuru.gold)
                 if devices.appVersions.isEmpty {
                     emptyNote("No version data yet.").frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
                 } else {
@@ -1106,6 +1094,7 @@ private struct AppUsageCards {
                         }
                     }
                 }
+                Spacer(minLength: 0)
             }
         }
     }
@@ -1120,7 +1109,7 @@ private struct AppUsageCards {
             Card(padding: 18) {
                 VStack(alignment: .leading, spacing: 14) {
                     PiCardHeader(icon: "ipad.and.iphone", title: "Top device models",
-                                 caption: "top \(min(models.count, 8)) · members")
+                                 caption: "top \(min(models.count, 8)) · members", tint: Color(hex: 0x0D7E73))
                     VStack(spacing: 0) {
                         ForEach(Array(models.prefix(8).enumerated()), id: \.element.id) { i, m in
                             HStack(spacing: 10) {
@@ -1143,13 +1132,15 @@ private struct AppUsageCards {
                             if i < min(models.count, 8) - 1 { Divider().overlay(Nuru.border.opacity(0.5)) }
                         }
                     }
+                    Spacer(minLength: 0)
                 }
             }
         } else {
             // Gated: capture off or no rows yet — honest "coming" note keeps the cell.
             Card(padding: 18) {
                 VStack(alignment: .leading, spacing: 10) {
-                    PiCardHeader(icon: "ipad.and.iphone", title: "Top device models", caption: "by members")
+                    PiCardHeader(icon: "ipad.and.iphone", title: "Top device models",
+                                 caption: "by members", tint: Color(hex: 0x0D7E73))
                     ComingNote(text: "Exact device model — coming")
                     Spacer(minLength: 0)
                 }
@@ -1167,9 +1158,10 @@ private struct AppUsageCards {
         return Card(padding: 18) {
             VStack(alignment: .leading, spacing: 0) {
                 PiCardHeader(icon: "clock.fill", title: "Activity by hour",
-                             caption: peak.map { "peak \($0.label)" } ?? "when the app is used")
+                             caption: peak.map { "peak \($0.label)" } ?? "when the app is used", tint: Nuru.gold)
                 if total == 0 {
                     emptyNote("No in-app activity recorded yet.").padding(.top, 14)
+                    Spacer(minLength: 0)
                 } else {
                     Chart(bars) { b in
                         BarMark(x: .value("Hour", b.label), y: .value("Events", b.events), width: .fixed(7))
@@ -1188,6 +1180,7 @@ private struct AppUsageCards {
                     }
                     .frame(height: 168).padding(.top, 14)
                 }
+                Spacer(minLength: 0)
             }
         }
     }
@@ -1232,13 +1225,9 @@ private struct AffinityCards {
             let maxMs = rows.map(\.totalMs).max() ?? 1
             Card(padding: 0) {
                 VStack(spacing: 0) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "hourglass").font(.system(size: 13)).foregroundStyle(Nuru.navy)
-                        Text("Time per app area").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
-                        Spacer(minLength: 8)
-                        Text("total time · sessions · members").font(.nMicro).foregroundStyle(Nuru.ink600)
-                    }
-                    .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+                    PiCardHeader(icon: "hourglass", title: "Time per app area",
+                                 caption: "time · sessions · members", tint: Color(hex: 0x6D28D9))
+                        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
                     HStack(spacing: 10) {
                         Text("AREA").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1291,13 +1280,9 @@ private struct AffinityCards {
     var contentAreasCard: some View {
         Card(padding: 0) {
             VStack(spacing: 0) {
-                HStack(spacing: 6) {
-                    Image(systemName: "square.grid.2x2.fill").font(.system(size: 13)).foregroundStyle(Nuru.navy)
-                    Text("Content areas").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
-                    Spacer(minLength: 8)
-                    Text("events · members").font(.nMicro).foregroundStyle(Nuru.ink600)
-                }
-                .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+                PiCardHeader(icon: "square.grid.2x2.fill", title: "Content areas",
+                             caption: "events · members", tint: Color(hex: 0x0D7E73))
+                    .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
                 HStack(spacing: 10) {
                     Text("AREA").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1355,7 +1340,8 @@ private struct EngagementGrowthCards {
     var bandsDonutCard: some View {
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
-                PiCardHeader(icon: "chart.pie.fill", title: "Engagement bands", caption: "\(total) members")
+                PiCardHeader(icon: "chart.pie.fill", title: "Engagement bands",
+                             caption: "\(total) members", tint: Nuru.lumGreen)
                 ZStack {
                     Chart(total == 0 ? [Slice(name: "None", value: 1, color: Nuru.border)] : slices) { s in
                         SectorMark(angle: .value("v", s.value), innerRadius: .ratio(0.62), angularInset: 1.5)
@@ -1377,7 +1363,7 @@ private struct EngagementGrowthCards {
     var bandBreakdownCard: some View {
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
-                PiCardHeader(icon: "list.bullet", title: "Band breakdown", caption: "by band")
+                PiCardHeader(icon: "list.bullet", title: "Band breakdown", caption: "by band", tint: Color(hex: 0x1D4E86))
                 VStack(spacing: 0) {
                     ForEach(Array(slices.enumerated()), id: \.element.id) { i, d in
                         HStack {
@@ -1407,9 +1393,11 @@ private struct EngagementGrowthCards {
         }
         return Card(padding: 18) {
             VStack(alignment: .leading, spacing: 0) {
-                PiCardHeader(icon: "chart.bar.fill", title: "Per-level distribution", caption: "learners & completions")
+                PiCardHeader(icon: "chart.bar.fill", title: "Per-level distribution",
+                             caption: "learners & completions", tint: Color(hex: 0x1D4E86))
                 if bars.allSatisfy({ $0.value == 0 }) {
                     emptyNote("No level enrolment recorded yet.").padding(.top, 14)
+                    Spacer(minLength: 0)
                 } else {
                     Chart(bars) { b in
                         BarMark(x: .value("Level", b.level), y: .value("Count", b.value), width: .fixed(12))
@@ -1434,6 +1422,7 @@ private struct EngagementGrowthCards {
                     }
                     .padding(.top, 10)
                 }
+                Spacer(minLength: 0)
             }
         }
     }
@@ -1469,13 +1458,9 @@ private struct LocationCards {
         let maxV = rows.map(\.members).max() ?? 1
         return Card(padding: 0) {
             VStack(spacing: 0) {
-                HStack(spacing: 6) {
-                    Image(systemName: "building.2.fill").font(.system(size: 13)).foregroundStyle(Nuru.navy)
-                    Text("Members by city").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
-                    Spacer(minLength: 8)
-                    Text("top \(min(rows.count, 10))").font(.nMicro).foregroundStyle(Nuru.ink600)
-                }
-                .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+                PiCardHeader(icon: "building.2.fill", title: "Members by city",
+                             caption: "top \(min(rows.count, 10))", tint: Color(hex: 0x1D4E86))
+                    .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
                 Divider().overlay(Nuru.border)
                 if rows.isEmpty {
                     emptyNote("No city data captured yet.").padding(16)
@@ -1510,9 +1495,11 @@ private struct LocationCards {
         let total = rows.reduce(0) { $0 + $1.members }
         return Card(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
-                PiCardHeader(icon: "globe", title: "Members by country", caption: "top \(min(rows.count, 8))")
+                PiCardHeader(icon: "globe", title: "Members by country",
+                             caption: "top \(min(rows.count, 8))", tint: Color(hex: 0x0D7E73))
                 if rows.isEmpty {
                     emptyNote("No country data captured yet.")
+                    Spacer(minLength: 0)
                 } else {
                     VStack(spacing: 12) {
                         ForEach(Array(rows.prefix(8).enumerated()), id: \.element.id) { i, c in
@@ -1530,6 +1517,7 @@ private struct LocationCards {
                             }
                         }
                     }
+                    Spacer(minLength: 0)
                 }
             }
         }
