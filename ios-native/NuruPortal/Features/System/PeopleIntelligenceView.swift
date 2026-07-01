@@ -521,17 +521,19 @@ private struct PiKpiTile: View {
     var small: Bool = false
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TintedIcon(systemName: icon, color: tint.fg, size: 34)
-            Text(value).font(.fraunces(small ? 20 : 24, .semibold)).foregroundStyle(Nuru.navy)
-                .lineLimit(1).minimumScaleFactor(0.55)
-                .padding(.top, 11)
+            TintedIcon(systemName: icon, color: tint.fg, size: 30)
+            Text(value).font(.fraunces(small ? 20 : 23, .semibold)).foregroundStyle(Nuru.navy)
+                .lineLimit(1).minimumScaleFactor(0.5)
+                .padding(.top, 10)
+            // Two lines so multi-word labels ("Recurring givers", "Certificates (mo.)")
+            // wrap cleanly at the narrow 8-up width instead of shrinking to tiny type.
             Text(label).font(.inter(11.5, .semibold)).foregroundStyle(tint.fg)
-                .lineLimit(1).minimumScaleFactor(0.75)
-                .padding(.top, 6)
+                .lineLimit(2).minimumScaleFactor(0.85).fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 5)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, minHeight: small ? 108 : 120, alignment: .leading)
-        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 18)
+        .frame(maxWidth: .infinity, minHeight: small ? 104 : 116, alignment: .leading)
+        .padding(.horizontal, 13).padding(.top, 14).padding(.bottom, 14)
         .background(tint.bg)
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(tint.fg.opacity(0.18), lineWidth: 1))
@@ -700,18 +702,17 @@ private struct PeopleRowsSection: View {
 private struct KpiStripSection: View {
     let k: IntelKpis
     let growth: IntelGrowth
-    // Wide iPad landscape (~960pt content width) fits ~8 tiles at a 108pt minimum;
-    // it reflows to 4 across on portrait and 2 on a narrow split, keeping tiles even.
-    private let kpiGrid = [GridItem(.adaptive(minimum: 108), spacing: 12)]
-    // The growth row uses a slightly larger minimum so it settles at ~6 across on the
-    // wide canvas (reflowing 3/2), sitting just beneath the 8-KPI row as one block.
-    private let growthGrid = [GridItem(.adaptive(minimum: 140), spacing: 12)]
+    // Pinned column counts — 8 KPI tiles / 6 growth tiles — so the overview holds one
+    // clean row of 8 (and 6 beneath) in BOTH landscape and portrait, never wrapping to a
+    // stray 7+1. Flexible cells shrink to share the width evenly at any orientation.
+    private let kpiGrid = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 10, alignment: .top), count: 8)
+    private let growthGrid = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 10, alignment: .top), count: 6)
     private var passRate: Int { growth.quizAttempts > 0 ? Int((Double(growth.quizPassed) / Double(growth.quizAttempts) * 100).rounded()) : 0 }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             piSectionTitle(icon: "person.3.fill", "Overview", "Live membership, engagement & giving signal")
             // Row of 8 — overview KPI tiles.
-            LazyVGrid(columns: kpiGrid, spacing: 12) {
+            LazyVGrid(columns: kpiGrid, spacing: 10) {
                 PiKpiTile(label: "Total members", value: "\(k.totalMembers)", icon: "person.3.fill",
                           tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)))
                 PiKpiTile(label: "Active (7d)", value: "\(k.active7d)", icon: "iphone.gen3",
@@ -731,7 +732,7 @@ private struct KpiStripSection: View {
             }
             // Row of 6 — growth stats, pulled up here so the two rows read as one
             // overview block. Same tile styling (small variant), matching the web.
-            LazyVGrid(columns: growthGrid, spacing: 12) {
+            LazyVGrid(columns: growthGrid, spacing: 10) {
                 PiKpiTile(label: "Verse learners", value: "\(growth.verseLearners)", icon: "text.book.closed.fill",
                           tint: .init(bg: Color(hex: 0xDCFCE7), fg: Color(hex: 0x166534)), small: true)
                 PiKpiTile(label: "Verses mastered", value: "\(growth.versesMastered)", icon: "checkmark.seal.fill",
