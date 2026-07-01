@@ -599,10 +599,17 @@ private enum RowMin {
 /// A row of cards in an adaptive grid. Cells are top-aligned; callers opt cards into
 /// height-equalisation per-cell via `.rowEqual(true)` when the cards are visual peers.
 private struct CardRow<C: View>: View {
-    let minWidth: CGFloat
+    var minWidth: CGFloat = 0
+    /// When set, the row is pinned to exactly this many equal columns (portrait-first —
+    /// the row keeps its intended N-up shape instead of reflowing to a stray N-1+1).
+    /// When nil, it falls back to an adaptive grid keyed on `minWidth`.
+    var cols: Int? = nil
     @ViewBuilder var content: () -> C
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: minWidth), spacing: 12, alignment: .top)], spacing: 12) {
+        let columns: [GridItem] = cols.map {
+            Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top), count: $0)
+        } ?? [GridItem(.adaptive(minimum: minWidth), spacing: 12, alignment: .top)]
+        LazyVGrid(columns: columns, spacing: 12) {
             content()
         }
     }
@@ -655,16 +662,17 @@ private struct PeopleRowsSection: View {
             // ROW 2 — Top givers (full-width table)
             giving.topGiversCard
 
-            // ROW 3 — Top device models · Activity by hour · App-area affinity (content areas) · Time per app area (dwell)
-            CardRow(minWidth: RowMin.four) {
+            // ROW 3 — Top device models · Activity by hour · Content areas
+            // (the content-areas card now folds engagement-by-area AND time-per-area
+            //  into one card, as stacked sub-tables — so this is a clean 3-up row).
+            CardRow(cols: 3) {
                 usage.deviceModelsCard.rowEqual(true)
                 usage.activityByHourCard.rowEqual(true)
                 affinity.contentAreasCard.rowEqual(true)
-                affinity.timePerAreaCard.rowEqual(true)
             }
 
             // ROW 4 — Platform split · App-version adoption · Active users last 12 weeks
-            CardRow(minWidth: RowMin.three) {
+            CardRow(cols: 3) {
                 usage.platformCard.rowEqual(true)
                 usage.appVersionCard.rowEqual(true)
                 usage.activeTrendCard.rowEqual(true)
@@ -679,7 +687,7 @@ private struct PeopleRowsSection: View {
             piSectionHeader(icon: "chart.pie.fill", "Engagement & growth",
                             "\(eng.total) members · \(Pctf1(p.kpis.avgEngagement)) avg score")
             // Row of 3: Engagement bands (donut) · Band breakdown · Per-level distribution
-            CardRow(minWidth: RowMin.three) {
+            CardRow(cols: 3) {
                 eng.bandsDonutCard.rowEqual(true)
                 eng.bandBreakdownCard.rowEqual(true)
                 eng.levelCard.rowEqual(true)
@@ -688,7 +696,7 @@ private struct PeopleRowsSection: View {
             // SECTION — Location
             piSectionHeader(icon: "mappin.and.ellipse", "Location", "Where your people are — coarse, free-text")
             // Row of 3: Members by city · Members by country · Location & proximity matching
-            CardRow(minWidth: RowMin.three) {
+            CardRow(cols: 3) {
                 location.byCityCard.rowEqual(true)
                 location.byCountryCard.rowEqual(true)
                 location.proximityCard.rowEqual(true)
@@ -1244,111 +1252,115 @@ private struct AppUsageCards {
 private struct AffinityCards {
     let kinds: [IntelKind]
     let engagement: IntelEngagement
-    private enum Col { static let events: CGFloat = 80; static let members: CGFloat = 72 }
-    // Columns for the time-per-area mini-table.
-    private enum DCol { static let time: CGFloat = 78; static let sessions: CGFloat = 64; static let members: CGFloat = 64 }
-
-    // #3 app-area dwell — only render once the client actually captures screen
-    // dwell AND we have rows; otherwise fall back to the honest "coming" note,
-    // so the page upgrades from "coming" to real data in place.
-    @ViewBuilder var timePerAreaCard: some View {
-        let rows = engagement.areaDwell
-            .filter { $0.totalMs > 0 }
-            .sorted { $0.totalMs > $1.totalMs }
-        if engagement.screenDwellCapture, !rows.isEmpty {
-            let maxMs = rows.map(\.totalMs).max() ?? 1
-            Card(padding: 0) {
-                VStack(spacing: 0) {
-                    PiCardHeader(icon: "hourglass", title: "Time per app area",
-                                 caption: "time · sessions · members", tint: Color(hex: 0x6D28D9))
-                        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
-                    HStack(spacing: 10) {
-                        Text("AREA").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("TIME").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600).frame(width: DCol.time, alignment: .trailing)
-                        Text("SESS.").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600).frame(width: DCol.sessions, alignment: .trailing)
-                        Text("MEMBERS").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600).frame(width: DCol.members, alignment: .trailing)
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(Nuru.surface)
-                    Divider().overlay(Nuru.border)
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { i, d in
-                        VStack(spacing: 8) {
-                            HStack(spacing: 10) {
-                                HStack(spacing: 10) {
-                                    TintedIcon(systemName: "clock.fill", color: Nuru.tint(i).fg, size: 30)
-                                    Text(areaLabel(d.screen)).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.85)
-                                    Spacer(minLength: 0)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(dwellDuration(d.totalMs)).font(.fraunces(15, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
-                                    .lineLimit(1).minimumScaleFactor(0.6).frame(width: DCol.time, alignment: .trailing)
-                                Text("\(d.sessions)").font(.inter(12.5, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
-                                    .frame(width: DCol.sessions, alignment: .trailing)
-                                Text("\(d.members)").font(.inter(12.5, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
-                                    .frame(width: DCol.members, alignment: .trailing)
-                            }
-                            ProgressBar(pct: Double(d.totalMs) / Double(Swift.max(maxMs, 1)) * 100, fill: Nuru.tint(i).fg, height: 5)
-                        }
-                        .padding(.horizontal, 16).padding(.vertical, 11)
-                        .background(i % 2 == 1 ? Nuru.surface.opacity(0.45) : Color.clear)
-                        if i < rows.count - 1 { Divider().overlay(Nuru.border.opacity(0.6)) }
-                    }
-                }
-            }
-        } else {
-            // Gated: per-screen dwell not captured yet — honest note keeps the cell.
-            Card(padding: 18) {
-                VStack(alignment: .leading, spacing: 10) {
-                    PiCardHeader(icon: "hourglass", title: "Time per app area", caption: "per-screen dwell")
-                    ComingNote(text: "Per-screen time — coming")
-                    Spacer(minLength: 0)
-                }
-            }
-        }
-    }
+    // Compact numeric columns — the combined card sits in a 3-up portrait row, so the
+    // AREA label keeps the flexible remainder and the figures stay tight and aligned.
+    private enum Col { static let events: CGFloat = 58; static let members: CGFloat = 54 }
+    private enum DCol { static let time: CGFloat = 58; static let sessions: CGFloat = 44; static let members: CGFloat = 50 }
 
     private var sorted: [IntelKind] { kinds.sorted { $0.events > $1.events } }
     private var maxEvents: Int { sorted.map(\.events).max() ?? 1 }
+    private var dwellRows: [IntelAreaDwell] {
+        engagement.areaDwell.filter { $0.totalMs > 0 }.sorted { $0.totalMs > $1.totalMs }
+    }
 
+    /// A slim in-card sub-section band so the two app-area tables read as distinct
+    /// blocks within the single Content-areas card.
+    private func areaBand(_ title: String, _ caption: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title).font(.inter(11.5, .bold)).tracking(0.5).foregroundStyle(Nuru.navy)
+            Spacer(minLength: 8)
+            Text(caption).font(.inter(10.5, .medium)).foregroundStyle(Nuru.ink600)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16).padding(.vertical, 9)
+        .background(Nuru.surface)
+    }
+
+    /// One app-area table row (icon + label, up to three trailing numeric cells).
+    private func areaRow(icon: String, label: String, tint i: Int, pct: Double,
+                         @ViewBuilder cells: () -> some View) -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                HStack(spacing: 9) {
+                    TintedIcon(systemName: icon, color: Nuru.tint(i).fg, size: 28)
+                    Text(label).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                cells()
+            }
+            ProgressBar(pct: pct, fill: Nuru.tint(i).fg, height: 5)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(i % 2 == 1 ? Nuru.surface.opacity(0.45) : Color.clear)
+    }
+
+    // Content areas — ONE card folding engagement-by-area (events · members) AND
+    // time-per-area (time · sessions · members) into stacked sub-tables, so every
+    // app-area signal lives in a single card as rows. The time sub-table upgrades from
+    // the honest "coming" note to real rows once screen-dwell capture is on (#3).
     var contentAreasCard: some View {
         Card(padding: 0) {
             VStack(spacing: 0) {
                 PiCardHeader(icon: "square.grid.2x2.fill", title: "Content areas",
-                             caption: "events · members", tint: Color(hex: 0x0D7E73))
-                    .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+                             caption: "engagement · time", tint: Color(hex: 0x0D7E73))
+                    .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 10)
+
+                // — A · engagement by area (events · members)
+                areaBand("BY ENGAGEMENT", "events · members")
                 HStack(spacing: 10) {
-                    Text("AREA").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                    Text("AREA").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("EVENTS").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600).frame(width: Col.events, alignment: .trailing)
-                    Text("MEMBERS").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600).frame(width: Col.members, alignment: .trailing)
+                    Text("EVENTS").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600).frame(width: Col.events, alignment: .trailing)
+                    Text("MEMBERS").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600).frame(width: Col.members, alignment: .trailing).lineLimit(1).minimumScaleFactor(0.8)
                 }
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(Nuru.surface)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(Nuru.surface.opacity(0.5))
                 Divider().overlay(Nuru.border)
                 if sorted.isEmpty {
-                    emptyNote("No app-area engagement recorded yet.").padding(16)
+                    emptyNote("No app-area engagement recorded yet.").padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     ForEach(Array(sorted.enumerated()), id: \.element.id) { i, k in
-                        VStack(spacing: 8) {
-                            HStack(spacing: 10) {
-                                HStack(spacing: 10) {
-                                    TintedIcon(systemName: kindIcon(k.kind), color: Nuru.tint(i).fg, size: 30)
-                                    Text(kindLabel(k.kind)).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.85)
-                                    Spacer(minLength: 0)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                Text("\(k.events)").font(.fraunces(15, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
-                                    .frame(width: Col.events, alignment: .trailing)
-                                Text("\(k.members)").font(.inter(12.5, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
-                                    .frame(width: Col.members, alignment: .trailing)
-                            }
-                            ProgressBar(pct: Double(k.events) / Double(Swift.max(maxEvents, 1)) * 100, fill: Nuru.tint(i).fg, height: 5)
+                        areaRow(icon: kindIcon(k.kind), label: kindLabel(k.kind), tint: i,
+                                pct: Double(k.events) / Double(Swift.max(maxEvents, 1)) * 100) {
+                            Text("\(k.events)").font(.fraunces(14.5, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
+                                .frame(width: Col.events, alignment: .trailing)
+                            Text("\(k.members)").font(.inter(12, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
+                                .frame(width: Col.members, alignment: .trailing)
                         }
-                        .padding(.horizontal, 16).padding(.vertical, 11)
-                        .background(i % 2 == 1 ? Nuru.surface.opacity(0.45) : Color.clear)
                         if i < sorted.count - 1 { Divider().overlay(Nuru.border.opacity(0.6)) }
                     }
+                }
+
+                // — B · time per app area (time · sessions · members), gated on capture
+                areaBand("TIME PER AREA", "time · sessions · members")
+                if engagement.screenDwellCapture, !dwellRows.isEmpty {
+                    let maxMs = dwellRows.map(\.totalMs).max() ?? 1
+                    HStack(spacing: 10) {
+                        Text("AREA").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("TIME").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600).frame(width: DCol.time, alignment: .trailing)
+                        Text("SESS.").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600).frame(width: DCol.sessions, alignment: .trailing)
+                        Text("MEM.").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600).frame(width: DCol.members, alignment: .trailing)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .background(Nuru.surface.opacity(0.5))
+                    Divider().overlay(Nuru.border)
+                    ForEach(Array(dwellRows.enumerated()), id: \.element.id) { i, d in
+                        areaRow(icon: "clock.fill", label: areaLabel(d.screen), tint: i,
+                                pct: Double(d.totalMs) / Double(Swift.max(maxMs, 1)) * 100) {
+                            Text(dwellDuration(d.totalMs)).font(.fraunces(14.5, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
+                                .lineLimit(1).minimumScaleFactor(0.6).frame(width: DCol.time, alignment: .trailing)
+                            Text("\(d.sessions)").font(.inter(12, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
+                                .frame(width: DCol.sessions, alignment: .trailing)
+                            Text("\(d.members)").font(.inter(12, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
+                                .frame(width: DCol.members, alignment: .trailing)
+                        }
+                        if i < dwellRows.count - 1 { Divider().overlay(Nuru.border.opacity(0.6)) }
+                    }
+                } else {
+                    ComingNote(text: "Per-screen time — coming").padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
