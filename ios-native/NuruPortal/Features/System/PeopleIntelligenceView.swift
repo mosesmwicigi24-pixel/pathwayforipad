@@ -601,24 +601,31 @@ private enum RowMin {
 private struct CardRow<C: View>: View {
     var minWidth: CGFloat = 0
     /// When set, the row is pinned to exactly this many equal columns (portrait-first —
-    /// the row keeps its intended N-up shape instead of reflowing to a stray N-1+1).
-    /// When nil, it falls back to an adaptive grid keyed on `minWidth`.
+    /// the row keeps its intended N-up shape instead of reflowing to a stray N-1+1). A
+    /// fixed row lays out as a plain HStack, NOT a LazyVGrid: an HStack resolves the row
+    /// height once (tallest card wins) and never re-measures, so it is flicker-free —
+    /// whereas a LazyVGrid whose cells stretch to `.infinity` re-measures its lazy cells
+    /// and visibly jitters on a heavy page. `cols` is the intended card count (the HStack
+    /// simply lays out whatever cards it's given). Falls back to an adaptive grid for nil.
     var cols: Int? = nil
     @ViewBuilder var content: () -> C
     var body: some View {
-        let columns: [GridItem] = cols.map {
-            Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top), count: $0)
-        } ?? [GridItem(.adaptive(minimum: minWidth), spacing: 12, alignment: .top)]
-        LazyVGrid(columns: columns, spacing: 12) {
-            content()
+        if cols != nil {
+            HStack(alignment: .top, spacing: 12) { content() }
+        } else {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: minWidth), spacing: 12, alignment: .top)], spacing: 12) {
+                content()
+            }
         }
     }
 }
 
-/// Wrap a card so it fills the full height of its grid row (height equalisation).
+/// Wrap a card so it fills its row — equal WIDTH (each card shares the HStack evenly) and
+/// equal HEIGHT (stretches to the tallest card in the row). Stable inside an HStack: the
+/// row height is decided from the cards' natural heights in a single pass.
 private extension View {
     @ViewBuilder func rowEqual(_ on: Bool) -> some View {
-        if on { self.frame(maxHeight: .infinity) } else { self }
+        if on { self.frame(maxWidth: .infinity, maxHeight: .infinity) } else { self }
     }
 }
 
@@ -651,27 +658,32 @@ private struct PeopleRowsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
 
-            // ROW 1 — Givers · Giving frequency · App usage & devices (active in app) · How often members use the app
-            CardRow(minWidth: RowMin.four) {
+            // ROW 1 — Givers · Giving frequency · Active in app (3-up)
+            CardRow(cols: 3) {
                 giving.giversCard.rowEqual(true)
                 giving.frequencyCard.rowEqual(true)
                 usage.activeHighlight.rowEqual(true)
-                usage.activeDaysCard.rowEqual(true)
             }
 
-            // ROW 2 — Top givers (full-width table)
+            // ROW 2 — How often members use the app (its own full-width row)
+            usage.activeDaysCard
+
+            // ROW 3 — Top givers (full-width table)
             giving.topGiversCard
 
-            // ROW 3 — Top device models · Activity by hour · Content areas
-            // (the content-areas card now folds engagement-by-area AND time-per-area
-            //  into one card, as stacked sub-tables — so this is a clean 3-up row).
-            CardRow(cols: 3) {
+            // ROW 4 — Top device models · Activity by hour (2-up)
+            CardRow(cols: 2) {
                 usage.deviceModelsCard.rowEqual(true)
                 usage.activityByHourCard.rowEqual(true)
-                affinity.contentAreasCard.rowEqual(true)
             }
 
-            // ROW 4 — Platform split · App-version adoption · Active users last 12 weeks
+            // ROW 5 — Content areas · Time per app area (2-up, two separate cards)
+            CardRow(cols: 2) {
+                affinity.contentAreasCard.rowEqual(true)
+                affinity.timePerAreaCard.rowEqual(true)
+            }
+
+            // ROW 6 — Platform split · App-version adoption · Active users last 12 weeks
             CardRow(cols: 3) {
                 usage.platformCard.rowEqual(true)
                 usage.appVersionCard.rowEqual(true)
@@ -1252,10 +1264,10 @@ private struct AppUsageCards {
 private struct AffinityCards {
     let kinds: [IntelKind]
     let engagement: IntelEngagement
-    // Compact numeric columns — the combined card sits in a 3-up portrait row, so the
-    // AREA label keeps the flexible remainder and the figures stay tight and aligned.
-    private enum Col { static let events: CGFloat = 58; static let members: CGFloat = 54 }
-    private enum DCol { static let time: CGFloat = 58; static let sessions: CGFloat = 44; static let members: CGFloat = 50 }
+    // Numeric columns — each card sits in a 2-up portrait row, so the AREA label keeps
+    // the flexible remainder and the figures stay comfortably aligned.
+    private enum Col { static let events: CGFloat = 74; static let members: CGFloat = 66 }
+    private enum DCol { static let time: CGFloat = 76; static let sessions: CGFloat = 58; static let members: CGFloat = 60 }
 
     private var sorted: [IntelKind] { kinds.sorted { $0.events > $1.events } }
     private var maxEvents: Int { sorted.map(\.events).max() ?? 1 }
@@ -1263,16 +1275,17 @@ private struct AffinityCards {
         engagement.areaDwell.filter { $0.totalMs > 0 }.sorted { $0.totalMs > $1.totalMs }
     }
 
-    /// A slim in-card sub-section band so the two app-area tables read as distinct
-    /// blocks within the single Content-areas card.
-    private func areaBand(_ title: String, _ caption: String) -> some View {
-        HStack(spacing: 8) {
-            Text(title).font(.inter(11.5, .bold)).tracking(0.5).foregroundStyle(Nuru.navy)
-            Spacer(minLength: 8)
-            Text(caption).font(.inter(10.5, .medium)).foregroundStyle(Nuru.ink600)
+    /// A table column-header band (AREA + trailing numeric labels).
+    private func areaHead(_ trailing: [(String, CGFloat)]) -> some View {
+        HStack(spacing: 10) {
+            Text("AREA").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(Array(trailing.enumerated()), id: \.offset) { _, c in
+                Text(c.0).font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                    .frame(width: c.1, alignment: .trailing).lineLimit(1).minimumScaleFactor(0.8)
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 16).padding(.vertical, 9)
+        .padding(.horizontal, 16).padding(.vertical, 10)
         .background(Nuru.surface)
     }
 
@@ -1296,27 +1309,15 @@ private struct AffinityCards {
         .background(i % 2 == 1 ? Nuru.surface.opacity(0.45) : Color.clear)
     }
 
-    // Content areas — ONE card folding engagement-by-area (events · members) AND
-    // time-per-area (time · sessions · members) into stacked sub-tables, so every
-    // app-area signal lives in a single card as rows. The time sub-table upgrades from
-    // the honest "coming" note to real rows once screen-dwell capture is on (#3).
+    // Content areas — engagement by app area (events · members). Its own card, paired
+    // on a 2-up row with the Time-per-area card.
     var contentAreasCard: some View {
         Card(padding: 0) {
             VStack(spacing: 0) {
                 PiCardHeader(icon: "square.grid.2x2.fill", title: "Content areas",
-                             caption: "engagement · time", tint: Color(hex: 0x0D7E73))
+                             caption: "events · members", tint: Color(hex: 0x0D7E73))
                     .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 10)
-
-                // — A · engagement by area (events · members)
-                areaBand("BY ENGAGEMENT", "events · members")
-                HStack(spacing: 10) {
-                    Text("AREA").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("EVENTS").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600).frame(width: Col.events, alignment: .trailing)
-                    Text("MEMBERS").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600).frame(width: Col.members, alignment: .trailing).lineLimit(1).minimumScaleFactor(0.8)
-                }
-                .padding(.horizontal, 16).padding(.vertical, 8)
-                .background(Nuru.surface.opacity(0.5))
+                areaHead([("EVENTS", Col.events), ("MEMBERS", Col.members)])
                 Divider().overlay(Nuru.border)
                 if sorted.isEmpty {
                     emptyNote("No app-area engagement recorded yet.").padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -1324,43 +1325,46 @@ private struct AffinityCards {
                     ForEach(Array(sorted.enumerated()), id: \.element.id) { i, k in
                         areaRow(icon: kindIcon(k.kind), label: kindLabel(k.kind), tint: i,
                                 pct: Double(k.events) / Double(Swift.max(maxEvents, 1)) * 100) {
-                            Text("\(k.events)").font(.fraunces(14.5, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
+                            Text("\(k.events)").font(.fraunces(15, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
                                 .frame(width: Col.events, alignment: .trailing)
-                            Text("\(k.members)").font(.inter(12, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
+                            Text("\(k.members)").font(.inter(12.5, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
                                 .frame(width: Col.members, alignment: .trailing)
                         }
                         if i < sorted.count - 1 { Divider().overlay(Nuru.border.opacity(0.6)) }
                     }
                 }
+                Spacer(minLength: 0)
+            }
+        }
+    }
 
-                // — B · time per app area (time · sessions · members), gated on capture
-                areaBand("TIME PER AREA", "time · sessions · members")
+    // Time per app area (time · sessions · members) — its own card, gated on #3 screen
+    // dwell capture; upgrades from the honest "coming" note to real rows in place.
+    @ViewBuilder var timePerAreaCard: some View {
+        Card(padding: 0) {
+            VStack(spacing: 0) {
+                PiCardHeader(icon: "hourglass", title: "Time per app area",
+                             caption: "time · sessions · members", tint: Color(hex: 0x6D28D9))
+                    .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 10)
                 if engagement.screenDwellCapture, !dwellRows.isEmpty {
                     let maxMs = dwellRows.map(\.totalMs).max() ?? 1
-                    HStack(spacing: 10) {
-                        Text("AREA").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("TIME").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600).frame(width: DCol.time, alignment: .trailing)
-                        Text("SESS.").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600).frame(width: DCol.sessions, alignment: .trailing)
-                        Text("MEM.").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600).frame(width: DCol.members, alignment: .trailing)
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(Nuru.surface.opacity(0.5))
+                    areaHead([("TIME", DCol.time), ("SESS.", DCol.sessions), ("MEMBERS", DCol.members)])
                     Divider().overlay(Nuru.border)
                     ForEach(Array(dwellRows.enumerated()), id: \.element.id) { i, d in
                         areaRow(icon: "clock.fill", label: areaLabel(d.screen), tint: i,
                                 pct: Double(d.totalMs) / Double(Swift.max(maxMs, 1)) * 100) {
-                            Text(dwellDuration(d.totalMs)).font(.fraunces(14.5, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
+                            Text(dwellDuration(d.totalMs)).font(.fraunces(15, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
                                 .lineLimit(1).minimumScaleFactor(0.6).frame(width: DCol.time, alignment: .trailing)
-                            Text("\(d.sessions)").font(.inter(12, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
+                            Text("\(d.sessions)").font(.inter(12.5, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
                                 .frame(width: DCol.sessions, alignment: .trailing)
-                            Text("\(d.members)").font(.inter(12, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
+                            Text("\(d.members)").font(.inter(12.5, .medium)).monospacedDigit().foregroundStyle(Nuru.ink600)
                                 .frame(width: DCol.members, alignment: .trailing)
                         }
                         if i < dwellRows.count - 1 { Divider().overlay(Nuru.border.opacity(0.6)) }
                     }
                 } else {
                     ComingNote(text: "Per-screen time — coming").padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer(minLength: 0)
                 }
             }
         }
