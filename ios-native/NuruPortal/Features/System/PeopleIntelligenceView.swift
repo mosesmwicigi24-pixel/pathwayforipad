@@ -403,7 +403,9 @@ struct PeopleIntelligenceView: View {
                     } else if !loaded && payload == nil {
                         SkeletonList(rows: 7)
                     } else if let p = payload {
-                        KpiStripSection(k: p.kpis)                                   // Overview KPI strip (unchanged)
+                        // Overview block — one KPI row of 8 + a growth row of 6 directly
+                        // beneath it, so the two rows read as one top-of-page overview.
+                        KpiStripSection(k: p.kpis, growth: p.growth)
                         // Regrouped people-intelligence rows (presentation only).
                         PeopleRowsSection(p: p)
                         if let at = p.generatedAt, !at.isEmpty { asOfCaption(at) }
@@ -508,20 +510,28 @@ private func piSectionTitle(icon: String, _ title: String, _ caption: String) ->
     }
 }
 
-/// Pastel KPI tile (Dashboard-parity), non-interactive (read surface).
+/// Pastel KPI tile (Dashboard-parity), non-interactive (read surface). Dimensions
+/// mirror the web `Kpi`: value Fraunces 24 (small 20), label 11.5 in the tint colour,
+/// padding 16/16/18, and a full-height flex (min-height per row) so every tile in a
+/// row is equal height. Card radius stays on the shared `Nuru.R.card` so KPI tiles and
+/// the white content cards below share one chrome. `small` is the growth row's tighter set.
 private struct PiKpiTile: View {
     let label: String, value: String, icon: String
     let tint: Nuru.Tint
+    var small: Bool = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             TintedIcon(systemName: icon, color: tint.fg, size: 34)
-            Text(value).font(.fraunces(22, .semibold)).foregroundStyle(Nuru.navy)
-                .lineLimit(1).minimumScaleFactor(0.6)
-            Text(label).font(.inter(11.5, .medium)).foregroundStyle(Nuru.ink600)
-                .lineLimit(1).minimumScaleFactor(0.8)
+            Text(value).font(.fraunces(small ? 20 : 24, .semibold)).foregroundStyle(Nuru.navy)
+                .lineLimit(1).minimumScaleFactor(0.55)
+                .padding(.top, 11)
+            Text(label).font(.inter(11.5, .semibold)).foregroundStyle(tint.fg)
+                .lineLimit(1).minimumScaleFactor(0.75)
+                .padding(.top, 6)
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: small ? 108 : 120, alignment: .leading)
+        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 18)
         .background(tint.bg)
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(tint.fg.opacity(0.18), lineWidth: 1))
@@ -580,7 +590,8 @@ private let axisLabelColor = Color(hex: 0x6B7280)
 private enum RowMin {
     static let three: CGFloat = 300
     static let four: CGFloat  = 230
-    static let six: CGFloat   = 150
+    // (The former row-of-6 min was retired when the growth tiles moved into the
+    // top-of-page overview block; the overview grid tunes its own minima there.)
 }
 
 /// A row of cards in an adaptive grid. Cells are top-aligned; callers opt cards into
@@ -661,6 +672,8 @@ private struct PeopleRowsSection: View {
             usage.comingNotes
 
             // SECTION — Engagement & growth
+            // (The six growth stat tiles moved up into the top-of-page overview block,
+            // beneath the 8-KPI row — see KpiStripSection. This section keeps its row of 3.)
             piSectionHeader(icon: "chart.pie.fill", "Engagement & growth",
                             "\(eng.total) members · \(Pctf1(p.kpis.avgEngagement)) avg score")
             // Row of 3: Engagement bands (donut) · Band breakdown · Per-level distribution
@@ -668,10 +681,6 @@ private struct PeopleRowsSection: View {
                 eng.bandsDonutCard.rowEqual(true)
                 eng.bandBreakdownCard.rowEqual(true)
                 eng.levelCard.rowEqual(true)
-            }
-            // Row of 6: growth stat tiles
-            CardRow(minWidth: RowMin.six) {
-                eng.growthTiles
             }
 
             // SECTION — Location
@@ -690,11 +699,19 @@ private struct PeopleRowsSection: View {
 
 private struct KpiStripSection: View {
     let k: IntelKpis
-    private let grid = [GridItem(.adaptive(minimum: 132), spacing: 12)]
+    let growth: IntelGrowth
+    // Wide iPad landscape (~960pt content width) fits ~8 tiles at a 108pt minimum;
+    // it reflows to 4 across on portrait and 2 on a narrow split, keeping tiles even.
+    private let kpiGrid = [GridItem(.adaptive(minimum: 108), spacing: 12)]
+    // The growth row uses a slightly larger minimum so it settles at ~6 across on the
+    // wide canvas (reflowing 3/2), sitting just beneath the 8-KPI row as one block.
+    private let growthGrid = [GridItem(.adaptive(minimum: 140), spacing: 12)]
+    private var passRate: Int { growth.quizAttempts > 0 ? Int((Double(growth.quizPassed) / Double(growth.quizAttempts) * 100).rounded()) : 0 }
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             piSectionTitle(icon: "person.3.fill", "Overview", "Live membership, engagement & giving signal")
-            LazyVGrid(columns: grid, spacing: 12) {
+            // Row of 8 — overview KPI tiles.
+            LazyVGrid(columns: kpiGrid, spacing: 12) {
                 PiKpiTile(label: "Total members", value: "\(k.totalMembers)", icon: "person.3.fill",
                           tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)))
                 PiKpiTile(label: "Active (7d)", value: "\(k.active7d)", icon: "iphone.gen3",
@@ -711,6 +728,22 @@ private struct KpiStripSection: View {
                           tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)))
                 PiKpiTile(label: "Certificates (mo.)", value: "\(k.certificatesThisMonth)", icon: "rosette",
                           tint: .init(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0xA87616)))
+            }
+            // Row of 6 — growth stats, pulled up here so the two rows read as one
+            // overview block. Same tile styling (small variant), matching the web.
+            LazyVGrid(columns: growthGrid, spacing: 12) {
+                PiKpiTile(label: "Verse learners", value: "\(growth.verseLearners)", icon: "text.book.closed.fill",
+                          tint: .init(bg: Color(hex: 0xDCFCE7), fg: Color(hex: 0x166534)), small: true)
+                PiKpiTile(label: "Verses mastered", value: "\(growth.versesMastered)", icon: "checkmark.seal.fill",
+                          tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F)), small: true)
+                PiKpiTile(label: "Plans completed", value: "\(growth.plansCompleted)", icon: "calendar.badge.checkmark",
+                          tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)), small: true)
+                PiKpiTile(label: "Plans active", value: "\(growth.plansActive)", icon: "calendar",
+                          tint: .init(bg: Color(hex: 0xE2F4F1), fg: Color(hex: 0x0D7E73)), small: true)
+                PiKpiTile(label: "Quiz attempts", value: "\(growth.quizAttempts)", icon: "questionmark.circle.fill",
+                          tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)), small: true)
+                PiKpiTile(label: "Quiz passed · \(passRate)%", value: "\(growth.quizPassed)", icon: "checkmark.circle.fill",
+                          tint: .init(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0xA87616)), small: true)
             }
         }
     }
@@ -1430,22 +1463,10 @@ private struct EngagementGrowthCards {
         HStack(spacing: 6) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 9, height: 9); Text(t).font(.nMicro).foregroundStyle(Nuru.ink600) }
     }
 
-    // Word & curriculum growth tiles — six stat tiles, emitted bare so the composer
-    // can lay them out as a "row of 6" in the shared adaptive grid.
-    @ViewBuilder var growthTiles: some View {
-        PiKpiTile(label: "Verse learners", value: "\(growth.verseLearners)", icon: "text.book.closed.fill",
-                  tint: .init(bg: Color(hex: 0xDCFCE7), fg: Color(hex: 0x166534)))
-        PiKpiTile(label: "Verses mastered", value: "\(growth.versesMastered)", icon: "checkmark.seal.fill",
-                  tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F)))
-        PiKpiTile(label: "Plans completed", value: "\(growth.plansCompleted)", icon: "calendar.badge.checkmark",
-                  tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)))
-        PiKpiTile(label: "Plans active", value: "\(growth.plansActive)", icon: "calendar",
-                  tint: .init(bg: Color(hex: 0xE2F4F1), fg: Color(hex: 0x0D7E73)))
-        PiKpiTile(label: "Quiz attempts", value: "\(growth.quizAttempts)", icon: "questionmark.circle.fill",
-                  tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)))
-        PiKpiTile(label: "Quiz passed", value: "\(growth.quizPassed)", icon: "checkmark.circle.fill",
-                  tint: .init(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0xA87616)))
-    }
+    // NOTE: the six growth stat tiles (verse learners / verses mastered / plans
+    // completed / plans active / quiz attempts / quiz passed) now live in the
+    // top-of-page overview block (KpiStripSection), directly beneath the 8-KPI row,
+    // per the web parity. They were removed from here to keep a single source of truth.
 }
 
 // MARK: - ===================== 6 · Location =====================
