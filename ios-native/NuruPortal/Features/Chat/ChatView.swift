@@ -201,6 +201,22 @@ private let purpleBg = Color(hex: 0xF0EBFA)
 struct ChatView: View {
     @StateObject private var model = ChatModel()
     @Environment(\.horizontalSizeClass) private var hSize
+    // Actual available width of the pane area — the size class alone can't tell iPad
+    // portrait from landscape (both are `.regular`), so we pick the pane layout from the
+    // measured width. Seeded mid so the first frame is a sane two-pane before measuring.
+    @State private var paneWidth: CGFloat = 900
+    // Portrait two-pane hides the context column inline; this presents it as a sheet.
+    @State private var showContext = false
+
+    /// Pane layout chosen from the measured width (portrait-first). iPhone / narrow
+    /// multitasking (`.compact` size class) always collapses to the single-column inbox.
+    private enum PaneLayout { case three, two, compact }
+    private var paneLayout: PaneLayout {
+        if hSize != .regular { return .compact }
+        if paneWidth >= 1040 { return .three }   // iPad landscape → inbox | thread | context
+        if paneWidth >= 660 { return .two }       // iPad portrait → inbox | thread (+ context sheet)
+        return .compact                            // very narrow split view → single column
+    }
 
     var body: some View {
         Group {
@@ -232,10 +248,22 @@ struct ChatView: View {
         .sheet(isPresented: $model.createOpen) { CreateSpaceSheet(model: model) }
         .sheet(isPresented: $model.newMsgOpen) { NewMessageSheet(model: model) }
         .sheet(item: $model.readersForId) { box in SeenBySheet(messageId: box.id) }
+        // Portrait: the context column (pulse · needs-review · profile) rides in a sheet
+        // so the thread keeps full width. Never shown in the inline three-pane layout.
+        .sheet(isPresented: $showContext) {
+            NavigationStack {
+                ContextColumn(model: model)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .background(Nuru.paper)
+                    .navigationTitle("Conversation details")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showContext = false } } }
+            }
+        }
     }
 
     @ViewBuilder private var content: some View {
-        let twoPane = hSize == .regular
         ScrollViewReader { _ in
             VStack(spacing: 0) {
                 hero
@@ -243,33 +271,45 @@ struct ChatView: View {
                     if let e = model.listError { inlineError(e) }
                     statChips
                     actionBar
-                    if twoPane {
-                        HStack(alignment: .top, spacing: 16) {
-                            InboxPane(model: model)
-                                .frame(width: 340)
-                                .frame(maxHeight: 760)
-                            ThreadPane(model: model)
-                                .frame(maxWidth: .infinity)
-                                .frame(maxHeight: 760)
-                            ContextColumn(model: model)
-                                .frame(width: 320)
-                                .frame(maxHeight: 760)
-                        }
-                    } else {
-                        InboxPaneCompact(model: model)
-                    }
-                    // Push the warm paper down to the bottom edge so no black band
-                    // shows below the messenger panes when content is short.
-                    Spacer(minLength: 0)
+                    paneArea
                 }
                 .padding(.horizontal, Nuru.S.screen)
                 .padding(.vertical, 18)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                // Measure the content width so we can pick the pane layout (portrait vs
+                // landscape) — the size class can't tell those apart on iPad.
+                .background(GeometryReader { g in
+                    Color.clear
+                        .onAppear { paneWidth = g.size.width }
+                        .onChange(of: g.size.width) { _, w in paneWidth = w }
+                })
             }
             // Fill the detail area top-aligned (hero flush at the very top) and paint
             // paper behind everything so it's warm, never black, edge to edge.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(Nuru.paper)
+        }
+    }
+
+    // The messenger panes, laid out for the measured width. Panes fill the available
+    // height (no hard-coded cap) so portrait uses its taller canvas.
+    @ViewBuilder private var paneArea: some View {
+        switch paneLayout {
+        case .three:
+            HStack(alignment: .top, spacing: 16) {
+                InboxPane(model: model).frame(width: 340).frame(maxHeight: .infinity)
+                ThreadPane(model: model).frame(maxWidth: .infinity, maxHeight: .infinity)
+                ContextColumn(model: model).frame(width: 320).frame(maxHeight: .infinity)
+            }
+            .frame(minHeight: 760, maxHeight: .infinity)
+        case .two:
+            HStack(alignment: .top, spacing: 16) {
+                InboxPane(model: model).frame(width: 300).frame(maxHeight: .infinity)
+                ThreadPane(model: model).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(minHeight: 760, maxHeight: .infinity)
+        case .compact:
+            InboxPaneCompact(model: model)
         }
     }
 
@@ -333,6 +373,17 @@ struct ChatView: View {
 
     private var actionBar: some View {
         HStack {
+            // Portrait two-pane: the context column moved to a sheet — surface it here.
+            if paneLayout == .two {
+                Button { showContext = true } label: {
+                    Label("Details", systemImage: "sidebar.right")
+                        .font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy)
+                        .padding(.horizontal, 14).frame(height: 38)
+                        .background(Nuru.white)
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }.buttonStyle(.plain)
+            }
             Spacer()
             Button { model.createOpen = true } label: {
                 Label("New space", systemImage: "number")
