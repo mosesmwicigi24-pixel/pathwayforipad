@@ -9,7 +9,7 @@ enum Section: String, CaseIterable, Identifiable {
     // Curriculum
     case curriculumLevels, cms, levelDetail, quizBuilder, videoLibrary, contentStudio
     // Operations
-    case cellEngagement, members, reflectionQueue, chat, events, finance, certificates, badges
+    case cellEngagement, members, reflectionQueue, chat, events, finance, certificates, badges, radio, mixer
     // System
     case users, roles, congregations, countries, languages, peopleIntelligence, proximity
     // Reachable from the profile menu (not listed in the sidebar)
@@ -34,6 +34,8 @@ enum Section: String, CaseIterable, Identifiable {
         case .finance: "Finance"
         case .certificates: "Certificates"
         case .badges: "Badges"
+        case .radio: "Radio Studio"
+        case .mixer: "Mixer Studio"
         case .users: "Users"
         case .roles: "Roles & Permissions"
         case .congregations: "Congregations"
@@ -63,6 +65,8 @@ enum Section: String, CaseIterable, Identifiable {
         case .finance: "creditcard"
         case .certificates: "rosette"
         case .badges: "star"
+        case .radio: "dot.radiowaves.left.and.right"
+        case .mixer: "slider.vertical.3"
         case .users: "person.badge.key"
         case .roles: "lock.shield"
         case .congregations: "building.columns"
@@ -83,7 +87,7 @@ private struct NavGroup: Identifiable {
 
 private let navGroups: [NavGroup] = [
     .init(label: "Portal", items: [.dashboard, .notifications]),
-    .init(label: "Operations", items: [.cellEngagement, .members, .reflectionQueue, .chat, .events, .finance, .certificates, .badges]),
+    .init(label: "Operations", items: [.cellEngagement, .members, .reflectionQueue, .chat, .events, .finance, .certificates, .badges, .radio, .mixer]),
     .init(label: "Curriculum", items: [.curriculumLevels, .cms, .levelDetail, .quizBuilder, .videoLibrary, .contentStudio]),
     .init(label: "System", items: [.users, .roles, .congregations, .countries, .languages, .peopleIntelligence, .proximity]),
 ]
@@ -243,6 +247,8 @@ struct RootView: View {
         case .finance:          FinanceView()
         case .certificates:     CertificatesView()
         case .badges:           BadgesView()
+        case .radio:            RadioStudioView()
+        case .mixer:            MixerStudioView()
         case .curriculumLevels: CurriculumLevelsView()
         case .cms:              CmsCurriculumView(title: "CMS — Curriculum")
         case .levelDetail:      CmsCurriculumView(title: "Level Detail")

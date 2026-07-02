@@ -157,6 +157,40 @@ enum PortalAPI {
         try await api.get("/admin/media", as: MediaListResponse.self).stuck
     }
 
+    // MARK: Radio Studio (admin) — see docs/RADIO_STUDIO_CONTRACT.md
+    // Programs CRUD + broadcast lifecycle, live stream health, comments.
+    static func radioPrograms(status: String? = nil) async throws -> [RadioProgram] {
+        var q: [String: String] = [:]
+        if let status, !status.isEmpty { q["status"] = status }
+        return try await api.get("/admin/radio/programs", query: q, as: [RadioProgram].self)
+    }
+    static func radioProgram(_ id: String) async throws -> RadioProgram {
+        try await api.get("/admin/radio/programs/\(id)", as: RadioProgram.self)
+    }
+    static func radioGoLive(_ id: String) async throws -> RadioProgram {
+        try await api.postEmpty("/admin/radio/programs/\(id)/go-live", as: RadioProgram.self)
+    }
+    static func radioEnd(_ id: String) async throws -> RadioProgram {
+        try await api.postEmpty("/admin/radio/programs/\(id)/end", as: RadioProgram.self)
+    }
+    static func radioRotateKey(_ id: String) async throws -> RadioStreamKey {
+        try await api.postEmpty("/admin/radio/programs/\(id)/rotate-key", as: RadioStreamKey.self)
+    }
+    static func radioHealth(_ id: String) async throws -> StreamHealth {
+        try await api.get("/admin/radio/programs/\(id)/health", as: StreamHealth.self)
+    }
+    static func radioComments(_ id: String) async throws -> [RadioComment] {
+        try await api.get("/admin/radio/programs/\(id)/comments", as: [RadioComment].self)
+    }
+
+    // MARK: Virtual Mixer (admin) — scene presets + jingle soundboard.
+    static func mixerScenes() async throws -> [MixerScene] {
+        try await api.get("/admin/radio/mixer/scenes", as: [MixerScene].self)
+    }
+    static func mixerJingles() async throws -> [MixerJingle] {
+        try await api.get("/admin/radio/mixer/jingles", as: [MixerJingle].self)
+    }
+
     // Chat
     static func chatConversations() async throws -> ChatList {
         try await api.get("/chat/conversations", query: ["scope": "mine"], as: ChatList.self)
