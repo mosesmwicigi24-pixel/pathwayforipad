@@ -23,6 +23,7 @@ struct RadioProgram: Codable, Identifiable, Equatable {
     let repeatRule: String?
     let timezone: String?
     @DefaultEmpty var status: String          // draft|scheduled|live|ended
+    @DefaultEmpty var loopMode: String        // none | loop_all | repeat_one
     @DefaultFalse var isLive: Bool
     let liveStartedAt: String?
     let liveEndedAt: String?
@@ -46,7 +47,7 @@ struct RadioProgram: Codable, Identifiable, Equatable {
     // raw value ("repeat" → "repeat"), so the mapping matches.
     enum CodingKeys: String, CodingKey {
         case id, title, description, category, speaker, location, artworkUrl, tags, visibility
-        case scheduledAt, durationMin, timezone, status, isLive, liveStartedAt, liveEndedAt
+        case scheduledAt, durationMin, timezone, status, loopMode, isLive, liveStartedAt, liveEndedAt
         case recordBroadcast, recordTarget, peakListeners, ingestProvider, ingestUrl, streamKey, hlsUrl
         case audioUrl, audioDurationSec, autoGoLive
         case createdBy, createdAt, updatedAt
@@ -54,6 +55,30 @@ struct RadioProgram: Codable, Identifiable, Equatable {
     }
 
     static func == (l: RadioProgram, r: RadioProgram) -> Bool { l.id == r.id && l.status == r.status && l.streamKey == r.streamKey }
+}
+
+// MARK: - Audio library + session playlist (contract ADDENDUM)
+
+/// A reusable audio-library asset (music | preaching | audio). Members do get audio_url.
+struct RadioTrack: Codable, Identifiable, Equatable {
+    @DefaultEmpty var id: String
+    @DefaultEmpty var title: String
+    @DefaultEmpty var kind: String            // music | preaching | audio
+    @DefaultEmpty var audioUrl: String
+    let durationSec: Int?
+    let sizeBytes: Int?
+    let createdAt: String?
+
+    static func == (l: RadioTrack, r: RadioTrack) -> Bool { l.id == r.id && l.title == r.title && l.kind == r.kind }
+}
+
+/// One ordered slot in a session playlist, embedding its track.
+struct RadioPlaylistItem: Codable, Identifiable, Equatable {
+    @DefaultEmpty var id: String
+    @DefaultZero var position: Int
+    let track: RadioTrack
+
+    static func == (l: RadioPlaylistItem, r: RadioPlaylistItem) -> Bool { l.id == r.id && l.position == r.position && l.track == r.track }
 }
 
 /// `/rotate-key` → { stream_key }

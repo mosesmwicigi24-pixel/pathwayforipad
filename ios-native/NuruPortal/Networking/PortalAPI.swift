@@ -204,6 +204,51 @@ enum PortalAPI {
         try await api.patch("/admin/radio/programs/\(id)", body: body, as: RadioProgram.self)
     }
 
+    // MARK: Radio — audio library (reusable tracks; bare arrays, no {data:[]} envelope)
+    /// A tolerant ack for the radio `{ ok: true }` delete responses.
+    private struct RadioOk: Decodable { init(from decoder: Decoder) throws {} }
+
+    static func radioTracks(kind: String? = nil) async throws -> [RadioTrack] {
+        var q: [String: String] = [:]
+        if let kind, !kind.isEmpty { q["kind"] = kind }
+        return try await api.get("/admin/radio/tracks", query: q, as: [RadioTrack].self)
+    }
+    /// Register an uploaded audio file as a library track (omit-null JSON body).
+    static func createRadioTrack(_ body: [String: RadioJSON]) async throws -> RadioTrack {
+        try await api.post("/admin/radio/tracks", body: body, as: RadioTrack.self)
+    }
+    static func deleteRadioTrack(_ id: String) async throws {
+        _ = try await api.delete("/admin/radio/tracks/\(id)", as: RadioOk.self)
+    }
+
+    // MARK: Radio — sessions (programs) create/delete + loop mode
+    static func createRadioProgramTitle(_ title: String) async throws -> RadioProgram {
+        try await api.post("/admin/radio/programs", body: ["title": RadioJSON.string(title)], as: RadioProgram.self)
+    }
+    static func deleteRadioProgram(_ id: String) async throws {
+        _ = try await api.delete("/admin/radio/programs/\(id)", as: RadioOk.self)
+    }
+    /// PATCH the session's loop mode (none | loop_all | repeat_one).
+    static func setRadioLoopMode(_ id: String, _ loopMode: String) async throws -> RadioProgram {
+        try await api.patch("/admin/radio/programs/\(id)", body: ["loop_mode": RadioJSON.string(loopMode)], as: RadioProgram.self)
+    }
+
+    // MARK: Radio — session playlist (ordered tracks embedding their track)
+    static func radioPlaylist(_ programId: String) async throws -> [RadioPlaylistItem] {
+        try await api.get("/admin/radio/programs/\(programId)/tracks", as: [RadioPlaylistItem].self)
+    }
+    static func addToRadioPlaylist(_ programId: String, trackId: String) async throws -> RadioPlaylistItem {
+        try await api.post("/admin/radio/programs/\(programId)/tracks", body: ["track_id": RadioJSON.string(trackId)], as: RadioPlaylistItem.self)
+    }
+    static func removeFromRadioPlaylist(_ programId: String, itemId: String) async throws {
+        _ = try await api.delete("/admin/radio/programs/\(programId)/tracks/\(itemId)", as: RadioOk.self)
+    }
+    /// Reorder the playlist by item-id order — encoder converts `itemIds` → `item_ids`.
+    static func reorderRadioPlaylist(_ programId: String, itemIds: [String]) async throws -> [RadioPlaylistItem] {
+        struct Body: Encodable { let itemIds: [String] }
+        return try await api.put("/admin/radio/programs/\(programId)/tracks/order", body: Body(itemIds: itemIds), as: [RadioPlaylistItem].self)
+    }
+
     private static func mimeType(for filename: String) -> String {
         switch (filename as NSString).pathExtension.lowercased() {
         case "mp3": return "audio/mpeg"

@@ -278,6 +278,7 @@ private final class RadioModel: ObservableObject {
 
 struct RadioStudioView: View {
     @StateObject private var m = RadioModel()
+    @StateObject private var library = AudioLibraryStore()
     @State private var showCreate = false
     @State private var editProgram: RadioProgram?
 
@@ -305,7 +306,8 @@ struct RadioStudioView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
         .task { if !m.loaded { await m.load() } }
-        .onDisappear { m.teardown() }
+        .task { if !library.loaded { await library.load() } }
+        .onDisappear { m.teardown(); library.teardown() }
         .sheet(isPresented: $showCreate) { RadioProgramForm { Task { await m.load() } } }
         .sheet(item: $editProgram) { p in
             RadioProgramForm(existing: p) { Task { await m.load() } }
@@ -381,6 +383,11 @@ struct RadioStudioView: View {
     @ViewBuilder private func body(program: RadioProgram?) -> some View {
         // Program picker strip (horizontal) — select the program to broadcast.
         ProgramPickerStrip(programs: m.programs, selectedId: m.selectedId) { m.select($0) }
+
+        // Audio library + Sessions playlists (global to the studio) — see the
+        // frozen /admin/radio/tracks + /programs/:id/tracks contract.
+        AudioLibrarySection(store: library)
+        SessionsSection(store: library)
 
         if let p = program {
             // LIVE status bar (only while live/paused) — duration/listeners/bitrate/health.
@@ -1223,6 +1230,658 @@ struct DarkError: View {
                     .padding(.horizontal, 16).frame(height: 34).background(Rs.gold.opacity(0.12)).clipShape(Capsule()).padding(.top, 2)
             }.frame(maxWidth: .infinity).padding(.vertical, 20)
         }
+    }
+}
+
+// MARK: - ===================== Audio library + Sessions =====================
+// Two dark panels wired to the frozen library/playlist contract. A single store
+// owns the library tracks + every session's playlist and drives a lightweight
+// AVQueuePlayer preview that honours the session's loopMode.
+
+private enum TrackKind: String, CaseIterable, Identifiable {
+    case music, preaching, audio
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+    var color: Color {
+        switch self {
+        case .music:     return Rs.green
+        case .preaching: return Rs.gold
+        case .audio:     return Color(hex: 0x3B82F6)   // blue
+        }
+    }
+}
+
+private enum LoopMode: String, CaseIterable {
+    case none, loop_all, repeat_one
+    var label: String {
+        switch self {
+        case .none:       return "Off"
+        case .loop_all:   return "Loop all"
+        case .repeat_one: return "Repeat one"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .none:       return "arrow.forward.to.line"
+        case .loop_all:   return "repeat"
+        case .repeat_one: return "repeat.1"
+        }
+    }
+    var next: LoopMode {
+        switch self {
+        case .none:       return .loop_all
+        case .loop_all:   return .repeat_one
+        case .repeat_one: return .none
+        }
+    }
+    static func from(_ s: String) -> LoopMode { LoopMode(rawValue: s) ?? .none }
+}
+
+@MainActor
+private final class AudioLibraryStore: ObservableObject {
+    // Library
+    @Published var tracks: [RadioTrack] = []
+    @Published var kind: TrackKind = .music
+    @Published var loaded = false
+    @Published var error: String?
+    @Published var busy = false
+    @Published var uploading = false
+
+    // Sessions + their playlists (keyed by program id)
+    @Published var sessions: [RadioProgram] = []
+    @Published var playlists: [String: [RadioPlaylistItem]] = [:]
+    @Published var newSessionName = ""
+
+    // Client-side preview (AVQueuePlayer honouring loopMode)
+    @Published var previewSessionId: String?
+    @Published var previewTitle: String?
+    private var player: AVQueuePlayer?
+    private var previewItems: [RadioPlaylistItem] = []
+    private var previewIndex = 0
+    private var previewLoop: LoopMode = .none
+    private var endObserver: NSObjectProtocol?
+
+    func load() async {
+        async let t = (try? await PortalAPI.radioTracks(kind: kind.rawValue)) ?? []
+        async let s = (try? await PortalAPI.radioPrograms()) ?? []
+        tracks = await t
+        sessions = await s
+        await reloadAllPlaylists()
+        loaded = true
+    }
+
+    func reloadTracks() async {
+        do { tracks = try await PortalAPI.radioTracks(kind: kind.rawValue); error = nil }
+        catch { self.error = (error as? APIError)?.errorDescription ?? "Could not load the audio library." }
+    }
+
+    func selectKind(_ k: TrackKind) {
+        guard k != kind else { return }
+        kind = k
+        Task { await reloadTracks() }
+    }
+
+    private func reloadAllPlaylists() async {
+        var next: [String: [RadioPlaylistItem]] = [:]
+        for s in sessions {
+            if let items = try? await PortalAPI.radioPlaylist(s.id) { next[s.id] = items }
+        }
+        playlists = next
+    }
+
+    func reloadSession(_ id: String) async {
+        if let items = try? await PortalAPI.radioPlaylist(id) { playlists[id] = items }
+    }
+
+    // MARK: Library mutations
+
+    func upload(_ fileURL: URL) {
+        Task {
+            uploading = true; error = nil
+            let scoped = fileURL.startAccessingSecurityScopedResource()
+            defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let up = try await PortalAPI.uploadRadioAudio(data: data, filename: fileURL.lastPathComponent)
+                let title = (fileURL.lastPathComponent as NSString).deletingPathExtension
+                var body: [String: RadioJSON] = [
+                    "title": .string(title.isEmpty ? "Untitled" : title),
+                    "kind": .string(kind.rawValue),
+                    "audio_url": .string(up.url),
+                    "size_bytes": .int(data.count),
+                ]
+                if let d = up.durationSec { body["duration_sec"] = .int(d) }
+                _ = try await PortalAPI.createRadioTrack(body)
+                await reloadTracks()
+            } catch {
+                self.error = (error as? APIError)?.errorDescription ?? "Could not upload the audio file."
+            }
+            uploading = false
+        }
+    }
+
+    func deleteTrack(_ id: String) {
+        Task {
+            busy = true; error = nil
+            do { try await PortalAPI.deleteRadioTrack(id); await reloadTracks() }
+            catch { self.error = (error as? APIError)?.errorDescription ?? "Could not delete the track." }
+            busy = false
+        }
+    }
+
+    // MARK: Session mutations
+
+    func createSession() {
+        let name = newSessionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        Task {
+            busy = true; error = nil
+            do {
+                let p = try await PortalAPI.createRadioProgramTitle(name)
+                newSessionName = ""
+                sessions.insert(p, at: 0)
+                playlists[p.id] = []
+            } catch {
+                self.error = (error as? APIError)?.errorDescription ?? "Could not create the session."
+            }
+            busy = false
+        }
+    }
+
+    func deleteSession(_ id: String) {
+        if previewSessionId == id { stopPreview() }
+        Task {
+            busy = true; error = nil
+            do {
+                try await PortalAPI.deleteRadioProgram(id)
+                sessions.removeAll { $0.id == id }
+                playlists[id] = nil
+            } catch {
+                self.error = (error as? APIError)?.errorDescription ?? "Could not delete the session."
+            }
+            busy = false
+        }
+    }
+
+    func addTrack(_ trackId: String, to sessionId: String) {
+        Task {
+            busy = true; error = nil
+            do { _ = try await PortalAPI.addToRadioPlaylist(sessionId, trackId: trackId); await reloadSession(sessionId) }
+            catch { self.error = (error as? APIError)?.errorDescription ?? "Could not add the track." }
+            busy = false
+        }
+    }
+
+    func removeItem(_ itemId: String, from sessionId: String) {
+        Task {
+            busy = true; error = nil
+            do { try await PortalAPI.removeFromRadioPlaylist(sessionId, itemId: itemId); await reloadSession(sessionId) }
+            catch { self.error = (error as? APIError)?.errorDescription ?? "Could not remove the track." }
+            busy = false
+        }
+    }
+
+    /// Move the item at `index` by `delta` (±1) and PUT the recomputed id order.
+    func move(_ sessionId: String, index: Int, by delta: Int) {
+        guard var items = playlists[sessionId] else { return }
+        let dest = index + delta
+        guard items.indices.contains(index), items.indices.contains(dest) else { return }
+        items.swapAt(index, dest)
+        playlists[sessionId] = items                    // optimistic
+        let order = items.map { $0.id }
+        Task {
+            busy = true; error = nil
+            do { let fresh = try await PortalAPI.reorderRadioPlaylist(sessionId, itemIds: order); playlists[sessionId] = fresh }
+            catch { self.error = (error as? APIError)?.errorDescription ?? "Could not reorder."; await reloadSession(sessionId) }
+            busy = false
+        }
+    }
+
+    func setLoop(_ sessionId: String, _ mode: LoopMode) {
+        Task {
+            do {
+                let updated = try await PortalAPI.setRadioLoopMode(sessionId, mode.rawValue)
+                if let i = sessions.firstIndex(where: { $0.id == sessionId }) { sessions[i] = updated }
+                if previewSessionId == sessionId { previewLoop = mode }
+            } catch {
+                self.error = (error as? APIError)?.errorDescription ?? "Could not set loop mode."
+            }
+        }
+    }
+
+    func loopMode(for sessionId: String) -> LoopMode {
+        LoopMode.from(sessions.first { $0.id == sessionId }?.loopMode ?? "none")
+    }
+
+    // MARK: Play live (go-live + client preview honouring loopMode)
+
+    func playLive(_ sessionId: String) {
+        guard let items = playlists[sessionId], !items.isEmpty else {
+            error = "This session has no tracks to play."
+            return
+        }
+        Task { _ = try? await PortalAPI.radioGoLive(sessionId) }   // server-authoritative go-live
+        startPreview(sessionId: sessionId, items: items, loop: loopMode(for: sessionId))
+    }
+
+    private func startPreview(sessionId: String, items: [RadioPlaylistItem], loop: LoopMode) {
+        stopPreview()
+        previewItems = items
+        previewLoop = loop
+        previewIndex = 0
+        previewSessionId = sessionId
+        let q = AVQueuePlayer()
+        player = q
+        observeItemEnds()
+        playCurrent()
+    }
+
+    private func playCurrent() {
+        guard previewItems.indices.contains(previewIndex),
+              let url = URL(string: previewItems[previewIndex].track.audioUrl) else { stopPreview(); return }
+        let item = AVPlayerItem(url: url)
+        player?.removeAllItems()
+        player?.insert(item, after: nil)
+        previewTitle = previewItems[previewIndex].track.title
+        player?.play()
+    }
+
+    private func observeItemEnds() {
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.advance() }
+        }
+    }
+
+    private func advance() {
+        switch previewLoop {
+        case .repeat_one:
+            playCurrent()                                     // replay current
+        case .loop_all:
+            previewIndex = (previewIndex + 1) % max(previewItems.count, 1)
+            playCurrent()                                     // wrap
+        case .none:
+            previewIndex += 1
+            if previewItems.indices.contains(previewIndex) { playCurrent() }
+            else { stopPreview() }                            // stop at end
+        }
+    }
+
+    func stopPreview() {
+        player?.pause()
+        player?.removeAllItems()
+        player = nil
+        if let o = endObserver { NotificationCenter.default.removeObserver(o); endObserver = nil }
+        previewSessionId = nil
+        previewTitle = nil
+        previewItems = []
+        previewIndex = 0
+    }
+
+    func teardown() { stopPreview() }
+}
+
+// MARK: - Byte / duration formatting
+
+private func fmtBytes(_ bytes: Int?) -> String? {
+    guard let b = bytes, b > 0 else { return nil }
+    let mb = Double(b) / 1_048_576
+    if mb >= 1 { return String(format: "%.1f MB", mb) }
+    let kb = Double(b) / 1024
+    return String(format: "%.0f KB", kb)
+}
+private func fmtDuration(_ sec: Int?) -> String? {
+    guard let s = sec, s > 0 else { return nil }
+    let h = s / 3600, m = (s % 3600) / 60, ss = s % 60
+    return h > 0 ? String(format: "%d:%02d:%02d", h, m, ss) : String(format: "%d:%02d", m, ss)
+}
+
+// MARK: - Audio library section
+
+private struct AudioLibrarySection: View {
+    @ObservedObject var store: AudioLibraryStore
+    @State private var showImporter = false
+
+    var body: some View {
+        StudioPanel {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    StudioHeader(icon: "music.note.list", title: "Audio library",
+                                 caption: "\(store.tracks.count) track\(store.tracks.count == 1 ? "" : "s")", tint: Rs.green)
+                }
+                // Kind picker + Upload
+                HStack(spacing: 10) {
+                    KindSegmented(selection: store.kind) { store.selectKind($0) }
+                    Spacer(minLength: 8)
+                    Button { showImporter = true } label: {
+                        HStack(spacing: 6) {
+                            if store.uploading { ProgressView().tint(Color(hex: 0x0A1120)) }
+                            else { Image(systemName: "arrow.up.circle.fill").font(.system(size: 12, weight: .bold)) }
+                            Text("Upload music").font(.inter(12, .bold))
+                        }
+                        .foregroundStyle(Color(hex: 0x0A1120))
+                        .padding(.horizontal, 14).frame(height: 34)
+                        .background(Rs.goldFill).clipShape(Capsule())
+                    }.buttonStyle(.plain).disabled(store.uploading)
+                }
+
+                if store.tracks.isEmpty {
+                    emptyState
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(store.tracks) { t in
+                            TrackRow(track: t, sessions: store.sessions,
+                                     onAddToSession: { store.addTrack(t.id, to: $0) },
+                                     onDelete: { store.deleteTrack(t.id) })
+                        }
+                    }
+                }
+                if let e = store.error {
+                    Text(e).font(.inter(11)).foregroundStyle(Rs.red).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .fileImporter(isPresented: $showImporter,
+                      allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav]) { result in
+            if case .success(let url) = result { store.upload(url) }
+            else if case .failure(let err) = result { store.error = err.localizedDescription }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "music.note").font(.system(size: 24)).foregroundStyle(Rs.faint)
+            Text("No \(store.kind.label.lowercased()) tracks yet").font(.inter(12.5, .semibold)).foregroundStyle(Rs.text)
+            Text("Upload audio to build a reusable library.").font(.inter(11)).foregroundStyle(Rs.dim)
+        }.frame(maxWidth: .infinity).padding(.vertical, 22)
+    }
+}
+
+/// Music / Preaching / Audio segmented picker (dark).
+private struct KindSegmented: View {
+    let selection: TrackKind
+    let onSelect: (TrackKind) -> Void
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(TrackKind.allCases) { k in
+                let on = k == selection
+                Button { onSelect(k) } label: {
+                    Text(k.label).font(.inter(11.5, .semibold))
+                        .foregroundStyle(on ? Color(hex: 0x0A1120) : Rs.dim)
+                        .padding(.horizontal, 12).frame(height: 28)
+                        .background(on ? AnyShapeStyle(k.color) : AnyShapeStyle(Color.clear))
+                        .clipShape(Capsule())
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(Color.white.opacity(0.04)).clipShape(Capsule())
+        .overlay(Capsule().stroke(Rs.border, lineWidth: 1))
+    }
+}
+
+private struct TrackRow: View {
+    let track: RadioTrack
+    let sessions: [RadioProgram]
+    let onAddToSession: (String) -> Void
+    let onDelete: () -> Void
+
+    private var kind: TrackKind { TrackKind(rawValue: track.kind) ?? .audio }
+
+    var body: some View {
+        HStack(spacing: 11) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(kind.color.opacity(0.16))
+                Image(systemName: "music.note").font(.system(size: 13, weight: .semibold)).foregroundStyle(kind.color)
+            }.frame(width: 34, height: 34)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(track.title.isEmpty ? "Untitled" : track.title)
+                    .font(.inter(12.5, .semibold)).foregroundStyle(Rs.text).lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(kind.label.uppercased()).font(.inter(8.5, .bold)).tracking(0.5)
+                        .foregroundStyle(kind.color)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(kind.color.opacity(0.16)).clipShape(Capsule())
+                    if let d = fmtDuration(track.durationSec) {
+                        Text(d).font(Rs.mono(10)).foregroundStyle(Rs.dim)
+                    }
+                    if let s = fmtBytes(track.sizeBytes) {
+                        Text(s).font(.inter(10)).foregroundStyle(Rs.faint)
+                    }
+                }
+            }
+            Spacer(minLength: 6)
+
+            // + Session menu
+            if sessions.isEmpty {
+                Text("No sessions").font(.inter(10)).foregroundStyle(Rs.faint)
+            } else {
+                Menu {
+                    ForEach(sessions) { s in
+                        Button(s.title.isEmpty ? "Untitled" : s.title) { onAddToSession(s.id) }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus").font(.system(size: 10, weight: .bold))
+                        Text("Session").font(.inter(11, .semibold))
+                    }
+                    .foregroundStyle(Rs.gold)
+                    .padding(.horizontal, 10).frame(height: 28)
+                    .background(Rs.gold.opacity(0.12)).clipShape(Capsule())
+                    .overlay(Capsule().stroke(Rs.gold.opacity(0.3), lineWidth: 1))
+                }
+            }
+
+            Menu {
+                Button("Delete track", role: .destructive) { onDelete() }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Rs.dim).frame(width: 28, height: 28)
+            }
+        }
+        .padding(.horizontal, 11).padding(.vertical, 8)
+        .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Rs.border, lineWidth: 1))
+    }
+}
+
+// MARK: - Sessions section
+
+private struct SessionsSection: View {
+    @ObservedObject var store: AudioLibraryStore
+
+    var body: some View {
+        StudioPanel {
+            VStack(alignment: .leading, spacing: 14) {
+                StudioHeader(icon: "square.stack.3d.down.right.fill", title: "Sessions",
+                             caption: "\(store.sessions.count) session\(store.sessions.count == 1 ? "" : "s")")
+
+                // Create a session
+                HStack(spacing: 10) {
+                    TextField("", text: Binding(get: { store.newSessionName }, set: { store.newSessionName = $0 }),
+                              prompt: Text("New session name…").foregroundColor(Rs.faint))
+                        .font(.inter(12.5)).foregroundStyle(Rs.text)
+                        .padding(.horizontal, 12).frame(height: 36)
+                        .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Rs.border, lineWidth: 1))
+                        .submitLabel(.done)
+                        .onSubmit { store.createSession() }
+                    Button { store.createSession() } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                            Text("Create").font(.inter(12, .bold))
+                        }
+                        .foregroundStyle(Color(hex: 0x0A1120))
+                        .padding(.horizontal, 14).frame(height: 36)
+                        .background(Rs.goldFill).clipShape(Capsule())
+                    }.buttonStyle(.plain)
+                    .disabled(store.newSessionName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                // Now previewing line
+                if let title = store.previewTitle {
+                    HStack(spacing: 7) {
+                        Image(systemName: "waveform").font(.system(size: 11)).foregroundStyle(Rs.gold)
+                        Text("Now previewing: \(title)").font(.inter(11.5, .semibold)).foregroundStyle(Rs.gold)
+                        Spacer(minLength: 6)
+                        Button { store.stopPreview() } label: {
+                            Text("Stop").font(.inter(11, .semibold)).foregroundStyle(Rs.dim)
+                        }.buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12).frame(height: 34)
+                    .background(Rs.gold.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Rs.gold.opacity(0.3), lineWidth: 1))
+                }
+
+                if store.sessions.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "square.stack.3d.down.right").font(.system(size: 24)).foregroundStyle(Rs.faint)
+                        Text("No sessions yet").font(.inter(12.5, .semibold)).foregroundStyle(Rs.text)
+                        Text("Name a session above to build a playlist.").font(.inter(11)).foregroundStyle(Rs.dim)
+                    }.frame(maxWidth: .infinity).padding(.vertical, 22)
+                } else {
+                    VStack(spacing: 12) {
+                        ForEach(store.sessions) { s in
+                            SessionCard(
+                                session: s,
+                                items: store.playlists[s.id] ?? [],
+                                loop: store.loopMode(for: s.id),
+                                tracks: store.tracks,
+                                onSetLoop: { store.setLoop(s.id, $0) },
+                                onPlay: { store.playLive(s.id) },
+                                onDeleteSession: { store.deleteSession(s.id) },
+                                onMove: { idx, delta in store.move(s.id, index: idx, by: delta) },
+                                onRemove: { store.removeItem($0, from: s.id) },
+                                onAddTrack: { store.addTrack($0, to: s.id) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct SessionCard: View {
+    let session: RadioProgram
+    let items: [RadioPlaylistItem]
+    let loop: LoopMode
+    let tracks: [RadioTrack]
+    let onSetLoop: (LoopMode) -> Void
+    let onPlay: () -> Void
+    let onDeleteSession: () -> Void
+    let onMove: (Int, Int) -> Void
+    let onRemove: (String) -> Void
+    let onAddTrack: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header row: name / count / loop / play / delete
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.title.isEmpty ? "Untitled" : session.title)
+                        .font(.inter(13.5, .bold)).foregroundStyle(Rs.text).lineLimit(1)
+                    Text("\(items.count) item\(items.count == 1 ? "" : "s")").font(.inter(10.5)).foregroundStyle(Rs.dim)
+                }
+                Spacer(minLength: 6)
+
+                // Loop control (Menu selecting Off / Loop all / Repeat one)
+                Menu {
+                    ForEach(LoopMode.allCases, id: \.rawValue) { mode in
+                        Button {
+                            onSetLoop(mode)
+                        } label: {
+                            Label(mode.label, systemImage: mode == loop ? "checkmark" : mode.icon)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: loop.icon).font(.system(size: 11, weight: .semibold))
+                        Text(loop.label).font(.inter(11, .semibold))
+                    }
+                    .foregroundStyle(loop == .none ? Rs.dim : Rs.gold)
+                    .padding(.horizontal, 10).frame(height: 30)
+                    .background((loop == .none ? Rs.faint : Rs.gold).opacity(0.12)).clipShape(Capsule())
+                    .overlay(Capsule().stroke((loop == .none ? Rs.faint : Rs.gold).opacity(0.3), lineWidth: 1))
+                }
+
+                Button(action: onPlay) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "play.fill").font(.system(size: 10, weight: .bold))
+                        Text("Play live").font(.inter(11, .bold))
+                    }
+                    .foregroundStyle(Color(hex: 0x0A1120))
+                    .padding(.horizontal, 12).frame(height: 30)
+                    .background(Rs.goldFill).clipShape(Capsule())
+                }.buttonStyle(.plain).disabled(items.isEmpty)
+
+                Button(action: onDeleteSession) {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Rs.red).frame(width: 30, height: 30)
+                        .background(Rs.red.opacity(0.12)).clipShape(Circle())
+                }.buttonStyle(.plain)
+            }
+
+            // Numbered playlist
+            if items.isEmpty {
+                Text("No tracks yet — add one below.").font(.inter(11)).foregroundStyle(Rs.dim)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                        HStack(spacing: 9) {
+                            Text("\(idx + 1)").font(Rs.mono(11, .bold)).foregroundStyle(Rs.dim).frame(width: 18, alignment: .trailing)
+                            Circle().fill(dotColor(item.track.kind)).frame(width: 8, height: 8)
+                            Text(item.track.title.isEmpty ? "Untitled" : item.track.title)
+                                .font(.inter(12)).foregroundStyle(Rs.text).lineLimit(1)
+                            Spacer(minLength: 6)
+                            Button { onMove(idx, -1) } label: {
+                                Image(systemName: "chevron.up").font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(idx == 0 ? Rs.faint : Rs.dim).frame(width: 26, height: 26)
+                            }.buttonStyle(.plain).disabled(idx == 0)
+                            Button { onMove(idx, 1) } label: {
+                                Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(idx == items.count - 1 ? Rs.faint : Rs.dim).frame(width: 26, height: 26)
+                            }.buttonStyle(.plain).disabled(idx == items.count - 1)
+                            Button { onRemove(item.id) } label: {
+                                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(Rs.dim).frame(width: 26, height: 26)
+                            }.buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    }
+                }
+            }
+
+            // Footer: + Add track menu
+            if tracks.isEmpty {
+                Text("Upload library tracks to add them here.").font(.inter(10.5)).foregroundStyle(Rs.faint)
+            } else {
+                Menu {
+                    ForEach(tracks) { t in
+                        Button(t.title.isEmpty ? "Untitled" : t.title) { onAddTrack(t.id) }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                        Text("Add track…").font(.inter(11.5, .semibold))
+                    }
+                    .foregroundStyle(Rs.gold)
+                    .padding(.horizontal, 12).frame(height: 32)
+                    .background(Rs.gold.opacity(0.10)).clipShape(Capsule())
+                    .overlay(Capsule().stroke(Rs.gold.opacity(0.3), lineWidth: 1))
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.white.opacity(0.025)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Rs.border, lineWidth: 1))
+    }
+
+    private func dotColor(_ kind: String) -> Color {
+        (TrackKind(rawValue: kind) ?? .audio).color
     }
 }
 
