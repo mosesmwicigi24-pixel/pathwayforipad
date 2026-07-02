@@ -1,0 +1,556 @@
+// MicBroadcaster — REAL microphone sensing + live Icecast uplink for the Radio Studio.
+//
+// Senses the iPad's audio inputs via AVAudioSession (a RØDE USB mic shows up as
+// `.usbAudio` and is auto-preferred), meters the live input with an AVAudioEngine
+// tap, and broadcasts the mic into the station's liquidsoap mix engine by pushing
+// an AAC/ADTS stream into its Icecast-protocol harbor (host:8005 /mic, user
+// "source", password = the program's stream key).
+//
+// Split in two:
+//   • MicBroadcaster  — @MainActor ObservableObject the UI binds to (inputs, level,
+//     state machine idle → connecting → onAir | error). Owns the AVAudioSession
+//     category dance (.playAndRecord while capturing, restore .playback after).
+//   • MicUplink       — plain class doing the realtime work off the main actor:
+//     inputNode tap → AVAudioConverter (AAC-LC 44.1 kHz stereo ~128 kbps) → 7-byte
+//     ADTS framing → NWConnection over TCP (Network framework — deliberately NOT
+//     URLSession, so no ATS exception is needed for the raw source socket).
+//
+// Resilience: permission denial, missing stream key, refused handshakes, and mid-
+// broadcast network drops all land in `.error(String)` — never a crash. The user
+// can simply retry.
+import Foundation
+import AVFoundation
+import Accelerate
+import Network
+
+// MARK: - ===================== MicBroadcaster (UI-facing) =====================
+
+@MainActor
+final class MicBroadcaster: ObservableObject {
+
+    enum State: Equatable {
+        case idle
+        case connecting
+        case onAir
+        case error(String)
+    }
+
+    /// One selectable hardware input, derived from AVAudioSession.availableInputs.
+    struct InputSource: Identifiable, Equatable {
+        let uid: String
+        let name: String
+        let portType: AVAudioSession.Port
+        var id: String { uid }
+        var isUSB: Bool { portType == .usbAudio }
+    }
+
+    // Published surface the Audio source card binds to.
+    @Published private(set) var availableInputs: [InputSource] = []
+    @Published private(set) var activeInputUID: String?
+    @Published private(set) var currentInputName: String = "No input detected"
+    @Published private(set) var level: Double = 0          // 0…1 RMS meter
+    @Published private(set) var state: State = .idle
+    @Published private(set) var monitoring = false
+    @Published private(set) var permissionDenied = false
+
+    var isBroadcasting: Bool { state == .connecting || state == .onAir }
+
+    private let session = AVAudioSession.sharedInstance()
+    private let uplink = MicUplink()
+    private var routeObserver: NSObjectProtocol?
+    /// Set when the operator taps a specific row; suppresses USB auto-preference
+    /// until that device disappears (so a manual choice is never fought).
+    private var manualSelectionUID: String?
+
+    init() {
+        uplink.onLevel = { [weak self] lvl in
+            DispatchQueue.main.async { self?.level = lvl }
+        }
+        uplink.onEvent = { [weak self] event in
+            DispatchQueue.main.async { self?.handle(event) }
+        }
+        // Live re-scan when the RØDE is plugged/unplugged (or any route change).
+        routeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.rescanInputs(autoPrefer: true) }
+        }
+        rescanInputs(autoPrefer: true)
+    }
+
+    deinit {
+        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+    }
+
+    /// Full stop — used by the hosting view's onDisappear.
+    func teardown() {
+        uplink.disconnect()
+        uplink.stopCapture()
+        if isBroadcasting { state = .idle }
+        monitoring = false
+        level = 0
+        restorePlaybackSession()
+    }
+
+    // MARK: Input sensing
+
+    /// Re-read availableInputs; auto-prefer a USB input (the RØDE) when present.
+    func rescanInputs(autoPrefer: Bool) {
+        let ports = session.availableInputs ?? []
+        let inputs = ports.map { InputSource(uid: $0.uid, name: $0.portName, portType: $0.portType) }
+        if inputs != availableInputs { availableInputs = inputs }
+
+        // If the manually-chosen device left, fall back to automatic preference.
+        if let manual = manualSelectionUID, !ports.contains(where: { $0.uid == manual }) {
+            manualSelectionUID = nil
+        }
+        if autoPrefer, manualSelectionUID == nil,
+           let usb = ports.first(where: { $0.portType == .usbAudio }),
+           session.preferredInput?.uid != usb.uid {
+            try? session.setPreferredInput(usb)
+        }
+
+        let active = session.currentRoute.inputs.first.map { ($0.uid, $0.portName) }
+            ?? session.preferredInput.map { ($0.uid, $0.portName) }
+            ?? ports.first.map { ($0.uid, $0.portName) }
+        activeInputUID = active?.0
+        currentInputName = active?.1 ?? "No input detected"
+    }
+
+    /// Operator picked a row — route capture to that hardware input.
+    func select(_ input: InputSource) {
+        guard let port = session.availableInputs?.first(where: { $0.uid == input.uid }) else { return }
+        manualSelectionUID = input.uid
+        try? session.setPreferredInput(port)
+        rescanInputs(autoPrefer: false)
+    }
+
+    // MARK: Monitoring (level meter without broadcasting)
+
+    func startMonitoring() {
+        guard !monitoring else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            guard await self.ensurePermission() else { return }
+            do {
+                try self.activateCaptureSession()
+                try self.uplink.startCapture()
+                self.monitoring = true
+            } catch {
+                self.state = .error("Could not open the microphone — \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func stopMonitoring() {
+        guard monitoring else { return }
+        monitoring = false
+        if !isBroadcasting {
+            uplink.stopCapture()
+            restorePlaybackSession()
+            level = 0
+        }
+    }
+
+    // MARK: Broadcast lifecycle
+
+    /// Push the mic into the station's live mix: Icecast source handshake on
+    /// host:port + mount, then a continuous AAC/ADTS stream.
+    func start(host: String, port: UInt16 = 8005, mount: String = "/mic", password: String) {
+        guard !isBroadcasting else { return }
+        guard !password.isEmpty else {
+            state = .error("This program has no stream key — rotate one first.")
+            return
+        }
+        state = .connecting
+        Task { [weak self] in
+            guard let self else { return }
+            guard await self.ensurePermission() else { return }
+            do {
+                try self.activateCaptureSession()
+                try self.uplink.startCapture()
+            } catch {
+                self.state = .error("Could not open the microphone — \(error.localizedDescription)")
+                self.windDownCaptureIfIdle()
+                return
+            }
+            self.uplink.connect(host: host, port: port, mount: mount, password: password)
+        }
+    }
+
+    func stop() {
+        uplink.disconnect()
+        if isBroadcasting { state = .idle }
+        windDownCaptureIfIdle()
+    }
+
+    private func handle(_ event: MicUplink.Event) {
+        switch event {
+        case .connected:
+            guard state == .connecting else { return }
+            state = .onAir
+        case .refused(let statusLine):
+            state = .error("Station refused the mic — \(statusLine)")
+            windDownCaptureIfIdle()
+        case .failed(let message):
+            state = .error(message)
+            windDownCaptureIfIdle()
+        }
+    }
+
+    /// If neither monitoring nor broadcasting needs the tap, release the hardware
+    /// and hand the audio session back to plain playback.
+    private func windDownCaptureIfIdle() {
+        guard !monitoring, !isBroadcasting else { return }
+        uplink.stopCapture()
+        restorePlaybackSession()
+        level = 0
+    }
+
+    // MARK: Permission + audio session
+
+    private func ensurePermission() async -> Bool {
+        let granted: Bool
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:      granted = true
+        case .denied:       granted = false
+        default:            granted = await AVAudioApplication.requestRecordPermission()
+        }
+        permissionDenied = !granted
+        if !granted {
+            state = .error("Microphone access denied — enable it in Settings.")
+        }
+        return granted
+    }
+
+    private func activateCaptureSession() throws {
+        try session.setCategory(.playAndRecord, mode: .default,
+                                options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers])
+        try session.setActive(true)
+        // Re-assert the preferred input now that the record session is live —
+        // availableInputs is fully populated only for record-capable categories.
+        rescanInputs(autoPrefer: true)
+    }
+
+    private func restorePlaybackSession() {
+        // Back to the studio's baseline (see enableBackgroundPlayback()).
+        try? session.setCategory(.playback, mode: .default)
+        try? session.setActive(true)
+    }
+}
+
+// MARK: - ===================== MicUplink (realtime capture → AAC/ADTS → TCP) =====================
+
+/// Non-isolated pipeline: AVAudioEngine tap (audio thread) → serial `net` queue
+/// where the AAC converter, ADTS framing, and the NWConnection all live.
+final class MicUplink {
+
+    enum Event {
+        case connected
+        case refused(String)
+        case failed(String)
+    }
+
+    /// 0…1 RMS level, ~20 Hz, called on the audio tap thread.
+    var onLevel: ((Double) -> Void)?
+    /// Uplink lifecycle events, called on the uplink queue.
+    var onEvent: ((Event) -> Void)?
+
+    private let engine = AVAudioEngine()
+    /// Everything below is owned by this serial queue (the NWConnection's queue too).
+    private let net = DispatchQueue(label: "org.nuruplace.mic.uplink")
+
+    // Main-thread capture state.
+    private var capturing = false
+    private var configObserver: NSObjectProtocol?
+
+    // `net`-queue uplink state.
+    private var connection: NWConnection?
+    private var converter: AVAudioConverter?
+    private var aacFormat: AVAudioFormat?
+    private var streaming = false
+    private var batch = Data()
+    private var batchPackets = 0
+
+    // Audio-thread-only meter throttle.
+    private var lastLevelAt: CFAbsoluteTime = 0
+
+    private static let outSampleRate: Double = 44_100
+    private static let outChannels: UInt32 = 2          // mono inputs are duplicated L/R
+    private static let outBitrate = 128_000
+    private static let adtsSampleFreqIndex = 4          // 44.1 kHz
+    private static let packetsPerSend = 6               // ~140 ms of audio per TCP send
+
+    init() {
+        // A route change mid-capture (mic unplugged) changes the input format;
+        // re-install the tap with the fresh format so capture survives.
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            self?.reinstallTapAfterConfigChange()
+        }
+    }
+
+    deinit {
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+    }
+
+    // MARK: Capture (tap on the input node's native format)
+
+    func startCapture() throws {
+        guard !capturing else { return }
+        try installTap()
+        engine.prepare()
+        try engine.start()
+        capturing = true
+    }
+
+    func stopCapture() {
+        guard capturing else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        capturing = false
+        onLevel?(0)
+        net.async { [weak self] in self?.converter = nil }
+    }
+
+    private func installTap() throws {
+        let input = engine.inputNode
+        let format = input.inputFormat(forBus: 0)       // the input's native format
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw NSError(domain: "MicUplink", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "The selected input has no live audio channels."
+            ])
+        }
+        // 2048 frames ≈ 43–46 ms per callback at 44.1/48 kHz → ~20 Hz metering.
+        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
+            self?.handleTap(buffer)
+        }
+    }
+
+    private func reinstallTapAfterConfigChange() {
+        guard capturing else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        // The converter's input format is stale now — rebuild on the next buffer.
+        net.async { [weak self] in self?.converter = nil }
+        do {
+            try installTap()
+            engine.prepare()
+            try engine.start()
+        } catch {
+            net.async { [weak self] in
+                self?.failIfConnected("The audio input changed and capture could not restart.")
+            }
+        }
+    }
+
+    /// Audio-thread: RMS meter + hand the buffer to the uplink queue for encoding.
+    private func handleTap(_ buffer: AVAudioPCMBuffer) {
+        if let channel = buffer.floatChannelData?[0], buffer.frameLength > 0 {
+            let now = CFAbsoluteTimeGetCurrent()
+            if now - lastLevelAt >= 0.045 {              // ≤ ~22 Hz to the UI
+                lastLevelAt = now
+                var rms: Float = 0
+                vDSP_rmsqv(channel, 1, &rms, vDSP_Length(buffer.frameLength))
+                let db = 20 * log10(max(rms, 0.000_01))  // floor at -100 dBFS
+                let norm = max(0, min(1, (db + 50) / 50)) // -50 dB → 0 … 0 dB → 1
+                onLevel?(Double(norm))
+            }
+        }
+        net.async { [weak self] in self?.encodeAndSend(buffer) }
+    }
+
+    // MARK: Connect (Icecast SOURCE handshake over raw TCP)
+
+    func connect(host: String, port: UInt16, mount: String, password: String) {
+        net.async { [weak self] in
+            guard let self else { return }
+            self.teardownConnection()
+            guard let nwPort = NWEndpoint.Port(rawValue: port) else {
+                self.onEvent?(.failed("Invalid ingest port \(port)."))
+                return
+            }
+            let conn = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
+            self.connection = conn
+            conn.stateUpdateHandler = { [weak self, weak conn] st in
+                guard let self, let conn, self.connection === conn else { return }  // stale socket
+                switch st {
+                case .ready:
+                    self.sendHandshake(on: conn, mount: mount, password: password)
+                case .failed(let error):
+                    self.failIfConnected("Connection failed — \(error.localizedDescription)")
+                case .waiting(let error):
+                    // No retry loop on a live console — surface it, let the user retry.
+                    self.failIfConnected("Can't reach the station — \(error.localizedDescription)")
+                default:
+                    break
+                }
+            }
+            conn.start(queue: self.net)
+        }
+    }
+
+    func disconnect() {
+        net.async { [weak self] in self?.teardownConnection() }
+    }
+
+    private func sendHandshake(on conn: NWConnection, mount: String, password: String) {
+        let credentials = Data("source:\(password)".utf8).base64EncodedString()
+        let handshake = "SOURCE \(mount) HTTP/1.0\r\n"
+            + "Authorization: Basic \(credentials)\r\n"
+            + "User-Agent: NuruPortal/1.0\r\n"
+            + "Content-Type: audio/aac\r\n"
+            + "Ice-Public: 0\r\n"
+            + "Ice-Name: Nuru live mic\r\n"
+            + "\r\n"
+        conn.send(content: Data(handshake.utf8), completion: .contentProcessed { [weak self, weak conn] error in
+            guard let self, let conn, self.connection === conn else { return }
+            if let error { self.failIfConnected("Handshake failed — \(error.localizedDescription)"); return }
+            self.readHandshakeResponse(on: conn)
+        })
+    }
+
+    private func readHandshakeResponse(on conn: NWConnection) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self, weak conn] data, _, isComplete, error in
+            guard let self, let conn, self.connection === conn else { return }
+            if let error {
+                self.failIfConnected("No reply from the station — \(error.localizedDescription)")
+                return
+            }
+            let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let statusLine = text.split(separator: "\r\n", omittingEmptySubsequences: true)
+                .first.map(String.init) ?? (isComplete ? "connection closed" : "empty reply")
+            if statusLine.contains(" 200") {             // e.g. "HTTP/1.0 200 OK"
+                self.streaming = true
+                self.onEvent?(.connected)
+                self.watchForDrop(on: conn)
+            } else {
+                self.teardownConnection()
+                self.onEvent?(.refused(statusLine))
+            }
+        }
+    }
+
+    /// Icecast sends nothing after 200 OK — a read completing means the server
+    /// hung up (key rotated, engine restarted, network died).
+    private func watchForDrop(on conn: NWConnection) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 1024) { [weak self, weak conn] _, _, isComplete, error in
+            guard let self, let conn, self.connection === conn, self.streaming else { return }
+            if isComplete || error != nil {
+                self.failIfConnected("The station closed the mic connection.")
+            } else {
+                self.watchForDrop(on: conn)
+            }
+        }
+    }
+
+    // MARK: Encode (PCM → AAC-LC packets → ADTS frames → batched sends)
+
+    private func encodeAndSend(_ buffer: AVAudioPCMBuffer) {
+        guard streaming else { return }
+        if let existing = converter, existing.inputFormat != buffer.format { converter = nil }
+        if converter == nil { prepareEncoder(from: buffer.format) }
+        guard let converter, let aacFormat else { return }
+
+        var fed = false
+        while true {
+            let out = AVAudioCompressedBuffer(format: aacFormat, packetCapacity: 8,
+                                              maximumPacketSize: max(converter.maximumOutputPacketSize, 1))
+            var convError: NSError?
+            let status = converter.convert(to: out, error: &convError) { _, inputStatus in
+                if fed { inputStatus.pointee = .noDataNow; return nil }
+                fed = true
+                inputStatus.pointee = .haveData
+                return buffer
+            }
+            if status == .error {
+                failIfConnected("Audio encoding failed\(convError.map { " — \($0.localizedDescription)" } ?? ".")")
+                return
+            }
+            appendADTSFrames(out)
+            if status != .haveData { break }             // ran dry — wait for the next tap buffer
+        }
+        flushBatch()
+    }
+
+    private func prepareEncoder(from input: AVAudioFormat) {
+        var desc = AudioStreamBasicDescription(
+            mSampleRate: Self.outSampleRate,
+            mFormatID: kAudioFormatMPEG4AAC,
+            mFormatFlags: 0,
+            mBytesPerPacket: 0,
+            mFramesPerPacket: 1024,
+            mBytesPerFrame: 0,
+            mChannelsPerFrame: Self.outChannels,
+            mBitsPerChannel: 0,
+            mReserved: 0)
+        guard let out = AVAudioFormat(streamDescription: &desc),
+              let conv = AVAudioConverter(from: input, to: out) else {
+            failIfConnected("This input's audio format can't be encoded to AAC.")
+            return
+        }
+        conv.bitRate = Self.outBitrate
+        aacFormat = out
+        converter = conv
+    }
+
+    private func appendADTSFrames(_ out: AVAudioCompressedBuffer) {
+        let packetCount = Int(out.packetCount)
+        guard packetCount > 0, let descriptions = out.packetDescriptions else { return }
+        let base = UnsafeRawPointer(out.data)
+        for i in 0..<packetCount {
+            let d = descriptions[i]
+            let size = Int(d.mDataByteSize)
+            guard size > 0 else { continue }
+            batch.append(Self.adtsHeader(payloadLength: size))
+            batch.append(Data(bytes: base + Int(d.mStartOffset), count: size))
+            batchPackets += 1
+        }
+    }
+
+    /// Standard 7-byte ADTS header: MPEG-4 AAC-LC, 44.1 kHz (index 4), stereo, no CRC.
+    private static func adtsHeader(payloadLength: Int) -> Data {
+        let frameLength = payloadLength + 7
+        let profile = 2                                  // AAC-LC → (profile - 1) in the header
+        let sfIdx = adtsSampleFreqIndex
+        let channels = Int(outChannels)
+        var h = [UInt8](repeating: 0, count: 7)
+        h[0] = 0xFF                                                            // sync
+        h[1] = 0xF1                                                            // sync | MPEG-4 | no CRC
+        h[2] = UInt8(((profile - 1) << 6) | (sfIdx << 2) | ((channels >> 2) & 0x1))
+        h[3] = UInt8(((channels & 0x3) << 6) | ((frameLength >> 11) & 0x3))
+        h[4] = UInt8((frameLength >> 3) & 0xFF)
+        h[5] = UInt8(((frameLength & 0x7) << 5) | 0x1F)
+        h[6] = 0xFC
+        return Data(h)
+    }
+
+    private func flushBatch() {
+        guard streaming, let connection, batchPackets >= Self.packetsPerSend else { return }
+        let payload = batch
+        batch = Data()
+        batchPackets = 0
+        connection.send(content: payload, completion: .contentProcessed { [weak self, weak connection] error in
+            guard let self, let connection, self.connection === connection else { return }
+            if let error { self.failIfConnected("Stream send failed — \(error.localizedDescription)") }
+        })
+    }
+
+    // MARK: Teardown / failure (net queue)
+
+    private func failIfConnected(_ message: String) {
+        guard connection != nil else { return }
+        teardownConnection()
+        onEvent?(.failed(message))
+    }
+
+    private func teardownConnection() {
+        streaming = false
+        connection?.cancel()
+        connection = nil
+        converter = nil
+        aacFormat = nil
+        batch.removeAll()
+        batchPackets = 0
+    }
+}

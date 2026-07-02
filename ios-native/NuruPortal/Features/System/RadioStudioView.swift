@@ -12,10 +12,14 @@
 //   • live stream health (polled ~3s)       GET  …/health  (409 until live)
 //   • stream key + rotate                   POST …/rotate-key
 //   • listener comments                     GET  …/comments
-// CLIENT-ONLY hardware/telemetry (never leaves the device): audio-source select,
-// L/R meters, waveform, reaction tallies, countdown — all Timer-driven simulations
-// with STABLE layouts (fixed frames, no `.frame(maxHeight:.infinity)` in the ticking
-// subtrees) so the meters animate without the LazyVGrid flicker pattern.
+// CLIENT-ONLY telemetry (never leaves the device): L/R output meters, waveform,
+// reaction tallies, countdown — Timer-driven simulations with STABLE layouts (fixed
+// frames, no `.frame(maxHeight:.infinity)` in the ticking subtrees) so the meters
+// animate without the LazyVGrid flicker pattern.
+// REAL hardware: the "Audio source" card senses actual AVAudioSession inputs (a
+// RØDE USB mic is auto-preferred), meters the live input via an engine tap, and can
+// broadcast the mic into the station's liquidsoap mix — see MicBroadcaster (Icecast
+// SOURCE handshake into the harbor at :8005/mic, password = program stream key).
 import SwiftUI
 import Charts
 import AVKit
@@ -25,8 +29,12 @@ import AVFoundation
 /// playlist preview) keeps playing when the iPad locks or the app backgrounds.
 /// Pairs with `UIBackgroundModes: audio` in Info.plist. Idempotent + cheap.
 @inline(__always) func enableBackgroundPlayback() {
-    try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-    try? AVAudioSession.sharedInstance().setActive(true)
+    let session = AVAudioSession.sharedInstance()
+    // Don't downgrade a live mic session — .playAndRecord already permits playback.
+    if session.category != .playAndRecord {
+        try? session.setCategory(.playback, mode: .default)
+    }
+    try? session.setActive(true)
 }
 import UniformTypeIdentifiers
 
@@ -290,9 +298,8 @@ struct RadioStudioView: View {
     @State private var showCreate = false
     @State private var editProgram: RadioProgram?
 
-    // Client-only console state (hardware bits — never server-originated).
-    @State private var source = "Main mic"
-    @State private var micGain: Double = 72
+    // Live mic hardware (REAL): input sensing, level metering, Icecast mic uplink.
+    @StateObject private var mic = MicBroadcaster()
     @State private var showAttachImporter = false
 
     var body: some View {
@@ -315,7 +322,7 @@ struct RadioStudioView: View {
         .toolbar(.hidden, for: .navigationBar)
         .task { if !m.loaded { await m.load() } }
         .task { if !library.loaded { await library.load() } }
-        .onDisappear { m.teardown(); library.teardown() }
+        .onDisappear { m.teardown(); library.teardown(); mic.teardown() }
         .sheet(isPresented: $showCreate) { RadioProgramForm { Task { await m.load() } } }
         .sheet(item: $editProgram) { p in
             RadioProgramForm(existing: p) { Task { await m.load() } }
@@ -412,7 +419,7 @@ struct RadioStudioView: View {
             SessionAudioPanel(program: p, busy: m.busy, onAttach: { showAttachImporter = true })
 
             // Two console columns collapse to a stack in portrait — fixed, stable rows.
-            AudioSourcePanel(source: $source, micGain: $micGain)
+            AudioSourcePanel(mic: mic, program: p)
 
             MeterAndWaveformPanel(active: m.broadcast == .live)
 
@@ -737,73 +744,224 @@ private struct LiveStatusBar: View {
     }
 }
 
-// MARK: - Audio source selector + mic gain (client-only hardware)
+// MARK: - Audio source (REAL hardware — AVAudioSession inputs + live mic uplink)
+// No fake signal bars: the rows are AVAudioSession.availableInputs, the meter is a
+// real RMS tap, and GO ON MIC pushes AAC/ADTS into the station's harbor (:8005/mic).
 
 private struct AudioSourcePanel: View {
-    @Binding var source: String
-    @Binding var micGain: Double
+    @ObservedObject var mic: MicBroadcaster
+    let program: RadioProgram?
 
-    // 7 sources with a status + signal indicator (client-simulated).
-    private struct Src: Identifiable { let name: String; let icon: String; let online: Bool; let signal: Int; var id: String { name } }
-    private let sources: [Src] = [
-        .init(name: "Main mic", icon: "mic.fill", online: true, signal: 5),
-        .init(name: "Pulpit mic", icon: "mic", online: true, signal: 4),
-        .init(name: "Line in", icon: "cable.connector", online: true, signal: 5),
-        .init(name: "Playback deck", icon: "opticaldiscdrive", online: true, signal: 3),
-        .init(name: "Phone bridge", icon: "phone.fill", online: false, signal: 0),
-        .init(name: "Remote guest", icon: "wifi", online: true, signal: 2),
-        .init(name: "Ambient room", icon: "waveform.circle", online: true, signal: 3),
-    ]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
 
     var body: some View {
         StudioPanel {
             VStack(alignment: .leading, spacing: 14) {
-                StudioHeader(icon: "square.stack.3d.up.fill", title: "Audio source", caption: "hardware")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10, alignment: .top)], spacing: 10) {
-                    ForEach(sources) { s in
-                        let on = s.name == source
-                        Button { if s.online { source = s.name } } label: {
-                            HStack(spacing: 9) {
-                                Image(systemName: s.icon).font(.system(size: 14)).foregroundStyle(on ? Rs.gold : (s.online ? Rs.text : Rs.faint)).frame(width: 20)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(s.name).font(.inter(12, .semibold)).foregroundStyle(s.online ? Rs.text : Rs.faint).lineLimit(1)
-                                    SignalBars(level: s.signal, active: on)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 11).padding(.vertical, 10)
-                            .background(on ? Rs.gold.opacity(0.10) : Color.white.opacity(0.03))
-                            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(on ? Rs.gold.opacity(0.45) : Rs.border, lineWidth: 1))
-                            .opacity(s.online ? 1 : 0.55)
-                        }.pressable().hoverEffect(.highlight).disabled(!s.online)
+                StudioHeader(icon: "square.stack.3d.up.fill", title: "Audio source", caption: mic.currentInputName)
+
+                // Selectable input rows — real hardware only.
+                if mic.availableInputs.isEmpty {
+                    HStack(spacing: 9) {
+                        Image(systemName: "mic.slash").font(.system(size: 13)).foregroundStyle(Rs.faint)
+                        Text("No audio inputs detected — plug the RØDE USB mic into the iPad.")
+                            .font(.inter(11.5)).foregroundStyle(Rs.dim).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.03))
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Rs.border, lineWidth: 1))
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 10, alignment: .top)], spacing: 10) {
+                        ForEach(mic.availableInputs) { input in
+                            inputRow(input)
+                        }
                     }
                 }
-                // Mic gain (client-only)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("MIC GAIN").font(.inter(9.5, .bold)).tracking(0.8).foregroundStyle(Rs.dim)
-                        Spacer()
-                        Text("\(Int(micGain)) dB").font(Rs.mono(11, .semibold)).foregroundStyle(Rs.gold)
-                    }
-                    Slider(value: $micGain, in: 0...100).tint(Rs.gold)
-                }.padding(.top, 2)
+
+                // Live input level — real RMS while monitoring or on mic.
+                HStack(spacing: 12) {
+                    Button {
+                        if mic.monitoring { mic.stopMonitoring() } else { mic.startMonitoring() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: mic.monitoring ? "waveform.circle.fill" : "waveform.circle")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text(mic.monitoring ? "Monitoring" : "Monitor").font(.inter(11.5, .semibold))
+                        }
+                        .foregroundStyle(mic.monitoring ? Rs.gold : Rs.dim)
+                        .padding(.horizontal, 12).frame(height: 32)
+                        .background((mic.monitoring ? Rs.gold : Rs.faint).opacity(0.12)).clipShape(Capsule())
+                        .overlay(Capsule().stroke((mic.monitoring ? Rs.gold : Rs.faint).opacity(0.3), lineWidth: 1))
+                    }.pressable().hoverEffect(.highlight)
+
+                    InputLevelMeter(level: mic.level, active: mic.monitoring || mic.isBroadcasting)
+
+                    Text("INPUT").font(.inter(9, .bold)).tracking(0.8).foregroundStyle(Rs.dim).fixedSize()
+                }
+
+                goOnMicButton
+
+                statusCaptions
             }
         }
     }
-}
 
-private struct SignalBars: View {
-    let level: Int      // 0..5
-    var active: Bool = false
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<5, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(i < level ? (active ? Rs.gold : Rs.green) : Rs.faint.opacity(0.4))
-                    .frame(width: 3, height: CGFloat(5 + i * 2))
+    // MARK: rows
+
+    private func inputRow(_ input: MicBroadcaster.InputSource) -> some View {
+        let active = input.uid == mic.activeInputUID
+        return Button { mic.select(input) } label: {
+            HStack(spacing: 9) {
+                Image(systemName: portIcon(input.portType))
+                    .font(.system(size: 14)).foregroundStyle(active ? Rs.gold : Rs.text).frame(width: 20)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(input.name).font(.inter(12, .semibold)).foregroundStyle(Rs.text).lineLimit(1)
+                    Text(portLabel(input.portType)).font(.inter(9, .bold)).tracking(0.6)
+                        .foregroundStyle(active ? Rs.gold.opacity(0.85) : Rs.dim)
+                }
+                Spacer(minLength: 0)
+                if active && input.isUSB {
+                    Text("DETECTED").font(.inter(8, .bold)).tracking(0.7)
+                        .foregroundStyle(Color(hex: 0x0A1120))
+                        .padding(.horizontal, 6).padding(.vertical, 2.5)
+                        .background(Rs.goldFill).clipShape(Capsule())
+                } else if active {
+                    Circle().fill(Rs.green).frame(width: 7, height: 7)
+                }
+            }
+            .padding(.horizontal, 11).padding(.vertical, 10)
+            .background(active ? Rs.gold.opacity(0.10) : Color.white.opacity(0.03))
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(active ? Rs.gold.opacity(0.45) : Rs.border, lineWidth: 1))
+        }.pressable().hoverEffect(.highlight)
+    }
+
+    private func portIcon(_ type: AVAudioSession.Port) -> String {
+        switch type {
+        case .usbAudio:                                        return "cable.connector"
+        case .builtInMic:                                      return "mic.fill"
+        case .bluetoothHFP, .bluetoothLE, .bluetoothA2DP,
+             .headsetMic:                                      return "headphones"
+        default:                                               return "mic"
+        }
+    }
+    private func portLabel(_ type: AVAudioSession.Port) -> String {
+        switch type {
+        case .usbAudio:                                        return "USB AUDIO"
+        case .builtInMic:                                      return "BUILT-IN"
+        case .bluetoothHFP, .bluetoothLE, .bluetoothA2DP:      return "BLUETOOTH"
+        case .headsetMic:                                      return "HEADSET"
+        default:                                               return type.rawValue.uppercased()
+        }
+    }
+
+    // MARK: GO ON MIC
+
+    private var streamKey: String? {
+        guard let key = program?.streamKey, !key.isEmpty else { return nil }
+        return key
+    }
+    /// Honesty: if we can't broadcast, the button is disabled and this says why.
+    private var blockedReason: String? {
+        if mic.permissionDenied { return "Microphone access denied — enable it in Settings." }
+        if program == nil { return "Select a program above to go on mic." }
+        if streamKey == nil { return "This program has no stream key — rotate one in Ingest & stream key." }
+        return nil
+    }
+
+    @ViewBuilder private var goOnMicButton: some View {
+        switch mic.state {
+        case .onAir:
+            Button { mic.stop() } label: {
+                HStack(spacing: 9) {
+                    Circle().fill(.white).frame(width: 8, height: 8)
+                        .opacity(!reduceMotion && pulse ? 0.25 : 1)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulse)
+                    Text("ON MIC — tap to stop").font(.inter(14, .bold)).tracking(0.4)
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity).frame(height: 48)
+                .background(Rs.liveGlow)
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }.pressable().hoverEffect(.highlight)
+            .onAppear { pulse = true }
+            .onDisappear { pulse = false }
+        case .connecting:
+            Button { mic.stop() } label: {
+                HStack(spacing: 9) {
+                    ProgressView().tint(Color(hex: 0x0A1120))
+                    Text("CONNECTING…").font(.inter(14, .bold)).tracking(0.6)
+                }
+                .foregroundStyle(Color(hex: 0x0A1120))
+                .frame(maxWidth: .infinity).frame(height: 48)
+                .background(Rs.goldFill)
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }.pressable()
+        case .idle, .error:
+            Button { goOnMic() } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "mic.fill").font(.system(size: 14, weight: .bold))
+                    Text("GO ON MIC").font(.inter(14, .bold)).tracking(0.6)
+                }
+                .foregroundStyle(blockedReason == nil ? Color(hex: 0x0A1120) : Rs.faint)
+                .frame(maxWidth: .infinity).frame(height: 48)
+                .background(blockedReason == nil ? AnyShapeStyle(Rs.goldFill) : AnyShapeStyle(Color.white.opacity(0.05)))
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(blockedReason == nil ? Color.clear : Rs.border, lineWidth: 1))
+            }.pressable().hoverEffect(.highlight).disabled(blockedReason != nil)
+        }
+    }
+
+    @ViewBuilder private var statusCaptions: some View {
+        if case .error(let message) = mic.state {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(Rs.red)
+                Text(message).font(.inter(11, .medium)).foregroundStyle(Rs.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        if let reason = blockedReason, !mic.isBroadcasting {
+            Text(reason).font(.inter(11)).foregroundStyle(Rs.dim)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        Text("Your mic mixes over the music bed — control levels in Audio Mixer.")
+            .font(.inter(11)).foregroundStyle(Rs.faint)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func goOnMic() {
+        guard let key = streamKey else { return }
+        // Prefer the program's ingest host; fall back to the station host.
+        let host = program?.ingestUrl.flatMap { URL(string: $0)?.host } ?? "pathway.nuruplace.org"
+        mic.start(host: host, port: 8005, mount: "/mic", password: key)
+    }
+}
+
+/// Horizontal input meter in the studio's segmented-meter language (green→gold→red).
+private struct InputLevelMeter: View {
+    let level: Double       // 0…1 RMS from the engine tap
+    let active: Bool
+    private let segs = 28
+    var body: some View {
+        HStack(spacing: 2.5) {
+            ForEach(0..<segs, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(active && Double(i) < level * Double(segs) ? segColor(i) : Rs.faint.opacity(0.18))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 14)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 14)     // fixed height → no re-measure flicker while ticking
+    }
+    private func segColor(_ i: Int) -> Color {
+        let f = Double(i) / Double(segs)
+        if f > 0.85 { return Rs.red }
+        if f > 0.62 { return Rs.gold }
+        return Rs.green
     }
 }
 

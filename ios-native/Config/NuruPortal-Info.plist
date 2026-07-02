@@ -8,5 +8,8 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- Radio Studio live mic — required for the on-mic broadcaster (MicBroadcaster). -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Broadcast your microphone into Nuru Radio live broadcasts.</string>
 </dict>
 </plist>
