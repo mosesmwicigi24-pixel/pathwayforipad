@@ -135,9 +135,22 @@ struct RootView: View {
         }
         .environmentObject(router)
         .background(Nuru.paper.ignoresSafeArea())
+        // ⌘1…⌘5 jump to the first five sidebar sections (navGroups order) —
+        // hidden buttons keep the shortcuts discoverable in the hold-⌘ HUD.
+        .background(sectionShortcuts)
         .sheet(item: $router.openMember) { ref in
             NavigationStack { MemberDetailView(userId: ref.id, name: ref.name) }
         }
+    }
+
+    private var sectionShortcuts: some View {
+        let quick = Array(navGroups.flatMap(\.items).prefix(5))
+        return ForEach(Array(quick.enumerated()), id: \.element.id) { i, section in
+            Button(section.title) { router.go(section) }
+                .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+        }
+        .opacity(0).frame(width: 0, height: 0)
+        .accessibilityHidden(true)
     }
 
     private var sidebar: some View {
@@ -184,7 +197,9 @@ struct RootView: View {
             .frame(maxWidth: .infinity, alignment: collapsed ? .center : .leading)
             .padding(.horizontal, collapsed ? 0 : 18).padding(.vertical, 10)
         }
-        .buttonStyle(.plain)
+        .pressable()
+        .hoverEffect(.highlight)
+        .accessibilityLabel(collapsed ? "Expand sidebar" : "Collapse sidebar")
     }
 
     private var brandHeader: some View {
@@ -232,6 +247,8 @@ struct RootView: View {
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
             .padding(.horizontal, 12).padding(.top, 4).padding(.bottom, 14)
         }
+        .hoverEffect(.highlight)
+        .accessibilityLabel("Account menu")
     }
 
     @ViewBuilder
@@ -297,7 +314,8 @@ private struct NavRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .pressable()
+        .hoverEffect(.highlight)
         .help(item.title)
     }
 }
@@ -310,6 +328,7 @@ private struct PortalTopBar: View {
     @EnvironmentObject private var router: NavRouter
     @State private var query = ""
     @State private var unread = 0
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         HStack(spacing: 16) {
@@ -324,6 +343,7 @@ private struct PortalTopBar: View {
                 TextField("Search members, modules, events…", text: $query)
                     .font(.nBody).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .submitLabel(.search)
+                    .focused($searchFocused)
                     .onSubmit { if !query.trimmingCharacters(in: .whitespaces).isEmpty { router.search(query) } }
                     .frame(maxWidth: 320)
             }
@@ -339,11 +359,17 @@ private struct PortalTopBar: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     if unread > 0 {
                         Text(unread > 9 ? "9+" : "\(unread)").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                            .contentTransition(.numericText())
+                            .animation(.default, value: unread)
                             .padding(.horizontal, 5).padding(.vertical, 2)
                             .background(Nuru.gold).clipShape(Capsule()).offset(x: 6, y: -4)
                     }
                 }
-            }.buttonStyle(.plain)
+            }
+            .pressable()
+            .hoverEffect(.highlight)
+            .accessibilityLabel("Notifications")
+            .accessibilityValue(unread > 0 ? "\(unread) unread" : "No unread")
 
             Menu {
                 Button { router.go(.profile) } label: { Label("My Profile", systemImage: "person.crop.circle") }
@@ -361,10 +387,20 @@ private struct PortalTopBar: View {
                 .background(Nuru.white).overlay(RoundedRectangle(cornerRadius: 12).stroke(Nuru.border, lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
+            .hoverEffect(.highlight)
+            .accessibilityLabel("Account menu")
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
         .background(Nuru.white)
         .overlay(alignment: .bottom) { Rectangle().fill(Nuru.border).frame(height: 1) }
+        // ⌘F focuses the global search — hidden button so the shortcut shows up
+        // in the iPad's hold-⌘ HUD without any visual change.
+        .background(
+            Button("Search") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .opacity(0).frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        )
         .task {
             if let items = try? await PortalAPI.notifications() { unread = items.filter { !$0.read }.count }
         }

@@ -262,7 +262,7 @@ struct MixerStudioView: View {
                         }
                         .foregroundStyle(Color(hex: 0x0A1120))
                         .padding(.horizontal, 14).frame(height: 34).background(Rs.goldFill).clipShape(Capsule())
-                    }.buttonStyle(.plain)
+                    }.pressable()
                 }
             }
         }
@@ -295,7 +295,7 @@ struct MixerStudioView: View {
                                 .background(on ? Rs.gold.opacity(0.10) : Color.white.opacity(0.03))
                                 .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                                 .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(on ? Rs.gold.opacity(0.45) : Rs.border, lineWidth: 1))
-                            }.buttonStyle(.plain)
+                            }.pressable()
                         }
                     }
                 }
@@ -341,7 +341,7 @@ struct MixerStudioView: View {
                             Text("Add").font(.inter(11.5, .semibold))
                         }.foregroundStyle(Rs.gold).padding(.horizontal, 11).frame(height: 30)
                         .background(Rs.gold.opacity(0.12)).clipShape(Capsule()).overlay(Capsule().stroke(Rs.gold.opacity(0.3), lineWidth: 1))
-                    }.buttonStyle(.plain)
+                    }.pressable()
                 }
                 if m.jingles.isEmpty {
                     Text(m.loaded ? "No jingles yet — add one to build the soundboard." : "Loading…")
@@ -398,7 +398,7 @@ private struct ChannelStrip: View {
             Text(s).font(.inter(11, .bold)).foregroundStyle(on ? Color(hex: 0x0A1120) : Rs.dim)
                 .frame(width: 26, height: 26)
                 .background(on ? color : Color.white.opacity(0.05)).clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        }.buttonStyle(.plain)
+        }.pressable()
     }
 }
 
@@ -459,7 +459,11 @@ private struct MusicBedPanel: View {
     @State private var playing = false
     @State private var progress: Double = 0.28
     @State private var volume: Double = 30
-    private let clock = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    // Timer lives in @State so it can be cancelled off-screen / when the scene is
+    // inactive, and skipped entirely under Reduce Motion (frozen progress bar).
+    @State private var clock = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         StudioPanel {
             VStack(alignment: .leading, spacing: 12) {
@@ -469,7 +473,7 @@ private struct MusicBedPanel: View {
                         Image(systemName: playing ? "pause.fill" : "play.fill").font(.system(size: 16, weight: .bold))
                             .foregroundStyle(Color(hex: 0x0A1120)).frame(width: 46, height: 46)
                             .background(Rs.goldFill).clipShape(Circle())
-                    }.buttonStyle(.plain)
+                    }.pressable()
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Ambient Pad — Loop A").font(.inter(12.5, .semibold)).foregroundStyle(Rs.text)
                         GeometryReader { geo in
@@ -487,7 +491,18 @@ private struct MusicBedPanel: View {
             }
         }
         .onReceive(clock) { _ in if playing { progress += 0.01; if progress >= 1 { progress = 0 } } }
+        .onAppear { startClock() }
+        .onDisappear { stopClock() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { startClock() } else { stopClock() }
+        }
     }
+    private func startClock() {
+        stopClock()
+        guard !reduceMotion else { return }   // frozen progress under Reduce Motion
+        clock = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    }
+    private func stopClock() { clock.upstream.connect().cancel() }
 }
 
 // MARK: - Jingle pad
@@ -495,26 +510,29 @@ private struct MusicBedPanel: View {
 private struct JinglePad: View {
     let jingle: MixerJingle
     let onDelete: () -> Void
-    @State private var pressed = false
     var body: some View {
         let color = chColor(jingle.color ?? "#E6C66E")
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "play.circle.fill").font(.system(size: 20)).foregroundStyle(color)
-                Spacer()
-                Button(action: onDelete) { Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(Rs.dim) }.buttonStyle(.plain)
+        // The pad is a real Button: firing it keeps the tap behaviour, and the
+        // press flash now comes from the shared PressableButtonStyle instead of
+        // the old hand-rolled DispatchQueue.asyncAfter animation.
+        return Button {
+            // Fire the jingle (client-only — audio playback lands with the media pipeline).
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "play.circle.fill").font(.system(size: 20)).foregroundStyle(color)
+                    Spacer()
+                    Button(action: onDelete) { Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(Rs.dim) }.pressable()
+                }
+                Text(jingle.label.isEmpty ? "Jingle" : jingle.label).font(.inter(12.5, .semibold)).foregroundStyle(Rs.text).lineLimit(2)
             }
-            Text(jingle.label.isEmpty ? "Jingle" : jingle.label).font(.inter(12.5, .semibold)).foregroundStyle(Rs.text).lineLimit(2)
+            .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+            .padding(12)
+            .background(color.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(color.opacity(0.3), lineWidth: 1))
         }
-        .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
-        .padding(12)
-        .background(color.opacity(pressed ? 0.22 : 0.10)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(color.opacity(0.3), lineWidth: 1))
-        .scaleEffect(pressed ? 0.97 : 1)
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.12)) { pressed = true }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { withAnimation { pressed = false } }
-        }
+        .pressable()
+        .hoverEffect(.highlight)
     }
 }
 

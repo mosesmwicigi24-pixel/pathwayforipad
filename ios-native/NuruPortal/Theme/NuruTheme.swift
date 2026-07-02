@@ -162,16 +162,18 @@ extension Font {
         .custom(frauncesFace(weight), size: size)
     }
 
-    // Semantic scale (mobile type scale, bumped for iPad)
-    static var nDisplay: Font  { fraunces(33, .medium) }
-    static var nTitle: Font    { fraunces(24, .semibold) }
-    static var nHeading: Font  { inter(17, .semibold) }
-    static var nBody: Font     { inter(15, .regular) }
-    static var nBodyLg: Font   { inter(17, .regular) }
-    static var nLabel: Font    { inter(13, .medium) }
-    static var nCaption: Font  { inter(13, .regular) }
-    static var nMicro: Font    { inter(11.5, .medium) }
-    static var nOverline: Font { inter(11.5, .semibold) }
+    // Semantic scale (mobile type scale, bumped for iPad). These scale with the
+    // user's Dynamic Type setting via `relativeTo:`; the raw `.inter(size)` /
+    // `.fraunces(size)` helpers above stay fixed (screens migrate later).
+    static var nDisplay: Font  { .custom(frauncesFace(.medium), size: 33, relativeTo: .largeTitle) }
+    static var nTitle: Font    { .custom(frauncesFace(.semibold), size: 24, relativeTo: .title2) }
+    static var nHeading: Font  { .custom(interFace(.semibold), size: 17, relativeTo: .headline) }
+    static var nBody: Font     { .custom(interFace(.regular), size: 15, relativeTo: .body) }
+    static var nBodyLg: Font   { .custom(interFace(.regular), size: 17, relativeTo: .body) }
+    static var nLabel: Font    { .custom(interFace(.medium), size: 13, relativeTo: .subheadline) }
+    static var nCaption: Font  { .custom(interFace(.regular), size: 13, relativeTo: .caption) }
+    static var nMicro: Font    { .custom(interFace(.medium), size: 11.5, relativeTo: .caption2) }
+    static var nOverline: Font { .custom(interFace(.semibold), size: 11.5, relativeTo: .caption2) }
 }
 
 private func interFace(_ w: Font.Weight) -> String {

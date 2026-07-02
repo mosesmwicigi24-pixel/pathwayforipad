@@ -372,6 +372,7 @@ private struct NotTracked: View {
 struct FinanceView: View {
     @State private var tab: FinanceTab = .overview
     @State private var error: String?
+    @State private var loading = true
 
     // data
     @State private var funds: [FundSummary] = []
@@ -541,6 +542,8 @@ struct FinanceView: View {
                         .foregroundStyle(Nuru.onNavyDim).lineLimit(1).minimumScaleFactor(0.85)
                     Text(item.value).font(.inter(15, .semibold)).foregroundStyle(.white)
                         .lineLimit(1).minimumScaleFactor(0.6)
+                        .contentTransition(.numericText())
+                        .animation(.default, value: item.value)
                     Text(item.hint).font(.nMicro).foregroundStyle(Nuru.onNavyFaint)
                         .lineLimit(1).minimumScaleFactor(0.85)
                 }
@@ -572,7 +575,8 @@ struct FinanceView: View {
                             Rectangle().fill(active ? Nuru.gold : .clear).frame(height: 2)
                         }
                     }
-                    .buttonStyle(.plain)
+                    .pressable()
+                    .hoverEffect(.highlight)
                 }
             }
             .padding(.horizontal, Nuru.S.lg)
@@ -586,26 +590,31 @@ struct FinanceView: View {
     @ViewBuilder private var content: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-            switch tab {
-            case .overview:
-                OverviewTab(funds: funds, currency: currency, donut: donut,
-                            methodSlices: methodSlices, trendPoints: trendPoints,
-                            channels: channelStatsList,
-                            monthTotal: monthTotal, allTotal: allTotal, giftCount: giftCount,
-                            avgGift: avgGift, activeFundCount: activeFundCount,
-                            pendingCount: pendingCount, failedCount: failedCount,
-                            txnCount: txns.count)
-            case .transactions:
-                TransactionsTab(txns: visibleTxns, funds: funds, search: $search,
-                                fundFilter: $fundFilter, statusFilter: $statusFilter,
-                                minAmount: $minAmount, maxAmount: $maxAmount,
-                                onView: { id in Task { await openDetail(id) } })
-            case .ledger:
-                LedgerTab(ledger: ledger, currency: currency)
-            case .audit:
-                AuditTab(audit: audit, actor: $auditActor)
-            case .config:
-                ConfigTab(config: config)
+            if loading {
+                // Initial load — table-shaped shimmer matching the ledger/txn rows.
+                SkeletonTable(rows: 8).transition(.opacity)
+            } else {
+                switch tab {
+                case .overview:
+                    OverviewTab(funds: funds, currency: currency, donut: donut,
+                                methodSlices: methodSlices, trendPoints: trendPoints,
+                                channels: channelStatsList,
+                                monthTotal: monthTotal, allTotal: allTotal, giftCount: giftCount,
+                                avgGift: avgGift, activeFundCount: activeFundCount,
+                                pendingCount: pendingCount, failedCount: failedCount,
+                                txnCount: txns.count)
+                case .transactions:
+                    TransactionsTab(txns: visibleTxns, funds: funds, search: $search,
+                                    fundFilter: $fundFilter, statusFilter: $statusFilter,
+                                    minAmount: $minAmount, maxAmount: $maxAmount,
+                                    onView: { id in Task { await openDetail(id) } })
+                case .ledger:
+                    LedgerTab(ledger: ledger, currency: currency)
+                case .audit:
+                    AuditTab(audit: audit, actor: $auditActor)
+                case .config:
+                    ConfigTab(config: config)
+                }
             }
         }
     }
@@ -618,6 +627,7 @@ struct FinanceView: View {
         trend = (try? await FinanceAPI.trend(months: 6)) ?? trend
         ledger = (try? await FinanceAPI.ledger(limit: 500)) ?? ledger
         config = (try? await FinanceAPI.config()) ?? config
+        withAnimation(.easeOut(duration: 0.25)) { loading = false }
     }
     private func loadTxns() async {
         do { txns = try await FinanceAPI.transactions(fund: fundFilter, status: statusFilter) }
@@ -746,6 +756,8 @@ private struct OverviewTab: View {
             Text(r.value)
                 .font(.fraunces(16, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
                 .lineLimit(1).minimumScaleFactor(0.6)
+                .contentTransition(.numericText())
+                .animation(.default, value: r.value)
                 .frame(width: 140, alignment: .trailing)
         }
         .padding(.horizontal, 16)
@@ -870,6 +882,8 @@ private struct OverviewTab: View {
             Text(hasData ? Fmt.money(minor: s.receivedMinor, currency: s.currency) : "—")
                 .font(.fraunces(15, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
                 .lineLimit(1).minimumScaleFactor(0.55)
+                .contentTransition(.numericText())
+                .animation(.default, value: s.receivedMinor)
                 .frame(width: ChanCol.received, alignment: .trailing)
 
             chanCount(s.count, Nuru.ink600, ChanCol.txns)
@@ -1214,7 +1228,9 @@ private struct TransactionsTab: View {
                         if !minAmount.isEmpty || !maxAmount.isEmpty {
                             Button { minAmount = ""; maxAmount = "" } label: {
                                 Text("Clear").font(.inter(12, .semibold)).foregroundStyle(Nuru.ink600)
-                            }.buttonStyle(.plain)
+                            }
+                            .pressable()
+                            .hoverEffect(.highlight)
                         }
                     }
                 }
@@ -1239,8 +1255,7 @@ private struct TransactionsTab: View {
                         .background(Nuru.mutedBg)
 
                         if txns.isEmpty {
-                            Text("No transactions match.").font(.nCaption).foregroundStyle(Nuru.ink600)
-                                .frame(maxWidth: .infinity).padding(.vertical, 24)
+                            EmptyState.compact(icon: "tray", message: "No transactions match.")
                         } else {
                             ForEach(txns) { t in row(t) }
                         }
@@ -1286,14 +1301,17 @@ private struct TransactionsTab: View {
                 .frame(width: 112, alignment: .leading)
             Text(shortRef(t.transactionId)).font(.inter(12)).monospaced().foregroundStyle(Nuru.ink600)
                 .frame(width: 128, alignment: .leading)
-            Button("View") { onView(t.transactionId) }
-                .font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Nuru.white)
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .frame(width: 64, alignment: .trailing)
-                .buttonStyle(.plain)
+            Button { onView(t.transactionId) } label: {
+                Text("View")
+                    .font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(Nuru.white)
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .pressable()
+            .hoverEffect(.highlight)
+            .frame(width: 64, alignment: .trailing)
         }
         .padding(.horizontal, 16).padding(.vertical, 9)
         .overlay(alignment: .top) { Rectangle().fill(Nuru.border).frame(height: 1) }
@@ -1382,11 +1400,15 @@ private struct LedgerTab: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("DEBITS").font(.nOverline).tracking(0.7).foregroundStyle(Nuru.ink600)
                             Text(Fmt.money(minor: debitTotal, currency: currency)).font(.inter(18, .bold)).monospaced().foregroundStyle(Nuru.navy)
+                                .contentTransition(.numericText())
+                                .animation(.default, value: debitTotal)
                         }
                         Rectangle().fill(Color(hex: 0x16A34A).opacity(0.2)).frame(width: 1, height: 34)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("CREDITS").font(.nOverline).tracking(0.7).foregroundStyle(Nuru.ink600)
                             Text(Fmt.money(minor: creditTotal, currency: currency)).font(.inter(18, .bold)).monospaced().foregroundStyle(Nuru.navy)
+                                .contentTransition(.numericText())
+                                .animation(.default, value: creditTotal)
                         }
                         Spacer(minLength: 8)
                         ColorPill(text: balanced ? "Balanced" : "Review", icon: "checkmark.circle.fill",
@@ -1467,8 +1489,7 @@ private struct LedgerTab: View {
                         .background(Nuru.mutedBg)
 
                         if ledger.isEmpty {
-                            Text("No ledger entries yet.").font(.nCaption).foregroundStyle(Nuru.ink600)
-                                .frame(maxWidth: .infinity).padding(.vertical, 24)
+                            EmptyState.compact(icon: "book.closed", message: "No ledger entries yet.")
                         } else {
                             ForEach(ledger) { l in ledgerRow(l) }
                         }
@@ -1548,8 +1569,7 @@ private struct AuditTab: View {
                         .background(Nuru.mutedBg)
 
                         if audit.isEmpty {
-                            Text("No audit events.").font(.nCaption).foregroundStyle(Nuru.ink600)
-                                .frame(maxWidth: .infinity).padding(.vertical, 24)
+                            EmptyState.compact(icon: "doc.text.magnifyingglass", message: "No audit events.")
                         } else {
                             ForEach(audit) { a in auditRow(a) }
                         }

@@ -572,11 +572,6 @@ private struct ComingNote: View {
     }
 }
 
-private func emptyNote(_ s: String) -> some View {
-    Text(s).font(.nCaption).foregroundStyle(Nuru.ink600)
-        .frame(maxWidth: .infinity, alignment: .leading)
-}
-
 // X-axis label style shared by the bar charts (visible, brand-muted).
 private let axisLabelColor = Color(hex: 0x6B7280)
 
@@ -834,7 +829,7 @@ private struct GivingCards {
                 PiCardHeader(icon: "chart.bar.doc.horizontal.fill", title: "Giving frequency",
                              caption: "by gift count", tint: Nuru.gold)
                 if total == 0 {
-                    emptyNote("No giving recorded yet.").padding(.top, 14)
+                    EmptyState.compact(icon: "chart.bar", message: "No giving recorded yet.").padding(.top, 14)
                     Spacer(minLength: 0)
                 } else {
                     Chart(bars) { b in
@@ -889,7 +884,7 @@ private struct GivingCards {
                 Divider().overlay(Nuru.border)
 
                 if g.topGivers.isEmpty {
-                    emptyNote("No givers yet.").padding(16)
+                    EmptyState.compact(icon: "person.2", message: "No givers yet.").padding(16)
                 } else {
                     ForEach(Array(g.topGivers.prefix(12).enumerated()), id: \.element.id) { i, gv in
                         row(gv, rank: i + 1, zebra: i % 2 == 1)
@@ -968,7 +963,7 @@ private struct AppUsageCards {
                 PiCardHeader(icon: "chart.line.uptrend.xyaxis", title: "Active users — last 12 weeks",
                              caption: peak.map { "peak \($0.active)" } ?? "weekly active", tint: Color(hex: 0x0F6B33))
                 if total == 0 {
-                    emptyNote("No weekly activity recorded yet.").padding(.top, 14)
+                    EmptyState.compact(icon: "chart.bar", message: "No weekly activity recorded yet.").padding(.top, 14)
                     Spacer(minLength: 0)
                 } else {
                     Chart(bars) { b in
@@ -1011,7 +1006,7 @@ private struct AppUsageCards {
                 PiCardHeader(icon: "chart.bar.doc.horizontal.fill", title: "How often members use the app",
                              caption: "active days · 30d", tint: Color(hex: 0x0D7E73))
                 if total == 0 {
-                    emptyNote("No active-day data recorded yet.").padding(.top, 14)
+                    EmptyState.compact(icon: "calendar", message: "No active-day data recorded yet.").padding(.top, 14)
                     Spacer(minLength: 0)
                 } else {
                     Chart(bars) { b in
@@ -1081,7 +1076,7 @@ private struct AppUsageCards {
                 PiCardHeader(icon: "circle.lefthalf.filled", title: "Platform split",
                              caption: "\(total) members", tint: Color(hex: 0x1D4E86))
                 if total == 0 {
-                    emptyNote("No platform data yet.").frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
+                    EmptyState.compact(icon: "iphone", message: "No platform data yet.").frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
                 } else {
                     HStack(spacing: 14) {
                         ZStack {
@@ -1123,7 +1118,7 @@ private struct AppUsageCards {
                 PiCardHeader(icon: "number.square.fill", title: "App-version adoption",
                              caption: "top \(min(devices.appVersions.count, 8))", tint: Nuru.gold)
                 if devices.appVersions.isEmpty {
-                    emptyNote("No version data yet.").frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
+                    EmptyState.compact(icon: "app.badge", message: "No version data yet.").frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
                 } else {
                     let maxV = devices.appVersions.map(\.members).max() ?? 1
                     VStack(spacing: 0) {
@@ -1214,7 +1209,7 @@ private struct AppUsageCards {
                 PiCardHeader(icon: "clock.fill", title: "Activity by hour",
                              caption: peak.map { "peak \($0.label)" } ?? "when the app is used", tint: Nuru.gold)
                 if total == 0 {
-                    emptyNote("No in-app activity recorded yet.").padding(.top, 14)
+                    EmptyState.compact(icon: "clock", message: "No in-app activity recorded yet.").padding(.top, 14)
                     Spacer(minLength: 0)
                 } else {
                     Chart(bars) { b in
@@ -1320,7 +1315,7 @@ private struct AffinityCards {
                 areaHead([("EVENTS", Col.events), ("MEMBERS", Col.members)])
                 Divider().overlay(Nuru.border)
                 if sorted.isEmpty {
-                    emptyNote("No app-area engagement recorded yet.").padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                    EmptyState.compact(icon: "square.grid.2x2", message: "No app-area engagement recorded yet.").padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     ForEach(Array(sorted.enumerated()), id: \.element.id) { i, k in
                         areaRow(icon: kindIcon(k.kind), label: kindLabel(k.kind), tint: i,
@@ -1446,7 +1441,7 @@ private struct EngagementGrowthCards {
                 PiCardHeader(icon: "chart.bar.fill", title: "Per-level distribution",
                              caption: "learners & completions", tint: Color(hex: 0x1D4E86))
                 if bars.allSatisfy({ $0.value == 0 }) {
-                    emptyNote("No level enrolment recorded yet.").padding(.top, 14)
+                    EmptyState.compact(icon: "chart.bar", message: "No level enrolment recorded yet.").padding(.top, 14)
                     Spacer(minLength: 0)
                 } else {
                     Chart(bars) { b in
@@ -1501,7 +1496,7 @@ private struct LocationCards {
                     .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
                 Divider().overlay(Nuru.border)
                 if rows.isEmpty {
-                    emptyNote("No city data captured yet.").padding(16)
+                    EmptyState.compact(icon: "mappin.and.ellipse", message: "No city data captured yet.").padding(16)
                 } else {
                     ForEach(Array(rows.prefix(10).enumerated()), id: \.element.id) { i, c in
                         HStack(spacing: 12) {
@@ -1536,7 +1531,7 @@ private struct LocationCards {
                 PiCardHeader(icon: "globe", title: "Members by country",
                              caption: "top \(min(rows.count, 8))", tint: Color(hex: 0x0D7E73))
                 if rows.isEmpty {
-                    emptyNote("No country data captured yet.")
+                    EmptyState.compact(icon: "map", message: "No country data captured yet.")
                     Spacer(minLength: 0)
                 } else {
                     VStack(spacing: 12) {

@@ -341,6 +341,9 @@ struct RadioStudioView: View {
                     Text("Radio Studio").font(.inter(10.5, .bold)).tracking(1.4).foregroundStyle(Rs.text)
                     Spacer(minLength: 8)
                     liveBadge
+                        // Same spring as the countdown digits — the badge eases between
+                        // idle → cueing → live → paused instead of snapping.
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: m.broadcast)
                 }
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
@@ -358,7 +361,7 @@ struct RadioStudioView: View {
                         .foregroundStyle(Color(hex: 0x0A1120))
                         .padding(.horizontal, 14).frame(height: 34)
                         .background(Rs.goldFill).clipShape(Capsule())
-                    }.buttonStyle(.plain)
+                    }.pressable().hoverEffect(.highlight)
                 }
             }
         }
@@ -442,7 +445,7 @@ struct RadioStudioView: View {
                     Button { showCreate = true } label: {
                         Text("New program").font(.inter(12, .bold)).foregroundStyle(Color(hex: 0x0A1120))
                             .padding(.horizontal, 16).frame(height: 34).background(Rs.goldFill).clipShape(Capsule())
-                    }.buttonStyle(.plain).padding(.top, 4)
+                    }.pressable().hoverEffect(.highlight).padding(.top, 4)
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 32)
             }
@@ -476,7 +479,7 @@ private struct ProgramPickerStrip: View {
                         .background(on ? Rs.gold.opacity(0.12) : Color.white.opacity(0.03))
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(on ? Rs.gold.opacity(0.5) : Rs.border, lineWidth: 1))
-                    }.buttonStyle(.plain)
+                    }.pressable().hoverEffect(.highlight)
                 }
             }
         }
@@ -535,7 +538,7 @@ private struct ProgramCard: View {
                     .padding(.horizontal, 12).frame(height: 32)
                     .background(Rs.gold.opacity(0.12)).clipShape(Capsule())
                     .overlay(Capsule().stroke(Rs.gold.opacity(0.35), lineWidth: 1))
-                }.buttonStyle(.plain)
+                }.pressable().hoverEffect(.highlight)
             }
         }
     }
@@ -576,7 +579,7 @@ private struct SessionAudioPanel: View {
                         .padding(.horizontal, 14).frame(height: 36)
                         .background(Rs.gold.opacity(0.12)).clipShape(Capsule())
                         .overlay(Capsule().stroke(Rs.gold.opacity(0.35), lineWidth: 1))
-                    }.buttonStyle(.plain).disabled(busy)
+                    }.pressable().hoverEffect(.highlight).disabled(busy)
                 }
             }
         }
@@ -604,7 +607,7 @@ private struct AudioPlayerBar: View {
                     Image(systemName: playing ? "pause.fill" : "play.fill")
                         .font(.system(size: 16, weight: .bold)).foregroundStyle(Color(hex: 0x0A1120))
                 }
-            }.buttonStyle(.plain)
+            }.pressable().hoverEffect(.highlight)
 
             VStack(alignment: .leading, spacing: 4) {
                 Slider(value: $current, in: 0...max(duration, 1)) { editing in
@@ -673,8 +676,10 @@ private struct LiveStatusBar: View {
     let broadcast: Broadcast
     let health: StreamHealth?
     // Duration ticks locally from live_started_at; a light 1s timer so it counts up.
+    // The clock pauses while the view is off-screen or the scene is inactive.
     @State private var now = Date()
-    private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         StudioPanel(padding: 14, glow: true) {
@@ -689,7 +694,19 @@ private struct LiveStatusBar: View {
             }
         }
         .onReceive(clock) { now = $0 }
+        .onAppear { startClock() }
+        .onDisappear { stopClock() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { startClock() } else { stopClock() }
+        }
     }
+
+    private func startClock() {
+        stopClock()
+        now = Date()                       // catch up immediately after a pause
+        clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    }
+    private func stopClock() { clock.upstream.connect().cancel() }
 
     private var divider: some View { Rectangle().fill(Rs.border).frame(width: 1, height: 34) }
 
@@ -759,7 +776,7 @@ private struct AudioSourcePanel: View {
                             .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                             .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(on ? Rs.gold.opacity(0.45) : Rs.border, lineWidth: 1))
                             .opacity(s.online ? 1 : 0.55)
-                        }.buttonStyle(.plain).disabled(!s.online)
+                        }.pressable().hoverEffect(.highlight).disabled(!s.online)
                     }
                 }
                 // Mic gain (client-only)
@@ -815,7 +832,11 @@ private struct ChannelMeter: View {
     let label: String
     let active: Bool
     @State private var level: CGFloat = 0.2
-    private let tick = Timer.publish(every: 0.12, on: .main, in: .common).autoconnect()
+    // Timer lives in @State so it can be cancelled off-screen / when the scene is
+    // inactive, and skipped entirely under Reduce Motion (static bars instead).
+    @State private var tick = Timer.publish(every: 0.12, on: .main, in: .common).autoconnect()
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let segs = 16
     var body: some View {
         VStack(spacing: 6) {
@@ -835,7 +856,21 @@ private struct ChannelMeter: View {
             let target = CGFloat.random(in: 0.35...0.98)
             level = level * 0.5 + target * 0.5
         }
+        .onAppear { startTick() }
+        .onDisappear { stopTick() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { startTick() } else { stopTick() }
+        }
+        .onChange(of: active) { _, _ in if reduceMotion { level = staticLevel } }
     }
+
+    private var staticLevel: CGFloat { active ? 0.55 : 0.12 }
+    private func startTick() {
+        stopTick()
+        guard !reduceMotion else { level = staticLevel; return }   // frozen bars
+        tick = Timer.publish(every: 0.12, on: .main, in: .common).autoconnect()
+    }
+    private func stopTick() { tick.upstream.connect().cancel() }
     private func segColor(_ i: Int) -> Color {
         let f = CGFloat(i) / CGFloat(segs)
         if f > 0.85 { return Rs.red }; if f > 0.65 { return Rs.gold }; return Rs.green
@@ -846,7 +881,11 @@ private struct ChannelMeter: View {
 private struct Waveform: View {
     let active: Bool
     @State private var samples: [CGFloat] = Array(repeating: 0.1, count: 48)
-    private let tick = Timer.publish(every: 0.09, on: .main, in: .common).autoconnect()
+    // Timer lives in @State so it can be cancelled off-screen / when the scene is
+    // inactive, and skipped entirely under Reduce Motion (static bars instead).
+    @State private var tick = Timer.publish(every: 0.09, on: .main, in: .common).autoconnect()
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         GeometryReader { geo in
             HStack(alignment: .center, spacing: 2) {
@@ -868,7 +907,24 @@ private struct Waveform: View {
             next.append(active ? CGFloat.random(in: 0.2...1.0) : CGFloat.random(in: 0.05...0.14))
             samples = next
         }
+        .onAppear { startTick() }
+        .onDisappear { stopTick() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { startTick() } else { stopTick() }
+        }
+        .onChange(of: active) { _, _ in if reduceMotion { samples = staticSamples } }
     }
+
+    /// Deterministic mid-height bars shown instead of the animated sweep under Reduce Motion.
+    private var staticSamples: [CGFloat] {
+        (0..<48).map { i in active ? 0.25 + 0.45 * abs(sin(CGFloat(i) / 4)) : 0.08 }
+    }
+    private func startTick() {
+        stopTick()
+        guard !reduceMotion else { samples = staticSamples; return }   // frozen bars
+        tick = Timer.publish(every: 0.09, on: .main, in: .common).autoconnect()
+    }
+    private func stopTick() { tick.upstream.connect().cancel() }
 }
 
 // MARK: - Broadcast controls (idle → countdown → live → paused)
@@ -888,6 +944,9 @@ private struct BroadcastControlsPanel: View {
                              caption: caption)
                 content
             }
+            // Same spring the countdown digits use — the idle → countdown → live →
+            // paused control swaps ease in instead of snapping.
+            .animation(.spring(response: 0.3, dampingFraction: 0.75), value: broadcast)
         }
     }
 
@@ -940,7 +999,7 @@ private struct BroadcastControlsPanel: View {
             .background(fill)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(border, lineWidth: 1))
-        }.buttonStyle(.plain).disabled(busy)
+        }.pressable().hoverEffect(.highlight).disabled(busy)
     }
 }
 
@@ -968,7 +1027,7 @@ private struct IngestPanel: View {
                     .padding(.horizontal, 14).frame(height: 36)
                     .background(Rs.gold.opacity(0.12)).clipShape(Capsule())
                     .overlay(Capsule().stroke(Rs.gold.opacity(0.35), lineWidth: 1))
-                }.buttonStyle(.plain).disabled(busy).padding(.top, 2)
+                }.pressable().hoverEffect(.highlight).disabled(busy).padding(.top, 2)
             }
         }
     }
@@ -983,11 +1042,11 @@ private struct IngestPanel: View {
                 if secret {
                     Button { revealKey.toggle() } label: {
                         Image(systemName: revealKey ? "eye.slash" : "eye").font(.system(size: 12)).foregroundStyle(Rs.dim)
-                    }.buttonStyle(.plain)
+                    }.pressable().hoverEffect(.highlight)
                 }
                 Button { UIPasteboard.general.string = value } label: {
                     Image(systemName: "doc.on.doc").font(.system(size: 12)).foregroundStyle(Rs.dim)
-                }.buttonStyle(.plain).disabled(value == "—")
+                }.pressable().hoverEffect(.highlight).disabled(value == "—")
             }
             .padding(.horizontal, 12).frame(height: 38)
             .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -1008,7 +1067,7 @@ private struct ReactionsPanel: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     StudioHeader(icon: "bubble.left.and.bubble.right.fill", title: "Listener interactions", tint: Rs.green)
-                    Button(action: onRefresh) { Image(systemName: "arrow.clockwise").font(.system(size: 12)).foregroundStyle(Rs.dim) }.buttonStyle(.plain)
+                    Button(action: onRefresh) { Image(systemName: "arrow.clockwise").font(.system(size: 12)).foregroundStyle(Rs.dim) }.pressable().hoverEffect(.highlight)
                 }
                 HStack(spacing: 10) {
                     reactionButton("heart.fill", hearts, Rs.red) { onReact("heart") }
@@ -1048,7 +1107,7 @@ private struct ReactionsPanel: View {
             .frame(maxWidth: .infinity).frame(height: 44)
             .background(color.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(color.opacity(0.3), lineWidth: 1))
-        }.buttonStyle(.plain)
+        }.pressable().hoverEffect(.highlight)
     }
     private func initials(_ n: String) -> String {
         let p = n.split(separator: " ").prefix(2).compactMap { $0.first }
@@ -1202,7 +1261,7 @@ private struct EmergencyPanel: View {
                     .frame(maxWidth: .infinity).frame(height: 46)
                     .background(canEnd ? AnyShapeStyle(Rs.liveGlow) : AnyShapeStyle(Color.white.opacity(0.05)))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }.buttonStyle(.plain).disabled(!canEnd)
+                }.pressable().hoverEffect(.highlight).disabled(!canEnd)
             }
         }
         .alert("Kill broadcast?", isPresented: $confirm) {
@@ -1572,7 +1631,7 @@ private struct AudioLibrarySection: View {
                         .foregroundStyle(Color(hex: 0x0A1120))
                         .padding(.horizontal, 14).frame(height: 34)
                         .background(Rs.goldFill).clipShape(Capsule())
-                    }.buttonStyle(.plain).disabled(store.uploading)
+                    }.pressable().hoverEffect(.highlight).disabled(store.uploading)
                 }
 
                 if store.tracks.isEmpty {
@@ -1621,7 +1680,7 @@ private struct KindSegmented: View {
                         .padding(.horizontal, 12).frame(height: 28)
                         .background(on ? AnyShapeStyle(k.color) : AnyShapeStyle(Color.clear))
                         .clipShape(Capsule())
-                }.buttonStyle(.plain)
+                }.pressable().hoverEffect(.highlight)
             }
         }
         .padding(3)
@@ -1725,7 +1784,7 @@ private struct SessionsSection: View {
                         .foregroundStyle(Color(hex: 0x0A1120))
                         .padding(.horizontal, 14).frame(height: 36)
                         .background(Rs.goldFill).clipShape(Capsule())
-                    }.buttonStyle(.plain)
+                    }.pressable().hoverEffect(.highlight)
                     .disabled(store.newSessionName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
 
@@ -1737,7 +1796,7 @@ private struct SessionsSection: View {
                         Spacer(minLength: 6)
                         Button { store.stopPreview() } label: {
                             Text("Stop").font(.inter(11, .semibold)).foregroundStyle(Rs.dim)
-                        }.buttonStyle(.plain)
+                        }.pressable().hoverEffect(.highlight)
                     }
                     .padding(.horizontal, 12).frame(height: 34)
                     .background(Rs.gold.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -1824,13 +1883,13 @@ private struct SessionCard: View {
                     .foregroundStyle(Color(hex: 0x0A1120))
                     .padding(.horizontal, 12).frame(height: 30)
                     .background(Rs.goldFill).clipShape(Capsule())
-                }.buttonStyle(.plain).disabled(items.isEmpty)
+                }.pressable().hoverEffect(.highlight).disabled(items.isEmpty)
 
                 Button(action: onDeleteSession) {
                     Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
                         .foregroundStyle(Rs.red).frame(width: 30, height: 30)
                         .background(Rs.red.opacity(0.12)).clipShape(Circle())
-                }.buttonStyle(.plain)
+                }.pressable().hoverEffect(.highlight)
             }
 
             // Numbered playlist
@@ -1849,15 +1908,15 @@ private struct SessionCard: View {
                             Button { onMove(idx, -1) } label: {
                                 Image(systemName: "chevron.up").font(.system(size: 11, weight: .bold))
                                     .foregroundStyle(idx == 0 ? Rs.faint : Rs.dim).frame(width: 26, height: 26)
-                            }.buttonStyle(.plain).disabled(idx == 0)
+                            }.pressable().hoverEffect(.highlight).disabled(idx == 0)
                             Button { onMove(idx, 1) } label: {
                                 Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
                                     .foregroundStyle(idx == items.count - 1 ? Rs.faint : Rs.dim).frame(width: 26, height: 26)
-                            }.buttonStyle(.plain).disabled(idx == items.count - 1)
+                            }.pressable().hoverEffect(.highlight).disabled(idx == items.count - 1)
                             Button { onRemove(item.id) } label: {
                                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
                                     .foregroundStyle(Rs.dim).frame(width: 26, height: 26)
-                            }.buttonStyle(.plain)
+                            }.pressable().hoverEffect(.highlight)
                         }
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))

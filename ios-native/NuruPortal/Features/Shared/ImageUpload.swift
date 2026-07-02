@@ -70,7 +70,7 @@ struct ImageUploadField: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Nuru.inputBg).frame(width: 56, height: 56)
                     if !url.isEmpty, let u = URL(string: url) {
-                        AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { ProgressView() }
+                        CachedAsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { ProgressView() }
                             .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     } else {
                         Image(systemName: "photo").foregroundStyle(Nuru.ink400)

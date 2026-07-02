@@ -430,10 +430,10 @@ struct EventsView: View {
     @State private var rsvpRosters: [String: RsvpRosterData] = [:]
     @State private var qrTick = 0
 
-    // Series pause/resume + transient banners
+    // Series pause/resume + transient feedback (shared toast capsule)
     @State private var pausedSeries: Set<String> = []
     @State private var seriesBusy: String?
-    @State private var notice: String?
+    @State private var toast: ToastData?
 
     enum CalView: String, CaseIterable { case month = "Month", week = "Week", list = "List" }
 
@@ -487,16 +487,6 @@ struct EventsView: View {
                 hero
                 VStack(alignment: .leading, spacing: 20) {
                 if let error { Text(error).font(.nCaption).foregroundStyle(Nuru.danger) }
-                if let notice {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color(hex: 0x15803D))
-                        Text(notice).font(.nCaption).foregroundStyle(Color(hex: 0x15803D))
-                        Spacer()
-                        Button { self.notice = nil } label: { Image(systemName: "xmark").font(.system(size: 11)).foregroundStyle(Nuru.muted) }.buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(Color(hex: 0xDCF7E4)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                }
                 alertStrip
 
                 // 1. Insights & follow-up — one 8-column row (4 insight tiles + 4
@@ -542,6 +532,7 @@ struct EventsView: View {
         .background(Nuru.paper)
         .navigationTitle("Events")
         .navigationBarTitleDisplayMode(.inline)
+        .toast($toast)
         .task { await load() }
         .refreshable { await load() }
         .sheet(item: $detailOcc) { o in EventDetailSheet(occ: o, roster: rosters[o.id],
@@ -560,32 +551,32 @@ struct EventsView: View {
         .sheet(item: $qrOcc) { o in QrSheet(occ: o, roster: rosters[o.id], tick: $qrTick).task { await loadRoster(o.id) } }
         .sheet(item: $announcementSheet) { a in
             AnnouncementSheet(item: a,
-                onChanged: { msg in announcementSheet = nil; notice = msg; Task { await reload() } },
-                onError: { msg in error = msg })
+                onChanged: { msg in announcementSheet = nil; toast = .success(msg); Task { await reload() } },
+                onError: { msg in toast = .error(msg) })
         }
         .sheet(item: $manualCheckinOcc) { o in
             ManualCheckinSheet(occ: o, onDone: { name in
-                manualCheckinOcc = nil; notice = "\(name) checked in."
+                manualCheckinOcc = nil; toast = .success("\(name) checked in.")
                 rosters[o.id] = nil; Task { await loadRoster(o.id) }
-            }, onError: { msg in error = msg })
+            }, onError: { msg in toast = .error(msg) })
         }
         .sheet(isPresented: $showCreateEvent) {
-            CreateEventSheet(onCreated: { msg in showCreateEvent = false; notice = msg; Task { await reload() } },
-                             onError: { msg in error = msg })
+            CreateEventSheet(onCreated: { msg in showCreateEvent = false; toast = .success(msg); Task { await reload() } },
+                             onError: { msg in toast = .error(msg) })
         }
         .sheet(item: $editOcc) { o in
             CreateEventSheet(editing: o,
-                             onCreated: { msg in editOcc = nil; notice = msg; Task { await reload() } },
-                             onError: { msg in error = msg })
+                             onCreated: { msg in editOcc = nil; toast = .success(msg); Task { await reload() } },
+                             onError: { msg in toast = .error(msg) })
         }
         .sheet(isPresented: $showCreateAnnouncement) {
             CreateAnnouncementSheet(events: events,
-                onCreated: { msg in showCreateAnnouncement = false; notice = msg; Task { await reload() } },
-                onError: { msg in error = msg })
+                onCreated: { msg in showCreateAnnouncement = false; toast = .success(msg); Task { await reload() } },
+                onError: { msg in toast = .error(msg) })
         }
         .sheet(isPresented: $showPostMoment) {
-            PostMomentSheet(onPosted: { showPostMoment = false; notice = "Moment posted."; Task { await reloadMoments() } },
-                            onError: { msg in error = msg })
+            PostMomentSheet(onPosted: { showPostMoment = false; toast = .success("Moment posted."); Task { await reloadMoments() } },
+                            onError: { msg in toast = .error(msg) })
         }
         .sheet(isPresented: $showRecentAttendance) {
             RecentAttendanceSheet(events: events, seedRosters: rosters, fetchRoster: { id in await fetchRoster(id) })
@@ -599,8 +590,8 @@ struct EventsView: View {
     private func deleteMoment(_ id: String) async {
         deletingMomentId = id
         defer { deletingMomentId = nil }
-        do { try await EventsWrites.deleteMoment(id); await reloadMoments(); notice = "Moment deleted." }
-        catch { self.error = (error as? APIError)?.errorDescription ?? "Could not delete moment." }
+        do { try await EventsWrites.deleteMoment(id); await reloadMoments(); toast = .success("Moment deleted.") }
+        catch { toast = .error((error as? APIError)?.errorDescription ?? "Could not delete moment.") }
     }
 
     // Reload everything and drop roster caches (matches web refetch()).
@@ -613,7 +604,7 @@ struct EventsView: View {
     // refetch to drop/restore them (web toggleSeriesPause, PR #127).
     private func toggleSeriesPause(_ s: SeriesRow) async {
         guard !s.seriesId.isEmpty else {
-            error = "This series has no server id yet — pause/resume is unavailable."
+            toast = .error("This series has no server id yet — pause/resume is unavailable.")
             return
         }
         seriesBusy = s.seriesId
@@ -624,36 +615,36 @@ struct EventsView: View {
                                       : try await EventsWrites.pauseSeries(s.seriesId)
             if row.isPaused { pausedSeries.insert(s.seriesId) } else { pausedSeries.remove(s.seriesId) }
             await reload()
-            notice = row.isPaused ? "Series paused — future occurrences hidden." : "Series resumed."
+            toast = .success(row.isPaused ? "Series paused — future occurrences hidden." : "Series resumed.")
         } catch {
-            self.error = (error as? APIError)?.errorDescription ?? "Could not update series."
+            toast = .error((error as? APIError)?.errorDescription ?? "Could not update series.")
         }
     }
 
     // Cancel a single occurrence via a series exception (web cancelOccurrence).
     private func cancelOccurrence(_ o: UiOcc) async {
-        guard !o.seriesId.isEmpty else { error = "This occurrence has no series id — cancel is unavailable."; return }
+        guard !o.seriesId.isEmpty else { toast = .error("This occurrence has no series id — cancel is unavailable."); return }
         do {
             try await EventsWrites.cancelOccurrence(o.seriesId, [
                 "original_start_at": .string(o.originalStartAt.isEmpty ? o.startAt : o.originalStartAt),
                 "is_cancelled": .bool(true),
             ])
             await reload()
-            notice = "Occurrence cancelled."
+            toast = .success("Occurrence cancelled.")
         } catch {
-            self.error = (error as? APIError)?.errorDescription ?? "Could not cancel occurrence."
+            toast = .error((error as? APIError)?.errorDescription ?? "Could not cancel occurrence.")
         }
     }
 
     // Delete the whole series (web deleteSeries).
     private func deleteSeries(_ o: UiOcc) async {
-        guard !o.seriesId.isEmpty else { error = "This occurrence has no series id — delete is unavailable."; return }
+        guard !o.seriesId.isEmpty else { toast = .error("This occurrence has no series id — delete is unavailable."); return }
         do {
             try await EventsWrites.deleteSeries(o.seriesId)
             await reload()
-            notice = "Event series deleted."
+            toast = .success("Event series deleted.")
         } catch {
-            self.error = (error as? APIError)?.errorDescription ?? "Could not delete event series."
+            toast = .error((error as? APIError)?.errorDescription ?? "Could not delete event series.")
         }
     }
 
@@ -718,7 +709,7 @@ struct EventsView: View {
                             Text("Today").font(.inter(12, .semibold)).foregroundStyle(Nuru.ink)
                                 .padding(.horizontal, 12).padding(.vertical, 6)
                                 .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        }.buttonStyle(.plain)
+                        }.pressable()
                     }
                     Spacer()
                     HStack(spacing: 2) {
@@ -728,7 +719,7 @@ struct EventsView: View {
                                     .padding(.horizontal, 12).padding(.vertical, 6)
                                     .background(view == v ? Nuru.white : .clear)
                                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            }.buttonStyle(.plain)
+                            }.pressable()
                         }
                     }
                     .padding(3).background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
@@ -754,7 +745,7 @@ struct EventsView: View {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(Nuru.ink)
                 .padding(8).background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }.buttonStyle(.plain)
+        }.pressable()
     }
 
     private func step(_ dir: Int) {
@@ -818,7 +809,7 @@ struct EventsView: View {
             .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
                 .stroke(isSel ? Nuru.navy : isToday ? Nuru.gold : Nuru.border, lineWidth: 1))
-        }.buttonStyle(.plain)
+        }.pressable().hoverEffect(.highlight)
     }
 
     private var weekStrip: some View {
@@ -849,7 +840,7 @@ struct EventsView: View {
                     .background(iso == selectedIso ? Nuru.inputBg : Nuru.white)
                     .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(iso == selectedIso ? Nuru.navy : Nuru.border, lineWidth: 1))
-                }.buttonStyle(.plain)
+                }.pressable().hoverEffect(.highlight)
             }
         }
     }
@@ -881,7 +872,7 @@ struct EventsView: View {
                                     Text("Type").font(.system(size: 10)).foregroundStyle(Nuru.muted)
                                 }.frame(width: 70)
                             }.padding(.vertical, 10).contentShape(Rectangle())
-                        }.buttonStyle(.plain)
+                        }.pressable().hoverEffect(.highlight)
                     }
                 }
             }
@@ -973,7 +964,7 @@ struct EventsView: View {
             .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Nuru.border, lineWidth: 1))
             .contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        }.pressable().hoverEffect(.highlight)
     }
 
     private func miniChip(_ label: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
@@ -982,7 +973,7 @@ struct EventsView: View {
                 .padding(.horizontal, 8).padding(.vertical, 5)
                 .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-        }.buttonStyle(.plain)
+        }.pressable()
     }
 
     // MARK: Upcoming + Series
@@ -1031,7 +1022,7 @@ struct EventsView: View {
                     Text("TYPE").font(.system(size: 10)).tracking(0.4).foregroundStyle(Nuru.muted)
                 }
             }.padding(.vertical, 10).contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        }.pressable().hoverEffect(.highlight)
     }
 
     private var seriesCard: some View {
@@ -1087,11 +1078,11 @@ struct EventsView: View {
                 .foregroundStyle(Nuru.ink)
                 .padding(7).frame(width: 28, height: 28)
                 .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }.buttonStyle(.plain).disabled(busy)
+            }.pressable().disabled(busy)
             Button { detailOcc = s.next } label: {
                 Image(systemName: "eye").font(.system(size: 12)).foregroundStyle(Nuru.ink)
                     .padding(7).background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }.buttonStyle(.plain)
+            }.pressable()
         }.padding(.vertical, 10)
     }
 
@@ -1107,7 +1098,7 @@ struct EventsView: View {
                         Label("New", systemImage: "plus").font(.inter(12, .semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 12).padding(.vertical, 7)
                             .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }.buttonStyle(.plain)
+                    }.pressable()
                 }
                 if announcements.isEmpty {
                     emptyState(icon: "bell", title: "No announcements yet",
@@ -1156,7 +1147,7 @@ struct EventsView: View {
             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-        }.buttonStyle(.plain)
+        }.pressable().hoverEffect(.lift)
     }
 
     private func announcementWhen(_ a: AnnouncementItem) -> String {
@@ -1176,7 +1167,7 @@ struct EventsView: View {
                         Label("Post", systemImage: "plus").font(.inter(12, .semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 12).padding(.vertical, 7)
                             .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }.buttonStyle(.plain)
+                    }.pressable()
                 }
                 if moments.isEmpty {
                     emptyState(icon: "photo", title: "No moments yet",
@@ -1186,7 +1177,7 @@ struct EventsView: View {
                         ForEach(Array(moments.enumerated()), id: \.element.id) { i, m in
                             if i > 0 { Divider().overlay(Nuru.border) }
                             HStack(spacing: 12) {
-                                AsyncImage(url: URL(string: m.imageUrl)) { img in img.resizable().scaledToFill() } placeholder: { Nuru.inputBg }
+                                CachedAsyncImage(url: URL(string: m.imageUrl)) { img in img.resizable().scaledToFill() } placeholder: { Nuru.inputBg }
                                     .frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(m.caption?.isEmpty == false ? m.caption! : "No caption")
@@ -1206,7 +1197,7 @@ struct EventsView: View {
                                     .foregroundStyle(Color(hex: 0xB91C1C))
                                     .padding(8).frame(width: 30, height: 30)
                                     .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                }.buttonStyle(.plain).disabled(deletingMomentId == m.id)
+                                }.pressable().disabled(deletingMomentId == m.id)
                             }.padding(.vertical, 12)
                         }
                     }
@@ -1271,7 +1262,7 @@ struct EventsView: View {
     @ViewBuilder
     private func mergedTile(_ t: MergedTile) -> some View {
         if let action = t.action {
-            Button(action: action) { mergedTileBody(t) }.buttonStyle(.plain)
+            Button(action: action) { mergedTileBody(t) }.pressable().hoverEffect(.lift)
         } else {
             mergedTileBody(t)
         }
@@ -1495,7 +1486,7 @@ private struct EventDetailSheet: View {
                             .frame(maxWidth: .infinity).frame(height: 50)
                             .background(hasSeries ? AnyShapeStyle(Nuru.goldGradient) : AnyShapeStyle(Nuru.muted))
                             .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    }.buttonStyle(.plain).disabled(!hasSeries)
+                    }.pressable().disabled(!hasSeries)
                     if !hasSeries {
                         Text("Editing isn't available for this occurrence (no series id yet).")
                             .font(.nMicro).foregroundStyle(Nuru.muted)
@@ -1562,7 +1553,7 @@ private struct EventDetailSheet: View {
                 .padding(.horizontal, 12).padding(.vertical, 11)
                 .background(primary ? Nuru.gold : danger ? Color(hex: 0xFEE2E2) : Nuru.inputBg)
                 .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        }.buttonStyle(.plain)
+        }.pressable()
     }
 }
 
@@ -1595,7 +1586,7 @@ private struct DaySheet: View {
                                 .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                                 .contentShape(Rectangle())
-                            }.buttonStyle(.plain)
+                            }.pressable().hoverEffect(.highlight)
                         }
                     }
                 }.padding(24)
@@ -1652,7 +1643,7 @@ private struct RsvpSheet: View {
                                         .padding(.horizontal, 12).padding(.vertical, 7)
                                         .background(filter == k ? m.1.opacity(0.12) : Nuru.inputBg)
                                         .clipShape(Capsule())
-                                }.buttonStyle(.plain)
+                                }.pressable()
                             }
                         }
                         let rows = bucket(filter)
@@ -1710,7 +1701,7 @@ private struct AttendanceSheet: View {
                             Label("Manual check-in", systemImage: "checkmark.circle").font(.inter(12, .semibold)).foregroundStyle(.white)
                                 .padding(.horizontal, 12).padding(.vertical, 7)
                                 .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        }.buttonStyle(.plain)
+                        }.pressable()
                     }
 
                     HStack {
@@ -1840,7 +1831,7 @@ private struct RecentAttendanceSheet: View {
                                     RecentAttendanceDetail(occ: o, roster: rosters[o.id], fetchRoster: fetchRoster)
                                 } label: {
                                     eventRow(o)
-                                }.buttonStyle(.plain)
+                                }.pressable().hoverEffect(.highlight)
                             }
                         }
                     }
@@ -1971,7 +1962,7 @@ private struct QrSheet: View {
                                     .padding(.horizontal, 10).padding(.vertical, 6)
                                     .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                            }.buttonStyle(.plain)
+                            }.pressable()
                         }
                         Text(secret).font(.system(size: 12)).monospaced().tracking(1.5).foregroundStyle(Nuru.muted)
                     }.frame(maxWidth: .infinity).padding(20)
@@ -2090,20 +2081,20 @@ private struct AnnouncementSheet: View {
                                 Label("Send now", systemImage: "paperplane.fill").font(.inter(12, .bold)).foregroundStyle(.white)
                                     .padding(.horizontal, 14).padding(.vertical, 9)
                                     .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            }.buttonStyle(.plain).disabled(busy)
+                            }.pressable().disabled(busy)
                         }
                         if canCancel {
                             Button { Task { await cancel() } } label: {
                                 Text("Cancel scheduled send").font(.inter(12, .semibold)).foregroundStyle(Color(hex: 0xB91C1C))
                                     .padding(.horizontal, 14).padding(.vertical, 9)
                                     .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            }.buttonStyle(.plain).disabled(busy)
+                            }.pressable().disabled(busy)
                         }
                         Button { confirmDelete = true } label: {
                             Label("Delete", systemImage: "trash").font(.inter(12, .semibold)).foregroundStyle(Color(hex: 0xB91C1C))
                                 .padding(.horizontal, 14).padding(.vertical, 9)
                                 .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        }.buttonStyle(.plain).disabled(busy)
+                        }.pressable().disabled(busy)
                     }
                     // NEEDS: edit announcement (PUT /admin/announcements/{id}) — compose form reused on web.
                 }.padding(24)
@@ -2312,7 +2303,7 @@ private struct CreateEventSheet: View {
                                     .padding(.horizontal, 12).padding(.vertical, 8)
                                     .background(active ? Nuru.navy : Nuru.inputBg)
                                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            }.buttonStyle(.plain)
+                            }.pressable()
                         }
                     }
                     if recurrence == "Weekly" || recurrence == "Custom" {
@@ -2327,7 +2318,7 @@ private struct CreateEventSheet: View {
                                         .frame(maxWidth: .infinity).padding(.vertical, 9)
                                         .background(active ? Nuru.gold : Nuru.inputBg)
                                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                }.buttonStyle(.plain)
+                                }.pressable()
                             }
                         }
                     }
@@ -2474,7 +2465,7 @@ private struct CreateAnnouncementSheet: View {
                                     .padding(.horizontal, 12).padding(.vertical, 8)
                                     .background(on ? Nuru.navy : Nuru.inputBg)
                                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            }.buttonStyle(.plain)
+                            }.pressable()
                         }
                     }
 
@@ -2487,7 +2478,7 @@ private struct CreateAnnouncementSheet: View {
                                     .frame(maxWidth: .infinity).padding(.vertical, 9)
                                     .background(on ? Nuru.gold : Nuru.inputBg)
                                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            }.buttonStyle(.plain)
+                            }.pressable()
                         }
                     }
 
@@ -2615,7 +2606,7 @@ private struct ManualCheckinSheet: View {
                                     .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                                     .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                                     .contentShape(Rectangle())
-                                }.buttonStyle(.plain).disabled(busy)
+                                }.pressable().hoverEffect(.highlight).disabled(busy)
                             }
                             if !query.trimmingCharacters(in: .whitespaces).isEmpty && results.isEmpty {
                                 Text("No matches.").font(.nCaption).foregroundStyle(Nuru.muted).frame(maxWidth: .infinity, alignment: .leading)
@@ -2645,7 +2636,7 @@ private struct ManualCheckinSheet: View {
                                 .frame(maxWidth: .infinity).padding(.vertical, 12)
                                 .background(guestName.trimmingCharacters(in: .whitespaces).isEmpty ? Nuru.muted : Nuru.navy)
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }.buttonStyle(.plain).disabled(busy || guestName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }.pressable().disabled(busy || guestName.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
                 .padding(24)
@@ -2699,7 +2690,7 @@ private struct PostMomentSheet: View {
                         }
                     }
                     if !imageUrl.trimmingCharacters(in: .whitespaces).isEmpty {
-                        AsyncImage(url: URL(string: imageUrl.trimmingCharacters(in: .whitespaces))) { img in img.resizable().scaledToFill() } placeholder: { Nuru.inputBg }
+                        CachedAsyncImage(url: URL(string: imageUrl.trimmingCharacters(in: .whitespaces))) { img in img.resizable().scaledToFill() } placeholder: { Nuru.inputBg }
                             .frame(height: 160).frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                     }
                     if let err { Text(err).font(.nCaption).foregroundStyle(Nuru.danger) }

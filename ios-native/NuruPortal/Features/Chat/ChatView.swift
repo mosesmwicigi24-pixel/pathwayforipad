@@ -14,6 +14,7 @@
 // Codable models through APIClient.shared (the shared slim Models.swift lacks the
 // moderation / reaction / attachment / read-receipt fields the web surfaces).
 import SwiftUI
+import UIKit
 import Charts
 
 // MARK: - Page-local rich models (mirror api/client.ts ChatApi)
@@ -604,7 +605,7 @@ private struct ConvAvatar: View {
         let radius = kind == "dm" ? size / 2 : size * 0.3
         Group {
             if kind == "dm", let u = uri, let url = URL(string: u) {
-                AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
+                CachedAsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
                 placeholder: { Monogram(name: name, size: size) }
             } else if kind == "dm" {
                 Monogram(name: name, size: size)
@@ -666,6 +667,7 @@ private struct ThreadScreen: View {
 private struct ThreadBody: View {
     @ObservedObject var model: ChatModel
     let conv: PConversationRow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -801,6 +803,9 @@ private struct ThreadBody: View {
                             if let err = model.threadError { threadErrorBanner(err) }
                             ForEach(model.messages) { m in
                                 MessageRowView(m: m, model: model)
+                                    // New rows ease in instead of popping (fade only under Reduce Motion);
+                                    // the model animates the append so this transition actually runs.
+                                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
                             }
                             Color.clear.frame(height: 1).id("bottom")
                         }
@@ -910,7 +915,8 @@ private struct ThreadBody: View {
                 .foregroundStyle(.white).frame(width: 40, height: 40)
                 .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .pressable()
+            .keyboardShortcut(.return, modifiers: .command)   // ⌘↩ sends from a hardware keyboard
             .disabled(model.draft.trimmed.isEmpty || model.isArchived || model.sending)
             .opacity(model.draft.trimmed.isEmpty || model.isArchived || model.sending ? 0.5 : 1)
         }
@@ -1076,7 +1082,7 @@ private struct AttachmentView: View {
     var body: some View {
         Group {
             if m.msgType == "image", let u = m.attachmentUrl, let url = URL(string: u) {
-                AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fit) }
+                CachedAsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fit) }
                 placeholder: { Rectangle().fill(Nuru.mutedBg).frame(height: 120) }
                 .frame(maxWidth: 240, maxHeight: 240)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -1847,7 +1853,10 @@ private final class ChatModel: ObservableObject {
 
     private func refetchThread(_ id: String) async {
         if let d: PConversationDetail = try? await api.get("/chat/conversations/\(id)", as: PConversationDetail.self) {
-            messages = d.messages
+            // Animate row insertion (send/reaction/moderation refetch) so new
+            // messages slide in rather than popping. Reduce Motion → plain swap.
+            if UIAccessibility.isReduceMotionEnabled { messages = d.messages }
+            else { withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) { messages = d.messages } }
         }
     }
 

@@ -3,6 +3,7 @@
 // warm, card-based feel: white cards floating on one soft shadow, overline
 // section headers, gold-on-restraint, Inter body + Fraunces display.
 import SwiftUI
+import UIKit
 
 // MARK: - Async loading
 
@@ -13,10 +14,30 @@ final class Loader<T>: ObservableObject {
     @Published var state: Loadable<T> = .idle
     private let fetch: () async throws -> T
     init(_ fetch: @escaping () async throws -> T) { self.fetch = fetch }
+    /// Initial load shows the skeleton; a re-load (refresh) keeps the old value
+    /// on screen and swaps in the new payload on success (keep-old-payload,
+    /// mirroring PeopleIntelligenceView). A failed background refresh keeps the
+    /// old content instead of dropping to the error state.
     func load() async {
-        if case .loaded = state {} else { state = .loading }
-        do { state = .loaded(try await fetch()) }
-        catch { state = .failed((error as? APIError)?.errorDescription ?? error.localizedDescription) }
+        var previous: T? = nil
+        if case .loaded(let v) = state { previous = v }
+        if previous == nil { state = .loading }
+        do {
+            let value = try await fetch()
+            set(.loaded(value), animated: previous == nil)
+        } catch {
+            let message = (error as? APIError)?.errorDescription ?? error.localizedDescription
+            if let previous { state = .loaded(previous) }       // background refresh failed — keep content
+            else { set(.failed(message), animated: true) }
+        }
+    }
+    /// Gentle crossfade on the initial skeleton→content swap (skipped under Reduce Motion).
+    private func set(_ new: Loadable<T>, animated: Bool) {
+        if animated && !UIAccessibility.isReduceMotionEnabled {
+            withAnimation(.easeOut(duration: 0.25)) { state = new }
+        } else {
+            state = new
+        }
     }
 }
 
@@ -32,11 +53,12 @@ struct AsyncView<T, Content: View>: View {
         Group {
             switch loader.state {
             case .idle, .loading:
-                ScrollView { SkeletonList(rows: 6).padding(Nuru.S.screen) }
+                ScrollView { SkeletonList(rows: 6).padding(Nuru.S.screen) }.transition(.opacity)
             case .loaded(let v):
-                content(v)
+                content(v).transition(.opacity)
             case .failed(let m):
                 ScrollView { ErrorBanner(message: m) { Task { await loader.load() } }.padding(Nuru.S.screen) }
+                    .transition(.opacity)
             }
         }
         .background(Nuru.paper)
@@ -49,21 +71,48 @@ struct LoadingState: View {
     var body: some View { SkeletonList(rows: 5).padding(Nuru.S.screen) }
 }
 
+// MARK: - Interaction (press feel)
+
+/// Shared press state for every tappable element: a quick scale-down + slight
+/// dim with a snappy spring. Under Reduce Motion the scale is dropped and only
+/// the opacity dip remains.
+struct PressableButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? 0.97 : 1))
+            .opacity(configuration.isPressed ? 0.92 : 1)
+            .animation(.spring(response: 0.28, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
+extension View {
+    /// `.buttonStyle(PressableButtonStyle())` — the kit's default press feel.
+    func pressable() -> some View { buttonStyle(PressableButtonStyle()) }
+}
+
 // MARK: - Shimmer skeletons
 
 struct Shimmer: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var x: CGFloat = -1
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content.overlay(
-            GeometryReader { geo in
-                LinearGradient(colors: [.clear, .white.opacity(0.55), .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: geo.size.width * 0.6)
-                    .offset(x: x * geo.size.width)
-                    .animation(.linear(duration: 1.2).repeatForever(autoreverses: false), value: x)
-            }
-            .mask(content)
-        )
-        .onAppear { x = 1.6 }
+        if reduceMotion {
+            // Reduce Motion: a static highlight instead of the moving sweep.
+            content.overlay(Color.white.opacity(0.28).mask(content))
+        } else {
+            content.overlay(
+                GeometryReader { geo in
+                    LinearGradient(colors: [.clear, .white.opacity(0.55), .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: geo.size.width * 0.6)
+                        .offset(x: x * geo.size.width)
+                        .animation(.linear(duration: 1.2).repeatForever(autoreverses: false), value: x)
+                }
+                .mask(content)
+            )
+            .onAppear { x = 1.6 }
+        }
     }
 }
 extension View { func shimmer() -> some View { modifier(Shimmer()) } }
@@ -97,6 +146,49 @@ struct SkeletonList: View {
                 .padding(Nuru.S.base)
                 .background(Nuru.surface)
                 .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+            }
+        }
+    }
+}
+
+/// Skeleton for KPI-tile grids (tinted-tile shape) — wave-2 screens adopt this.
+struct SkeletonGrid: View {
+    var tiles = 4
+    var columns = 4
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Nuru.S.md), count: max(columns, 1)),
+                  spacing: Nuru.S.md) {
+            ForEach(0..<tiles, id: \.self) { _ in
+                HStack(spacing: Nuru.S.md) {
+                    Skeleton(height: 44, width: 44, radius: 11)
+                    VStack(alignment: .leading, spacing: Nuru.S.sm) {
+                        Skeleton(height: 10, width: 88)
+                        Skeleton(height: 16, width: 56)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(Nuru.S.base)
+                .background(Nuru.surface)
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+            }
+        }
+    }
+}
+
+/// Skeleton for tables — full-width row bars, alternating like list rows.
+struct SkeletonTable: View {
+    var rows = 6
+    var body: some View {
+        VStack(spacing: Nuru.S.sm) {
+            ForEach(0..<rows, id: \.self) { _ in
+                HStack(spacing: Nuru.S.md) {
+                    Skeleton(height: 12, width: 160)
+                    Skeleton(height: 12)
+                    Skeleton(height: 12, width: 72)
+                }
+                .padding(.horizontal, Nuru.S.base).padding(.vertical, 14)
+                .background(Nuru.surface)
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
             }
         }
     }
@@ -243,6 +335,8 @@ struct GoldButton: View {
             .background(Nuru.goldGradient)
             .clipShape(RoundedRectangle(cornerRadius: Nuru.R.button, style: .continuous))
         }
+        .pressable()
+        .hoverEffect(.lift)
     }
 }
 
@@ -271,6 +365,174 @@ struct ErrorBanner: View {
         .frame(maxWidth: 420)
         .padding(.vertical, Nuru.S.xl)
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// Calm, centered empty state — dashed card, tinted icon, generous whitespace
+/// (the shared version of Content Studio's hand-rolled EmptyStateView).
+struct EmptyState: View {
+    let icon: String
+    let title: String
+    var message: String? = nil
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+    var body: some View {
+        VStack(spacing: 8) {
+            TintedIcon(systemName: icon, size: 56)
+                .padding(.bottom, 6)
+            Text(title).font(.nTitle).foregroundStyle(Nuru.navy).multilineTextAlignment(.center)
+            if let message {
+                Text(message).font(.nCaption).foregroundStyle(Nuru.ink600)
+                    .multilineTextAlignment(.center).frame(maxWidth: 340)
+            }
+            if let actionTitle, let action {
+                Button(action: action) {
+                    Label(actionTitle, systemImage: "plus")
+                        .font(.inter(13, .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 16).frame(height: 38)
+                        .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .pressable()
+                .hoverEffect(.lift)
+                .padding(.top, 6)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 56).padding(.horizontal, 24)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous)
+            .strokeBorder(Nuru.border, style: StrokeStyle(lineWidth: 1, dash: [6, 4])))
+    }
+
+    /// In-card compact variant (small icon + caption), e.g. an empty list inside a card.
+    static func compact(icon: String, message: String) -> some View {
+        VStack(spacing: 6) {
+            TintedIcon(systemName: icon, color: Nuru.ink400, size: 34)
+            Text(message).font(.nCaption).foregroundStyle(Nuru.ink600).multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 22)
+    }
+}
+
+// MARK: - Toast
+
+/// Data for the floating toast capsule. `success` shows a lumGreen check,
+/// `error` a danger mark.
+struct ToastData: Equatable {
+    enum Kind { case success, error }
+    var kind: Kind = .success
+    var message: String
+    static func success(_ message: String) -> ToastData { ToastData(kind: .success, message: message) }
+    static func error(_ message: String) -> ToastData { ToastData(kind: .error, message: message) }
+}
+
+/// Bottom-center floating capsule; slides+fades in, auto-dismisses after ~2.8s
+/// (cancel-safe — a newer toast resets the clock). Reduce Motion → fade only.
+/// Usage: `@State var toast: ToastData?` + `.toast($toast)`.
+private struct ToastModifier: ViewModifier {
+    @Binding var toast: ToastData?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dismissTask: Task<Void, Never>?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .bottom) {
+                if let toast {
+                    HStack(spacing: 8) {
+                        Image(systemName: toast.kind == .success ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(toast.kind == .success ? Nuru.lumGreen : Nuru.lumRed)
+                        Text(toast.message).font(.inter(13, .semibold)).foregroundStyle(.white).lineLimit(2)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 11)
+                    .background(Nuru.navyDeep.opacity(0.96))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 1))
+                    .nuruShadow(1.4)
+                    .padding(.bottom, 24)
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                    .accessibilityAddTraits(.updatesFrequently)
+                }
+            }
+            .animation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.32, dampingFraction: 0.8), value: toast)
+            .sensoryFeedback(trigger: toast) { _, new in
+                guard let new else { return nil }
+                return new.kind == .success ? .success : .error
+            }
+            .onChange(of: toast) { _, new in
+                dismissTask?.cancel()
+                guard new != nil else { return }
+                dismissTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_800_000_000)
+                    if !Task.isCancelled { toast = nil }
+                }
+            }
+    }
+}
+
+extension View {
+    func toast(_ toast: Binding<ToastData?>) -> some View { modifier(ToastModifier(toast: toast)) }
+}
+
+// MARK: - Cached async image
+
+/// App-wide in-memory image cache + a URLSession that also honours the default
+/// on-disk URLCache — so avatars/thumbnails don't re-download on every appearance.
+enum ImageMemoryCache {
+    static let cache: NSCache<NSURL, UIImage> = {
+        let c = NSCache<NSURL, UIImage>()
+        c.countLimit = 300
+        c.totalCostLimit = 64 * 1024 * 1024
+        return c
+    }()
+    static let session: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.requestCachePolicy = .returnCacheDataElseLoad
+        cfg.urlCache = URLCache.shared
+        return URLSession(configuration: cfg)
+    }()
+}
+
+/// Drop-in replacement for `AsyncImage` (same content/placeholder closure shape)
+/// backed by `ImageMemoryCache` — cached images render synchronously, fresh ones
+/// fade in gently (no fade under Reduce Motion).
+struct CachedAsyncImage<Content: View, Placeholder: View>: View {
+    private let url: URL?
+    private let content: (Image) -> Content
+    private let placeholder: () -> Placeholder
+    @State private var image: UIImage?
+
+    init(url: URL?,
+         @ViewBuilder content: @escaping (Image) -> Content,
+         @ViewBuilder placeholder: @escaping () -> Placeholder) {
+        self.url = url
+        self.content = content
+        self.placeholder = placeholder
+    }
+
+    var body: some View {
+        Group {
+            if let ui = image ?? cachedImage {
+                content(Image(uiImage: ui))
+            } else {
+                placeholder()
+            }
+        }
+        .task(id: url) {
+            image = cachedImage
+            guard image == nil, let url else { return }
+            guard let (data, _) = try? await ImageMemoryCache.session.data(from: url),
+                  let fetched = UIImage(data: data) else { return }
+            ImageMemoryCache.cache.setObject(fetched, forKey: url as NSURL, cost: data.count)
+            if UIAccessibility.isReduceMotionEnabled { image = fetched }
+            else { withAnimation(.easeOut(duration: 0.2)) { image = fetched } }
+        }
+    }
+
+    private var cachedImage: UIImage? {
+        url.flatMap { ImageMemoryCache.cache.object(forKey: $0 as NSURL) }
     }
 }
 
@@ -319,6 +581,8 @@ struct StatCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 TintedIcon(systemName: icon, color: color, size: 42)
                 Text(value).font(.fraunces(30, .semibold)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.6)
+                    .contentTransition(.numericText())
+                    .animation(.default, value: value)
                 Text(label).font(.nLabel).foregroundStyle(Nuru.ink600)
                 if let caption { Text(caption).font(.nMicro).foregroundStyle(Nuru.warning) }
             }
@@ -374,6 +638,8 @@ struct PortalHero<Actions: View>: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(s.label.uppercased()).font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)
                     Text(s.value).font(.fraunces(24, .medium)).foregroundStyle(.white)
+                        .contentTransition(.numericText())
+                        .animation(.default, value: s.value)
                     Text(s.hint).font(.nMicro).foregroundStyle(Nuru.onNavyFaint)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -414,7 +680,8 @@ struct HeroChip: View {
             .overlay(Capsule().stroke(border, lineWidth: 1))
             .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .pressable()
+        .hoverEffect(.lift)
     }
     private var fg: Color { switch style { case .gold: .white; case .tag: Nuru.goldGlow; case .ghost: .white } }
     private var bg: Color { switch style { case .gold: Nuru.gold; case .tag: Nuru.gold.opacity(0.14); case .ghost: .white.opacity(0.08) } }
@@ -436,9 +703,12 @@ struct KpiTile: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(label).font(.nCaption).foregroundStyle(Nuru.ink600).lineLimit(1)
                     Text(value).font(.fraunces(23, .semibold)).foregroundStyle(Nuru.navy)
+                        .contentTransition(.numericText())
+                        .animation(.default, value: value)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "ellipsis").font(.system(size: 13)).foregroundStyle(Nuru.ink300)
+                    .accessibilityHidden(true)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -446,7 +716,10 @@ struct KpiTile: View {
             .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(tint.fg.opacity(0.18), lineWidth: 1))
         }
-        .buttonStyle(.plain)
+        .pressable()
+        .hoverEffect(.lift)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
     }
 }
 

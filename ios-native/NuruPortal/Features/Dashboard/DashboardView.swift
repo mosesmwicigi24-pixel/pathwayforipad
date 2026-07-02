@@ -35,18 +35,33 @@ final class DashboardViewModel: ObservableObject {
         async let au = try? PortalAPI.auditFeed()
         async let me = try? PortalAPI.me()
 
-        overview = await o
-        bands = await e?.bands ?? [:]
-        trend = await t ?? []
-        levels = await l ?? []
-        consents = await c ?? 0
-        stuck = await s ?? 0
-        countriesActive = (await co)?.filter { $0.status == "active" }.count ?? 0
-        languagesActive = (await la)?.filter { $0.status == "active" }.count ?? 0
-        upcoming = Array((await up ?? []).sorted { $0.startAt < $1.startAt }.prefix(4))
-        activity = Array((await au ?? []).prefix(6))
-        firstName = (await me)?.fullName.split(separator: " ").first.map(String.init) ?? ""
-        loading = false
+        let overviewV = await o
+        let bandsV = await e?.bands ?? [:]
+        let trendV = await t ?? []
+        let levelsV = await l ?? []
+        let consentsV = await c ?? 0
+        let stuckV = await s ?? 0
+        let countriesV = (await co)?.filter { $0.status == "active" }.count ?? 0
+        let languagesV = (await la)?.filter { $0.status == "active" }.count ?? 0
+        let upcomingV = Array((await up ?? []).sorted { $0.startAt < $1.startAt }.prefix(4))
+        let activityV = Array((await au ?? []).prefix(6))
+        let firstNameV = (await me)?.fullName.split(separator: " ").first.map(String.init) ?? ""
+        // Animate the data landing so numericText values glide and the
+        // skeleton→content swap crossfades (matches the shared Loader's timing).
+        withAnimation(.easeOut(duration: 0.25)) {
+            overview = overviewV
+            bands = bandsV
+            trend = trendV
+            levels = levelsV
+            consents = consentsV
+            stuck = stuckV
+            countriesActive = countriesV
+            languagesActive = languagesV
+            upcoming = upcomingV
+            activity = activityV
+            firstName = firstNameV
+            loading = false
+        }
     }
 
     var greeting: String {
@@ -70,7 +85,13 @@ struct DashboardView: View {
             VStack(spacing: 18) {
                 hero
                 if vm.loading && vm.overview == nil {
-                    SkeletonList(rows: 4).padding(.horizontal, 20)
+                    // Loading mirrors the real layout: KPI-tile grid up top, then a
+                    // table-shaped strip where the pipeline/report cards land.
+                    VStack(spacing: 18) {
+                        SkeletonGrid(tiles: 6, columns: 3)
+                        SkeletonTable(rows: 5)
+                    }
+                    .padding(.horizontal, 20)
                 } else {
                     LazyVGrid(columns: grid, spacing: 12) { kpiTiles }.padding(.horizontal, 20)
                     PipelineSection(levels: vm.levels).padding(.horizontal, 20)
@@ -146,6 +167,8 @@ private struct DashKpiTile: View {
                     .foregroundStyle(Nuru.navy)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
+                    .contentTransition(.numericText())
+                    .animation(.default, value: value)
                 Text(label)
                     .font(.inter(11.5, .medium))
                     .foregroundStyle(Nuru.ink600)
@@ -158,7 +181,8 @@ private struct DashKpiTile: View {
             .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(tint.fg.opacity(0.18), lineWidth: 1))
         }
-        .buttonStyle(.plain)
+        .pressable()
+        .hoverEffect(.lift)
     }
 }
 
@@ -187,7 +211,9 @@ private struct PipelineSection: View {
                     Button { router.go(.cms) } label: {
                         HStack(spacing: 3) { Text("View all").font(.inter(12, .semibold)); Image(systemName: "chevron.right").font(.system(size: 10)) }
                             .foregroundStyle(Nuru.goldLo)
-                    }.buttonStyle(.plain)
+                    }
+                    .pressable()
+                    .hoverEffect(.highlight)
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
                     ForEach(items, id: \.0) { it in
@@ -244,7 +270,9 @@ private struct PathwayReport: View {
                                 .overlay(alignment: .bottom) {
                                     Rectangle().fill(t == tab ? Nuru.gold : .clear).frame(height: 2)
                                 }
-                        }.buttonStyle(.plain)
+                        }
+                        .pressable()
+                        .hoverEffect(.highlight)
                     }
                     Spacer()
                 }

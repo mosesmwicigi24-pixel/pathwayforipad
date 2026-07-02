@@ -247,9 +247,11 @@ private final class MembersVM: ObservableObject {
             if !Task.isCancelled { await self?.reload() }
         }
     }
-    func graduate(_ id: String, _ next: Bool) async {
-        do { try await MembersAPI.setGraduation(id, next); await reload() }
-        catch { self.error = (error as? APIError)?.errorDescription ?? "Could not update graduation." }
+    /// Returns true on success so the screen can raise a toast.
+    @discardableResult
+    func graduate(_ id: String, _ next: Bool) async -> Bool {
+        do { try await MembersAPI.setGraduation(id, next); await reload(); return true }
+        catch { self.error = (error as? APIError)?.errorDescription ?? "Could not update graduation."; return false }
     }
 }
 
@@ -262,6 +264,7 @@ struct MembersView: View {
     @State private var editId: String?
     @State private var resultsId: String?
     @State private var exportOpen = false
+    @State private var toast: ToastData?
 
     var body: some View {
         ScrollView {
@@ -271,7 +274,7 @@ struct MembersView: View {
                     if let e = vm.error { ErrorBanner(message: e) { Task { await vm.reload() } } }
                     toolbar
                     if vm.loading && vm.rows.isEmpty {
-                        SkeletonList(rows: 6)
+                        SkeletonTable(rows: 8)
                     } else if vm.filtered.isEmpty {
                         emptyState
                     } else {
@@ -284,7 +287,16 @@ struct MembersView: View {
                                 MemberRowCard(member: m, index: i, country: m.countryCode.flatMap { vm.countryByCode[$0] },
                                               onResults: { resultsId = m.userId },
                                               onEdit: { editId = m.userId },
-                                              onGraduate: { Task { await vm.graduate(m.userId, m.status != "graduated") } })
+                                              onGraduate: {
+                                                  let next = m.status != "graduated"
+                                                  Task {
+                                                      if await vm.graduate(m.userId, next) {
+                                                          toast = .success(next ? "\(m.fullName) marked graduated" : "Graduation removed for \(m.fullName)")
+                                                      } else {
+                                                          toast = .error(vm.error ?? "Could not update graduation.")
+                                                      }
+                                                  }
+                                              })
                             }
                         }
                         .background(Nuru.white)
@@ -309,12 +321,19 @@ struct MembersView: View {
             if let q { vm.search = q; router.memberSearch = nil; Task { await vm.reload() } }
         }
         .refreshable { await vm.reload() }
+        .toast($toast)
         .sheet(isPresented: $addOpen) {
-            MemberFormSheet(mode: .add, cells: vm.cells, countries: vm.countries) { Task { await vm.reload() } }
+            MemberFormSheet(mode: .add, cells: vm.cells, countries: vm.countries) {
+                toast = .success("Member added")
+                Task { await vm.reload() }
+            }
                 .presentationDetents([.large])
         }
         .sheet(item: Binding(get: { editId.map { IdBox(id: $0) } }, set: { editId = $0?.id })) { box in
-            MemberFormSheet(mode: .edit(box.id), cells: vm.cells, countries: vm.countries) { Task { await vm.reload() } }
+            MemberFormSheet(mode: .edit(box.id), cells: vm.cells, countries: vm.countries) {
+                toast = .success("Member updated")
+                Task { await vm.reload() }
+            }
                 .presentationDetents([.large])
         }
         .sheet(item: Binding(get: { resultsId.map { IdBox(id: $0) } }, set: { resultsId = $0?.id })) { box in
@@ -397,7 +416,8 @@ struct MembersView: View {
             .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
             .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .pressable()
+        .hoverEffect(.lift)
     }
 
     // Toolbar
@@ -566,7 +586,9 @@ private struct MemberRowCard: View {
                         .frame(width: 34, height: 34).background(Nuru.inputBg)
                         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Nuru.border, lineWidth: 1))
                         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                }.buttonStyle(.plain)
+                }
+                .pressable()
+                .hoverEffect(.highlight)
 
                 Menu {
                     Button { onEdit() } label: { Label("Edit member", systemImage: "pencil") }
@@ -582,7 +604,8 @@ private struct MemberRowCard: View {
             .background(Nuru.white)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .pressable()
+        .hoverEffect(.highlight)
     }
 }
 
@@ -1083,7 +1106,9 @@ private struct ExportSheet: View {
                                 Spacer()
                                 Text(m.cellName ?? "—").font(.nCaption).foregroundStyle(Nuru.ink600)
                             }
-                        }.buttonStyle(.plain)
+                        }
+                        .pressable()
+                        .hoverEffect(.highlight)
                     }
                 }
                 .listStyle(.plain)
