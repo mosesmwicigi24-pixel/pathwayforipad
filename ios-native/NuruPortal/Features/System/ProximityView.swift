@@ -586,8 +586,8 @@ private struct CreateCellFromClusterSheet: View {
                 .font(.inter(15)).foregroundStyle(Nuru.ink)
                 .padding(.horizontal, 12).frame(height: 44)
                 .background(Nuru.white)
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
         }
     }
     private func banner(_ text: String, color: Color, icon: String) -> some View {
@@ -598,6 +598,6 @@ private struct CreateCellFromClusterSheet: View {
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
         .background(color.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
     }
 }

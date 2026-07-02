@@ -262,8 +262,8 @@ struct NotificationsView: View {
                 }
                 .padding(3)
                 .background(.white.opacity(0.08))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
 
                 HeroChip(label: "Mark all read", icon: "checkmark.circle", style: .ghost) {
                     if store.unreadCount > 0 { store.markAllRead() }
@@ -300,8 +300,8 @@ struct NotificationsView: View {
             }
             .padding(.horizontal, 14).frame(height: 40)
             .background(Nuru.white)
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) { ForEach(CatFilter.allCases, id: \.self) { catChip($0) } }
@@ -382,8 +382,8 @@ struct NotificationsView: View {
 
             // Luminous leading icon chip (lumTint background + luminous icon).
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Nuru.lumTint(meta.color))
-                RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(meta.color.opacity(0.22), lineWidth: 1)
+                RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).fill(Nuru.lumTint(meta.color))
+                RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(meta.color.opacity(0.22), lineWidth: 1)
                 Image(systemName: meta.icon).font(.system(size: 15, weight: .medium)).foregroundStyle(meta.color)
             }.frame(width: 38, height: 38)
 
@@ -437,7 +437,7 @@ struct NotificationsView: View {
         let unreadEmpty = !store.items.isEmpty && tab == .unread
         return VStack(spacing: 0) {
             ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Nuru.inputBg)
+                RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous).fill(Nuru.inputBg)
                 Image(systemName: unreadEmpty ? "bell" : "tray").font(.system(size: 26)).foregroundStyle(Nuru.muted)
             }.frame(width: 56, height: 56).padding(.bottom, 16)
             Text(unreadEmpty ? "You're all caught up" : "Nothing in the last 7 days")
@@ -451,7 +451,7 @@ struct NotificationsView: View {
                     HStack(spacing: 6) { Image(systemName: "archivebox"); Text("Browse archive") }
                         .font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy)
                         .padding(.horizontal, 16).frame(height: 36)
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 }.buttonStyle(.plain).padding(.top, 16)
             }
         }
@@ -467,7 +467,7 @@ struct NotificationsView: View {
                     .font(.inter(12.5, .semibold))
                     .foregroundStyle(showArchive ? Nuru.navy : Nuru.muted)
                     .padding(.horizontal, 14).frame(height: 36)
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
             }.buttonStyle(.plain).disabled(!showArchive)
             Button { showArchive = true } label: {
                 HStack(spacing: 4) { Text("Archive"); Image(systemName: "chevron.right") }
@@ -475,8 +475,8 @@ struct NotificationsView: View {
                     .foregroundStyle(showArchive ? .white : Nuru.navy)
                     .padding(.horizontal, 14).frame(height: 36)
                     .background(showArchive ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.white))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(showArchive ? Color.clear : Nuru.border, lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(showArchive ? Color.clear : Nuru.border, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
             }.buttonStyle(.plain).disabled(archived.isEmpty)
         }
     }

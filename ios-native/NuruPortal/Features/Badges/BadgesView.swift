@@ -161,7 +161,7 @@ struct BadgesView: View {
         Card(padding: 14) {
             HStack(spacing: 12) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(bg)
+                    RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).fill(bg)
                     Image(systemName: icon).font(.system(size: 17)).foregroundStyle(color)
                 }.frame(width: 38, height: 38)
                 VStack(alignment: .leading, spacing: 2) {
@@ -418,7 +418,7 @@ struct BadgesView: View {
                 Spacer()
                 Button { detail = nil } label: {
                     Image(systemName: "xmark").font(.system(size: 14)).foregroundStyle(.white)
-                        .padding(8).background(.white.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(8).background(.white.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs))
                 }.buttonStyle(.plain)
             }
             .padding(24)

@@ -61,7 +61,7 @@ struct LoginView: View {
                     .padding(.horizontal, 12).padding(.vertical, 9)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Nuru.danger.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             }
 
             Button(action: submit) {
@@ -74,7 +74,7 @@ struct LoginView: View {
                 .frame(maxWidth: .infinity).padding(.vertical, 15)
                 .background(Nuru.goldGradient)
                 .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
                 .nuruShadow(0.6)
             }
             .disabled(loading || !canSubmit)
@@ -88,7 +88,7 @@ struct LoginView: View {
         }
         .padding(28)
         .background(Nuru.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xl, style: .continuous))
         .frame(maxWidth: 430)
         .shadow(color: .black.opacity(0.35), radius: 40, y: 20)
     }
@@ -156,8 +156,8 @@ private struct LoginField<Content: View>: View {
             }
             .padding(.horizontal, 14).padding(.vertical, 13)
             .background(Nuru.inputBg)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         }
     }
 }

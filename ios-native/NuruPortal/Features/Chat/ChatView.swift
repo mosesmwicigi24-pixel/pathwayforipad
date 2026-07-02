@@ -319,8 +319,8 @@ struct ChatView: View {
             .padding(.horizontal, 14).padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(hex: 0xFEF2F2))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xF5C6C2), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile).stroke(Color(hex: 0xF5C6C2), lineWidth: 1))
     }
 
     private var hero: some View {
@@ -355,7 +355,7 @@ struct ChatView: View {
                 .foregroundStyle(tint)
                 .frame(width: 26, height: 26)
                 .background(tint.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
             VStack(alignment: .leading, spacing: 0) {
                 Text(value).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                     .lineLimit(1).minimumScaleFactor(0.7)
@@ -368,8 +368,8 @@ struct ChatView: View {
         .padding(.horizontal, 10).padding(.vertical, 7)
         .frame(maxWidth: .infinity)
         .background(Nuru.white)
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
     }
 
     private var actionBar: some View {
@@ -381,8 +381,8 @@ struct ChatView: View {
                         .font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy)
                         .padding(.horizontal, 14).frame(height: 38)
                         .background(Nuru.white)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.border, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                 }.buttonStyle(.plain)
             }
             Spacer()
@@ -391,15 +391,15 @@ struct ChatView: View {
                     .font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy)
                     .padding(.horizontal, 14).frame(height: 38)
                     .background(Nuru.white)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.border, lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Nuru.border, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             }.buttonStyle(.plain)
             Button { model.newMsgOpen = true } label: {
                 Label("New message", systemImage: "square.and.pencil")
                     .font(.inter(12.5, .bold)).foregroundStyle(.white)
                     .padding(.horizontal, 14).frame(height: 38)
                     .background(Nuru.gold)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             }.buttonStyle(.plain)
         }
     }
@@ -447,7 +447,7 @@ private struct InboxHeader: View {
             }
             .padding(.horizontal, 12).frame(height: 38)
             .background(Nuru.inputBg)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
 
             HStack(spacing: 2) {
                 ForEach(Segment.allCases) { seg in
@@ -463,12 +463,12 @@ private struct InboxHeader: View {
                         .foregroundStyle(on ? .white : Nuru.muted)
                         .frame(maxWidth: .infinity).padding(.vertical, 7)
                         .background(on ? Nuru.navy : .clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     }.buttonStyle(.plain)
                 }
             }
             .padding(3).background(Nuru.inputBg)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
         }
         .padding(14)
     }
@@ -531,8 +531,8 @@ private struct InboxList: View {
                             .font(.inter(11.5, .bold)).foregroundStyle(Nuru.gold)
                             .padding(.horizontal, 12).frame(height: 30)
                             .background(Nuru.gold.opacity(0.1))
-                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.gold, lineWidth: 1))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Nuru.gold, lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     }.buttonStyle(.plain).disabled(model.joiningId == s.conversationId)
                 }
                 .padding(.vertical, 9)
@@ -720,8 +720,8 @@ private struct ThreadBody: View {
                         .foregroundStyle(model.aiOpen ? purple : Nuru.navy)
                         .padding(.horizontal, 10).frame(height: 34)
                         .background(model.aiOpen ? purpleBg : Nuru.white)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(model.aiOpen ? purple.opacity(0.4) : Nuru.border, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(model.aiOpen ? purple.opacity(0.4) : Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                 }.buttonStyle(.plain)
                 toolBtn(model.isMuted ? "speaker.wave.2" : "speaker.slash") { model.toggleMute() }
                 toolBtn(model.isArchived ? "arrow.uturn.backward" : "archivebox") { model.toggleArchive() }
@@ -734,8 +734,8 @@ private struct ThreadBody: View {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Nuru.navy)
                 .frame(width: 34, height: 34).background(Nuru.white)
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.border, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
         }.buttonStyle(.plain)
     }
 
@@ -745,7 +745,7 @@ private struct ThreadBody: View {
             HStack {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(.white)
-                        .frame(width: 24, height: 24).background(purple).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .frame(width: 24, height: 24).background(purple).clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
                     Text("Nuru summary").font(.inter(12.5, .heavy)).foregroundStyle(purple)
                 }
                 Spacer()
@@ -824,8 +824,8 @@ private struct ThreadBody: View {
             .padding(.horizontal, 12).padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(hex: 0xFEF2F2))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xF5C6C2), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Color(hex: 0xF5C6C2), lineWidth: 1))
     }
 
     // Nuru composer assist (intent + tone chips)
@@ -870,8 +870,8 @@ private struct ThreadBody: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(Color(hex: 0xFAF7FE))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(purple.opacity(0.25), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control).stroke(purple.opacity(0.25), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
         .padding(.horizontal, 16).padding(.top, 10)
     }
 
@@ -894,8 +894,8 @@ private struct ThreadBody: View {
                     .foregroundStyle(model.assistOpen ? purple : Nuru.navy)
                     .frame(width: 34, height: 40)
                     .background(model.assistOpen ? purple.opacity(0.08) : Nuru.white)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(model.assistOpen ? purple.opacity(0.4) : Nuru.border, lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(model.assistOpen ? purple.opacity(0.4) : Nuru.border, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             }.buttonStyle(.plain).disabled(model.isArchived)
 
             TextField(model.isArchived ? "Conversation archived — reopen to reply" : "Reply as admin, or ask Nuru to draft…",
@@ -903,8 +903,8 @@ private struct ThreadBody: View {
                 .font(.nCaption).lineLimit(1...5)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .background(Nuru.inputBg)
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.border, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                 .disabled(model.isArchived || model.sending)
 
             Button { Task { await model.sendAdminMessage() } } label: {
@@ -913,7 +913,7 @@ private struct ThreadBody: View {
                     else { Image(systemName: "paperplane.fill").font(.system(size: 15)) }
                 }
                 .foregroundStyle(.white).frame(width: 40, height: 40)
-                .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             }
             .pressable()
             .keyboardShortcut(.return, modifiers: .command)   // ⌘↩ sends from a hardware keyboard
@@ -969,7 +969,7 @@ private struct MessageRowView: View {
                 .frame(maxWidth: 240, alignment: .leading)
                 .background(navy ? Color.white.opacity(0.12) : Color.black.opacity(0.04))
                 .overlay(alignment: .leading) { Rectangle().fill(Nuru.gold).frame(width: 2) }
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
             }
             if !removed, m.attachmentUrl != nil { AttachmentView(m: m, onNavy: navy) }
             if !removed, !m.body.isEmpty {
@@ -1024,7 +1024,7 @@ private struct MessageRowView: View {
         .frame(maxWidth: 360, alignment: .leading)
         .background(bg)
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous)
                 .stroke(flagged ? Color(hex: 0xF5C6C2) : (navy ? .clear : Color(hex: 0xE6E8EB)), lineWidth: 1)
         )
         .clipShape(BubbleShape(mine: m.mine))
@@ -1085,7 +1085,7 @@ private struct AttachmentView: View {
                 CachedAsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fit) }
                 placeholder: { Rectangle().fill(Nuru.mutedBg).frame(height: 120) }
                 .frame(maxWidth: 240, maxHeight: 240)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             } else if let u = m.attachmentUrl, let url = URL(string: u) {
                 Link(destination: url) {
                     HStack(spacing: 8) {
@@ -1097,8 +1097,8 @@ private struct AttachmentView: View {
                     .padding(.horizontal, 10).padding(.vertical, 7)
                     .frame(maxWidth: 240, alignment: .leading)
                     .background(Color.black.opacity(0.04))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.border, lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Nuru.border, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                 }
             }
         }
@@ -1179,7 +1179,7 @@ private func cardEyebrow(_ icon: String, _ text: String, scheme: CardScheme,
             .foregroundStyle(glyph ?? scheme.iconTint)
             .frame(width: 26, height: 26)
             .background(chipBg ?? AnyShapeStyle(scheme.iconChipBg))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
         Text(text.uppercased()).font(.inter(11, .heavy)).tracking(1.2)
             .foregroundStyle(title ?? scheme.title)
         Spacer(minLength: 0)
@@ -1223,7 +1223,7 @@ private struct PulseCard: View {
         HStack(spacing: 9) {
             Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(tint)
                 .frame(width: 28, height: 28).background(tint.opacity(0.14))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
             VStack(alignment: .leading, spacing: 0) {
                 Text(value).font(.inter(16, .heavy)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.6)
                 Text(label.uppercased()).font(.inter(8, .bold)).tracking(0.4)
@@ -1234,8 +1234,8 @@ private struct PulseCard: View {
         .padding(.horizontal, 9).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.white)
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(scheme.stroke, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(scheme.stroke, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
     }
 }
 
@@ -1387,7 +1387,7 @@ private struct NeedsReviewCard: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(active ? Nuru.white.opacity(0.6) : .clear)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
         .contentShape(Rectangle())
     }
 
@@ -1476,7 +1476,7 @@ private struct ProfileCard: View {
                     Text("View full profile").font(.inter(12.5, .bold))
                 }
                 .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 38)
-                .background(scheme.iconTint).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .background(scheme.iconTint).clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
             }.buttonStyle(.plain)
         } else {
             // Member id couldn't be resolved (e.g. no inbound message yet).
@@ -1574,8 +1574,8 @@ private struct CreateSpaceSheet: View {
             .font(.inter(15)).foregroundStyle(Nuru.ink).textFieldStyle(.plain)
             .padding(.horizontal, 14).frame(height: 46)
             .background(Nuru.white)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.border, lineWidth: 1.5))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Nuru.border, lineWidth: 1.5))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
     }
     private func submit() {
         guard name.trimmed.count >= 3 else { errorText = "Give the space a name (at least 3 characters)."; return }

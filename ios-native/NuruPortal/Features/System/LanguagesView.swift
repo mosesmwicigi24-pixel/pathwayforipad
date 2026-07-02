@@ -334,8 +334,8 @@ private struct LanguageFormSheet: View {
                             }
                             .padding(.horizontal, 14).padding(.vertical, 12)
                             .background(Nuru.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                         }
                         SysBlock("Default fallback") {
                             Toggle(isOn: $isDefault) {
@@ -345,8 +345,8 @@ private struct LanguageFormSheet: View {
                             .tint(Nuru.lumGreen)
                             .padding(.horizontal, 14).padding(.vertical, 10)
                             .background(Nuru.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                         }
                     }
                 }

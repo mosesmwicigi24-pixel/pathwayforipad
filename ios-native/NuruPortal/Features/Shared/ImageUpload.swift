@@ -68,10 +68,10 @@ struct ImageUploadField: View {
             if !label.isEmpty { Text(label).font(.inter(12, .semibold)).foregroundStyle(Nuru.ink600) }
             HStack(spacing: 12) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Nuru.inputBg).frame(width: 56, height: 56)
+                    RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).fill(Nuru.inputBg).frame(width: 56, height: 56)
                     if !url.isEmpty, let u = URL(string: url) {
                         CachedAsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { ProgressView() }
-                            .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     } else {
                         Image(systemName: "photo").foregroundStyle(Nuru.ink400)
                     }

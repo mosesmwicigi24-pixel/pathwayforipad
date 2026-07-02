@@ -114,7 +114,20 @@ struct MemberRef: Identifiable, Equatable { let id: String; let name: String }
 struct RootView: View {
     @EnvironmentObject private var auth: AuthStore
     @StateObject private var router = NavRouter()
+    @ObservedObject private var network = NetworkMonitor.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var collapsed = false
+    /// Keep-alive registry, MRU order (current section first). Each listed
+    /// section keeps its NavigationStack mounted (hidden) so scroll position,
+    /// push state and loaded VM data survive sidebar switches.
+    @State private var visited: [Section] = [.dashboard]
+
+    /// How many section stacks stay alive at once (oldest evicted beyond this).
+    private static let keepAliveLimit = 6
+    /// Radio/Mixer run meter timers keyed to view visibility — keeping them
+    /// alive hidden would leave the timers ticking, so they tear down fully
+    /// (like the old `.id()` swap) whenever the user leaves them.
+    private static let ephemeral: Set<Section> = [.radio, .mixer]
 
     var body: some View {
         // Fixed navy sidebar flush against the content (web-portal layout), not a
@@ -123,15 +136,11 @@ struct RootView: View {
             sidebar
             VStack(spacing: 0) {
                 PortalTopBar(title: (router.section ?? .dashboard).title)
-                NavigationStack {
-                    detail(for: router.section ?? .dashboard)
-                        // The global top bar carries the page title; hide the root
-                        // nav bar so it isn't doubled. Pushed pages keep their own
-                        // bar (and back button).
-                        .toolbar(.hidden, for: .navigationBar)
-                }
-                .id(router.section)   // clean, immediate swap when the section changes
+                if !network.online { offlineStrip }
+                detailStacks
             }
+            // Drives the offline strip's slide/fade in and out.
+            .animation(.easeInOut(duration: 0.25), value: network.online)
         }
         .environmentObject(router)
         .background(Nuru.paper.ignoresSafeArea())
@@ -141,6 +150,60 @@ struct RootView: View {
         .sheet(item: $router.openMember) { ref in
             NavigationStack { MemberDetailView(userId: ref.id, name: ref.name) }
         }
+        .onAppear { visit(router.section, leaving: nil) }
+        .onChange(of: router.section) { old, new in visit(new, leaving: old) }
+    }
+
+    /// Keep-alive container: every visited section keeps its own NavigationStack
+    /// mounted; only the current one is visible/interactive. Switching back is
+    /// instant with scroll + state intact (replaces the old `.id(router.section)`
+    /// re-key, which destroyed the stack on every switch).
+    private var detailStacks: some View {
+        let current = router.section ?? .dashboard
+        return ZStack {
+            ForEach(visited, id: \.self) { s in
+                NavigationStack {
+                    detail(for: s)
+                        // The global top bar carries the page title; hide the root
+                        // nav bar so it isn't doubled. Pushed pages keep their own
+                        // bar (and back button).
+                        .toolbar(.hidden, for: .navigationBar)
+                }
+                .opacity(s == current ? 1 : 0)
+                .allowsHitTesting(s == current)
+                .accessibilityHidden(s != current)
+            }
+        }
+    }
+
+    /// MRU bookkeeping for the keep-alive container.
+    private func visit(_ new: Section?, leaving old: Section?) {
+        // Leaving an ephemeral section drops it entirely — full teardown.
+        if let old, Self.ephemeral.contains(old) {
+            visited.removeAll { $0 == old }
+        }
+        guard let new else { return }
+        visited.removeAll { $0 == new }
+        visited.insert(new, at: 0)
+        if visited.count > Self.keepAliveLimit {
+            visited.removeLast(visited.count - Self.keepAliveLimit)
+        }
+    }
+
+    /// Slim amber banner shown under the top bar while offline.
+    private var offlineStrip: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.slash").font(.system(size: 12, weight: .semibold))
+            Text("You're offline — some data may be out of date").font(.nCaption)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(Nuru.warning)
+        .padding(.horizontal, 20).padding(.vertical, 7)
+        .background(Nuru.warning.opacity(0.12))
+        .overlay(alignment: .bottom) { Rectangle().fill(Nuru.warning.opacity(0.22)).frame(height: 1) }
+        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("You're offline. Some data may be out of date.")
     }
 
     private var sectionShortcuts: some View {

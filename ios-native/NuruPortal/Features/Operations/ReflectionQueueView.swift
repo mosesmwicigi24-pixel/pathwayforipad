@@ -194,7 +194,7 @@ struct ReflectionQueueView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(bg)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
     }
 
     // POST a decision, then refetch the queue (the item drops out of the tab).
@@ -350,7 +350,7 @@ struct ReflectionQueueView: View {
                 Card(padding: 14) {
                     HStack(spacing: 12) {
                         TintedIcon(systemName: c.3, color: c.5, size: 40)
-                            .background(c.4).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(c.4).clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(c.0).font(.nCaption).foregroundStyle(Nuru.ink600)
                                 .lineLimit(1).minimumScaleFactor(0.85)
@@ -375,7 +375,7 @@ struct ReflectionQueueView: View {
                         .foregroundStyle(tab == t.key ? .white : Nuru.ink600)
                         .padding(.horizontal, 14).padding(.vertical, 7)
                         .background(tab == t.key ? AnyShapeStyle(Nuru.navy) : AnyShapeStyle(.clear))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                 }.buttonStyle(.plain)
             }
             Spacer()
@@ -451,7 +451,7 @@ private struct QueueList: View {
                     .font(.nCaption).textFieldStyle(.plain)
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
-            .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
             // Status filter — custom segmented control. The native
             // .segmented Picker rendered near-white labels on a light-gray
             // track (invisible). Selected = solid navy fill + white text;
@@ -481,8 +481,8 @@ private struct QueueList: View {
         }
         .padding(3)
         .background(Nuru.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     private func row(_ r: ReflectionRow, selected: Bool) -> some View {
@@ -526,9 +526,9 @@ private struct QueueList: View {
             // Selected → subtle warm fill + a stronger gold accent border + a
             // gold leading rail; otherwise a visible navy-alpha hairline border.
             .background(selected ? Color(hex: 0xFFFBEB) : Nuru.white)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous)
                     .stroke(selected ? Nuru.gold : Color(hex: 0x0A2540, alpha: 0.16),
                             lineWidth: selected ? 1.5 : 1)
             )
@@ -544,7 +544,7 @@ private struct QueueList: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(hex: 0xF5E7C5)).frame(width: 56, height: 56)
+                RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous).fill(Color(hex: 0xF5E7C5)).frame(width: 56, height: 56)
                 Image(systemName: "book.closed.fill").font(.system(size: 22)).foregroundStyle(Color(hex: 0x92651B))
             }
             Text("Queue is clear — well shepherded").font(.fraunces(16, .medium)).foregroundStyle(Nuru.navy)
@@ -776,8 +776,8 @@ private struct Workspace: View {
             .padding(.horizontal, 16).padding(.vertical, 11)
             .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
             .background(bg)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(border, lineWidth: borderW))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(border, lineWidth: borderW))
         }
         .buttonStyle(.plain)
         .disabled(busy)
@@ -797,8 +797,8 @@ private struct Workspace: View {
                 .frame(minHeight: minHeight)
         }
         .background(Nuru.inputBg)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     // Reviewed banner (non-pending)

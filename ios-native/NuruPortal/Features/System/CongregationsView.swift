@@ -254,8 +254,8 @@ struct SysFormScaffold<Content: View>: View {
                     .padding(.horizontal, 14).padding(.vertical, 11)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Nuru.danger.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.danger.opacity(0.25), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.danger.opacity(0.25), lineWidth: 1))
                 }
                 content()
             }
@@ -325,8 +325,8 @@ struct SysField<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12).frame(minHeight: 42)
                 .background(Nuru.white)
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         }
         .gridCellColumns(span)
     }
@@ -361,7 +361,7 @@ struct SysSaveButton: View {
             Text(title).font(.inter(14, .semibold)).foregroundStyle(.white)
                 .padding(.horizontal, 18).padding(.vertical, 7)
                 .background(Nuru.gold)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(saving)
@@ -453,12 +453,12 @@ private struct CongregationRow: View {
             HStack(spacing: 11) {
                 // Tinted building chip — substantial leading accent.
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Nuru.gold.opacity(0.14))
+                    RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).fill(Nuru.gold.opacity(0.14))
                     Image(systemName: "building.columns.fill")
                         .font(.system(size: 14, weight: .semibold)).foregroundStyle(Nuru.gold)
                 }
                 .frame(width: 36, height: 36)
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.gold.opacity(0.22), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.gold.opacity(0.22), lineWidth: 1))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(c.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
                     Text("Branch").font(.inter(10.5, .medium)).tracking(0.4).foregroundStyle(Nuru.muted)

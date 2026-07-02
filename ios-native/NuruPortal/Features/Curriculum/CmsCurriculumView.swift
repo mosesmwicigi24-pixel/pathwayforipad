@@ -85,8 +85,8 @@ private struct CmsFieldCell<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12).frame(minHeight: 40)
                 .background(Nuru.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         }
     }
 }
@@ -108,8 +108,8 @@ private struct CmsControlTile<Content: View>: View {
             .padding(.horizontal, 12).frame(minHeight: 44)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Nuru.white)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 }
 
@@ -613,9 +613,9 @@ private struct CmsCurriculumContent: View {
                                 .foregroundStyle(active ? .white : Nuru.ink600)
                                 .padding(.horizontal, 14).frame(height: 36)
                                 .background(active ? AnyShapeStyle(Nuru.navy) : AnyShapeStyle(Nuru.white))
-                                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous)
                                     .stroke(active ? .clear : Nuru.border, lineWidth: 1))
-                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
@@ -657,7 +657,7 @@ private struct CmsCurriculumContent: View {
     private func pipelineTile(_ label: String, _ value: String, _ icon: String, _ tint: Nuru.Tint) -> some View {
         HStack(spacing: 9) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.fg.opacity(0.14))
+                RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).fill(tint.fg.opacity(0.14))
                 Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(tint.fg)
             }.frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 0) {
@@ -670,8 +670,8 @@ private struct CmsCurriculumContent: View {
         .padding(.horizontal, 11).padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     // MARK: Pathway report
@@ -894,7 +894,7 @@ private struct CmsCurriculumContent: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.fg.opacity(0.14))
+                    RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).fill(tint.fg.opacity(0.14))
                     Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(tint.fg)
                 }.frame(width: 30, height: 30)
                 Text(label).font(.inter(10.5, .semibold)).foregroundStyle(Nuru.navy)
@@ -903,8 +903,8 @@ private struct CmsCurriculumContent: View {
             .padding(.horizontal, 6).padding(.vertical, 10)
             .frame(maxWidth: .infinity)
             .background(Nuru.white)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
@@ -967,7 +967,7 @@ private struct PathwayLevelCard: View {
                     .foregroundStyle(level.locked ? Nuru.ink600 : .white)
                     .padding(.horizontal, 10).frame(height: 28)
                     .background(level.locked ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(Nuru.navy))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(level.locked)
@@ -1019,8 +1019,8 @@ private struct PathwayLevelCard: View {
             .foregroundStyle(fg)
             .padding(.horizontal, 9).frame(height: 28)
             .background(bg)
-            .overlay(bordered ? RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1) : nil)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(bordered ? RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).stroke(Nuru.border, lineWidth: 1) : nil)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -1068,7 +1068,7 @@ private struct LevelInspectorRail: View {
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10).frame(height: 30)
-                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -1136,8 +1136,8 @@ private struct LevelInspectorRail: View {
                 .font(.inter(13, .regular)).foregroundStyle(Nuru.ink)
                 .padding(.horizontal, 12).frame(height: 36)
                 .background(Nuru.white)
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             HStack(spacing: 8) {
                 Picker("", selection: $newType) {
                     ForEach(NewModuleType.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -1152,14 +1152,14 @@ private struct LevelInspectorRail: View {
                     .foregroundStyle(newTitle.trimmingCharacters(in: .whitespaces).isEmpty ? Nuru.ink600 : .white)
                     .padding(.horizontal, 12).frame(height: 34)
                     .background(newTitle.trimmingCharacters(in: .whitespaces).isEmpty ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(Nuru.gold))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(newTitle.trimmingCharacters(in: .whitespaces).isEmpty)
                 Button { addingModule = false } label: {
                     Image(systemName: "xmark").font(.system(size: 11)).foregroundStyle(Nuru.ink600)
                         .frame(width: 34, height: 34)
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
             }
@@ -1401,20 +1401,20 @@ struct LevelDetailView: View {
                     .font(.inter(14, .regular)).foregroundStyle(Nuru.ink)
                     .padding(.horizontal, 12).frame(height: 42)
                     .background(Nuru.inputBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                 HStack(spacing: 8) {
                     Button { Task { await addModule() } } label: {
                         Text("Create").font(.inter(13, .semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 18).frame(height: 38)
                             .background(newTitle.trimmingCharacters(in: .whitespaces).isEmpty ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(accent))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .disabled(newTitle.trimmingCharacters(in: .whitespaces).isEmpty)
                     Button { addingModule = false; newTitle = "" } label: {
                         Text("Cancel").font(.inter(13, .semibold)).foregroundStyle(Nuru.ink600)
                             .padding(.horizontal, 14).frame(height: 38)
-                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
@@ -1425,7 +1425,7 @@ struct LevelDetailView: View {
     private func miniStat(_ label: String, _ value: String, _ icon: String, _ tint: Nuru.Tint) -> some View {
         HStack(spacing: 9) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.fg.opacity(0.14))
+                RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).fill(tint.fg.opacity(0.14))
                 Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(tint.fg)
             }.frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 0) {
@@ -1438,8 +1438,8 @@ struct LevelDetailView: View {
         .padding(.horizontal, 11).padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     private func moduleCard(_ m: AdminModuleSummary, index: Int, count: Int) -> some View {
@@ -1888,8 +1888,8 @@ private struct ModuleEditorPane: View {
                     Text("SUMMARY").font(.inter(11, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
                     TextEditor(text: $summary).frame(minHeight: 64).font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
                         .scrollContentBackground(.hidden).padding(8).background(Nuru.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 }
             } header: { CmsSectionHeader(text: "Module basics") }
             .listRowBackground(Color.clear)
@@ -1899,8 +1899,8 @@ private struct ModuleEditorPane: View {
                     .frame(minHeight: 220)
                     .font(.system(.body, design: .monospaced)).foregroundStyle(Nuru.ink)
                     .scrollContentBackground(.hidden).padding(8).background(Nuru.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 Text("\(lessonContent.count) chars").font(.nMicro).foregroundStyle(Nuru.ink400)
             } header: { CmsSectionHeader(text: "Lesson content · Markdown") }
             .listRowBackground(Color.clear)
@@ -1911,16 +1911,16 @@ private struct ModuleEditorPane: View {
                         Text("OBJECTIVES (ONE PER LINE)").font(.inter(11, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
                         TextEditor(text: $objectives).frame(minHeight: 80).font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
                             .scrollContentBackground(.hidden).padding(8).background(Nuru.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                     }
                 } right: {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("KEY SCRIPTURE (ONE PER LINE)").font(.inter(11, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
                         TextEditor(text: $keyVersesText).frame(minHeight: 80).font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
                             .scrollContentBackground(.hidden).padding(8).background(Nuru.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                     }
                 }
                 CmsFieldCell(label: "Tags (comma-separated)") { TextField("grace, identity", text: $tags) }
@@ -1994,7 +1994,7 @@ private struct ModuleEditorPane: View {
                     }
                     .frame(minHeight: 50)
                     .background(title.trimmingCharacters(in: .whitespaces).isEmpty ? AnyShapeStyle(Nuru.mutedBg) : AnyShapeStyle(Nuru.gold))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .listRowBackground(Color.clear)

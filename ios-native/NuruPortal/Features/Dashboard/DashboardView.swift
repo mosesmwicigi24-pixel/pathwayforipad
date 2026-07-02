@@ -463,7 +463,7 @@ private struct UpcomingCard: View {
                                     Text(Fmt.date(e.startAt, style: .dateTime.weekday(.abbreviated))).font(.inter(9, .bold)).foregroundStyle(Color(hex: 0x8A6B1F))
                                     Text(Fmt.date(e.startAt, style: .dateTime.day())).font(.fraunces(17, .medium)).foregroundStyle(Color(hex: 0x8A6B1F))
                                 }
-                                .frame(width: 46, height: 46).background(Color(hex: 0xFDF5E5)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .frame(width: 46, height: 46).background(Color(hex: 0xFDF5E5)).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(e.title).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
                                     Text(Fmt.date(e.startAt, style: .dateTime.hour().minute()) + (e.location.map { " · \($0)" } ?? ""))

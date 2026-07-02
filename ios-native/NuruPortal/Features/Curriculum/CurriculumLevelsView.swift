@@ -402,7 +402,7 @@ private struct LevelCard: View {
             HStack {
                 HStack(spacing: 8) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.white.opacity(0.2))
+                        RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).fill(.white.opacity(0.2))
                         Text("\(level.levelNumber)").font(.fraunces(14, .semibold)).foregroundStyle(.white)
                     }.frame(width: 28, height: 28)
                     Text("LEVEL \(level.levelNumber)").font(.inter(11, .bold)).tracking(1.4).foregroundStyle(.white)
@@ -473,7 +473,7 @@ private struct LevelCard: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
         .background(color.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
     }
 }
 

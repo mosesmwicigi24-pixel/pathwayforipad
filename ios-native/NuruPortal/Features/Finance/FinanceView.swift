@@ -490,22 +490,23 @@ struct FinanceView: View {
         }
     }
 
-    // MARK: hero (navy banner + stat strip)
+    // MARK: hero — shared PortalHero (breadcrumb · title · stat strip · trailing chips).
+    // All-real figures; PortalHero's stat strip carries the numericText transition.
 
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center) {
-                HStack(spacing: 6) {
-                    Text("Operations").font(.nMicro).foregroundStyle(Nuru.onNavyDim)
-                    Image(systemName: "chevron.right").font(.system(size: 8)).foregroundStyle(Nuru.onNavyFaint)
-                    Text("Finance — Giving Ledger").font(.nMicro).foregroundStyle(.white)
-                }
-                Spacer(minLength: 8)
-            }
-            // action chips row
+        PortalHero(
+            breadcrumb: ["Operations", "Finance — Giving Ledger"],
+            title: "Finance",
+            stats: [
+                HeroStat(label: "This month", value: Fmt.money(minor: monthTotal, currency: currency), hint: "\(giftCount) gifts"),
+                HeroStat(label: "All time", value: Fmt.money(minor: allTotal, currency: currency), hint: "across funds"),
+                HeroStat(label: "Avg gift", value: Fmt.money(minor: avgGift, currency: currency), hint: "per gift"),
+                HeroStat(label: "Funds", value: String(activeFundCount), hint: "active"),
+                HeroStat(label: "Gifts", value: String(giftCount), hint: "received"),
+            ]
+        ) {
             HStack(spacing: 8) {
                 HeroChip(label: "Audit-protected", icon: "checkmark.shield.fill", style: .tag)
-                Spacer(minLength: 0)
                 HeroChip(label: "Reconcile", icon: "arrow.triangle.2.circlepath", style: .ghost) { reconcileOpen = true }
                 ShareLink(item: heroExportCSV, preview: SharePreview(heroExportName)) {
                     HStack(spacing: 6) {
@@ -518,43 +519,7 @@ struct FinanceView: View {
                     .clipShape(Capsule())
                 }
             }
-            Text("Finance").font(.nDisplay).foregroundStyle(.white)
-            heroStatStrip
         }
-        .padding(.horizontal, Nuru.S.lg).padding(.top, 22).padding(.bottom, 24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Nuru.navyDeep)
-    }
-
-    private var heroStatStrip: some View {
-        // Compact tiles across the narrow portrait canvas. All-real figures.
-        let items: [(label: String, value: String, hint: String)] = [
-            ("This month", Fmt.money(minor: monthTotal, currency: currency), "\(giftCount) gifts"),
-            ("All time", Fmt.money(minor: allTotal, currency: currency), "across funds"),
-            ("Avg gift", Fmt.money(minor: avgGift, currency: currency), "per gift"),
-            ("Funds", String(activeFundCount), "active"),
-            ("Gifts", String(giftCount), "received"),
-        ]
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 1)], spacing: 1) {
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.label.uppercased()).font(.nOverline).tracking(1.0)
-                        .foregroundStyle(Nuru.onNavyDim).lineLimit(1).minimumScaleFactor(0.85)
-                    Text(item.value).font(.inter(15, .semibold)).foregroundStyle(.white)
-                        .lineLimit(1).minimumScaleFactor(0.6)
-                        .contentTransition(.numericText())
-                        .animation(.default, value: item.value)
-                    Text(item.hint).font(.nMicro).foregroundStyle(Nuru.onNavyFaint)
-                        .lineLimit(1).minimumScaleFactor(0.85)
-                }
-                .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
-                .padding(.horizontal, 12).padding(.vertical, 10)
-                .background(Color.white.opacity(0.04))
-            }
-        }
-        .background(Color.white.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
     }
 
     // MARK: tab bar
@@ -1187,7 +1152,7 @@ private struct TransactionsTab: View {
                     }
                     .padding(.horizontal, 12).frame(height: 36)
                     .background(Nuru.inputBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     // filters
                     HStack(spacing: 8) {
                         Menu {
@@ -1215,7 +1180,7 @@ private struct TransactionsTab: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 12).frame(height: 34)
                             .background(Nuru.navy)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                         }
                         .disabled(txns.isEmpty)
                     }
@@ -1270,7 +1235,7 @@ private struct TransactionsTab: View {
             .font(.inter(13)).keyboardType(.decimalPad)
             .padding(.horizontal, 10).frame(width: 92, height: 32)
             .background(Nuru.inputBg)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
     }
 
     private func filterLabel(_ text: String) -> some View {
@@ -1280,8 +1245,8 @@ private struct TransactionsTab: View {
         }
         .padding(.horizontal, 12).frame(height: 34)
         .background(Nuru.white)
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
     }
 
     private func row(_ t: TransactionRow) -> some View {
@@ -1306,8 +1271,8 @@ private struct TransactionsTab: View {
                     .font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(Nuru.white)
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
             }
             .pressable()
             .hoverEffect(.highlight)
@@ -1548,8 +1513,8 @@ private struct AuditTab: View {
                         }
                         .padding(.horizontal, 12).frame(height: 34)
                         .background(Nuru.white)
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 16)
@@ -1807,8 +1772,8 @@ private struct TxDetailSheet: View {
                         }
                     }
                 }
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             }
             .padding(22)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1823,7 +1788,7 @@ private struct TxDetailSheet: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.inputBg)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
     }
 
     private func postingSide(_ side: String) -> some View {
@@ -1849,7 +1814,7 @@ private struct ReconcileSheet: View {
                     }
                     .padding(14)
                     .background(Color(hex: 0xE8F6EC))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
 
                     Text("This panel is informational. There is no manual reconcile action: the system is server-authoritative, so there is nothing for an admin to post, edit, or true up by hand.")
                         .font(.inter(13)).foregroundStyle(Nuru.ink600)

@@ -123,7 +123,11 @@ enum Nuru {
     }
 
     // MARK: Radii / spacing (8pt grid)
-    enum R { static let control: CGFloat = 14, button: CGFloat = 14, card: CGFloat = 22, hero: CGFloat = 28, pill: CGFloat = 999 }
+    enum R {
+        static let xs: CGFloat = 8, chip: CGFloat = 10, badge: CGFloat = 11, tile: CGFloat = 12
+        static let control: CGFloat = 14, button: CGFloat = 14, panel: CGFloat = 16
+        static let card: CGFloat = 22, xl: CGFloat = 24, hero: CGFloat = 28, pill: CGFloat = 999
+    }
     enum S { static let xs: CGFloat = 4, sm: CGFloat = 8, md: CGFloat = 12, base: CGFloat = 16, screen: CGFloat = 22, lg: CGFloat = 24, xl: CGFloat = 32, xxl: CGFloat = 48 }
 
     // MARK: Fonts — register the bundled OFL faces (Inter + Fraunces).
@@ -151,20 +155,23 @@ extension Color {
 // MARK: - Typography (Inter body · Fraunces display), iPad-tuned
 
 extension Font {
+    // Raw helpers scale with the user's Dynamic Type setting via `relativeTo:
+    // .body` — at the default text size this renders pixel-identical to a fixed
+    // size, and at larger/smaller settings every call site scales proportionally.
     static func inter(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .custom(interFace(weight), size: size)
+        .custom(interFace(weight), size: size, relativeTo: .body)
     }
     static func fraunces(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
-        .custom(frauncesFace(weight), size: size)
+        .custom(frauncesFace(weight), size: size, relativeTo: .body)
     }
     /// Display serif (Fraunces). Back-compat name retained.
     static func nuruDisplay(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
-        .custom(frauncesFace(weight), size: size)
+        .custom(frauncesFace(weight), size: size, relativeTo: .body)
     }
 
     // Semantic scale (mobile type scale, bumped for iPad). These scale with the
-    // user's Dynamic Type setting via `relativeTo:`; the raw `.inter(size)` /
-    // `.fraunces(size)` helpers above stay fixed (screens migrate later).
+    // user's Dynamic Type setting via `relativeTo:` mapped to their natural
+    // text style (the raw helpers above scale relative to `.body`).
     static var nDisplay: Font  { .custom(frauncesFace(.medium), size: 33, relativeTo: .largeTitle) }
     static var nTitle: Font    { .custom(frauncesFace(.semibold), size: 24, relativeTo: .title2) }
     static var nHeading: Font  { .custom(interFace(.semibold), size: 17, relativeTo: .headline) }

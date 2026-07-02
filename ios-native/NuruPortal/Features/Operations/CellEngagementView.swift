@@ -276,7 +276,7 @@ struct CellEngagementView: View {
                         } label: {
                             HStack(spacing: 12) {
                                 ZStack {
-                                    RoundedRectangle(cornerRadius: 11, style: .continuous).fill(tone.opacity(0.12))
+                                    RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).fill(tone.opacity(0.12))
                                     Text(cellInitials(cell.name)).font(.inter(11, .bold)).foregroundStyle(tone)
                                 }.frame(width: 36, height: 36)
                                 VStack(alignment: .leading, spacing: 2) {
@@ -349,7 +349,7 @@ private struct CellCard: View {
                 // 1) Identity — monogram, name, members. One clean row.
                 HStack(alignment: .center, spacing: 10) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tone.opacity(0.12))
+                        RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).fill(tone.opacity(0.12))
                         Text(cellInitials(cell.name)).font(.inter(14, .semibold)).foregroundStyle(tone)
                     }.frame(width: 40, height: 40)
                     VStack(alignment: .leading, spacing: 2) {
@@ -497,7 +497,7 @@ private struct CellModalSheet: View {
                         Text(error).font(.inter(13, .semibold)).foregroundStyle(Nuru.danger)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(12).background(Nuru.danger.opacity(0.08))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
                     }
 
                     CFormSection("Cell name & discipler") {
@@ -560,8 +560,8 @@ private struct CellModalSheet: View {
                             .tint(Nuru.lumGreen)
                             .padding(.horizontal, 14).padding(.vertical, 12)
                             .background(Nuru.white)
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
                         }
                     }
                 }
@@ -689,8 +689,8 @@ private struct CFieldChrome: ViewModifier {
             .frame(height: 44)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Nuru.white)
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
     }
 }
 extension View {
@@ -701,7 +701,7 @@ extension View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8).frame(height: 44)
             .background(Nuru.white)
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
     }
 }

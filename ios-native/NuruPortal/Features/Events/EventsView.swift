@@ -708,7 +708,7 @@ struct EventsView: View {
                         Button { anchor = now; selectedIso = UiOcc.isoDay(now) } label: {
                             Text("Today").font(.inter(12, .semibold)).foregroundStyle(Nuru.ink)
                                 .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                         }.pressable()
                     }
                     Spacer()
@@ -718,7 +718,7 @@ struct EventsView: View {
                                 Text(v.rawValue).font(.inter(12, view == v ? .bold : .medium)).foregroundStyle(Nuru.ink)
                                     .padding(.horizontal, 12).padding(.vertical, 6)
                                     .background(view == v ? Nuru.white : .clear)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                             }.pressable()
                         }
                     }
@@ -744,7 +744,7 @@ struct EventsView: View {
     private func navButton(_ icon: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(Nuru.ink)
-                .padding(8).background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(8).background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
         }.pressable()
     }
 
@@ -806,8 +806,8 @@ struct EventsView: View {
             .padding(8).frame(minHeight: 92, alignment: .topLeading)
             .frame(maxWidth: .infinity)
             .background(isSel ? Nuru.inputBg : isToday ? Color(hex: 0xFBF1DA) : Nuru.white)
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous)
                 .stroke(isSel ? Nuru.navy : isToday ? Nuru.gold : Nuru.border, lineWidth: 1))
         }.pressable().hoverEffect(.highlight)
     }
@@ -838,8 +838,8 @@ struct EventsView: View {
                     }
                     .padding(12).frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
                     .background(iso == selectedIso ? Nuru.inputBg : Nuru.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(iso == selectedIso ? Nuru.navy : Nuru.border, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(iso == selectedIso ? Nuru.navy : Nuru.border, lineWidth: 1))
                 }.pressable().hoverEffect(.highlight)
             }
         }
@@ -938,7 +938,7 @@ struct EventsView: View {
                 .frame(width: EventsView.flowChipWidth)
                 .frame(maxHeight: .infinity)
                 .background(o.category.soft)
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
 
                 // Content column — title/location/actions, fills row height.
                 VStack(alignment: .leading, spacing: 4) {
@@ -1008,7 +1008,7 @@ struct EventsView: View {
                 }
                 .foregroundStyle(o.category.color)
                 .frame(width: 48, height: 48)
-                .background(o.category.soft).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .background(o.category.soft).clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(o.title).font(.inter(13, .bold)).foregroundStyle(Nuru.ink)
                     HStack(spacing: 6) {
@@ -1077,11 +1077,11 @@ struct EventsView: View {
                 }
                 .foregroundStyle(Nuru.ink)
                 .padding(7).frame(width: 28, height: 28)
-                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
             }.pressable().disabled(busy)
             Button { detailOcc = s.next } label: {
                 Image(systemName: "eye").font(.system(size: 12)).foregroundStyle(Nuru.ink)
-                    .padding(7).background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(7).background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
             }.pressable()
         }.padding(.vertical, 10)
     }
@@ -1097,7 +1097,7 @@ struct EventsView: View {
                     Button { showCreateAnnouncement = true } label: {
                         Label("New", systemImage: "plus").font(.inter(12, .semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 12).padding(.vertical, 7)
-                            .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     }.pressable()
                 }
                 if announcements.isEmpty {
@@ -1166,7 +1166,7 @@ struct EventsView: View {
                     Button { showPostMoment = true } label: {
                         Label("Post", systemImage: "plus").font(.inter(12, .semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 12).padding(.vertical, 7)
-                            .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     }.pressable()
                 }
                 if moments.isEmpty {
@@ -1178,7 +1178,7 @@ struct EventsView: View {
                             if i > 0 { Divider().overlay(Nuru.border) }
                             HStack(spacing: 12) {
                                 CachedAsyncImage(url: URL(string: m.imageUrl)) { img in img.resizable().scaledToFill() } placeholder: { Nuru.inputBg }
-                                    .frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(m.caption?.isEmpty == false ? m.caption! : "No caption")
                                         .font(.nCaption).foregroundStyle(m.caption?.isEmpty == false ? Nuru.ink : Nuru.muted).lineLimit(1)
@@ -1196,7 +1196,7 @@ struct EventsView: View {
                                     }
                                     .foregroundStyle(Color(hex: 0xB91C1C))
                                     .padding(8).frame(width: 30, height: 30)
-                                    .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
                                 }.pressable().disabled(deletingMomentId == m.id)
                             }.padding(.vertical, 12)
                         }
@@ -1428,8 +1428,8 @@ private struct QrPlaceholder: View {
             }
         }
         .padding(14).background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 }
 
@@ -1542,7 +1542,7 @@ private struct EventDetailSheet: View {
             Text(value).font(.fraunces(22, .medium)).foregroundStyle(color)
             Text(label.uppercased()).font(.system(size: 10, weight: .bold)).tracking(0.5).foregroundStyle(Nuru.muted)
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
     }
 
     private func action(_ label: String, _ icon: String, primary: Bool = false, danger: Bool = false, _ run: @escaping () -> Void) -> some View {
@@ -1552,7 +1552,7 @@ private struct EventDetailSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12).padding(.vertical, 11)
                 .background(primary ? Nuru.gold : danger ? Color(hex: 0xFEE2E2) : Nuru.inputBg)
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
         }.pressable()
     }
 }
@@ -1665,8 +1665,8 @@ private struct RsvpSheet: View {
                                         .background(mm.1.opacity(0.12)).clipShape(Capsule())
                                 }
                                 .padding(.horizontal, 12).padding(.vertical, 10)
-                                .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                                .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                             }
                         }
                     }
@@ -1700,7 +1700,7 @@ private struct AttendanceSheet: View {
                         Button { dismiss(); onManualCheckIn() } label: {
                             Label("Manual check-in", systemImage: "checkmark.circle").font(.inter(12, .semibold)).foregroundStyle(.white)
                                 .padding(.horizontal, 12).padding(.vertical, 7)
-                                .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                         }.pressable()
                     }
 
@@ -1861,7 +1861,7 @@ private struct RecentAttendanceSheet: View {
             }
             .foregroundStyle(o.category.color)
             .frame(width: 48, height: 48)
-            .background(o.category.soft).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .background(o.category.soft).clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text(o.title).font(.inter(13, .bold)).foregroundStyle(Nuru.ink).lineLimit(1)
                 HStack(spacing: 6) {
@@ -1960,13 +1960,13 @@ private struct QrSheet: View {
                             Button { tick += 1 } label: {
                                 Label("Refresh", systemImage: "arrow.clockwise").font(.nMicro).foregroundStyle(Nuru.ink)
                                     .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                             }.pressable()
                         }
                         Text(secret).font(.system(size: 12)).monospaced().tracking(1.5).foregroundStyle(Nuru.muted)
                     }.frame(maxWidth: .infinity).padding(20)
-                    .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous))
 
                     let cols = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
                     LazyVGrid(columns: cols, spacing: 8) {
@@ -2005,7 +2005,7 @@ private struct QrSheet: View {
             Text(value).font(.fraunces(22, .medium)).foregroundStyle(color)
             Text(label.uppercased()).font(.system(size: 10, weight: .bold)).tracking(0.5).foregroundStyle(Nuru.muted)
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
     }
 }
 
@@ -2080,20 +2080,20 @@ private struct AnnouncementSheet: View {
                             Button { confirmSend = true } label: {
                                 Label("Send now", systemImage: "paperplane.fill").font(.inter(12, .bold)).foregroundStyle(.white)
                                     .padding(.horizontal, 14).padding(.vertical, 9)
-                                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                             }.pressable().disabled(busy)
                         }
                         if canCancel {
                             Button { Task { await cancel() } } label: {
                                 Text("Cancel scheduled send").font(.inter(12, .semibold)).foregroundStyle(Color(hex: 0xB91C1C))
                                     .padding(.horizontal, 14).padding(.vertical, 9)
-                                    .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                             }.pressable().disabled(busy)
                         }
                         Button { confirmDelete = true } label: {
                             Label("Delete", systemImage: "trash").font(.inter(12, .semibold)).foregroundStyle(Color(hex: 0xB91C1C))
                                 .padding(.horizontal, 14).padding(.vertical, 9)
-                                .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .background(Color(hex: 0xFEE2E2)).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                         }.pressable().disabled(busy)
                     }
                     // NEEDS: edit announcement (PUT /admin/announcements/{id}) — compose form reused on web.
@@ -2302,7 +2302,7 @@ private struct CreateEventSheet: View {
                                     .foregroundStyle(active ? .white : Nuru.ink)
                                     .padding(.horizontal, 12).padding(.vertical, 8)
                                     .background(active ? Nuru.navy : Nuru.inputBg)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                             }.pressable()
                         }
                     }
@@ -2317,7 +2317,7 @@ private struct CreateEventSheet: View {
                                         .foregroundStyle(active ? .white : Nuru.ink)
                                         .frame(maxWidth: .infinity).padding(.vertical, 9)
                                         .background(active ? Nuru.gold : Nuru.inputBg)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
                                 }.pressable()
                             }
                         }
@@ -2464,7 +2464,7 @@ private struct CreateAnnouncementSheet: View {
                                     .foregroundStyle(on ? .white : Nuru.ink)
                                     .padding(.horizontal, 12).padding(.vertical, 8)
                                     .background(on ? Nuru.navy : Nuru.inputBg)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                             }.pressable()
                         }
                     }
@@ -2477,7 +2477,7 @@ private struct CreateAnnouncementSheet: View {
                                 Text(label).font(.inter(12, on ? .bold : .medium)).foregroundStyle(on ? .white : Nuru.ink)
                                     .frame(maxWidth: .infinity).padding(.vertical, 9)
                                     .background(on ? Nuru.gold : Nuru.inputBg)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                             }.pressable()
                         }
                     }
@@ -2603,8 +2603,8 @@ private struct ManualCheckinSheet: View {
                                         Image(systemName: "checkmark.circle.fill").foregroundStyle(Nuru.gold)
                                     }
                                     .padding(.horizontal, 12).padding(.vertical, 10)
-                                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                                     .contentShape(Rectangle())
                                 }.pressable().hoverEffect(.highlight).disabled(busy)
                             }
@@ -2619,8 +2619,8 @@ private struct ManualCheckinSheet: View {
                             Image(systemName: "checkmark.shield.fill").foregroundStyle(Color(hex: 0xA87616))
                             Text("Manual check-ins are audited and visible in the attendance log.").font(.nMicro).foregroundStyle(Color(hex: 0x7A5410))
                         }
-                        .padding(12).background(Color(hex: 0xFFFBEB)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Color(hex: 0xF5E0A8), lineWidth: 1))
+                        .padding(12).background(Color(hex: 0xFFFBEB)).clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(Color(hex: 0xF5E0A8), lineWidth: 1))
                     } else {
                         HStack(alignment: .top, spacing: 12) {
                             formField("Guest name") {
@@ -2635,7 +2635,7 @@ private struct ManualCheckinSheet: View {
                             Label("Add guest", systemImage: "person.badge.plus").font(.inter(13, .bold)).foregroundStyle(.white)
                                 .frame(maxWidth: .infinity).padding(.vertical, 12)
                                 .background(guestName.trimmingCharacters(in: .whitespaces).isEmpty ? Nuru.muted : Nuru.navy)
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
                         }.pressable().disabled(busy || guestName.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
@@ -2734,7 +2734,7 @@ private func formField<Content: View>(_ label: String, @ViewBuilder _ content: (
             .font(.inter(15, .regular)).foregroundStyle(Nuru.ink)
             .padding(.horizontal, 12).padding(.vertical, 11)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(eventFieldBorder, lineWidth: 1))
+            .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(eventFieldBorder, lineWidth: 1))
     }
 }

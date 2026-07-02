@@ -126,7 +126,7 @@ struct UsersView: View {
             }
             .padding(.horizontal, 12).frame(height: 38)
             .background(Nuru.inputBg)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
 
             HStack(spacing: 8) {
                 FilterPill(label: "Role: \(roleLabel(roleFilter, roles: roles))") {
@@ -469,7 +469,7 @@ private struct IconAction: View {
                 .foregroundStyle(tint)
                 .frame(width: 30, height: 28)
                 .background(tint.opacity(0.10))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -488,8 +488,8 @@ private struct FilterPill: View {
             }
             .padding(.horizontal, 12).frame(height: 38)
             .background(Nuru.inputBg)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
@@ -626,8 +626,8 @@ private struct UserForm: View {
                         .padding(.horizontal, 12).padding(.vertical, 11)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(on ? Nuru.gold.opacity(0.08) : Nuru.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(on ? Nuru.gold.opacity(0.45) : Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(on ? Nuru.gold.opacity(0.45) : Nuru.border, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
@@ -643,8 +643,8 @@ private struct UserForm: View {
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, 8).padding(.vertical, 6)
                     .background(Nuru.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 ImageUploadField(label: "Profile photo", folder: "disciplers", url: $avatarUrl)
             }
         }
@@ -681,8 +681,8 @@ private struct UserForm: View {
                     }
                     .padding(.horizontal, 14).padding(.vertical, 11)
                     .background(Nuru.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 }
             }
         }

@@ -157,8 +157,8 @@ struct RolesView: View {
         }
         .padding(.horizontal, 12).frame(height: 38)
         .background(Nuru.white)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     // MARK: Writes
@@ -343,7 +343,7 @@ private struct RoleRichRow: View {
         HStack(spacing: 11) {
             // Leading tinted icon tile — the row's identity anchor.
             ZStack {
-                RoundedRectangle(cornerRadius: 11, style: .continuous).fill(ic.bg)
+                RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).fill(ic.bg)
                 Image(systemName: ic.icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(ic.tone)
             }
             .frame(width: 40, height: 40)
@@ -388,7 +388,7 @@ private struct RoleRichRow: View {
                         .foregroundStyle(Nuru.navy)
                         .frame(width: 32, height: 30)
                         .background(Nuru.navy.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 Button(action: onDelete) {
@@ -396,7 +396,7 @@ private struct RoleRichRow: View {
                         .foregroundStyle(role.isSystem ? Nuru.ink400 : Color(hex: 0xDC2626))
                         .frame(width: 32, height: 30)
                         .background((role.isSystem ? Nuru.ink400 : Color(hex: 0xDC2626)).opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(role.isSystem)
@@ -494,8 +494,8 @@ private struct RoleForm: View {
                                 .scrollContentBackground(.hidden)
                                 .padding(.horizontal, 8).padding(.vertical, 6)
                                 .background(Nuru.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                         }
                     }
                 }
@@ -639,7 +639,7 @@ private struct PermissionsMatrixSheet: View {
                 Spacer(minLength: 0)
                 Button { dismiss() } label: {
                     Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                        .padding(8).background(Color.white.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(8).background(Color.white.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs))
                 }
             }
             if locked {
@@ -651,7 +651,7 @@ private struct PermissionsMatrixSheet: View {
                 .foregroundStyle(Nuru.goldGlow)
                 .padding(.horizontal, 10).padding(.vertical, 7)
                 .background(Nuru.gold.opacity(0.14))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                 .padding(.top, 12)
             }
         }
@@ -722,8 +722,8 @@ private struct PermissionsMatrixSheet: View {
                 .font(.inter(13, .semibold)).foregroundStyle(Nuru.ink)
                 .padding(.horizontal, 16).padding(.vertical, 9)
                 .background(Nuru.white)
-                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
 
             Button { save() } label: {
                 HStack(spacing: 6) {
@@ -733,7 +733,7 @@ private struct PermissionsMatrixSheet: View {
                 .foregroundStyle(locked ? Nuru.ink400 : .white)
                 .padding(.horizontal, 18).padding(.vertical, 9)
                 .background(locked ? Nuru.inputBg : Nuru.gold)
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
             }
             .buttonStyle(.plain).disabled(locked || saving)
         }

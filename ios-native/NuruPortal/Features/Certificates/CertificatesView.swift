@@ -555,7 +555,7 @@ private struct IssueCertificateSheet: View {
 
                     if let m = picked {
                         HStack(spacing: 12) {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Nuru.navy)
+                            RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).fill(Nuru.navy)
                                 .frame(width: 32, height: 32)
                                 .overlay(Text(certInitials(m.fullName)).font(.inter(12, .bold)).foregroundStyle(.white))
                             VStack(alignment: .leading, spacing: 1) {
@@ -585,7 +585,7 @@ private struct IssueCertificateSheet: View {
                             ForEach(results) { m in
                                 Button { picked = m } label: {
                                     HStack(spacing: 12) {
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Nuru.navy)
+                                        RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).fill(Nuru.navy)
                                             .frame(width: 28, height: 28)
                                             .overlay(Text(certInitials(m.fullName)).font(.inter(11, .bold)).foregroundStyle(.white))
                                         Text(m.fullName).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
@@ -594,8 +594,8 @@ private struct IssueCertificateSheet: View {
                                     .padding(.horizontal, 12).padding(.vertical, 8)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(Nuru.white)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -709,10 +709,10 @@ private struct CertificateArt: View {
             LinearGradient(colors: [Color(hex: 0xFFFDF7), Color(hex: 0xFBF4E2)],
                            startPoint: .top, endPoint: .bottom)
             // Double gold inner frames
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous)
                 .stroke(Color(hex: 0xC89B3C), lineWidth: 1)
                 .padding(2.6 * u)
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous)
                 .stroke(Color(hex: 0xC89B3C, alpha: 0.35), lineWidth: 1)
                 .padding(3.8 * u)
 
@@ -770,7 +770,7 @@ private struct CertificateArt: View {
             .padding(.top, 6.4 * u)
             .padding(.bottom, 5 * u)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color(hex: 0xE6D4A8), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Color(hex: 0xE6D4A8), lineWidth: 1))
     }
 }

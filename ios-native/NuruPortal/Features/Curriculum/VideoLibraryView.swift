@@ -348,7 +348,7 @@ struct VideoLibraryView: View {
     private var gatedBanner: some View {
         HStack(spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Nuru.gold.opacity(0.18))
+                RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).fill(Nuru.gold.opacity(0.18))
                 Image(systemName: "lock.fill").font(.system(size: 14)).foregroundStyle(Color(hex: 0x7A5410))
             }.frame(width: 32, height: 32)
             (Text("Video access is module-gated. ").font(.inter(13, .bold))
@@ -359,8 +359,8 @@ struct VideoLibraryView: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
         .background(Color(hex: 0xFDF5E5))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(hex: 0xF2E2BD), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous).stroke(Color(hex: 0xF2E2BD), lineWidth: 1))
     }
 
     // ────── 4 KPI tiles — compact 4-up strip; clean icon · value · label
@@ -432,8 +432,8 @@ struct VideoLibraryView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 26).padding(.horizontal, 16)
                         .background(LinearGradient(colors: [Color(hex: 0xF8FAFC), Color(hex: 0xEFF6FF)], startPoint: .top, endPoint: .bottom))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous)
                             .strokeBorder(Color(hex: 0x93C5FD), style: StrokeStyle(lineWidth: 2, dash: [6, 4])))
                     }
                     .buttonStyle(.plain)
@@ -486,8 +486,8 @@ struct VideoLibraryView: View {
         }
         .padding(18)
         .background(LinearGradient(colors: [Color(hex: 0xF8FAFC), Color(hex: 0xEFF6FF)], startPoint: .top, endPoint: .bottom))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous)
             .strokeBorder(Color(hex: 0x93C5FD), style: StrokeStyle(lineWidth: 2, dash: [6, 4])))
     }
 
@@ -514,8 +514,8 @@ struct VideoLibraryView: View {
                         }
                         .padding(.horizontal, 12).padding(.vertical, 10)
                         .background(Nuru.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
 
                         HStack(spacing: 8) {
                             Image(systemName: "plus.circle").font(.system(size: 16)).foregroundStyle(Nuru.gold)
@@ -526,8 +526,8 @@ struct VideoLibraryView: View {
                     }
                     .padding(20)
                     .background(LinearGradient(colors: [Color(hex: 0xFBFCFE), Color(hex: 0xF5F8FC)], startPoint: .top, endPoint: .bottom))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous)
                         .strokeBorder(Color(hex: 0xCBD5E1), style: StrokeStyle(lineWidth: 2, dash: [6, 4])))
                 }
                 .buttonStyle(.plain)
@@ -663,8 +663,8 @@ struct VideoLibraryView: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
         .background(Nuru.inputBg)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     private var filterRow: some View {
@@ -687,8 +687,8 @@ struct VideoLibraryView: View {
             toggleButton("Table", "list.bullet", isOn: view == .table) { view = .table }
             toggleButton("Grid", "square.grid.2x2", isOn: view == .grid) { view = .grid }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
     private func toggleButton(_ label: String, _ icon: String, isOn: Bool, _ tap: @escaping () -> Void) -> some View {
         Button(action: tap) {
@@ -735,8 +735,8 @@ private struct FilterMenu: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(Nuru.inputBg)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .foregroundStyle(Nuru.ink600)
@@ -886,7 +886,7 @@ private struct AssetActionMenu: View {
             Button(action: onView) {
                 Text("View").font(.inter(11, .semibold)).foregroundStyle(Nuru.ink)
                     .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             }.buttonStyle(.plain)
             Menu {
                 if asset.externalUrl != nil {
@@ -902,7 +902,7 @@ private struct AssetActionMenu: View {
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold)).foregroundStyle(Nuru.ink600)
                     .frame(width: 30, height: 28)
-                    .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(working)
@@ -961,7 +961,7 @@ private struct AssetGridCard: View {
                         Button(action: onView) {
                             Text("View").font(.inter(12, .semibold)).foregroundStyle(Nuru.ink)
                                 .frame(maxWidth: .infinity).padding(.vertical, 8)
-                                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                         }.buttonStyle(.plain)
                         Menu {
                             if asset.externalUrl != nil {
@@ -977,7 +977,7 @@ private struct AssetGridCard: View {
                         } label: {
                             Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold)).foregroundStyle(Nuru.ink600)
                                 .frame(width: 36, height: 32)
-                                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                         }.buttonStyle(.plain).disabled(working)
                     }.padding(.top, 10)
                 }
@@ -1076,12 +1076,12 @@ private struct PreviewSheet: View {
                                 }
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 8).padding(.vertical, 5)
-                                .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
                             }.buttonStyle(.plain)
                         }
                         .padding(10).background(Nuru.inputBg)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                     }
 
                     // Edit metadata (PATCH /admin/media/:id — caption + level)
@@ -1113,8 +1113,8 @@ private struct PreviewSheet: View {
                         }
                         .foregroundStyle(Nuru.danger)
                         .frame(maxWidth: .infinity).padding(.vertical, 10)
-                        .background(Color(hex: 0xFEF2F2)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(hex: 0xFCA5A5), lineWidth: 1))
+                        .background(Color(hex: 0xFEF2F2)).clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Color(hex: 0xFCA5A5), lineWidth: 1))
                     }.buttonStyle(.plain).disabled(working)
                 }
                 .padding(20)
@@ -1142,8 +1142,8 @@ private struct PreviewSheet: View {
                         .font(.inter(15)).textFieldStyle(.plain).foregroundStyle(Nuru.ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 13).padding(.vertical, 12)
-                        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -1159,8 +1159,8 @@ private struct PreviewSheet: View {
                         }
                         .padding(.horizontal, 13).padding(.vertical, 12)
                         .frame(maxWidth: 220, alignment: .leading)
-                        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                     }.buttonStyle(.plain)
                 }
 
@@ -1174,7 +1174,7 @@ private struct PreviewSheet: View {
                     .foregroundStyle((captionDirty || levelDirty) ? .white : Nuru.ink600)
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .background((captionDirty || levelDirty) ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.inputBg))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
                 }.buttonStyle(.plain).disabled((!captionDirty && !levelDirty) || working)
             }
         }
@@ -1184,7 +1184,7 @@ private struct PreviewSheet: View {
     @ViewBuilder private func homepageToggle(_ us: UiStatus) -> some View {
         HStack(spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous)
                     .fill(asset.isHomepage ? Nuru.gold : Nuru.inputBg)
                 Image(systemName: "sparkles").font(.system(size: 15)).foregroundStyle(asset.isHomepage ? .white : Nuru.ink600)
             }.frame(width: 32, height: 32)
@@ -1200,8 +1200,8 @@ private struct PreviewSheet: View {
         }
         .padding(12)
         .background(asset.isHomepage ? Nuru.gold.opacity(0.1) : Nuru.inputBg)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous)
             .stroke(asset.isHomepage ? Nuru.gold.opacity(0.35) : Nuru.border, lineWidth: 1))
     }
 
@@ -1226,8 +1226,8 @@ private struct PreviewSheet: View {
                     .font(.inter(12)).foregroundStyle(Color(hex: 0x7A5410)).fixedSize(horizontal: false, vertical: true)
             }
             .padding(12).background(Color(hex: 0xFFFBEB))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(hex: 0xF5E0A8), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Color(hex: 0xF5E0A8), lineWidth: 1))
         } else {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "checkmark.shield").font(.system(size: 13)).foregroundStyle(Color(hex: 0x0F766E))
@@ -1235,8 +1235,8 @@ private struct PreviewSheet: View {
                     .font(.inter(12)).foregroundStyle(Color(hex: 0x0F5132)).fixedSize(horizontal: false, vertical: true)
             }
             .padding(12).background(Color(hex: 0xE6F7EF))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(hex: 0xBBE5C9), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Color(hex: 0xBBE5C9), lineWidth: 1))
         }
     }
 }
@@ -1372,8 +1372,8 @@ private struct RegisterExternalSheet: View {
                                 }
                                 .padding(12)
                                 .background(Color(hex: 0xFFFBEB))
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(hex: 0xF5E0A8), lineWidth: 1))
+                                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Color(hex: 0xF5E0A8), lineWidth: 1))
                             }
                         }
                     } else {
@@ -1386,8 +1386,8 @@ private struct RegisterExternalSheet: View {
                         .padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Nuru.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                     }
                 }
                 .padding(24)
@@ -1439,8 +1439,8 @@ private struct RegisterExternalSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 13).padding(.vertical, 12)
                 .background(Nuru.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
         }
     }
 

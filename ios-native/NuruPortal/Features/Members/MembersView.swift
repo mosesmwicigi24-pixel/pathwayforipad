@@ -342,31 +342,29 @@ struct MembersView: View {
         .sheet(isPresented: $exportOpen) { ExportSheet(members: vm.filtered, countryByCode: vm.countryByCode) }
     }
 
-    // Hero
+    // Hero — shared PortalHero (breadcrumb · title · band stat strip · trailing chips).
+    // The "By country" filter chips row is a Members-only element PortalHero can't
+    // express, so it stays as a sibling on the same navy band directly beneath.
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                HStack(spacing: 6) {
-                    Text("Nuru Pathway").font(.nMicro).foregroundStyle(Nuru.onNavyDim)
-                    Image(systemName: "chevron.right").font(.system(size: 8)).foregroundStyle(Nuru.onNavyFaint)
-                    Text("Members").font(.nMicro).foregroundStyle(.white)
-                }
-                Spacer()
+        VStack(alignment: .leading, spacing: 0) {
+            PortalHero(
+                breadcrumb: ["Nuru Pathway", "Members"],
+                title: "Members",
+                stats: [
+                    HeroStat(label: "Total members", value: "\(vm.counts.total)", hint: ""),
+                    // Band colors carry meaning (health bands) — same hues the old
+                    // hand-rolled pills used, now as tinted strip values.
+                    HeroStat(label: "Thriving", value: "\(vm.counts.thriving)", hint: "", tint: Color(hex: 0x4ADE80)),
+                    HeroStat(label: "Watch", value: "\(vm.counts.watch)", hint: "", tint: Color(hex: 0xFACC15)),
+                    HeroStat(label: "At-risk", value: "\(vm.counts.atRisk)", hint: "", tint: Color(hex: 0xF87171)),
+                ]
+            ) {
                 HStack(spacing: 8) {
                     HeroChip(label: "\(vm.counts.total) on pathway", icon: "person.2.fill", style: .tag)
                     HeroChip(label: "Export", icon: "square.and.arrow.up", style: .ghost) { exportOpen = true }
                     HeroChip(label: "Add member", icon: "plus", style: .gold) { addOpen = true }
                 }
             }
-            HStack(spacing: 0) {
-                bandStat("Total members", "\(vm.counts.total)", nil)
-                bandStat("Thriving", "\(vm.counts.thriving)", Color(hex: 0x16A34A))
-                bandStat("Watch", "\(vm.counts.watch)", Color(hex: 0xA87616))
-                bandStat("At-risk", "\(vm.counts.atRisk)", Color(hex: 0xDC2626))
-            }
-            .background(.white.opacity(0.04))
-            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
             if !vm.countryChips.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -377,26 +375,12 @@ struct MembersView: View {
                         }
                     }
                 }
+                .padding(.horizontal, Nuru.S.lg)
+                .padding(.bottom, Nuru.S.lg)
             }
         }
-        .padding(.horizontal, Nuru.S.lg).padding(.top, Nuru.S.lg).padding(.bottom, Nuru.S.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.navyCeremony)
-    }
-
-    private func bandStat(_ label: String, _ value: String, _ band: Color?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label.uppercased()).font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)
-            if let band {
-                Text("● \(value)").font(.inter(13, .bold)).foregroundStyle(band)
-                    .padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(band.opacity(0.16)).clipShape(Capsule())
-            } else {
-                Text(value).font(.fraunces(22, .medium)).foregroundStyle(.white)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 18).padding(.vertical, 14)
     }
 
     private func countryChip(_ name: String, flag: String?, count: Int?, code: String) -> some View {
@@ -430,7 +414,7 @@ struct MembersView: View {
                     .onChange(of: vm.search) { _, _ in vm.scheduleReload() }
             }
             .padding(.horizontal, 12).frame(height: 38)
-            .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
 
             Menu {
                 Picker("Band", selection: $vm.band) {
@@ -454,8 +438,8 @@ struct MembersView: View {
     private func filterLabel(_ t: String) -> some View {
         HStack(spacing: 6) { Text(t).font(.inter(12, .semibold)); Image(systemName: "chevron.down").font(.system(size: 10)) }
             .foregroundStyle(Nuru.navy).padding(.horizontal, 12).frame(height: 38)
-            .background(Nuru.inputBg).overlay(RoundedRectangle(cornerRadius: 10).stroke(Nuru.border, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Nuru.inputBg).overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
     }
 
     // Column header — widths mirror MemberRowCard's fixed columns so titles align.
@@ -523,7 +507,7 @@ private struct MemberRowCard: View {
         } label: {
             HStack(spacing: 10) {
                 ZStack(alignment: .bottomTrailing) {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(avatarGradient(index))
+                    RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).fill(avatarGradient(index))
                         .frame(width: 44, height: 44)
                         .overlay(Text(initials(member.fullName)).font(.inter(13.5, .bold)).foregroundStyle(.white))
                     if member.status == "thriving" {
@@ -596,8 +580,8 @@ private struct MemberRowCard: View {
                 } label: {
                     Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(Nuru.ink600)
                         .frame(width: 30, height: 30).background(Nuru.inputBg)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Nuru.border, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.xs).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
                 }
             }
             .padding(.horizontal, 18).padding(.vertical, 11)
@@ -650,7 +634,7 @@ private struct MemberFormSheet: View {
                         Text(error).font(.inter(13, .semibold)).foregroundStyle(Nuru.danger)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(12).background(Nuru.danger.opacity(0.08))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
                     }
                     personalSection
                     placementSection
@@ -752,8 +736,8 @@ private struct MemberFormSheet: View {
             .tint(Nuru.lumGreen)
             .padding(.horizontal, 14).padding(.vertical, 12)
             .background(Nuru.white)
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
         }
     }
 
@@ -894,8 +878,8 @@ private struct MFieldChrome: ViewModifier {
             .frame(height: 44)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Nuru.white)
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
     }
 }
 extension View {
@@ -906,8 +890,8 @@ extension View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8).frame(height: 44)
             .background(Nuru.white)
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
     }
 }
 
@@ -983,7 +967,7 @@ private struct MemberResultsSheet: View {
             Text(label.uppercased()).font(.nOverline).tracking(1.2).foregroundStyle(Nuru.onNavyDim)
         }
         .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-        .background(.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
     }
 }
 

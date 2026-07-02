@@ -304,8 +304,8 @@ struct ContentStudioView: View {
             }
             .padding(.horizontal, 12).frame(height: 40)
             .background(Nuru.white)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         }
         .padding(.horizontal, 20).padding(.top, 16)
     }
@@ -1203,7 +1203,7 @@ private struct EmptyStateView: View {
                     Label("New \(tab.singular)", systemImage: "plus")
                         .font(.inter(13, .bold)).foregroundStyle(.white)
                         .padding(.horizontal, 16).frame(height: 38)
-                        .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                 }
                 .buttonStyle(.plain).padding(.top, 6)
             }
@@ -1258,8 +1258,8 @@ private struct CSFieldCell<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12).frame(minHeight: 40)
                 .background(Nuru.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         }
     }
 }
@@ -1288,8 +1288,8 @@ private struct CSTextAreaCell: View {
                 .padding(.horizontal, 12).padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Nuru.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         }
     }
 }
@@ -1301,8 +1301,8 @@ private struct CSControlTile<Content: View>: View {
             .padding(.horizontal, 12).frame(minHeight: 44)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Nuru.white)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 }
 
@@ -1835,8 +1835,8 @@ private struct PlanForm: View {
                 }
                 .padding(12)
                 .background(Nuru.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
             }
             Button { days.append(DayDraft(dayNumber: days.count + 1)) } label: { Label("Add day", systemImage: "plus") }
                 .font(.inter(14, .semibold)).buttonStyle(.plain).foregroundStyle(Nuru.navy)
@@ -1977,8 +1977,8 @@ private struct EncouragementForm: View {
                         .padding(.horizontal, 12).padding(.vertical, 10)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Nuru.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                 } header: { CSSectionHeader(text: "Media") }
                 .listRowBackground(Color.clear)
 

@@ -239,7 +239,7 @@ struct CellDetailView: View {
                             Text("\(vm.count(b))").font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
                         }
                         .padding(.horizontal, 12).padding(.vertical, 8)
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
                     }
                 }
             }

@@ -226,7 +226,7 @@ struct ProfileView: View {
                         .foregroundStyle(active ? Nuru.gold : Nuru.muted)
                         .padding(.horizontal, 12).padding(.vertical, 9)
                         .background(active ? AnyShapeStyle(Nuru.gold.opacity(0.12)) : AnyShapeStyle(Color.clear))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     }.buttonStyle(.plain)
                 }
             }
@@ -264,7 +264,7 @@ struct ProfileView: View {
                 .frame(maxWidth: .infinity).padding(.vertical, 14)
                 .background(Nuru.danger.opacity(0.1))
                 .foregroundStyle(Nuru.danger)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
         }
     }
 
@@ -272,7 +272,7 @@ struct ProfileView: View {
         Text(text).font(.inter(13, .semibold)).foregroundStyle(color)
             .padding(.horizontal, 14).padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(bg).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(bg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
     }
 }
 
@@ -305,9 +305,9 @@ private struct PField: View {
             .disabled(disabled).textInputAutocapitalization(.never).autocorrectionDisabled()
             .padding(.horizontal, 14).frame(height: 46)
             .background(disabled ? Nuru.surface : Nuru.white)
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous)
                 .stroke(error != nil ? Nuru.danger : Nuru.border, lineWidth: 1.5))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             if let error { Text(error).font(.inter(11.5)).foregroundStyle(Nuru.danger) }
             else if let helper { Text(helper).font(.inter(11.5)).foregroundStyle(Nuru.ink600) }
         }
@@ -322,7 +322,7 @@ private struct PPrimaryButton: View {
         Button(action: action) {
             Text(title).font(.inter(14, .bold)).foregroundStyle(.white)
                 .padding(.horizontal, 22).frame(height: 44)
-                .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
         }.buttonStyle(.plain).disabled(disabled).opacity(disabled ? 0.5 : 1)
     }
 }
@@ -489,9 +489,9 @@ private struct TwoFactorPanel: View {
             }
             .padding(16)
             .background(enabled ? Nuru.successBg : Nuru.urgentBg)
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous)
                 .stroke((enabled ? Nuru.success : Nuru.warning).opacity(0.25), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
             .padding(.top, 16)
         }
     }

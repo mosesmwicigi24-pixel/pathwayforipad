@@ -299,11 +299,11 @@ struct MemberDetailView: View {
 
             // Avatar + name + contact sit directly under the breadcrumb (no dead gap).
             HStack(spacing: 14) {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous)
                     .fill(Color(hex: 0xF5C77E, alpha: 0.16))
                     .frame(width: 50, height: 50)
                     .overlay(Text(initials(m.fullName)).font(.fraunces(20, .medium)).foregroundStyle(Color(hex: 0xF5C77E)))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color(hex: 0xF5C77E, alpha: 0.3), lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous).stroke(Color(hex: 0xF5C77E, alpha: 0.3), lineWidth: 1))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(m.fullName).font(.fraunces(24, .regular)).foregroundStyle(.white).lineLimit(2)
                     Text(m.phoneNumber + (m.email.map { " · \($0)" } ?? "")).font(.inter(12.5)).foregroundStyle(Nuru.onNavyDim).lineLimit(1)
@@ -718,7 +718,7 @@ private struct ResultsSection: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12).padding(.vertical, 10)
                     .background(.white.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
                 }
             }
             .padding(12)

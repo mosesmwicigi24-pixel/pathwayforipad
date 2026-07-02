@@ -545,7 +545,7 @@ struct QuizBuilderView: View {
     private func statTile(_ label: String, _ value: String, _ hint: String, _ icon: String, _ tint: Color) -> some View {
         HStack(spacing: 10) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(tint.opacity(0.12))
+                RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).fill(tint.opacity(0.12))
                 Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(tint)
             }.frame(width: 38, height: 38)
             VStack(alignment: .leading, spacing: 0) {
@@ -651,10 +651,10 @@ struct QuizBuilderView: View {
             .padding(.horizontal, 12).padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(sel ? lc.opacity(0.03) : Nuru.white)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous)
                 .stroke(sel ? lc : Nuru.border, lineWidth: sel ? 2 : 1.5))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous)
                 .stroke(lc.opacity(sel ? 0.10 : 0), lineWidth: 4).blur(radius: 2))
         }
         .buttonStyle(.plain)
@@ -750,7 +750,7 @@ struct QuizBuilderView: View {
             Card(padding: 32) {
                 VStack(spacing: 8) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Nuru.gold.opacity(0.12))
+                        RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous).fill(Nuru.gold.opacity(0.12))
                         Image(systemName: "rosette").font(.system(size: 22)).foregroundStyle(Nuru.gold)
                     }.frame(width: 52, height: 52)
                     Text("No exam for this level yet").font(.fraunces(18, .semibold)).foregroundStyle(Nuru.ink)
@@ -768,7 +768,7 @@ struct QuizBuilderView: View {
                         }
                         .foregroundStyle(.white)
                         .padding(.horizontal, 18).frame(height: 40)
-                        .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .disabled(creatingExam)
@@ -963,7 +963,7 @@ private struct ModuleQuizEditor: View {
                     // gold fill (was navy → read blue); dark text for contrast on gold
                     .foregroundStyle(Nuru.navy)
                     .padding(.horizontal, 14).frame(height: 36)
-                    .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(Nuru.gold).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                 }
                 Spacer()
                 Button { Task { await save() } } label: {
@@ -977,7 +977,7 @@ private struct ModuleQuizEditor: View {
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16).frame(height: 36)
-                    .background(accent).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(accent).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     .opacity(saving ? 0.6 : 1)
                 }
                 .buttonStyle(.plain)
@@ -999,7 +999,7 @@ private struct ModuleQuizEditor: View {
             if questions.isEmpty {
                 VStack(spacing: 4) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Nuru.gold.opacity(0.10))
+                        RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous).fill(Nuru.gold.opacity(0.10))
                         Image(systemName: "questionmark.circle").font(.system(size: 22)).foregroundStyle(Nuru.gold)
                     }.frame(width: 52, height: 52)
                     Text("No questions yet").font(.inter(14, .bold)).foregroundStyle(Nuru.navy)
@@ -1008,8 +1008,8 @@ private struct ModuleQuizEditor: View {
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 44).padding(.horizontal, 24)
                 .background(Nuru.white)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous)
                     .strokeBorder(Nuru.border, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
             }
         }
@@ -1048,8 +1048,8 @@ private struct ModuleQuizEditor: View {
         .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
         .padding(.horizontal, 13).padding(.vertical, 12)
         .background(Nuru.white)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
     }
 
     // Pass-mark tile — keeps the bound slider (load-bearing for Save).
@@ -1087,8 +1087,8 @@ private struct ModuleQuizEditor: View {
                     .foregroundStyle(settings.timeLimitMinutes != nil ? .white : Nuru.ink600)
                     .padding(.horizontal, 10).frame(height: 32)
                     .background(settings.timeLimitMinutes != nil ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.inputBg))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                 }
                 .buttonStyle(.plain)
                 if settings.timeLimitMinutes != nil {
@@ -1101,8 +1101,8 @@ private struct ModuleQuizEditor: View {
                         .font(.inter(13)).foregroundStyle(Nuru.ink)
                         .frame(width: 52, height: 32)
                         .background(Nuru.inputBg)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                     Text("min").font(.inter(11)).foregroundStyle(Nuru.ink600)
                 } else {
                     Text("No limit").font(.inter(11)).foregroundStyle(Nuru.ink600)
@@ -1272,11 +1272,11 @@ private struct QuestionCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Nuru.white)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous).stroke(Nuru.border, lineWidth: 1))
             if expanded {
                 Rectangle().fill(accent).frame(width: 5)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous))
             }
         }
         .if(expanded) { $0.nuruShadow(0.6) }
@@ -1330,8 +1330,8 @@ private struct QuestionCard: View {
                     .font(.inter(15, .medium)).foregroundStyle(Nuru.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12).padding(.vertical, 10)
-                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                 Menu {
                     ForEach(QType.all, id: \.self) { t in
                         Button(t.label) { setType(t) }
@@ -1343,8 +1343,8 @@ private struct QuestionCard: View {
                     }
                     .padding(.horizontal, 12).frame(height: 40)
                     .background(Nuru.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                 }
             }
             .padding(.bottom, 14)
@@ -1364,8 +1364,8 @@ private struct QuestionCard: View {
                     .font(.inter(14)).foregroundStyle(Nuru.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12).padding(.vertical, 10)
-                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                    .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
             }
             .padding(.leading, 38).padding(.top, 16)
 
@@ -1452,8 +1452,8 @@ private struct QuestionCard: View {
                         .font(.inter(14)).foregroundStyle(Nuru.ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 12).padding(.vertical, 10)
-                        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous)
                             .stroke(opt.isCorrect ? Nuru.lumGreen.opacity(0.55) : Nuru.border, lineWidth: 1.5))
                     if q.options.count > 1 {
                         Button { q.options.removeAll { $0.id == opt.id } } label: {
@@ -1485,8 +1485,8 @@ private struct QuestionCard: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(Color(hex: 0x16A34A).opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color(hex: 0x16A34A).opacity(0.18), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Color(hex: 0x16A34A).opacity(0.18), lineWidth: 1))
         .padding(.leading, 38)
     }
 
@@ -1518,8 +1518,8 @@ private struct QuestionCard: View {
                         .font(.inter(11)).foregroundStyle(Nuru.ink600).frame(minWidth: 60, alignment: .trailing)
                 }
                 .padding(.horizontal, 14).padding(.vertical, 12)
-                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
             } else {
                 Text("\u{201C}From\u{201D} must be less than \u{201C}To\u{201D}.")
                     .font(.inter(12)).foregroundStyle(Color(hex: 0xDC2626))
@@ -1537,8 +1537,8 @@ private struct QuestionCard: View {
                 .font(.inter(14)).foregroundStyle(Nuru.ink)
                 .frame(width: 72, height: 38)
                 .background(Nuru.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
         }
     }
     private func scaleText(_ label: String, value: Binding<String>, placeholder: String) -> some View {
@@ -1550,8 +1550,8 @@ private struct QuestionCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12)
                 .background(Nuru.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1580,8 +1580,8 @@ private struct Banner: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(ok ? Color(hex: 0xF3FAF5) : Color(hex: 0xFDF4F4))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous)
                 .stroke(ok ? Color(hex: 0xCDEBD8) : Color(hex: 0xF2D5D2), lineWidth: 1))
     }
 }

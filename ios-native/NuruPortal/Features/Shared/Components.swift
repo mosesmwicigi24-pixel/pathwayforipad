@@ -345,6 +345,15 @@ struct GoldButton: View {
 struct ErrorBanner: View {
     let message: String
     let retry: () -> Void
+    @ObservedObject private var network = NetworkMonitor.shared
+
+    // Explicit init: the private @ObservedObject would otherwise make the
+    // memberwise init private, breaking the app-wide call sites.
+    init(message: String, retry: @escaping () -> Void) {
+        self.message = message
+        self.retry = retry
+    }
+
     var body: some View {
         VStack(spacing: Nuru.S.base) {
             ZStack {
@@ -352,7 +361,9 @@ struct ErrorBanner: View {
                 Text("!").font(.inter(24, .bold)).foregroundStyle(Nuru.danger)
             }
             Text("Something went wrong").font(.nHeading).foregroundStyle(Nuru.ink)
-            Text(message).font(.nBody).foregroundStyle(Nuru.ink600).multilineTextAlignment(.center)
+            // While offline, lead with a friendlier explanation than the raw error.
+            Text(network.online ? message : "You appear to be offline. Check your connection and try again.")
+                .font(.nBody).foregroundStyle(Nuru.ink600).multilineTextAlignment(.center)
             Button(action: retry) {
                 Text("Try again").font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
                     .padding(.horizontal, 20).padding(.vertical, 12)
@@ -594,6 +605,9 @@ struct StatCard: View {
 
 struct HeroStat: Identifiable {
     let label: String, value: String, hint: String
+    /// Optional value tint for stats whose color carries meaning (e.g. member
+    /// health bands: thriving green / watch amber / at-risk red). Nil = white.
+    var tint: Color? = nil
     var id: String { label }
 }
 
@@ -637,7 +651,7 @@ struct PortalHero<Actions: View>: View {
             ForEach(Array(stats.enumerated()), id: \.element.id) { i, s in
                 VStack(alignment: .leading, spacing: 5) {
                     Text(s.label.uppercased()).font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)
-                    Text(s.value).font(.fraunces(24, .medium)).foregroundStyle(.white)
+                    Text(s.value).font(.fraunces(24, .medium)).foregroundStyle(s.tint ?? .white)
                         .contentTransition(.numericText())
                         .animation(.default, value: s.value)
                     Text(s.hint).font(.nMicro).foregroundStyle(Nuru.onNavyFaint)
