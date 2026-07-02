@@ -268,6 +268,29 @@ enum PortalAPI {
         try await api.get("/admin/radio/mixer/jingles", as: [MixerJingle].self)
     }
 
+    // MARK: Virtual Mixer — live on-air engine bridge (/admin/radio/mixer/live/*).
+    // Writes use the same omit-null snake-key bodies as the other radio endpoints.
+    // /status never errors server-side (engine-off reports connected:false); levels
+    // return 503 when no engine is configured, /jingle returns 422 when the jingle
+    // has no server-hosted audio.
+
+    static func mixerLiveStatus() async throws -> MixerLiveStatus {
+        try await api.get("/admin/radio/mixer/live/status", as: MixerLiveStatus.self)
+    }
+    /// Push one or more channel gains (keys mic|bed|jingle|master, ints 0..100).
+    static func mixerLiveLevels(_ channels: [String: Int]) async throws {
+        struct Body: Encodable { let channels: [String: Int] }
+        _ = try await api.post("/admin/radio/mixer/live/levels", body: Body(channels: channels), as: RadioOk.self)
+    }
+    /// Recall a saved scene on the engine.
+    static func mixerLiveScene(_ id: String) async throws {
+        _ = try await api.post("/admin/radio/mixer/live/scene", body: ["scene_id": RadioJSON.string(id)], as: RadioOk.self)
+    }
+    /// Fire a soundboard jingle on air.
+    static func mixerLiveJingle(_ id: String) async throws {
+        _ = try await api.post("/admin/radio/mixer/live/jingle", body: ["jingle_id": RadioJSON.string(id)], as: RadioOk.self)
+    }
+
     // Chat
     static func chatConversations() async throws -> ChatList {
         try await api.get("/chat/conversations", query: ["scope": "mine"], as: ChatList.self)

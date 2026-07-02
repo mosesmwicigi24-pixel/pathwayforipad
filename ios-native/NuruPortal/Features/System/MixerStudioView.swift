@@ -3,11 +3,18 @@
 //
 // REAL, persisted bits (wired to the frozen admin API):
 //   • scene presets           GET/POST /admin/radio/mixer/scenes  (+ seed 4 defaults)
-//   • jingle soundboard        GET/POST/DELETE /admin/radio/mixer/jingles
-// CLIENT-ONLY: the live channel strips (level/pan/mute/solo) + master fader and the
-// music-bed player are local state — a saved scene captures the current strips and
-// POSTs them; loading a scene applies its channels back onto the strips.
+//   • jingle soundboard        GET/POST/DELETE /admin/radio/mixer/jingles — the audio
+//     file is uploaded to OUR server first (PortalAPI.uploadRadioAudio), then the
+//     jingle is created with the returned URL so the live engine can actually fire it.
+//   • ON-AIR MIX ENGINE        /admin/radio/mixer/live/* — status polled every 5s while
+//     visible. When connected: mapped strips (mic→mic, music→bed, jingle→jingle, plus
+//     the master fader) push debounced gain changes, applying a scene also recalls it
+//     on the engine, and jingle pads fire the server-hosted audio.
+// CLIENT-ONLY: unmapped strips (they carry a LOCAL tag while the engine is live),
+// pan/solo, and the music-bed player. With the engine offline the studio behaves
+// exactly as before — pure local state.
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - JSON body for scene / jingle writes (omit-null, mirrors RadioJSON).
 
@@ -74,16 +81,36 @@ private final class MixerModel: ObservableObject {
     @Published var error: String?
     @Published var actionError: String?
     @Published var busy = false
+    // Live on-air engine bridge.
+    @Published var engineConnected = false
+    @Published var sceneNote: String?      // inline note under the scene grid
+    @Published var jingleNote: String?     // inline note under the soundboard
 
+    /// One in-flight debounce task per engine channel (cancel-and-replace).
+    private var levelPushTasks: [String: Task<Void, Never>] = [:]
+
+    // Stable strip ids so the live mapping survives renames; saved scenes still
+    // match by NAME in applyScene, so pre-existing server scenes keep working.
     static func defaultStrips() -> [LocalChannel] {
         [
-            .init(name: "Preacher", sub: "Lav mic", color: "#E6C66E", level: 82),
-            .init(name: "Worship", sub: "Stereo bus", color: "#22C55E", level: 68),
-            .init(name: "Choir", sub: "Overheads", color: "#7DD3FC", level: 60),
-            .init(name: "Keys", sub: "DI", color: "#C4B5FD", level: 55),
-            .init(name: "Congregation", sub: "Room", color: "#F9A8D4", level: 40),
-            .init(name: "Music bed", sub: "Playback", color: "#FDBA74", level: 30),
+            .init(id: "mic", name: "Preacher", sub: "Lav mic", color: "#E6C66E", level: 82),
+            .init(id: "worship", name: "Worship", sub: "Stereo bus", color: "#22C55E", level: 68),
+            .init(id: "choir", name: "Choir", sub: "Overheads", color: "#7DD3FC", level: 60),
+            .init(id: "keys", name: "Keys", sub: "DI", color: "#C4B5FD", level: 55),
+            .init(id: "ambience", name: "Congregation", sub: "Room", color: "#F9A8D4", level: 40),
+            .init(id: "music", name: "Music bed", sub: "Playback", color: "#FDBA74", level: 30),
+            .init(id: "jingle", name: "Jingles", sub: "Soundboard", color: "#5EEAD4", level: 75),
         ]
+    }
+
+    /// Fixed strip→engine mapping — only these strips ride the live path.
+    static func engineKey(forStrip id: String) -> String? {
+        switch id {
+        case "mic": return "mic"
+        case "music": return "bed"
+        case "jingle": return "jingle"
+        default: return nil
+        }
     }
 
     func load() async {
@@ -137,7 +164,7 @@ private final class MixerModel: ObservableObject {
 
     func applyScene(_ scene: MixerScene) {
         activeSceneId = scene.id
-        guard !scene.channels.isEmpty else { return }
+        sceneNote = nil
         // Match saved channels onto local strips by name; apply level/pan/mute/solo.
         for saved in scene.channels {
             if let i = channels.firstIndex(where: { $0.name == saved.name }) {
@@ -145,6 +172,71 @@ private final class MixerModel: ObservableObject {
                 channels[i].pan = saved.pan
                 channels[i].muted = saved.muted
                 channels[i].solo = saved.solo
+            }
+        }
+        // Live: recall the same scene on the on-air engine (local behaviour unchanged).
+        guard engineConnected else { return }
+        Task {
+            do { try await PortalAPI.mixerLiveScene(scene.id) }
+            catch { sceneNote = "Applied locally — the on-air engine didn't take \"\(scene.name)\"." }
+        }
+    }
+
+    // MARK: Live engine bridge
+
+    /// Poll the engine every 5s while the studio is visible. Runs inside the view's
+    /// `.task`, so it cancels automatically on disappear; transport errors read as
+    /// "offline" (the contract says /status itself never errors).
+    func pollEngine() async {
+        while !Task.isCancelled {
+            let status = try? await PortalAPI.mixerLiveStatus()
+            engineConnected = status?.connected ?? false
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+        }
+    }
+
+    /// A strip's level or mute changed. Mapped strips push to the engine when it is
+    /// connected; mute sends 0 and unmute re-sends the fader value. Offline (or on an
+    /// unmapped strip) this is a no-op — exactly the old local behaviour.
+    func liveLevelChanged(stripId: String, level: Double, muted: Bool) {
+        guard let key = MixerModel.engineKey(forStrip: stripId) else { return }
+        pushLiveLevel(key, value: muted ? 0 : Int(level.rounded()))
+    }
+
+    func masterChanged(_ value: Double) {
+        pushLiveLevel("master", value: Int(value.rounded()))
+    }
+
+    /// Debounced (~250ms) per-channel push: each movement cancels and replaces the
+    /// channel's pending task, so a fader drag lands as a single POST carrying the
+    /// latest value instead of a burst of writes.
+    private func pushLiveLevel(_ engineKey: String, value: Int) {
+        guard engineConnected else { return }
+        let v = min(100, max(0, value))
+        levelPushTasks[engineKey]?.cancel()
+        levelPushTasks[engineKey] = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            try? await PortalAPI.mixerLiveLevels([engineKey: v])
+        }
+    }
+
+    /// Fire a jingle on air (the pad's local flash always happens regardless).
+    /// 422 means the jingle predates server-hosted audio — tell the operator.
+    func fireJingle(_ j: MixerJingle) {
+        guard engineConnected else { return }
+        jingleNote = nil
+        let label = j.label.isEmpty ? "Jingle" : j.label
+        Task {
+            do { try await PortalAPI.mixerLiveJingle(j.id) }
+            catch let e as APIError {
+                if case .http(let status, _) = e, status == 422 {
+                    jingleNote = "Re-upload \"\(label)\" — its audio isn't stored on the server."
+                } else {
+                    jingleNote = "Couldn't fire \"\(label)\" on the live engine."
+                }
+            } catch {
+                jingleNote = "Couldn't fire \"\(label)\" on the live engine."
             }
         }
     }
@@ -163,15 +255,20 @@ private final class MixerModel: ObservableObject {
         }
     }
 
-    func addJingle(label: String) {
+    /// Upload the picked audio to OUR server first, then create the jingle with the
+    /// returned URL — the live engine can only fire server-hosted audio (422 otherwise).
+    func addJingle(label: String, fileURL: URL) {
         Task {
             busy = true; actionError = nil
+            let scoped = fileURL.startAccessingSecurityScopedResource()
+            defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
             do {
+                let data = try Data(contentsOf: fileURL)
+                let up = try await PortalAPI.uploadRadioAudio(data: data, filename: fileURL.lastPathComponent)
                 let body: [String: MixJSON] = [
                     "label": .string(label),
                     "color": .string("#E6C66E"),
-                    // audioUrl placeholder — real upload wired when the media pipeline lands.
-                    "audio_url": .string("https://audio.local/jingles/\(UUID().uuidString).mp3"),
+                    "audio_url": .string(up.url),
                     "sort": .int(jingles.count),
                 ]
                 let j = try await APIClient.shared.post("/admin/radio/mixer/jingles", body: body, as: MixerJingle.self)
@@ -223,15 +320,14 @@ struct MixerStudioView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
         .task { if !m.loaded { await m.load() } }
+        .task { await m.pollEngine() }   // 5s status loop; cancelled on disappear
         .sheet(isPresented: $showSaveScene) {
             NameSheet(title: "Save scene", placeholder: "Scene name", hintPlaceholder: "Hint (optional)") { name, hint in
                 m.saveCurrentAsScene(name: name, hint: hint)
             }
         }
         .sheet(isPresented: $showAddJingle) {
-            NameSheet(title: "Add jingle", placeholder: "Jingle label", hintPlaceholder: nil) { label, _ in
-                m.addJingle(label: label)
-            }
+            AddJingleSheet { label, url in m.addJingle(label: label, fileURL: url) }
         }
         .alert("Something went wrong", isPresented: Binding(get: { m.actionError != nil }, set: { if !$0 { m.actionError = nil } })) {
             Button("OK", role: .cancel) { m.actionError = nil }
@@ -246,6 +342,7 @@ struct MixerStudioView: View {
                     Image(systemName: "chevron.right").font(.system(size: 7)).foregroundStyle(Rs.faint)
                     Text("Mixer Studio").font(.inter(10.5, .bold)).tracking(1.4).foregroundStyle(Rs.text)
                     Spacer()
+                    EngineChip(connected: m.engineConnected)
                 }
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
@@ -299,11 +396,14 @@ struct MixerStudioView: View {
                         }
                     }
                 }
+                if let note = m.sceneNote {
+                    Text(note).font(.inter(11)).foregroundStyle(Rs.red).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
 
-    // MARK: Channel strips + master (client-only, interactive)
+    // MARK: Channel strips + master (live-mapped strips push debounced gains)
 
     private var channelStrips: some View {
         StudioPanel {
@@ -312,9 +412,14 @@ struct MixerStudioView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 12) {
                         ForEach($m.channels) { $ch in
-                            ChannelStrip(channel: $ch, soloActive: m.channels.contains { $0.solo })
+                            ChannelStrip(channel: $ch,
+                                         soloActive: m.channels.contains { $0.solo },
+                                         localOnly: m.engineConnected && MixerModel.engineKey(forStrip: ch.id) == nil)
+                                .onChange(of: ch.level) { _, v in m.liveLevelChanged(stripId: ch.id, level: v, muted: ch.muted) }
+                                .onChange(of: ch.muted) { _, muted in m.liveLevelChanged(stripId: ch.id, level: ch.level, muted: muted) }
                         }
                         MasterStrip(level: $m.master)
+                            .onChange(of: m.master) { _, v in m.masterChanged(v) }
                     }
                     .padding(.vertical, 2)
                 }
@@ -348,8 +453,13 @@ struct MixerStudioView: View {
                         .font(.inter(12)).foregroundStyle(Rs.dim).padding(.vertical, 6)
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 10, alignment: .top)], spacing: 10) {
-                        ForEach(m.jingles) { j in JinglePad(jingle: j) { m.deleteJingle(j.id) } }
+                        ForEach(m.jingles) { j in
+                            JinglePad(jingle: j, onFire: { m.fireJingle(j) }, onDelete: { m.deleteJingle(j.id) })
+                        }
                     }
+                }
+                if let note = m.jingleNote {
+                    Text(note).font(.inter(11)).foregroundStyle(Rs.red).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -361,6 +471,8 @@ struct MixerStudioView: View {
 private struct ChannelStrip: View {
     @Binding var channel: LocalChannel
     let soloActive: Bool
+    /// True while the engine is connected but this strip isn't in the live path.
+    let localOnly: Bool
     var body: some View {
         let color = chColor(channel.color)
         let dimmed = soloActive && !channel.solo
@@ -391,6 +503,15 @@ private struct ChannelStrip: View {
         .padding(.horizontal, 8).padding(.vertical, 12)
         .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Rs.border, lineWidth: 1))
+        // Tiny corner tag (overlay, so strip/master fader alignment never shifts).
+        .overlay(alignment: .topTrailing) {
+            if localOnly {
+                Text("LOCAL").font(.inter(6.5, .bold)).tracking(0.7).foregroundStyle(Rs.faint)
+                    .padding(.horizontal, 4).padding(.vertical, 2)
+                    .background(Color.white.opacity(0.06)).clipShape(Capsule())
+                    .padding(4)
+            }
+        }
         .opacity(dimmed ? 0.5 : 1)
     }
     private func toggle(_ s: String, on: Bool, color: Color, action: @escaping () -> Void) -> some View {
@@ -509,15 +630,14 @@ private struct MusicBedPanel: View {
 
 private struct JinglePad: View {
     let jingle: MixerJingle
+    let onFire: () -> Void
     let onDelete: () -> Void
     var body: some View {
         let color = chColor(jingle.color ?? "#E6C66E")
-        // The pad is a real Button: firing it keeps the tap behaviour, and the
-        // press flash now comes from the shared PressableButtonStyle instead of
-        // the old hand-rolled DispatchQueue.asyncAfter animation.
-        return Button {
-            // Fire the jingle (client-only — audio playback lands with the media pipeline).
-        } label: {
+        // The pad is a real Button: the press flash comes from the shared
+        // PressableButtonStyle, and firing now also drops the jingle on air
+        // when the live engine is connected (no-op offline, as before).
+        return Button(action: onFire) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Image(systemName: "play.circle.fill").font(.system(size: 20)).foregroundStyle(color)
@@ -536,7 +656,102 @@ private struct JinglePad: View {
     }
 }
 
-// MARK: - Simple name-entry sheet (scene / jingle)
+// MARK: - Live engine status chip
+
+/// Top-bar chip: green pulsing "LIVE MIX" while the on-air engine is connected,
+/// a dim "LOCAL — engine offline" otherwise. The pulse is skipped entirely under
+/// Reduce Motion (static dot).
+private struct EngineChip: View {
+    let connected: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(connected ? Rs.green : Rs.faint).frame(width: 7, height: 7)
+                .opacity(pulsing ? 0.35 : 1)
+                .animation(pulsing ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default, value: pulsing)
+            Text(connected ? "LIVE MIX" : "LOCAL — ENGINE OFFLINE")
+                .font(.inter(9.5, .bold)).tracking(1.2)
+                .foregroundStyle(connected ? Rs.green : Rs.dim)
+        }
+        .padding(.horizontal, 11).frame(height: 26)
+        .background((connected ? Rs.green : Color.white).opacity(connected ? 0.10 : 0.04))
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(connected ? Rs.green.opacity(0.35) : Rs.border, lineWidth: 1))
+        .onAppear { pulsing = connected && !reduceMotion }
+        .onChange(of: connected) { _, c in pulsing = c && !reduceMotion }
+    }
+}
+
+// MARK: - Add-jingle sheet (label + REAL audio file upload)
+
+/// Collects a label and an audio file; Save is disabled until both exist. The
+/// picked file is uploaded to our server by the model before the jingle is
+/// created, so the live engine can fire it (a URL-less jingle would 422 on air).
+private struct AddJingleSheet: View {
+    let onSave: (String, URL) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var label = ""
+    @State private var fileURL: URL?
+    @State private var showImporter = false
+    @State private var pickError: String?
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                TextField("", text: $label, prompt: Text("Jingle label").foregroundColor(Rs.faint))
+                    .font(.inter(15)).foregroundStyle(Rs.text).tint(Rs.gold)
+                    .padding(.horizontal, 14).frame(height: 46)
+                    .background(Color.white.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Rs.border, lineWidth: 1))
+                Button { showImporter = true } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: fileURL == nil ? "waveform.badge.plus" : "waveform")
+                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(Rs.gold)
+                        Text(fileURL?.lastPathComponent ?? "Choose audio file")
+                            .font(.inter(13, .semibold))
+                            .foregroundStyle(fileURL == nil ? Rs.dim : Rs.text).lineLimit(1)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14).frame(height: 46)
+                    .background(Color.white.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Rs.border, lineWidth: 1))
+                }.pressable()
+                Text("The audio is uploaded to the server so the live engine can fire it on air.")
+                    .font(.inter(11)).foregroundStyle(Rs.dim)
+                if let pickError {
+                    Text(pickError).font(.inter(11)).foregroundStyle(Rs.red)
+                }
+                Spacer()
+            }
+            .padding(18)
+            .background(Rs.bg.ignoresSafeArea())
+            .navigationTitle("Add jingle")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.foregroundStyle(Rs.dim) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let n = label.trimmingCharacters(in: .whitespaces)
+                        if !n.isEmpty, let url = fileURL { onSave(n, url); dismiss() }
+                    }
+                    .font(.inter(15, .bold)).foregroundStyle(Rs.gold)
+                    .disabled(label.trimmingCharacters(in: .whitespaces).isEmpty || fileURL == nil)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .fileImporter(isPresented: $showImporter,
+                      allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav]) { result in
+            switch result {
+            case .success(let url): fileURL = url; pickError = nil
+            case .failure(let err): pickError = err.localizedDescription
+            }
+        }
+    }
+}
+
+// MARK: - Simple name-entry sheet (save scene)
 
 private struct NameSheet: View {
     let title: String

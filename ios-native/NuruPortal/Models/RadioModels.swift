@@ -141,6 +141,14 @@ struct MixerJingle: Codable, Identifiable, Equatable {
     let createdAt: String?
 }
 
+/// `GET /admin/radio/mixer/live/status` → `{ connected, gains? }`. The endpoint
+/// never errors (an unconfigured engine just reports connected:false), and the
+/// resilient defaults keep a partial payload from ever throwing.
+struct MixerLiveStatus: Codable {
+    @DefaultFalse var connected: Bool
+    let gains: [String: Double]?
+}
+
 // MARK: - List defaults for [String] / [MixerChannel]
 
 enum EmptyStringsProvider: DefaultValueProvider { static let defaultValue: [String] = [] }
