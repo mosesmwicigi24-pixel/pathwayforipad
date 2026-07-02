@@ -4,6 +4,7 @@
 // optional). The backend provisions the ingest provider + stream key on create, so
 // the caller just refreshes the list afterward.
 import SwiftUI
+import PhotosUI
 
 // A conditional JSON body value so we omit keys the server should default (mirrors
 // the web spread and UsersView's JSONBodyValue, kept file-local here).
@@ -45,6 +46,10 @@ struct RadioProgramForm: View {
     @State private var saving = false
     @State private var error: String?
 
+    @State private var artworkItem: PhotosPickerItem?
+    @State private var artworkUploading = false
+    @State private var artworkError: String?
+
     private let categories = ["Sermon", "Worship", "Prayer", "Bible Study", "Conference"]
     private let visibilities = ["public", "members", "private"]
     private let repeats = ["none", "daily", "weekly", "monthly"]
@@ -72,7 +77,7 @@ struct RadioProgramForm: View {
                         field("Speaker") { TextField("", text: $speaker).dstyle() }
                         field("Location") { TextField("", text: $location).dstyle() }
                         field("Tags (comma separated)") { TextField("", text: $tagsText).dstyle() }
-                        field("Artwork URL") { TextField("", text: $artworkUrl).dstyle().keyboardType(.URL).autocapitalization(.none) }
+                        field("Artwork") { artworkField }
                         picker("Visibility", $visibility, visibilities)
                     }
                     section("Schedule") {
@@ -144,6 +149,53 @@ struct RadioProgramForm: View {
                 .padding(.horizontal, 12).frame(height: 40)
                 .background(Color.white.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Rs.border, lineWidth: 1))
+            }
+        }
+    }
+
+    // MARK: Artwork upload (dark inline control matching the studio sheet)
+
+    @ViewBuilder private var artworkField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(0.04)).frame(width: 52, height: 52)
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Rs.border, lineWidth: 1))
+                    if !artworkUrl.trimmingCharacters(in: .whitespaces).isEmpty,
+                       let u = URL(string: artworkUrl.trimmingCharacters(in: .whitespaces)) {
+                        AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { ProgressView().tint(Rs.gold) }
+                            .frame(width: 52, height: 52).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    } else {
+                        Image(systemName: "photo").font(.system(size: 18)).foregroundStyle(Rs.faint)
+                    }
+                }
+                PhotosPicker(selection: $artworkItem, matching: .images) {
+                    Label(artworkUrl.trimmingCharacters(in: .whitespaces).isEmpty ? "Upload artwork" : "Change artwork",
+                          systemImage: "arrow.up.circle.fill")
+                        .font(.inter(13, .semibold)).foregroundStyle(Rs.gold)
+                }
+                Spacer()
+                if artworkUploading { ProgressView().tint(Rs.gold) }
+            }
+            TextField("", text: $artworkUrl, prompt: Text("…or paste a URL").foregroundStyle(Rs.faint))
+                .dstyle().keyboardType(.URL).autocapitalization(.none).autocorrectionDisabled()
+            if let artworkError {
+                Text(artworkError).font(.inter(11, .medium)).foregroundStyle(Rs.red)
+            }
+        }
+        .onChange(of: artworkItem) { _, newItem in
+            guard let newItem else { return }
+            Task {
+                artworkUploading = true; artworkError = nil
+                do {
+                    if let data = try await newItem.loadTransferable(type: Data.self) {
+                        artworkUrl = try await ImageUpload.upload(data, folder: "announcements")
+                    }
+                } catch {
+                    artworkError = "Upload failed. Try again or paste a URL."
+                }
+                artworkUploading = false
             }
         }
     }
