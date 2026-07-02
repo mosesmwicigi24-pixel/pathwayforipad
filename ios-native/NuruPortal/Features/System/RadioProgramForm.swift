@@ -26,8 +26,15 @@ enum RadioJSON: Encodable {
 }
 
 struct RadioProgramForm: View {
+    /// When non-nil the sheet is in EDIT mode: fields prefill from this program and
+    /// Save issues a PATCH instead of a create. When nil it's the original create flow.
+    var existing: RadioProgram? = nil
     let onSaved: () -> Void
     @Environment(\.dismiss) private var dismiss
+
+    private var isEdit: Bool { existing != nil }
+
+    @State private var didPrefill = false
 
     @State private var title = ""
     @State private var category = "Sermon"
@@ -114,19 +121,54 @@ struct RadioProgramForm: View {
                 .padding(18)
             }
             .background(Rs.bg.ignoresSafeArea())
-            .navigationTitle("New program")
+            .navigationTitle(isEdit ? "Edit session" : "New program")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.foregroundStyle(Rs.dim) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button { Task { await submit() } } label: {
-                        if saving { ProgressView().tint(Rs.gold) } else { Text("Create").font(.inter(15, .bold)).foregroundStyle(Rs.gold) }
+                        if saving { ProgressView().tint(Rs.gold) }
+                        else { Text(isEdit ? "Save changes" : "Create").font(.inter(15, .bold)).foregroundStyle(Rs.gold) }
                     }.disabled(saving)
                 }
             }
         }
         .preferredColorScheme(.dark)
+        .onAppear(perform: prefillIfNeeded)
+    }
+
+    // MARK: Prefill (edit mode)
+
+    /// Populate every form field from the existing program the first time the sheet
+    /// appears. Runs once (guarded by `didPrefill`) so re-renders don't clobber edits.
+    private func prefillIfNeeded() {
+        guard let p = existing, !didPrefill else { return }
+        didPrefill = true
+        title = p.title
+        category = categories.contains(p.category) ? p.category : (p.category.isEmpty ? "Sermon" : p.category)
+        description = p.description ?? ""
+        speaker = p.speaker ?? ""
+        location = p.location ?? ""
+        tagsText = p.tags.joined(separator: ", ")
+        artworkUrl = p.artworkUrl ?? ""
+        visibility = visibilities.contains(p.visibility) ? p.visibility : "public"
+        if let iso = p.scheduledAt, !iso.isEmpty, let d = parseISO(iso) {
+            scheduled = true
+            scheduledAt = d
+        } else {
+            scheduled = false
+        }
+        durationMin = p.durationMin ?? 60
+        repeatRule = repeats.contains(p.repeatRule ?? "") ? (p.repeatRule ?? "none") : "none"
+        autoGoLive = p.autoGoLive
+        recordBroadcast = p.recordBroadcast
+        recordTarget = targets.contains(p.recordTarget ?? "") ? (p.recordTarget ?? "cloud") : "cloud"
+        audioUrl = p.audioUrl ?? ""
+        audioDurationSec = p.audioDurationSec
+        if let u = p.audioUrl, !u.isEmpty {
+            audioFilename = URL(string: u)?.lastPathComponent ?? "Existing recording"
+        }
     }
 
     // MARK: Building blocks
@@ -308,16 +350,24 @@ struct RadioProgramForm: View {
         if scheduled {
             let f = ISO8601DateFormatter()
             body["scheduled_at"] = .string(f.string(from: scheduledAt))
+        } else if isEdit {
+            // In edit mode, an unchecked schedule clears any existing scheduled_at.
+            body["scheduled_at"] = .null
         }
 
         do {
-            _ = try await PortalAPI.createRadioProgram(body)
+            if let existing {
+                _ = try await PortalAPI.updateRadioProgram(existing.id, body)
+            } else {
+                _ = try await PortalAPI.createRadioProgram(body)
+            }
             saving = false
             onSaved()
             dismiss()
         } catch {
             saving = false
-            self.error = (error as? APIError)?.errorDescription ?? "Could not create the program."
+            self.error = (error as? APIError)?.errorDescription
+                ?? (isEdit ? "Could not save changes." : "Could not create the program.")
         }
     }
 }

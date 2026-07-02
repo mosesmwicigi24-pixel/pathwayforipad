@@ -279,6 +279,7 @@ private final class RadioModel: ObservableObject {
 struct RadioStudioView: View {
     @StateObject private var m = RadioModel()
     @State private var showCreate = false
+    @State private var editProgram: RadioProgram?
 
     // Client-only console state (hardware bits — never server-originated).
     @State private var source = "Main mic"
@@ -306,6 +307,9 @@ struct RadioStudioView: View {
         .task { if !m.loaded { await m.load() } }
         .onDisappear { m.teardown() }
         .sheet(isPresented: $showCreate) { RadioProgramForm { Task { await m.load() } } }
+        .sheet(item: $editProgram) { p in
+            RadioProgramForm(existing: p) { Task { await m.load() } }
+        }
         .fileImporter(isPresented: $showAttachImporter,
                       allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav]) { result in
             if case .success(let url) = result { m.attachAudio(url) }
@@ -384,7 +388,7 @@ struct RadioStudioView: View {
                 LiveStatusBar(program: p, broadcast: m.broadcast, health: m.health)
             }
 
-            ProgramCard(program: p)
+            ProgramCard(program: p, onEdit: { editProgram = p })
 
             // Uploaded session audio — inline player when set, otherwise an attach CTA.
             SessionAudioPanel(program: p, busy: m.busy, onAttach: { showAttachImporter = true })
@@ -475,6 +479,7 @@ private func statusColor(_ s: String) -> Color {
 
 private struct ProgramCard: View {
     let program: RadioProgram
+    let onEdit: () -> Void
     var body: some View {
         StudioPanel {
             HStack(alignment: .top, spacing: 16) {
@@ -505,7 +510,17 @@ private struct ProgramCard: View {
                         metaItem("eye", program.visibility.isEmpty ? "public" : program.visibility)
                     }.padding(.top, 2)
                 }
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
+                Button(action: onEdit) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "pencil").font(.system(size: 11, weight: .bold))
+                        Text("Edit").font(.inter(12, .bold))
+                    }
+                    .foregroundStyle(Rs.gold)
+                    .padding(.horizontal, 12).frame(height: 32)
+                    .background(Rs.gold.opacity(0.12)).clipShape(Capsule())
+                    .overlay(Capsule().stroke(Rs.gold.opacity(0.35), lineWidth: 1))
+                }.buttonStyle(.plain)
             }
         }
     }
