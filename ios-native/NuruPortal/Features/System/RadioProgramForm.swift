@@ -293,7 +293,7 @@ struct RadioProgramForm: View {
             }
         }
         .fileImporter(isPresented: $showAudioImporter,
-                      allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav]) { result in
+                      allowedContentTypes: AudioUploadRules.allowedContentTypes) { result in
             handleAudioPick(result)
         }
     }
@@ -309,6 +309,11 @@ struct RadioProgramForm: View {
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                 do {
                     let data = try Data(contentsOf: url)
+                    if let msg = AudioUploadRules.validate(filename: url.lastPathComponent, byteCount: data.count) {
+                        audioError = msg
+                        audioUploading = false
+                        return
+                    }
                     let up = try await PortalAPI.uploadRadioAudio(data: data, filename: url.lastPathComponent)
                     audioUrl = up.url
                     audioDurationSec = up.durationSec

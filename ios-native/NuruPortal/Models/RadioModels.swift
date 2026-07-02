@@ -5,6 +5,35 @@
 // @DefaultFalse) or a plain optional so a partial/null-heavy payload never crashes a
 // whole screen — the admin studio degrades gracefully rather than throwing.
 import Foundation
+import UniformTypeIdentifiers
+
+// MARK: - Audio upload rules (client mirror of the server limits)
+
+/// Server-side audio uploads are capped at 70 MB and limited to MP3, WAV, AAC and
+/// ALAC (.m4a). Every audio `.fileImporter` restricts to `allowedContentTypes`, and
+/// every upload handler runs `validate` on the picked file BEFORE uploading so the
+/// user gets a friendly inline error instead of a server rejection after the transfer.
+enum AudioUploadRules {
+    static let maxBytes = 70 * 1024 * 1024
+    static let allowedExts: Set<String> = ["mp3", "wav", "m4a", "aac", "alac"]
+
+    /// What the audio pickers offer. No generic `.audio` — only the formats the
+    /// server accepts (AAC lacks a UTType constant, so it's resolved by identifier).
+    static let allowedContentTypes: [UTType] =
+        [.mp3, .wav, .mpeg4Audio] + (UTType("public.aac-audio").map { [$0] } ?? [])
+
+    /// Returns a user-facing error message, or nil when the file is uploadable.
+    static func validate(filename: String, byteCount: Int) -> String? {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        guard allowedExts.contains(ext) else {
+            return "Only MP3, WAV, AAC or ALAC (.m4a) audio is allowed."
+        }
+        guard byteCount <= maxBytes else {
+            return "\u{201C}\(filename)\u{201D} is over the 70 MB limit."
+        }
+        return nil
+    }
+}
 
 // MARK: - RadioProgram (admin view — includes the secret stream_key)
 

@@ -264,6 +264,11 @@ private final class MixerModel: ObservableObject {
             defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
             do {
                 let data = try Data(contentsOf: fileURL)
+                if let msg = AudioUploadRules.validate(filename: fileURL.lastPathComponent, byteCount: data.count) {
+                    actionError = msg
+                    busy = false
+                    return
+                }
                 let up = try await PortalAPI.uploadRadioAudio(data: data, filename: fileURL.lastPathComponent)
                 let body: [String: MixJSON] = [
                     "label": .string(label),
@@ -742,9 +747,19 @@ private struct AddJingleSheet: View {
         }
         .preferredColorScheme(.dark)
         .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav]) { result in
+                      allowedContentTypes: AudioUploadRules.allowedContentTypes) { result in
             switch result {
-            case .success(let url): fileURL = url; pickError = nil
+            case .success(let url):
+                // Validate right at pick time so the error shows inline in the sheet
+                // (the actual upload happens after Save, once the sheet is gone).
+                let scoped = url.startAccessingSecurityScopedResource()
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                if scoped { url.stopAccessingSecurityScopedResource() }
+                if let msg = AudioUploadRules.validate(filename: url.lastPathComponent, byteCount: size) {
+                    fileURL = nil; pickError = msg
+                } else {
+                    fileURL = url; pickError = nil
+                }
             case .failure(let err): pickError = err.localizedDescription
             }
         }

@@ -246,6 +246,11 @@ private final class RadioModel: ObservableObject {
             defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
             do {
                 let data = try Data(contentsOf: fileURL)
+                if let msg = AudioUploadRules.validate(filename: fileURL.lastPathComponent, byteCount: data.count) {
+                    actionError = msg
+                    busy = false
+                    return
+                }
                 let up = try await PortalAPI.uploadRadioAudio(data: data, filename: fileURL.lastPathComponent)
                 var body: [String: RadioJSON] = ["audio_url": .string(up.url)]
                 if let d = up.durationSec { body["audio_duration_sec"] = .int(d) }
@@ -328,7 +333,7 @@ struct RadioStudioView: View {
             RadioProgramForm(existing: p) { Task { await m.load() } }
         }
         .fileImporter(isPresented: $showAttachImporter,
-                      allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav]) { result in
+                      allowedContentTypes: AudioUploadRules.allowedContentTypes) { result in
             if case .success(let url) = result { m.attachAudio(url) }
             else if case .failure(let err) = result { m.actionError = err.localizedDescription }
         }
@@ -1568,6 +1573,11 @@ private final class AudioLibraryStore: ObservableObject {
             defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
             do {
                 let data = try Data(contentsOf: fileURL)
+                if let msg = AudioUploadRules.validate(filename: fileURL.lastPathComponent, byteCount: data.count) {
+                    self.error = msg
+                    uploading = false
+                    return
+                }
                 let up = try await PortalAPI.uploadRadioAudio(data: data, filename: fileURL.lastPathComponent)
                 let title = (fileURL.lastPathComponent as NSString).deletingPathExtension
                 var body: [String: RadioJSON] = [
@@ -1809,7 +1819,7 @@ private struct AudioLibrarySection: View {
             }
         }
         .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav]) { result in
+                      allowedContentTypes: AudioUploadRules.allowedContentTypes) { result in
             if case .success(let url) = result { store.upload(url) }
             else if case .failure(let err) = result { store.error = err.localizedDescription }
         }
