@@ -10,6 +10,8 @@
 //   • MicBroadcaster  — @MainActor ObservableObject the UI binds to (inputs, level,
 //     state machine idle → connecting → onAir | error). Owns the AVAudioSession
 //     category dance (.playAndRecord while capturing, restore .playback after).
+//     App-wide SINGLETON (`.shared`) so a live broadcast survives navigation; it
+//     also owns the persisted mic-boost gain (dB → linear, applied in the tap).
 //   • MicUplink       — plain class doing the realtime work off the main actor:
 //     inputNode tap → AVAudioConverter (AAC-LC 44.1 kHz stereo ~128 kbps) → 7-byte
 //     ADTS framing → NWConnection over TCP (Network framework — deliberately NOT
@@ -22,11 +24,18 @@ import Foundation
 import AVFoundation
 import Accelerate
 import Network
+import os
 
 // MARK: - ===================== MicBroadcaster (UI-facing) =====================
 
 @MainActor
 final class MicBroadcaster: ObservableObject {
+
+    /// App-wide singleton — the mic must outlive whichever screen started it.
+    /// RadioStudioView only OBSERVES this; it never owns it, so a live broadcast
+    /// survives navigating to the Mixer (or anywhere else) and the shell's top
+    /// bar can show a global ON MIC pill wherever the operator is.
+    static let shared = MicBroadcaster()
 
     enum State: Equatable {
         case idle
@@ -53,6 +62,19 @@ final class MicBroadcaster: ObservableObject {
     @Published private(set) var monitoring = false
     @Published private(set) var permissionDenied = false
 
+    /// Software mic gain in dB (0…+18, default +6), persisted across launches.
+    /// Applied on the audio thread BEFORE metering + encoding (MicUplink), so the
+    /// input meter shows the boosted, on-air signal.
+    @Published var boostDb: Double {
+        didSet {
+            UserDefaults.standard.set(boostDb, forKey: Self.boostDefaultsKey)
+            uplink.setBoost(factor: Float(boostFactor))
+        }
+    }
+    /// Linear gain for the current boostDb (+6 dB ≈ ×2).
+    var boostFactor: Double { pow(10, boostDb / 20) }
+    private static let boostDefaultsKey = "radio.micBoostDb"
+
     var isBroadcasting: Bool { state == .connecting || state == .onAir }
 
     private let session = AVAudioSession.sharedInstance()
@@ -62,7 +84,12 @@ final class MicBroadcaster: ObservableObject {
     /// until that device disappears (so a manual choice is never fought).
     private var manualSelectionUID: String?
 
-    init() {
+    private init() {
+        // Restore the persisted boost (didSet doesn't fire in init — push manually).
+        let stored = UserDefaults.standard.object(forKey: Self.boostDefaultsKey) as? Double
+        boostDb = min(max(stored ?? 6, 0), 18)
+        uplink.setBoost(factor: Float(pow(10, boostDb / 20)))
+
         uplink.onLevel = { [weak self] lvl in
             DispatchQueue.main.async { self?.level = lvl }
         }
@@ -82,7 +109,9 @@ final class MicBroadcaster: ObservableObject {
         if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
     }
 
-    /// Full stop — used by the hosting view's onDisappear.
+    /// Full stop — kills monitoring AND a live broadcast. NOT called on mere
+    /// navigation any more (the singleton broadcasts across screens); reserved
+    /// for an explicit shutdown such as sign-out.
     func teardown() {
         uplink.disconnect()
         uplink.stopCapture()
@@ -90,6 +119,18 @@ final class MicBroadcaster: ObservableObject {
         monitoring = false
         level = 0
         restorePlaybackSession()
+    }
+
+    /// Navigation-safe wind-down for the hosting view's onDisappear: stops the
+    /// level-meter monitoring, but NEVER touches a live broadcast — while on air
+    /// (or connecting) capture + uplink keep running and the audio session stays
+    /// `.playAndRecord`, so leaving for the Mixer can't kill the mic.
+    func stopMonitorIfIdle() {
+        monitoring = false
+        guard !isBroadcasting else { return }    // on air — leave everything running
+        uplink.stopCapture()
+        restorePlaybackSession()
+        level = 0
     }
 
     // MARK: Input sensing
@@ -227,6 +268,9 @@ final class MicBroadcaster: ObservableObject {
         try session.setCategory(.playAndRecord, mode: .default,
                                 options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers])
         try session.setActive(true)
+        // Max out the hardware input gain where the route allows it — the
+        // software boost (boostDb) then rides on top of the loudest raw signal.
+        if session.isInputGainSettable { try? session.setInputGain(1.0) }
         // Re-assert the preferred input now that the record session is live —
         // availableInputs is fully populated only for record-capable categories.
         rescanInputs(autoPrefer: true)
@@ -274,6 +318,17 @@ final class MicUplink {
 
     // Audio-thread-only meter throttle.
     private var lastLevelAt: CFAbsoluteTime = 0
+
+    /// Linear mic-boost factor (1 = unity). Written by the main thread when the
+    /// operator moves the slider; read on the audio thread every tap callback.
+    /// OSAllocatedUnfairLock keeps the read wait-free in practice (uncontended
+    /// CAS — no allocation, no priority inversion, no @MainActor hop).
+    private let boostFactor = OSAllocatedUnfairLock<Float>(initialState: 1)
+
+    /// Thread-safe boost update — callable from any thread.
+    func setBoost(factor: Float) {
+        boostFactor.withLock { $0 = max(0, factor) }
+    }
 
     private static let outSampleRate: Double = 44_100
     private static let outChannels: UInt32 = 2          // mono inputs are duplicated L/R
@@ -344,8 +399,10 @@ final class MicUplink {
         }
     }
 
-    /// Audio-thread: RMS meter + hand the buffer to the uplink queue for encoding.
+    /// Audio-thread: software boost (in place) → RMS meter → uplink queue.
+    /// Boost runs FIRST so both the meter and the encoded stream carry it.
     private func handleTap(_ buffer: AVAudioPCMBuffer) {
+        boostInPlace(buffer)
         if let channel = buffer.floatChannelData?[0], buffer.frameLength > 0 {
             let now = CFAbsoluteTimeGetCurrent()
             if now - lastLevelAt >= 0.045 {              // ≤ ~22 Hz to the UI
@@ -358,6 +415,28 @@ final class MicUplink {
             }
         }
         net.async { [weak self] in self?.encodeAndSend(buffer) }
+    }
+
+    /// Multiply every float sample by the current boost factor, then hard-clip to
+    /// [-1, 1] so overdrive saturates instead of wrapping. Audio-thread only;
+    /// pure vDSP, no allocation.
+    private func boostInPlace(_ buffer: AVAudioPCMBuffer) {
+        var factor = boostFactor.withLock { $0 }
+        let frames = vDSP_Length(buffer.frameLength)
+        guard frames > 0, abs(factor - 1) > .ulpOfOne,
+              let channels = buffer.floatChannelData else { return }
+        var lo: Float = -1, hi: Float = 1
+        if buffer.format.isInterleaved {
+            // Interleaved: all channels live in channels[0], frame-major.
+            let n = frames * vDSP_Length(buffer.format.channelCount)
+            vDSP_vsmul(channels[0], 1, &factor, channels[0], 1, n)
+            vDSP_vclip(channels[0], 1, &lo, &hi, channels[0], 1, n)
+        } else {
+            for ch in 0..<Int(buffer.format.channelCount) {
+                vDSP_vsmul(channels[ch], 1, &factor, channels[ch], 1, frames)
+                vDSP_vclip(channels[ch], 1, &lo, &hi, channels[ch], 1, frames)
+            }
+        }
     }
 
     // MARK: Connect (Icecast SOURCE handshake over raw TCP)

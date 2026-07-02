@@ -129,7 +129,9 @@ struct RootView: View {
     private static let keepAliveLimit = 6
     /// Radio/Mixer run meter timers keyed to view visibility — keeping them
     /// alive hidden would leave the timers ticking, so they tear down fully
-    /// (like the old `.id()` swap) whenever the user leaves them.
+    /// (like the old `.id()` swap) whenever the user leaves them. A live mic
+    /// broadcast SURVIVES this teardown: MicBroadcaster is an app-wide
+    /// singleton and RadioStudioView only stops its level monitoring.
     private static let ephemeral: Set<Section> = [.radio, .mixer]
 
     var body: some View {
@@ -392,6 +394,11 @@ private struct PortalTopBar: View {
     let title: String
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var router: NavRouter
+    /// The mic is an app-wide singleton that keeps broadcasting across navigation;
+    /// this bar shows the always-visible ON MIC truth of that, from any section.
+    @ObservedObject private var mic = MicBroadcaster.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var micPulse = false
     @State private var query = ""
     @State private var unread = 0
     @FocusState private var searchFocused: Bool
@@ -417,6 +424,30 @@ private struct PortalTopBar: View {
             .background(Nuru.inputBg)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+
+            // Global ON MIC indicator — visible on every section while the mic
+            // singleton is live; tap to jump back to the Radio Studio console.
+            if mic.state == .onAir {
+                Button { router.go(.radio) } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "mic.fill").font(.system(size: 11, weight: .bold))
+                        Text("ON MIC").font(.inter(10, .bold)).tracking(0.8)
+                        Circle().fill(.white).frame(width: 6, height: 6)
+                            .opacity(!reduceMotion && micPulse ? 0.3 : 1)
+                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: micPulse)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12).frame(height: 32)
+                    .background(Rs.liveGlow)
+                    .clipShape(Capsule())
+                }
+                .pressable()
+                .hoverEffect(.highlight)
+                .accessibilityLabel("Microphone is live")
+                .accessibilityHint("Opens the Radio Studio")
+                .onAppear { micPulse = true }
+                .onDisappear { micPulse = false }
+            }
 
             Button { router.go(.notifications) } label: {
                 ZStack(alignment: .topTrailing) {

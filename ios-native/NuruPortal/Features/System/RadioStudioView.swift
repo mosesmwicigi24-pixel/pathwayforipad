@@ -304,7 +304,9 @@ struct RadioStudioView: View {
     @State private var editProgram: RadioProgram?
 
     // Live mic hardware (REAL): input sensing, level metering, Icecast mic uplink.
-    @StateObject private var mic = MicBroadcaster()
+    // App-wide singleton — a live broadcast must survive navigating away (Mixer,
+    // Dashboard, lock screen), so this view only OBSERVES the mic, never owns it.
+    @ObservedObject private var mic = MicBroadcaster.shared
     @State private var showAttachImporter = false
 
     var body: some View {
@@ -327,7 +329,10 @@ struct RadioStudioView: View {
         .toolbar(.hidden, for: .navigationBar)
         .task { if !m.loaded { await m.load() } }
         .task { if !library.loaded { await library.load() } }
-        .onDisappear { m.teardown(); library.teardown(); mic.teardown() }
+        // Leaving the studio stops the level-meter monitoring only — a live mic
+        // broadcast keeps running (MicBroadcaster is an app-wide singleton; the
+        // top bar's ON MIC pill stays visible until the operator stops it).
+        .onDisappear { m.teardown(); library.teardown(); mic.stopMonitorIfIdle() }
         .sheet(isPresented: $showCreate) { RadioProgramForm { Task { await m.load() } } }
         .sheet(item: $editProgram) { p in
             RadioProgramForm(existing: p) { Task { await m.load() } }
@@ -805,6 +810,28 @@ private struct AudioSourcePanel: View {
 
                     Text("INPUT").font(.inter(9, .bold)).tracking(0.8).foregroundStyle(Rs.dim).fixedSize()
                 }
+
+                // Mic boost — software gain applied on the audio thread BEFORE the
+                // meter and the encoder, so the meter above reads the boosted signal.
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("MIC BOOST").font(.inter(9, .bold)).tracking(0.8).foregroundStyle(Rs.dim)
+                        Spacer(minLength: 8)
+                        Text(String(format: "%+.0f dB", mic.boostDb))
+                            .font(Rs.mono(12, .semibold)).foregroundStyle(Rs.gold)
+                    }
+                    Slider(value: $mic.boostDb, in: 0...18, step: 1)
+                        .tint(Rs.gold)
+                        .accessibilityLabel("Mic boost")
+                        .accessibilityValue("\(Int(mic.boostDb)) decibels")
+                    Text("Boost if your mic sounds quiet — watch the meter; red means clipping.")
+                        .font(.inter(10.5)).foregroundStyle(Rs.faint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .background(Color.white.opacity(0.03))
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Rs.border, lineWidth: 1))
 
                 goOnMicButton
 
