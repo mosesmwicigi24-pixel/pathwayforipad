@@ -100,6 +100,71 @@ actor APIClient {
         try await send(path, method: "POST", body: Optional<Int>.none, as: T.self)
     }
 
+    /// Authenticated multipart/form-data upload to OUR API (unlike ImageUpload, which
+    /// POSTs straight to Cloudinary). Injects the same Bearer header + one transparent
+    /// 401 refresh-and-replay the JSON path uses, builds the body (file part named
+    /// "file" first, then text fields), and decodes the JSON response.
+    func uploadFile<T: Decodable>(
+        _ path: String, fileData: Data, filename: String, mimeType: String,
+        fields: [String: String] = [:], as type: T.Type, isRetry: Bool = false
+    ) async throws -> T {
+        let url = baseURL.appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path)
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 120
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+        func add(_ s: String) { body.append(s.data(using: .utf8)!) }
+        // file part first (matches the web FormData order + the backend's expectation)
+        add("--\(boundary)\r\n")
+        add("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
+        add("Content-Type: \(mimeType)\r\n\r\n")
+        body.append(fileData); add("\r\n")
+        for (k, v) in fields {
+            add("--\(boundary)\r\n")
+            add("Content-Disposition: form-data; name=\"\(k)\"\r\n\r\n")
+            add("\(v)\r\n")
+        }
+        add("--\(boundary)--\r\n")
+        req.httpBody = body
+
+        let data: Data, response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: req)
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.transport("No HTTP response.")
+        }
+
+        if http.statusCode == 401, !isRetry, refreshToken != nil {
+            if try await refreshSession() {
+                return try await uploadFile(path, fileData: fileData, filename: filename, mimeType: mimeType, fields: fields, as: T.self, isRetry: true)
+            } else {
+                onSessionExpired?()
+                throw APIError.unauthorized
+            }
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = (try? decoder.decode(ErrorEnvelope.self, from: data))?.text
+                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw APIError.http(status: http.statusCode, message: msg)
+        }
+
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw APIError.decoding(String(describing: error))
+        }
+    }
+
     /// Core request with one transparent token refresh + replay on 401.
     private func send<B: Encodable, T: Decodable>(
         _ path: String, method: String, query: [String: String] = [:],

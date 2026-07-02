@@ -37,9 +37,11 @@ extension KeyedDecodingContainer {
 enum EmptyStringProvider: DefaultValueProvider { static let defaultValue = "" }
 enum ZeroIntProvider: DefaultValueProvider { static let defaultValue = 0 }
 enum FalseBoolProvider: DefaultValueProvider { static let defaultValue = false }
+enum TrueBoolProvider: DefaultValueProvider { static let defaultValue = true }
 enum ZeroDoubleProvider: DefaultValueProvider { static let defaultValue: Double = 0 }
 
 typealias DefaultEmpty = DefaultCodable<EmptyStringProvider>
 typealias DefaultZero = DefaultCodable<ZeroIntProvider>
 typealias DefaultFalse = DefaultCodable<FalseBoolProvider>
+typealias DefaultTrue = DefaultCodable<TrueBoolProvider>
 typealias DefaultZeroD = DefaultCodable<ZeroDoubleProvider>

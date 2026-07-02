@@ -18,6 +18,9 @@
 // subtrees) so the meters animate without the LazyVGrid flicker pattern.
 import SwiftUI
 import Charts
+import AVKit
+import AVFoundation
+import UniformTypeIdentifiers
 
 // MARK: - ===================== Dark studio palette (contract) =====================
 // Shared verbatim with MixerStudioView. BG #0A1120, panel gradient, gold/red/green,
@@ -217,6 +220,28 @@ private final class RadioModel: ObservableObject {
         }
     }
 
+    /// Upload a picked audio file, then PATCH the selected program with its url so the
+    /// session carries a broadcast recording. Reloads the program on success.
+    func attachAudio(_ fileURL: URL) {
+        guard let id = selectedId else { return }
+        Task {
+            busy = true; actionError = nil
+            let scoped = fileURL.startAccessingSecurityScopedResource()
+            defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let up = try await PortalAPI.uploadRadioAudio(data: data, filename: fileURL.lastPathComponent)
+                var body: [String: RadioJSON] = ["audio_url": .string(up.url)]
+                if let d = up.durationSec { body["audio_duration_sec"] = .int(d) }
+                let updated = try await PortalAPI.updateRadioProgram(id, body)
+                merge(updated)
+            } catch {
+                actionError = (error as? APIError)?.errorDescription ?? "Could not attach audio."
+            }
+            busy = false
+        }
+    }
+
     // Poll health every ~3s + refresh comments while live.
     private func startLiveWork(_ id: String) {
         stopPolling()
@@ -258,6 +283,7 @@ struct RadioStudioView: View {
     // Client-only console state (hardware bits — never server-originated).
     @State private var source = "Main mic"
     @State private var micGain: Double = 72
+    @State private var showAttachImporter = false
 
     var body: some View {
         ScrollView {
@@ -280,6 +306,11 @@ struct RadioStudioView: View {
         .task { if !m.loaded { await m.load() } }
         .onDisappear { m.teardown() }
         .sheet(isPresented: $showCreate) { RadioProgramForm { Task { await m.load() } } }
+        .fileImporter(isPresented: $showAttachImporter,
+                      allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav]) { result in
+            if case .success(let url) = result { m.attachAudio(url) }
+            else if case .failure(let err) = result { m.actionError = err.localizedDescription }
+        }
         .alert("Something went wrong", isPresented: Binding(get: { m.actionError != nil }, set: { if !$0 { m.actionError = nil } })) {
             Button("OK", role: .cancel) { m.actionError = nil }
         } message: { Text(m.actionError ?? "") }
@@ -354,6 +385,9 @@ struct RadioStudioView: View {
             }
 
             ProgramCard(program: p)
+
+            // Uploaded session audio — inline player when set, otherwise an attach CTA.
+            SessionAudioPanel(program: p, busy: m.busy, onAttach: { showAttachImporter = true })
 
             // Two console columns collapse to a stack in portrait — fixed, stable rows.
             AudioSourcePanel(source: $source, micGain: $micGain)
@@ -480,6 +514,124 @@ private struct ProgramCard: View {
             Image(systemName: icon).font(.system(size: 10)).foregroundStyle(Rs.faint)
             Text(text).font(.inter(11.5, .medium)).foregroundStyle(Rs.dim).lineLimit(1)
         }
+    }
+}
+
+// MARK: - Session audio (uploaded recording) — inline player or attach CTA
+
+private struct SessionAudioPanel: View {
+    let program: RadioProgram
+    let busy: Bool
+    let onAttach: () -> Void
+
+    var body: some View {
+        StudioPanel {
+            VStack(alignment: .leading, spacing: 12) {
+                StudioHeader(icon: "waveform.badge.mic", title: "Session audio",
+                             caption: program.audioUrl == nil ? "no recording" : "uploaded")
+                if let s = program.audioUrl, let url = URL(string: s) {
+                    AudioPlayerBar(url: url, durationSec: program.audioDurationSec)
+                    Text("This recording broadcasts to listeners when the session goes live.")
+                        .font(.inter(11)).foregroundStyle(Rs.dim).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Attach a pre-recorded broadcast so this session can air its audio when it goes live.")
+                        .font(.inter(11.5)).foregroundStyle(Rs.dim).fixedSize(horizontal: false, vertical: true)
+                    Button(action: onAttach) {
+                        HStack(spacing: 7) {
+                            if busy { ProgressView().tint(Rs.gold) }
+                            else { Image(systemName: "arrow.up.circle.fill").font(.system(size: 13, weight: .semibold)) }
+                            Text("Attach audio").font(.inter(12.5, .semibold))
+                        }
+                        .foregroundStyle(Rs.gold)
+                        .padding(.horizontal, 14).frame(height: 36)
+                        .background(Rs.gold.opacity(0.12)).clipShape(Capsule())
+                        .overlay(Capsule().stroke(Rs.gold.opacity(0.35), lineWidth: 1))
+                    }.buttonStyle(.plain).disabled(busy)
+                }
+            }
+        }
+    }
+}
+
+/// A compact AVPlayer transport: play/pause + a scrubber + time labels. Loads the
+/// remote audio lazily and cleans up its time observer on disappear.
+private struct AudioPlayerBar: View {
+    let url: URL
+    let durationSec: Int?
+
+    @State private var player: AVPlayer?
+    @State private var playing = false
+    @State private var current: Double = 0
+    @State private var duration: Double = 0
+    @State private var scrubbing = false
+    @State private var observer: Any?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button { toggle() } label: {
+                ZStack {
+                    Circle().fill(Rs.goldFill).frame(width: 42, height: 42)
+                    Image(systemName: playing ? "pause.fill" : "play.fill")
+                        .font(.system(size: 16, weight: .bold)).foregroundStyle(Color(hex: 0x0A1120))
+                }
+            }.buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Slider(value: $current, in: 0...max(duration, 1)) { editing in
+                    scrubbing = editing
+                    if !editing { seek(to: current) }
+                }.tint(Rs.gold)
+                HStack {
+                    Text(timeLabel(current)).font(Rs.mono(10.5)).foregroundStyle(Rs.dim)
+                    Spacer()
+                    Text(timeLabel(duration)).font(Rs.mono(10.5)).foregroundStyle(Rs.dim)
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 12)
+        .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Rs.border, lineWidth: 1))
+        .onAppear { setup() }
+        .onDisappear { teardown() }
+    }
+
+    private func setup() {
+        guard player == nil else { return }
+        let p = AVPlayer(url: url)
+        player = p
+        if let d = durationSec, d > 0 { duration = Double(d) }
+        observer = p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { t in
+            if !scrubbing { current = t.seconds.isFinite ? t.seconds : 0 }
+            if let item = p.currentItem {
+                let d = item.duration.seconds
+                if d.isFinite, d > 0 { duration = d }
+            }
+            if p.timeControlStatus == .paused, playing, p.currentItem?.currentTime() == p.currentItem?.duration {
+                playing = false; p.seek(to: .zero); current = 0
+            }
+        }
+    }
+
+    private func teardown() {
+        if let observer { player?.removeTimeObserver(observer) }
+        observer = nil
+        player?.pause(); player = nil; playing = false
+    }
+
+    private func toggle() {
+        guard let player else { return }
+        if playing { player.pause() } else { player.play() }
+        playing.toggle()
+    }
+
+    private func seek(to seconds: Double) {
+        player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+    }
+
+    private func timeLabel(_ s: Double) -> String {
+        guard s.isFinite, s >= 0 else { return "0:00" }
+        let total = Int(s); let m = total / 60; let sec = total % 60
+        return String(format: "%d:%02d", m, sec)
     }
 }
 
@@ -720,7 +872,7 @@ private struct BroadcastControlsPanel: View {
     @ViewBuilder private var content: some View {
         switch broadcast {
         case .idle:
-            bigButton("Go live", icon: "dot.radiowaves.left.and.right", fill: Rs.liveGlow, fg: .white, action: onGoLive)
+            bigButton("Take live now", icon: "dot.radiowaves.left.and.right", fill: Rs.liveGlow, fg: .white, action: onGoLive)
         case .countdown(let n):
             VStack(spacing: 10) {
                 ZStack {
@@ -771,6 +923,8 @@ private struct IngestPanel: View {
         StudioPanel {
             VStack(alignment: .leading, spacing: 12) {
                 StudioHeader(icon: "key.fill", title: "Ingest & stream key", caption: program.ingestProvider ?? "provider")
+                Text("Live-mic streaming (advanced) — not needed for uploaded-audio sessions.")
+                    .font(.inter(11)).foregroundStyle(Rs.dim).fixedSize(horizontal: false, vertical: true)
                 keyRow("Ingest URL", program.ingestUrl ?? "—", secret: false)
                 keyRow("Stream key", program.streamKey ?? "—", secret: true)
                 keyRow("HLS output", program.hlsUrl ?? "—", secret: false)
@@ -917,19 +1071,41 @@ private struct StreamHealthPanel: View {
 
 private struct SchedulePanel: View {
     let program: RadioProgram
+    private var isScheduled: Bool { (program.scheduledAt?.isEmpty == false) && program.status != "ended" }
+    private var whenText: String {
+        program.scheduledAt.map { Fmt.date($0, style: .dateTime.month(.abbreviated).day().hour().minute()) } ?? "Unscheduled"
+    }
     var body: some View {
         StudioPanel {
             VStack(alignment: .leading, spacing: 12) {
-                StudioHeader(icon: "calendar", title: "Schedule", caption: program.timezone ?? "")
+                HStack {
+                    StudioHeader(icon: "calendar", title: "Schedule", caption: program.timezone ?? "")
+                    autoAirChip
+                }
                 HStack(spacing: 0) {
-                    schedItem("WHEN", program.scheduledAt.map { Fmt.date($0, style: .dateTime.month(.abbreviated).day().hour().minute()) } ?? "Unscheduled")
+                    schedItem("WHEN", whenText)
                     schedDivider
                     schedItem("DURATION", program.durationMin.map { "\($0) min" } ?? "—")
                     schedDivider
                     schedItem("REPEAT", (program.repeatRule ?? "none").capitalized)
                 }
+                if isScheduled && program.autoGoLive {
+                    HStack(spacing: 6) {
+                        Image(systemName: "bolt.horizontal.circle.fill").font(.system(size: 11)).foregroundStyle(Rs.gold)
+                        Text("Airs automatically at \(whenText)").font(.inter(11.5, .medium)).foregroundStyle(Rs.dim)
+                    }
+                }
             }
         }
+    }
+    private var autoAirChip: some View {
+        HStack(spacing: 5) {
+            Image(systemName: program.autoGoLive ? "bolt.fill" : "bolt.slash.fill").font(.system(size: 9))
+            Text(program.autoGoLive ? "AUTO-AIR ON" : "AUTO-AIR OFF").font(.inter(9, .bold)).tracking(0.6)
+        }
+        .foregroundStyle(program.autoGoLive ? Rs.gold : Rs.faint)
+        .padding(.horizontal, 8).frame(height: 22)
+        .background((program.autoGoLive ? Rs.gold : Rs.faint).opacity(0.14)).clipShape(Capsule())
     }
     private var schedDivider: some View { Rectangle().fill(Rs.border).frame(width: 1, height: 32) }
     private func schedItem(_ label: String, _ value: String) -> some View {

@@ -183,6 +183,38 @@ enum PortalAPI {
         try await api.get("/admin/radio/programs/\(id)/comments", as: [RadioComment].self)
     }
 
+    /// Upload a broadcast audio recording to OUR API (self-hosted disk, multipart).
+    /// File field is "file" (audio/* only); optional text field `duration_sec`.
+    static func uploadRadioAudio(data: Data, filename: String, durationSec: Int? = nil) async throws -> RadioAudioUpload {
+        var fields: [String: String] = [:]
+        if let durationSec { fields["duration_sec"] = String(durationSec) }
+        return try await api.uploadFile(
+            "/admin/media/audio/upload",
+            fileData: data, filename: filename, mimeType: mimeType(for: filename),
+            fields: fields, as: RadioAudioUpload.self)
+    }
+
+    /// Create a program from an omit-null JSON body (audioUrl/autoGoLive included by caller).
+    static func createRadioProgram(_ body: [String: RadioJSON]) async throws -> RadioProgram {
+        try await api.post("/admin/radio/programs", body: body, as: RadioProgram.self)
+    }
+
+    /// Patch a program with an omit-null JSON body (e.g. attach audio_url after upload).
+    static func updateRadioProgram(_ id: String, _ body: [String: RadioJSON]) async throws -> RadioProgram {
+        try await api.patch("/admin/radio/programs/\(id)", body: body, as: RadioProgram.self)
+    }
+
+    private static func mimeType(for filename: String) -> String {
+        switch (filename as NSString).pathExtension.lowercased() {
+        case "mp3": return "audio/mpeg"
+        case "m4a", "mp4": return "audio/mp4"
+        case "aac": return "audio/aac"
+        case "wav": return "audio/wav"
+        case "ogg": return "audio/ogg"
+        default: return "audio/mpeg"
+        }
+    }
+
     // MARK: Virtual Mixer (admin) — scene presets + jingle soundboard.
     static func mixerScenes() async throws -> [MixerScene] {
         try await api.get("/admin/radio/mixer/scenes", as: [MixerScene].self)

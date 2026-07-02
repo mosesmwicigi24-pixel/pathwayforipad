@@ -33,6 +33,10 @@ struct RadioProgram: Codable, Identifiable, Equatable {
     let ingestUrl: String?
     let streamKey: String?
     let hlsUrl: String?
+    // Uploaded session audio + auto-air scheduler (contract ADDENDUM 2026-07-02).
+    let audioUrl: String?
+    let audioDurationSec: Int?
+    @DefaultTrue var autoGoLive: Bool
     let createdBy: String?
     let createdAt: String?
     let updatedAt: String?
@@ -44,6 +48,7 @@ struct RadioProgram: Codable, Identifiable, Equatable {
         case id, title, description, category, speaker, location, artworkUrl, tags, visibility
         case scheduledAt, durationMin, timezone, status, isLive, liveStartedAt, liveEndedAt
         case recordBroadcast, recordTarget, peakListeners, ingestProvider, ingestUrl, streamKey, hlsUrl
+        case audioUrl, audioDurationSec, autoGoLive
         case createdBy, createdAt, updatedAt
         case repeatRule = "repeat"
     }
@@ -53,6 +58,9 @@ struct RadioProgram: Codable, Identifiable, Equatable {
 
 /// `/rotate-key` → { stream_key }
 struct RadioStreamKey: Codable { let streamKey: String? }
+
+/// `POST /admin/media/audio/upload` → { url, duration_sec? }
+struct RadioAudioUpload: Codable { let url: String; let durationSec: Int? }
 
 /// `/health` (live only). All simulated-but-stable numbers from the fake provider.
 struct StreamHealth: Codable {

@@ -5,6 +5,7 @@
 // the caller just refreshes the list afterward.
 import SwiftUI
 import PhotosUI
+import UniformTypeIdentifiers
 
 // A conditional JSON body value so we omit keys the server should default (mirrors
 // the web spread and UsersView's JSONBodyValue, kept file-local here).
@@ -40,8 +41,17 @@ struct RadioProgramForm: View {
     @State private var scheduledAt = Date().addingTimeInterval(3600)
     @State private var durationMin = 60
     @State private var repeatRule = "none"
+    @State private var autoGoLive = true
     @State private var recordBroadcast = true
     @State private var recordTarget = "cloud"
+
+    // Uploaded session audio (ADDENDUM).
+    @State private var audioUrl = ""
+    @State private var audioDurationSec: Int?
+    @State private var audioFilename = ""
+    @State private var audioUploading = false
+    @State private var audioError: String?
+    @State private var showAudioImporter = false
 
     @State private var saving = false
     @State private var error: String?
@@ -78,6 +88,7 @@ struct RadioProgramForm: View {
                         field("Location") { TextField("", text: $location).dstyle() }
                         field("Tags (comma separated)") { TextField("", text: $tagsText).dstyle() }
                         field("Artwork") { artworkField }
+                        field("Audio recording") { audioField }
                         picker("Visibility", $visibility, visibilities)
                     }
                     section("Schedule") {
@@ -90,6 +101,10 @@ struct RadioProgramForm: View {
                             Text("Duration: \(durationMin) min").font(.inter(13.5, .semibold)).foregroundStyle(Rs.text)
                         }
                         picker("Repeat", $repeatRule, repeats)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Toggle(isOn: $autoGoLive) { Text("Auto-air at scheduled time").font(.inter(13.5, .semibold)).foregroundStyle(Rs.text) }.tint(Rs.gold)
+                            Text("Goes live automatically at the scheduled time.").font(.inter(11)).foregroundStyle(Rs.dim)
+                        }
                     }
                     section("Recording") {
                         Toggle(isOn: $recordBroadcast) { Text("Record this broadcast").font(.inter(13.5, .semibold)).foregroundStyle(Rs.text) }.tint(Rs.red)
@@ -200,6 +215,70 @@ struct RadioProgramForm: View {
         }
     }
 
+    // MARK: Audio upload — file importer → POST /admin/media/audio/upload
+
+    @ViewBuilder private var audioField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(0.04)).frame(width: 52, height: 52)
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Rs.border, lineWidth: 1))
+                    Image(systemName: audioUrl.isEmpty ? "waveform" : "waveform.circle.fill")
+                        .font(.system(size: 20)).foregroundStyle(audioUrl.isEmpty ? Rs.faint : Rs.gold)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Button { showAudioImporter = true } label: {
+                        Label(audioUrl.isEmpty ? "Upload audio" : "Change audio", systemImage: "arrow.up.circle.fill")
+                            .font(.inter(13, .semibold)).foregroundStyle(Rs.gold)
+                    }.buttonStyle(.plain).disabled(audioUploading)
+                    if !audioFilename.isEmpty {
+                        Text(audioFilename).font(.inter(11)).foregroundStyle(Rs.dim).lineLimit(1).truncationMode(.middle)
+                    } else {
+                        Text("Broadcast this recording when the session airs.").font(.inter(10.5)).foregroundStyle(Rs.faint)
+                    }
+                }
+                Spacer()
+                if audioUploading { ProgressView().tint(Rs.gold) }
+                else if !audioUrl.isEmpty {
+                    Button { audioUrl = ""; audioFilename = ""; audioDurationSec = nil } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 16)).foregroundStyle(Rs.faint)
+                    }.buttonStyle(.plain)
+                }
+            }
+            if let audioError {
+                Text(audioError).font(.inter(11, .medium)).foregroundStyle(Rs.red)
+            }
+        }
+        .fileImporter(isPresented: $showAudioImporter,
+                      allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav]) { result in
+            handleAudioPick(result)
+        }
+    }
+
+    private func handleAudioPick(_ result: Result<URL, Error>) {
+        switch result {
+        case .failure(let err):
+            audioError = err.localizedDescription
+        case .success(let url):
+            Task {
+                audioUploading = true; audioError = nil
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                do {
+                    let data = try Data(contentsOf: url)
+                    let up = try await PortalAPI.uploadRadioAudio(data: data, filename: url.lastPathComponent)
+                    audioUrl = up.url
+                    audioDurationSec = up.durationSec
+                    audioFilename = url.lastPathComponent
+                } catch {
+                    audioError = (error as? APIError)?.errorDescription ?? "Audio upload failed. Try again."
+                }
+                audioUploading = false
+            }
+        }
+    }
+
     // MARK: Submit
 
     private func submit() async {
@@ -220,8 +299,11 @@ struct RadioProgramForm: View {
             "duration_min": .int(durationMin),
             "repeat": .string(repeatRule),
             "timezone": .string(TimeZone.current.identifier),
+            "auto_go_live": .bool(autoGoLive),
             "record_broadcast": .bool(recordBroadcast),
             "record_target": recordBroadcast ? .string(recordTarget) : .null,
+            "audio_url": audioUrl.trimmingCharacters(in: .whitespaces).isEmpty ? .null : .string(audioUrl.trimmingCharacters(in: .whitespaces)),
+            "audio_duration_sec": audioDurationSec.map { RadioJSON.int($0) } ?? .null,
         ]
         if scheduled {
             let f = ISO8601DateFormatter()
@@ -229,7 +311,7 @@ struct RadioProgramForm: View {
         }
 
         do {
-            _ = try await APIClient.shared.post("/admin/radio/programs", body: body, as: RadioProgram.self)
+            _ = try await PortalAPI.createRadioProgram(body)
             saving = false
             onSaved()
             dismiss()
