@@ -20,6 +20,14 @@ import SwiftUI
 import Charts
 import AVKit
 import AVFoundation
+
+/// Put the app's audio session into `.playback` so studio audio (session player /
+/// playlist preview) keeps playing when the iPad locks or the app backgrounds.
+/// Pairs with `UIBackgroundModes: audio` in Info.plist. Idempotent + cheap.
+@inline(__always) func enableBackgroundPlayback() {
+    try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+    try? AVAudioSession.sharedInstance().setActive(true)
+}
 import UniformTypeIdentifiers
 
 // MARK: - ===================== Dark studio palette (contract) =====================
@@ -619,6 +627,7 @@ private struct AudioPlayerBar: View {
 
     private func setup() {
         guard player == nil else { return }
+        enableBackgroundPlayback()
         let p = AVPlayer(url: url)
         player = p
         if let d = durationSec, d > 0 { duration = Double(d) }
@@ -1466,6 +1475,7 @@ private final class AudioLibraryStore: ObservableObject {
 
     private func startPreview(sessionId: String, items: [RadioPlaylistItem], loop: LoopMode) {
         stopPreview()
+        enableBackgroundPlayback()
         previewItems = items
         previewLoop = loop
         previewIndex = 0
