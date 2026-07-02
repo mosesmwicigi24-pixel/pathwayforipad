@@ -10,6 +10,10 @@
 //     visible. When connected: mapped strips (mic→mic, music→bed, jingle→jingle, plus
 //     the master fader) push debounced gain changes, applying a scene also recalls it
 //     on the engine, and jingle pads fire the server-hosted audio.
+//   • EQ & SOUND               POST /admin/radio/mixer/live/eq — 3-band peaking EQ per
+//     bus (mic/bed/master × 100 Hz/1.2 kHz/8 kHz, −12…+12 dB) on the live broadcast.
+//     Tone presets POST all buses at once; slider tweaks debounce ~250ms per bus.
+//     EQ values are client-held (default flat) — offline they're local-only.
 // CLIENT-ONLY: unmapped strips (they carry a LOCAL tag while the engine is live),
 // pan/solo, and the music-bed player. With the engine offline the studio behaves
 // exactly as before — pure local state.
@@ -68,6 +72,25 @@ private func chColor(_ hex: String) -> Color {
     return Color(hex: UInt32(s, radix: 16) ?? 0xE6C66E)
 }
 
+// MARK: - EQ state (client-held; the engine applies whatever we push)
+
+/// One bus's 3-band EQ — dB gains at 100 Hz / 1.2 kHz / 8 kHz, −12…+12.
+struct EqBands: Equatable {
+    var low: Double = 0
+    var mid: Double = 0
+    var high: Double = 0
+    func dict() -> [String: Double] { ["low": low, "mid": mid, "high": high] }
+}
+
+/// A named tone preset across all three buses (tone only — Scenes own levels).
+struct EqPreset: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let mic: EqBands
+    let bed: EqBands
+    let master: EqBands
+}
+
 // MARK: - View model
 
 @MainActor
@@ -85,9 +108,17 @@ private final class MixerModel: ObservableObject {
     @Published var engineConnected = false
     @Published var sceneNote: String?      // inline note under the scene grid
     @Published var jingleNote: String?     // inline note under the soundboard
+    // 3-band EQ per bus — client-held (defaults flat); pushed live when connected.
+    @Published var eqMic = EqBands()
+    @Published var eqBed = EqBands()
+    @Published var eqMaster = EqBands()
+    @Published var activeEqPreset: String? = "flat"   // nil once a slider is touched
+    @Published var eqNote: String?         // inline note under the EQ panel
 
     /// One in-flight debounce task per engine channel (cancel-and-replace).
     private var levelPushTasks: [String: Task<Void, Never>] = [:]
+    /// One in-flight debounce task per EQ bus (cancel-and-replace).
+    private var eqPushTasks: [String: Task<Void, Never>] = [:]
 
     // Stable strip ids so the live mapping survives renames; saved scenes still
     // match by NAME in applyScene, so pre-existing server scenes keep working.
@@ -221,6 +252,78 @@ private final class MixerModel: ObservableObject {
         }
     }
 
+    // MARK: EQ & sound presets (tone shaping — Scenes own level balance)
+
+    static let eqPresets: [EqPreset] = [
+        .init(id: "flat", name: "Flat",
+              mic: EqBands(), bed: EqBands(), master: EqBands()),
+        .init(id: "talk", name: "Talk Show",
+              mic: EqBands(low: -2, mid: 2.5, high: 3.5),
+              bed: EqBands(low: 1, mid: -1.5, high: -1),
+              master: EqBands(low: 0, mid: 0, high: 1)),
+        .init(id: "podcast", name: "Podcast Studio",
+              mic: EqBands(low: 1.5, mid: 1, high: 2.5),
+              bed: EqBands(low: 0, mid: -2, high: 0),
+              master: EqBands(low: 0.5, mid: 0, high: 1)),
+        .init(id: "warm", name: "Warm Music",
+              mic: EqBands(),
+              bed: EqBands(low: 3, mid: 0, high: -1),
+              master: EqBands(low: 1, mid: 0, high: 0)),
+        .init(id: "bright", name: "Bright Music",
+              mic: EqBands(),
+              bed: EqBands(low: 1, mid: 0.5, high: 3),
+              master: EqBands(low: 0, mid: 0, high: 1.5)),
+    ]
+
+    /// Apply a preset to all three buses locally, then recall it on the engine in a
+    /// single POST carrying every bus. Offline → local-only (same rule as levels).
+    func applyEqPreset(_ p: EqPreset) {
+        eqMic = p.mic; eqBed = p.bed; eqMaster = p.master
+        activeEqPreset = p.id
+        eqNote = nil
+        // A stale per-bus debounce must not overwrite the preset we just applied.
+        for t in eqPushTasks.values { t.cancel() }
+        eqPushTasks.removeAll()
+        guard engineConnected else { return }
+        Task {
+            do {
+                try await PortalAPI.mixerLiveEq([
+                    "mic": p.mic.dict(), "bed": p.bed.dict(), "master": p.master.dict(),
+                ])
+            } catch {
+                eqNote = "Applied locally — the on-air engine didn't take \"\(p.name)\"."
+            }
+        }
+    }
+
+    /// A slider on `bus` was tweaked by hand: the preset highlight clears, and (when
+    /// the engine is connected) the bus's three bands ride a ~250ms cancel-and-replace
+    /// debounce so a drag lands as one POST with the final values — the same pattern
+    /// as the fader level pushes. Offline this is local-only, exactly like levels.
+    func eqEdited(_ bus: String) {
+        activeEqPreset = nil
+        guard engineConnected else { return }
+        eqPushTasks[bus]?.cancel()
+        eqPushTasks[bus] = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                try await PortalAPI.mixerLiveEq([bus: self.eqBands(for: bus).dict()])
+                eqNote = nil
+            } catch {
+                eqNote = "EQ change didn't reach the on-air engine — adjusting locally."
+            }
+        }
+    }
+
+    private func eqBands(for bus: String) -> EqBands {
+        switch bus {
+        case "mic": return eqMic
+        case "bed": return eqBed
+        default: return eqMaster
+        }
+    }
+
     /// Fire a jingle on air (the pad's local flash always happens regardless).
     /// 422 means the jingle predates server-hosted audio — tell the operator.
     func fireJingle(_ j: MixerJingle) {
@@ -315,6 +418,7 @@ struct MixerStudioView: View {
                 } else {
                     scenePresets
                     channelStrips
+                    eqAndSound
                     musicBed
                     jingleBoard
                 }
@@ -427,6 +531,41 @@ struct MixerStudioView: View {
                             .onChange(of: m.master) { _, v in m.masterChanged(v) }
                     }
                     .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+
+    // MARK: EQ & sound presets (REAL — 3-band peaking EQ per bus on the live engine)
+
+    private var eqAndSound: some View {
+        StudioPanel {
+            VStack(alignment: .leading, spacing: 14) {
+                StudioHeader(icon: "waveform.path", title: "EQ & Sound", caption: "100 Hz · 1.2 kHz · 8 kHz")
+                // Preset chips — active one highlighted; any manual tweak clears it.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(MixerModel.eqPresets) { p in
+                            EqPresetChip(name: p.name, active: p.id == m.activeEqPreset) {
+                                m.applyEqPreset(p)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 1)
+                }
+                Text("Presets shape tone (EQ). Use Scenes for level balance.")
+                    .font(.inter(10.5)).foregroundStyle(Rs.dim)
+                // Three bus groups: MIC (gold) · MUSIC BED (green) · MASTER (white).
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        EqBusGroup(title: "MIC", tint: Rs.gold, bands: $m.eqMic) { m.eqEdited("mic") }
+                        EqBusGroup(title: "MUSIC BED", tint: Rs.green, bands: $m.eqBed) { m.eqEdited("bed") }
+                        EqBusGroup(title: "MASTER", tint: Rs.text, bands: $m.eqMaster) { m.eqEdited("master") }
+                    }
+                    .padding(.vertical, 2)
+                }
+                if let note = m.eqNote {
+                    Text(note).font(.inter(11)).foregroundStyle(Rs.red).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -578,6 +717,110 @@ private struct VerticalFader: View {
 }
 
 private extension CGFloat { func clamped(to r: ClosedRange<CGFloat>) -> CGFloat { Swift.min(Swift.max(self, r.lowerBound), r.upperBound) } }
+
+// MARK: - EQ & Sound components
+
+/// A tone-preset chip; the active one carries the gold fill.
+private struct EqPresetChip: View {
+    let name: String
+    let active: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(name).font(.inter(11.5, .bold))
+                .foregroundStyle(active ? Color(hex: 0x0A1120) : Rs.dim)
+                .padding(.horizontal, 13).frame(height: 28)
+                .background(active ? AnyShapeStyle(Rs.goldFill) : AnyShapeStyle(Color.white.opacity(0.04)))
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(active ? Rs.gold.opacity(0.5) : Rs.border, lineWidth: 1))
+        }.pressable()
+    }
+}
+
+/// One bus (MIC / MUSIC BED / MASTER): three LOW/MID/HIGH sliders in a tinted card,
+/// visually the EQ sibling of the channel strips.
+private struct EqBusGroup: View {
+    let title: String
+    let tint: Color
+    @Binding var bands: EqBands
+    /// Fired on any manual slider tweak in this bus (the model debounces per bus).
+    let onEdit: () -> Void
+    var body: some View {
+        VStack(spacing: 10) {
+            Text(title).font(.inter(9.5, .bold)).tracking(1.2).foregroundStyle(tint).lineLimit(1)
+            HStack(alignment: .top, spacing: 8) {
+                EqSlider(label: "LOW", freq: "100 Hz", value: $bands.low, color: tint, onEdit: onEdit)
+                EqSlider(label: "MID", freq: "1.2 kHz", value: $bands.mid, color: tint, onEdit: onEdit)
+                EqSlider(label: "HIGH", freq: "8 kHz", value: $bands.high, color: tint, onEdit: onEdit)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 12)
+        .background(Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Rs.border, lineWidth: 1))
+    }
+}
+
+/// A slim center-origin vertical EQ slider (−12…+12 dB, 0.5 dB steps) with a live
+/// mono readout, a subtle 0 dB center tick, and a frequency caption. Center-origin
+/// fill needs its own control — the channel VerticalFader fills from the bottom.
+private struct EqSlider: View {
+    let label: String       // LOW / MID / HIGH
+    let freq: String        // 100 Hz · 1.2 kHz · 8 kHz
+    @Binding var value: Double   // −12…+12 dB
+    var color: Color
+    /// User drags only — preset writes set the binding directly and skip this,
+    /// so applying a preset never clears its own highlight.
+    var onEdit: () -> Void
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Text(value == 0 ? "0.0" : String(format: "%+.1f", value))
+                .font(Rs.mono(10, .semibold))
+                .foregroundStyle(value == 0 ? Rs.dim : color)
+            GeometryReader { geo in
+                let w = geo.size.width, h = geo.size.height
+                let mid = h / 2
+                let travel = mid - 9                       // keeps the 14pt knob inside
+                let knobY = mid - CGFloat(value / 12) * travel
+                ZStack {
+                    Capsule().fill(Color.white.opacity(0.06))
+                        .frame(width: 5, height: h)
+                        .position(x: w / 2, y: mid)
+                    // Subtle 0 dB center tick.
+                    Rectangle().fill(Color.white.opacity(0.16))
+                        .frame(width: 16, height: 1)
+                        .position(x: w / 2, y: mid)
+                    // Fill runs from the center tick to the knob (boost up, cut down).
+                    Capsule().fill(color.opacity(0.9))
+                        .frame(width: 5, height: max(abs(knobY - mid), 2))
+                        .position(x: w / 2, y: (knobY + mid) / 2)
+                    Circle().fill(Rs.text)
+                        .frame(width: 14, height: 14)
+                        .overlay(Circle().stroke(color, lineWidth: 1.5))
+                        .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
+                        .position(x: w / 2, y: knobY)
+                }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0).onChanged { g in
+                        let raw = Double((mid - g.location.y) / travel) * 12
+                        let stepped = (min(12, max(-12, raw)) * 2).rounded() / 2
+                        if stepped != value {
+                            value = stepped
+                            onEdit()
+                        }
+                    }
+                )
+            }
+            .frame(width: 38, height: 110)
+            VStack(spacing: 1) {
+                Text(label).font(.inter(8, .bold)).tracking(0.6).foregroundStyle(Rs.dim)
+                Text(freq).font(.inter(7.5)).foregroundStyle(Rs.faint)
+            }
+        }
+    }
+}
 
 // MARK: - Music bed player (client-only)
 

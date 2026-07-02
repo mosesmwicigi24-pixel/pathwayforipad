@@ -282,6 +282,15 @@ enum PortalAPI {
         struct Body: Encodable { let channels: [String: Int] }
         _ = try await api.post("/admin/radio/mixer/live/levels", body: Body(channels: channels), as: RadioOk.self)
     }
+    /// Push 3-band EQ gains for one or more buses on the live engine.
+    /// Buses: mic|bed|master → bands low|mid|high in dB (−12…+12, server-clamped).
+    /// Same body pattern as the level pushes; every key here is already lowercase,
+    /// so the snake-case encoder leaves them identical on the wire. 503 when no
+    /// engine is configured (callers treat that as offline/local-only).
+    static func mixerLiveEq(_ bands: [String: [String: Double]]) async throws {
+        struct Body: Encodable { let bands: [String: [String: Double]] }
+        _ = try await api.post("/admin/radio/mixer/live/eq", body: Body(bands: bands), as: RadioOk.self)
+    }
     /// Recall a saved scene on the engine.
     static func mixerLiveScene(_ id: String) async throws {
         _ = try await api.post("/admin/radio/mixer/live/scene", body: ["scene_id": RadioJSON.string(id)], as: RadioOk.self)
