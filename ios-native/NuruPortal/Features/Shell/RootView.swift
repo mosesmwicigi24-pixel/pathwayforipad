@@ -87,9 +87,12 @@ private struct NavGroup: Identifiable {
 
 private let navGroups: [NavGroup] = [
     .init(label: "Portal", items: [.dashboard, .notifications]),
-    .init(label: "Operations", items: [.cellEngagement, .members, .reflectionQueue, .chat, .events, .finance, .certificates, .badges, .radio, .mixer]),
-    .init(label: "Curriculum", items: [.curriculumLevels, .cms, .levelDetail, .quizBuilder, .videoLibrary, .contentStudio]),
-    .init(label: "System", items: [.users, .roles, .congregations, .countries, .languages, .peopleIntelligence, .proximity]),
+    .init(label: "Curriculum", items: [.curriculumLevels, .cms, .levelDetail, .quizBuilder, .contentStudio]),
+    .init(label: "Media", items: [.videoLibrary, .radio, .mixer]),
+    .init(label: "Operations", items: [.cellEngagement, .members, .reflectionQueue, .events, .finance, .certificates, .badges]),
+    .init(label: "Communication", items: [.chat]),
+    .init(label: "System", items: [.peopleIntelligence, .proximity]),
+    .init(label: "Settings", items: [.users, .roles, .congregations, .countries, .languages]),
 ]
 
 /// App-wide navigation router — lets any detail screen jump to another top-level
