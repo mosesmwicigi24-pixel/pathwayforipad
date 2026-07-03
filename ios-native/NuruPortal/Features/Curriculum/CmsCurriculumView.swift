@@ -1852,26 +1852,97 @@ private struct ModuleEditorPane: View {
     private let visibilityOpts: [(v: String, l: String)] = [("members", "Members"), ("leaders", "Leaders only"), ("public", "Public")]
     private var isQuiz: Bool { evaluationKind == "quiz" }
 
-    // Web parity (LevelDetail.tsx "Insert page break"): the server splits
-    // lesson_content on <!-- page-break --> markers into the mobile reader's
-    // pages. iOS 17's TextEditor exposes no cursor position, so the button
-    // appends the canonical marker on its own paragraph — the author then types
-    // the next page's content beneath it. Same marker the web writes, so the
-    // backend pagination is byte-identical across surfaces.
+    // Titled teaching sections — a convention over lesson_content (no backend
+    // change). The server splits lesson_content on <!-- page-break --> markers
+    // into the mobile reader's pages; we treat each page as a "section" whose
+    // title is its leading Markdown heading. Authors add / rename / delete
+    // sections here; the marker written is byte-identical to the web's, so
+    // backend pagination stays consistent across surfaces.
     private static let pageBreakMarker = "<!-- page-break -->"
-    private var lessonPageCount: Int {
-        let parts = lessonContent
-            .components(separatedBy: ModuleEditorPane.pageBreakMarker)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        return max(1, parts.count)
+    private static let sectionJoiner = "\n\n<!-- page-break -->\n\n"
+
+    private struct Section: Identifiable {
+        let id = UUID()
+        var title: String?
+        var body: String
     }
-    private func insertPageBreak() {
-        var s = lessonContent
-        while s.hasSuffix("\n") || s.hasSuffix(" ") { s.removeLast() }
-        if !s.isEmpty { s += "\n\n" }
-        s += "\(ModuleEditorPane.pageBreakMarker)\n\n"
-        lessonContent = s
+
+    // Split on the literal marker (the app only ever writes the literal marker),
+    // then derive each piece's title from a leading `#…######`-style heading.
+    private func parseSections(_ content: String) -> [Section] {
+        content
+            .components(separatedBy: ModuleEditorPane.pageBreakMarker)
+            .map { piece -> Section in
+                let trimmed = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty { return Section(title: nil, body: "") }
+                var lines = trimmed.components(separatedBy: "\n")
+                // First non-empty line (guaranteed present — trimmed is non-empty).
+                let firstIdx = lines.firstIndex { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? 0
+                let first = lines[firstIdx]
+                if let title = Self.headingTitle(first) {
+                    lines.remove(at: firstIdx)
+                    // Drop one following blank line so the body doesn't start hollow.
+                    if firstIdx < lines.count, lines[firstIdx].trimmingCharacters(in: .whitespaces).isEmpty {
+                        lines.remove(at: firstIdx)
+                    }
+                    let body = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                    return Section(title: title, body: body)
+                }
+                return Section(title: nil, body: trimmed)
+            }
+            .filter { !($0.title == nil && $0.body.isEmpty) }
+    }
+
+    // `^#{1,6}[ \t]+(.+?)[ \t]*$` → the captured heading text, else nil.
+    private static func headingTitle(_ line: String) -> String? {
+        guard let re = try? NSRegularExpression(pattern: "^#{1,6}[ \\t]+(.+?)[ \\t]*$") else { return nil }
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let m = re.firstMatch(in: line, range: range),
+              let capRange = Range(m.range(at: 1), in: line) else { return nil }
+        return String(line[capRange])
+    }
+
+    private func sectionLabel(_ title: String?, _ index0: Int) -> String {
+        title ?? "Section \(index0 + 1)"
+    }
+
+    // Mutations operate on the RAW lessonContent split verbatim on the marker,
+    // then rejoin the surviving pieces with the canonical joiner.
+    private func rawPieces() -> [String] {
+        lessonContent.components(separatedBy: ModuleEditorPane.pageBreakMarker)
+    }
+
+    private func addSection() {
+        if lessonContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lessonContent = "## New section\n\n"
+        } else {
+            lessonContent += "\n\n<!-- page-break -->\n\n## New section\n\n"
+        }
+    }
+
+    private func deleteSection(_ index: Int) {
+        var pieces = rawPieces()
+        guard pieces.indices.contains(index) else { return }
+        pieces.remove(at: index)
+        lessonContent = pieces.joined(separator: ModuleEditorPane.sectionJoiner)
+    }
+
+    private func renameSection(_ index: Int, to title: String) {
+        var pieces = rawPieces()
+        guard pieces.indices.contains(index) else { return }
+        let clean = title.trimmingCharacters(in: .whitespaces)
+        var lines = pieces[index].components(separatedBy: "\n")
+        let firstIdx = lines.firstIndex { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        if let firstIdx, Self.headingTitle(lines[firstIdx]) != nil {
+            // Rewrite the existing leading heading in place.
+            lines[firstIdx] = "## \(clean)"
+            pieces[index] = lines.joined(separator: "\n")
+        } else {
+            // No heading yet — prepend one.
+            let existing = pieces[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            pieces[index] = existing.isEmpty ? "## \(clean)\n\n" : "## \(clean)\n\n\(existing)"
+        }
+        lessonContent = pieces.joined(separator: ModuleEditorPane.sectionJoiner)
     }
 
     var body: some View {
@@ -1923,17 +1994,50 @@ private struct ModuleEditorPane: View {
                     .scrollContentBackground(.hidden).padding(8).background(Nuru.white)
                     .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                HStack(spacing: 12) {
-                    Button { insertPageBreak() } label: {
-                        Label("Insert page break", systemImage: "rectangle.split.1x2")
-                            .font(.inter(12, .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Nuru.gold)
+                HStack {
                     Spacer(minLength: 8)
-                    Text("\(lessonPageCount) \(lessonPageCount == 1 ? "page" : "pages") · \(lessonContent.count) chars")
+                    Text("\(lessonContent.count) chars")
                         .font(.nMicro).foregroundStyle(Nuru.ink400)
                 }
+
+                // ── Sections outline ──
+                let sections = parseSections(lessonContent)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("SECTIONS").font(.inter(11, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                        Spacer(minLength: 8)
+                        Text("\(sections.count) \(sections.count == 1 ? "section" : "sections")")
+                            .font(.nMicro).foregroundStyle(Nuru.ink400)
+                    }
+                    if sections.isEmpty {
+                        Text("No sections yet — add one to start.")
+                            .font(.nCaption).foregroundStyle(Nuru.ink400)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 6)
+                    } else {
+                        ForEach(Array(sections.enumerated()), id: \.element.id) { i, sec in
+                            SectionOutlineRow(
+                                index0: i,
+                                seed: sectionLabel(sec.title, i),
+                                onRename: { renameSection(i, to: $0) },
+                                onDelete: { deleteSection(i) })
+                        }
+                    }
+                    Button { addSection() } label: {
+                        Label("Add section", systemImage: "rectangle.split.1x2")
+                            .font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 42)
+                            .background(Nuru.gold)
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                }
+                .padding(12)
+                .background(Nuru.white)
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
             } header: { CmsSectionHeader(text: "Lesson content · Markdown") }
             .listRowBackground(Color.clear)
 
@@ -2109,5 +2213,64 @@ private struct ModuleEditorPane: View {
             self.error = (error as? APIError)?.errorDescription ?? "Save failed — the module may have changed elsewhere (reload)."
             saving = false
         }
+    }
+}
+
+// MARK: - SectionOutlineRow
+//
+// One row in the ModuleEditorPane sections outline: number + an inline rename
+// field + a delete button. The field carries its own local @State seeded from
+// the parsed section title so re-parses upstream don't thrash focus — it only
+// pushes back to the model on end-editing (submit / focus loss).
+
+private struct SectionOutlineRow: View {
+    let index0: Int
+    let seed: String
+    let onRename: (String) -> Void
+    let onDelete: () -> Void
+
+    @State private var draft: String = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("\(index0 + 1)")
+                .font(.inter(12, .bold)).foregroundStyle(Nuru.gold)
+                .frame(width: 22, height: 22)
+                .background(Nuru.gold.opacity(0.14))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+            TextField("Section title", text: $draft)
+                .font(.inter(14, .medium)).foregroundStyle(Nuru.ink)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .submitLabel(.done)
+                .onSubmit { commit() }
+
+            Button(role: .destructive) { onDelete() } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Nuru.danger)
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Nuru.paper)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .onAppear { draft = seed }
+        .onChange(of: seed) { _, new in if !focused { draft = new } }
+        .onChange(of: focused) { _, isFocused in if !isFocused { commit() } }
+    }
+
+    private func commit() {
+        let clean = draft.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty, clean != seed else {
+            if clean.isEmpty { draft = seed }
+            return
+        }
+        onRename(clean)
     }
 }
