@@ -125,6 +125,9 @@ struct StreamHealth: Codable {
     @DefaultZero var dropped: Int
     @DefaultZeroD var stability: Double
     @DefaultZero var listeners: Int
+    /// Current track title from the stream's icy metadata (`now_playing`, contract
+    /// ADDENDUM). Optional so payloads without it keep decoding.
+    let nowPlaying: String?
 }
 
 struct RadioComment: Codable, Identifiable {

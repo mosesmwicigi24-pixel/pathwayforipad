@@ -415,7 +415,9 @@ struct RadioStudioView: View {
         // Audio library + Sessions playlists (global to the studio) — see the
         // frozen /admin/radio/tracks + /programs/:id/tracks contract.
         AudioLibrarySection(store: library)
-        SessionsSection(store: library)
+        SessionsSection(store: library,
+                        liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
+                        nowPlaying: m.health?.nowPlaying)
 
         if let p = program {
             // LIVE status bar (only while live/paused) — duration/listeners/bitrate/health.
@@ -700,14 +702,23 @@ private struct LiveStatusBar: View {
 
     var body: some View {
         StudioPanel(padding: 14, glow: true) {
-            HStack(spacing: 0) {
-                stat("DURATION", duration, Rs.gold, "clock")
-                divider
-                stat("LISTENERS", "\(health?.listeners ?? program.peakListeners)", Rs.green, "person.2.fill")
-                divider
-                stat("BITRATE", health.map { "\(Int($0.bitrate)) kbps" } ?? "—", Rs.text, "waveform")
-                divider
-                stat("HEALTH", healthLabel, healthColor, "heart.text.square")
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 0) {
+                    stat("DURATION", duration, Rs.gold, "clock")
+                    divider
+                    stat("LISTENERS", "\(health?.listeners ?? program.peakListeners)", Rs.green, "person.2.fill")
+                    divider
+                    stat("BITRATE", health.map { "\(Int($0.bitrate)) kbps" } ?? "—", Rs.text, "waveform")
+                    divider
+                    stat("HEALTH", healthLabel, healthColor, "heart.text.square")
+                }
+                // Now playing (icy metadata) — only when the health poll reports it.
+                if let np = nowPlaying {
+                    Text("♪ \(np)")
+                        .font(.inter(11.5, .semibold)).foregroundStyle(Rs.gold)
+                        .lineLimit(1).truncationMode(.tail)
+                        .padding(.horizontal, 12)
+                }
             }
         }
         .onReceive(clock) { now = $0 }
@@ -743,6 +754,10 @@ private struct LiveStatusBar: View {
         let secs = max(0, Int(now.timeIntervalSince(start)))
         let h = secs / 3600, m = (secs % 3600) / 60, s = secs % 60
         return String(format: "%02d:%02d:%02d", h, m, s)
+    }
+    private var nowPlaying: String? {
+        guard let np = health?.nowPlaying?.trimmingCharacters(in: .whitespacesAndNewlines), !np.isEmpty else { return nil }
+        return np
     }
     private var healthLabel: String {
         guard let st = health?.stability else { return broadcast == .paused ? "Paused" : "—" }
@@ -1553,6 +1568,7 @@ private final class AudioLibraryStore: ObservableObject {
     // Client-side preview (AVQueuePlayer honouring loopMode)
     @Published var previewSessionId: String?
     @Published var previewTitle: String?
+    @Published var previewItemId: String?     // playlist item currently in the player
     private var player: AVQueuePlayer?
     private var previewItems: [RadioPlaylistItem] = []
     private var previewIndex = 0
@@ -1747,6 +1763,7 @@ private final class AudioLibraryStore: ObservableObject {
         player?.removeAllItems()
         player?.insert(item, after: nil)
         previewTitle = previewItems[previewIndex].track.title
+        previewItemId = previewItems[previewIndex].id
         player?.play()
     }
 
@@ -1778,6 +1795,7 @@ private final class AudioLibraryStore: ObservableObject {
         if let o = endObserver { NotificationCenter.default.removeObserver(o); endObserver = nil }
         previewSessionId = nil
         previewTitle = nil
+        previewItemId = nil
         previewItems = []
         previewIndex = 0
     }
@@ -1954,6 +1972,10 @@ private struct TrackRow: View {
 
 private struct SessionsSection: View {
     @ObservedObject var store: AudioLibraryStore
+    /// Id of the program currently on air (nil when off air) + the icy `now_playing`
+    /// title from the ~3s health poll — used to badge the airing playlist row.
+    var liveProgramId: String? = nil
+    var nowPlaying: String? = nil
 
     var body: some View {
         StudioPanel {
@@ -2012,6 +2034,8 @@ private struct SessionsSection: View {
                                 items: store.playlists[s.id] ?? [],
                                 loop: store.loopMode(for: s.id),
                                 tracks: store.tracks,
+                                nowPlaying: s.id == liveProgramId ? nowPlaying : nil,
+                                previewItemId: store.previewSessionId == s.id ? store.previewItemId : nil,
                                 onSetLoop: { store.setLoop(s.id, $0) },
                                 onPlay: { store.playLive(s.id) },
                                 onDeleteSession: { store.deleteSession(s.id) },
@@ -2032,6 +2056,11 @@ private struct SessionCard: View {
     let items: [RadioPlaylistItem]
     let loop: LoopMode
     let tracks: [RadioTrack]
+    /// icy `now_playing` for THIS session (non-nil only while it is the live program).
+    let nowPlaying: String?
+    /// Playlist item the local AVQueuePlayer preview is on (non-nil only for the
+    /// previewing session).
+    let previewItemId: String?
     let onSetLoop: (LoopMode) -> Void
     let onPlay: () -> Void
     let onDeleteSession: () -> Void
@@ -2094,27 +2123,18 @@ private struct SessionCard: View {
             } else {
                 VStack(spacing: 6) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
-                        HStack(spacing: 9) {
-                            Text("\(idx + 1)").font(Rs.mono(11, .bold)).foregroundStyle(Rs.dim).frame(width: 18, alignment: .trailing)
-                            Circle().fill(dotColor(item.track.kind)).frame(width: 8, height: 8)
-                            Text(item.track.title.isEmpty ? "Untitled" : item.track.title)
-                                .font(.inter(12)).foregroundStyle(Rs.text).lineLimit(1)
-                            Spacer(minLength: 6)
-                            Button { onMove(idx, -1) } label: {
-                                Image(systemName: "chevron.up").font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(idx == 0 ? Rs.faint : Rs.dim).frame(width: 26, height: 26)
-                            }.pressable().hoverEffect(.highlight).disabled(idx == 0)
-                            Button { onMove(idx, 1) } label: {
-                                Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(idx == items.count - 1 ? Rs.faint : Rs.dim).frame(width: 26, height: 26)
-                            }.pressable().hoverEffect(.highlight).disabled(idx == items.count - 1)
-                            Button { onRemove(item.id) } label: {
-                                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(Rs.dim).frame(width: 26, height: 26)
-                            }.pressable().hoverEffect(.highlight)
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        PlaylistItemRow(
+                            index: idx,
+                            item: item,
+                            dotColor: dotColor(item.track.kind),
+                            isOnAir: item.id == onAirItemId,
+                            isPreviewing: item.id == previewItemId,
+                            isFirst: idx == 0,
+                            isLast: idx == items.count - 1,
+                            onMoveUp: { onMove(idx, -1) },
+                            onMoveDown: { onMove(idx, 1) },
+                            onRemove: { onRemove(item.id) }
+                        )
                     }
                 }
             }
@@ -2146,6 +2166,95 @@ private struct SessionCard: View {
 
     private func dotColor(_ kind: String) -> Color {
         (TrackKind(rawValue: kind) ?? .audio).color
+    }
+
+    /// First playlist item whose track matches the icy `now_playing` string —
+    /// case-insensitive containment either direction on the title, falling back to
+    /// the audio-url basename sans extension. No match → nil (no highlight).
+    private var onAirItemId: String? {
+        guard let raw = nowPlaying?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !raw.isEmpty else { return nil }
+        return items.first { matches($0.track, nowPlaying: raw) }?.id
+    }
+    private func matches(_ track: RadioTrack, nowPlaying np: String) -> Bool {
+        let title = track.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !title.isEmpty, title.contains(np) || np.contains(title) { return true }
+        // Fallback: liquidsoap often reports the source filename.
+        if let last = URL(string: track.audioUrl)?.lastPathComponent {
+            let base = ((last.removingPercentEncoding ?? last) as NSString)
+                .deletingPathExtension
+                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !base.isEmpty, base.contains(np) || np.contains(base) { return true }
+        }
+        return false
+    }
+}
+
+/// One numbered playlist row: kind dot, title, ON AIR / PREVIEW badge, mono
+/// duration, reorder + remove controls. The ON AIR dot pulses gold (gated on
+/// Reduce Motion); PREVIEW is a static green tag so the two states read apart.
+private struct PlaylistItemRow: View {
+    let index: Int
+    let item: RadioPlaylistItem
+    let dotColor: Color
+    let isOnAir: Bool
+    let isPreviewing: Bool
+    let isFirst: Bool
+    let isLast: Bool
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+    let onRemove: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Text("\(index + 1)").font(Rs.mono(11, .bold)).foregroundStyle(Rs.dim).frame(width: 18, alignment: .trailing)
+            if isOnAir {
+                Circle().fill(Rs.gold).frame(width: 8, height: 8)
+                    .opacity(!reduceMotion && pulse ? 0.3 : 1)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulse)
+                    .onAppear { pulse = true }
+                    .onDisappear { pulse = false }
+            } else {
+                Circle().fill(dotColor).frame(width: 8, height: 8)
+            }
+            Text(item.track.title.isEmpty ? "Untitled" : item.track.title)
+                .font(isOnAir ? .inter(12, .semibold) : .inter(12))
+                .foregroundStyle(isOnAir ? Rs.gold : Rs.text).lineLimit(1)
+            if isOnAir {
+                microTag("ON AIR", Rs.gold)
+            } else if isPreviewing {
+                microTag("PREVIEW", Rs.green)
+            }
+            Spacer(minLength: 6)
+            Text(fmtDuration(item.track.durationSec) ?? "—")
+                .font(Rs.mono(10.5)).foregroundStyle(Rs.dim).fixedSize()
+            Button(action: onMoveUp) {
+                Image(systemName: "chevron.up").font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(isFirst ? Rs.faint : Rs.dim).frame(width: 26, height: 26)
+            }.pressable().hoverEffect(.highlight).disabled(isFirst)
+            Button(action: onMoveDown) {
+                Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(isLast ? Rs.faint : Rs.dim).frame(width: 26, height: 26)
+            }.pressable().hoverEffect(.highlight).disabled(isLast)
+            Button(action: onRemove) {
+                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Rs.dim).frame(width: 26, height: 26)
+            }.pressable().hoverEffect(.highlight)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(isOnAir ? Rs.gold.opacity(0.08) : Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .stroke(isOnAir ? Rs.gold.opacity(0.35) : Color.clear, lineWidth: 1))
+    }
+
+    private func microTag(_ label: String, _ color: Color) -> some View {
+        Text(label).font(.inter(8, .bold)).tracking(0.7).foregroundStyle(color)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(color.opacity(0.16)).clipShape(Capsule())
     }
 }
 

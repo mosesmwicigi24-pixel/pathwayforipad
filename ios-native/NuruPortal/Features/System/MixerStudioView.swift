@@ -355,7 +355,7 @@ private final class MixerModel: ObservableObject {
               mic: EqBands(low: -1, mid: 3, high: 4),
               bed: EqBands(low: 1, mid: -5.5, high: -2),
               master: EqBands(low: 0, mid: 0, high: 0.5),
-              levels: ["mic": 93, "bed": 28]),
+              levels: ["mic": 93, "bed": 20]),
         .init(id: "warm", name: "Warm Music",
               mic: EqBands(),
               bed: EqBands(low: 3, mid: 0, high: -1),
