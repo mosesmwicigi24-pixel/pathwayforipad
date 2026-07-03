@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 /// every upload handler runs `validate` on the picked file BEFORE uploading so the
 /// user gets a friendly inline error instead of a server rejection after the transfer.
 enum AudioUploadRules {
-    static let maxBytes = 70 * 1024 * 1024
+    static let maxBytes = 110 * 1024 * 1024
     static let allowedExts: Set<String> = ["mp3", "wav", "m4a", "aac", "alac"]
 
     /// What the audio pickers offer. No generic `.audio` — only the formats the
@@ -29,7 +29,7 @@ enum AudioUploadRules {
             return "Only MP3, WAV, AAC or ALAC (.m4a) audio is allowed."
         }
         guard byteCount <= maxBytes else {
-            return "\u{201C}\(filename)\u{201D} is over the 70 MB limit."
+            return "\u{201C}\(filename)\u{201D} is over the 110 MB limit."
         }
         return nil
     }
