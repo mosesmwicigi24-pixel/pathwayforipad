@@ -1217,26 +1217,48 @@ private struct IngestPanel: View {
     var body: some View {
         StudioPanel {
             VStack(alignment: .leading, spacing: 12) {
-                StudioHeader(icon: "key.fill", title: "Ingest & stream key", caption: program.ingestProvider ?? "provider")
-                Text("Live-mic streaming (advanced) — not needed for uploaded-audio sessions.")
-                    .font(.inter(11)).foregroundStyle(Rs.dim).fixedSize(horizontal: false, vertical: true)
-                keyRow("Ingest URL", program.ingestUrl ?? "—", secret: false)
-                keyRow("Stream key", program.streamKey ?? "—", secret: true)
-                keyRow("HLS output", program.hlsUrl ?? "—", secret: false)
-                Button(action: onRotate) {
-                    HStack(spacing: 7) {
-                        if busy { ProgressView().tint(Rs.gold) } else { Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 12, weight: .semibold)) }
-                        Text("Rotate stream key").font(.inter(12.5, .semibold))
+                Button {
+                    if reduceMotion {
+                        ingestExpanded.toggle()
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.22)) { ingestExpanded.toggle() }
                     }
-                    .foregroundStyle(Rs.gold)
-                    .padding(.horizontal, 14).frame(height: 36)
-                    .background(Rs.gold.opacity(0.12)).clipShape(Capsule())
-                    .overlay(Capsule().stroke(Rs.gold.opacity(0.35), lineWidth: 1))
-                }.pressable().hoverEffect(.highlight).disabled(busy).padding(.top, 2)
+                } label: {
+                    HStack(spacing: 8) {
+                        StudioHeader(icon: "key.fill", title: "Ingest & stream key", caption: program.ingestProvider ?? "provider")
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Rs.dim)
+                            .rotationEffect(.degrees(ingestExpanded ? 90 : 0))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .pressable().hoverEffect(.highlight)
+                .accessibilityLabel("Ingest & stream key")
+                .accessibilityValue(ingestExpanded ? "expanded" : "collapsed")
+                if ingestExpanded {
+                    Text("Live-mic streaming (advanced) — not needed for uploaded-audio sessions.")
+                        .font(.inter(11)).foregroundStyle(Rs.dim).fixedSize(horizontal: false, vertical: true)
+                    keyRow("Ingest URL", program.ingestUrl ?? "—", secret: false)
+                    keyRow("Stream key", program.streamKey ?? "—", secret: true)
+                    keyRow("HLS output", program.hlsUrl ?? "—", secret: false)
+                    Button(action: onRotate) {
+                        HStack(spacing: 7) {
+                            if busy { ProgressView().tint(Rs.gold) } else { Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 12, weight: .semibold)) }
+                            Text("Rotate stream key").font(.inter(12.5, .semibold))
+                        }
+                        .foregroundStyle(Rs.gold)
+                        .padding(.horizontal, 14).frame(height: 36)
+                        .background(Rs.gold.opacity(0.12)).clipShape(Capsule())
+                        .overlay(Capsule().stroke(Rs.gold.opacity(0.35), lineWidth: 1))
+                    }.pressable().hoverEffect(.highlight).disabled(busy).padding(.top, 2)
+                }
             }
         }
     }
+    @State private var ingestExpanded = false
     @State private var revealKey = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private func keyRow(_ label: String, _ value: String, secret: Bool) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(label.uppercased()).font(.inter(9, .bold)).tracking(0.8).foregroundStyle(Rs.dim)
