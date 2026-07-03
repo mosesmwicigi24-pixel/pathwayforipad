@@ -906,23 +906,21 @@ private struct AudioSourcePanel: View {
         }
     }
 
-    // MARK: Monitor playback (in-ear pre-fader cue — NO mic)
+    // MARK: Monitor playback (in-ear feed — NO mic)
 
-    /// The engine publishes a monitor mount — pre-fader bed + jingles, mic
-    /// excluded — at the program's playback URL with `s_` swapped for `mon_`
-    /// (…/listen/s_abc.mp3 → …/listen/mon_abc.mp3). Only meaningful while the
-    /// selected session is actually live.
+    /// The engine publishes TWO monitor feeds per live program — on-air (`mon_`,
+    /// the broadcast chain minus the mic) and cue (`cue_`, pre-fader bed, music
+    /// always full). Derivation lives in MicBroadcaster.monitorFeedURL; this
+    /// respects the current mode and is only meaningful while the selected
+    /// session is actually live.
     private var monitorURL: URL? {
-        guard let p = program, p.isLive,
-              let hls = p.hlsUrl, var url = URL(string: hls) else { return nil }
-        let last = url.lastPathComponent
-        guard last.hasPrefix("s_") else { return nil }
-        url.deleteLastPathComponent()
-        return url.appendingPathComponent("mon_" + last.dropFirst(2))
+        guard let p = program, p.isLive else { return nil }
+        return MicBroadcaster.monitorFeedURL(baseHlsUrl: p.hlsUrl, mode: mic.monitorMode)
     }
 
     private var monitorPlaybackRow: some View {
         let url = monitorURL
+        let available = url != nil || mic.monitorPlaying
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: "headphones")
@@ -931,9 +929,9 @@ private struct AudioSourcePanel: View {
                     .frame(width: 20)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("MONITOR PLAYBACK").font(.inter(9, .bold)).tracking(0.8).foregroundStyle(Rs.dim)
-                    Text(url == nil && !mic.monitorPlaying
-                         ? "Select a live session first"
-                         : "Hear the live music in your headphones — pre-fader, no delay-critical mic")
+                    Text(available
+                         ? "Hear the live music in your headphones — pick your feed below"
+                         : "Select a live session first")
                         .font(.inter(10.5)).foregroundStyle(Rs.faint)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -941,14 +939,15 @@ private struct AudioSourcePanel: View {
                 Toggle("Monitor playback", isOn: Binding(
                     get: { mic.monitorPlaying },
                     set: { on in
-                        if on { if let url { mic.toggleMonitor(url: url) } }
+                        if on { if let hls = program?.hlsUrl { mic.toggleMonitor(baseHlsUrl: hls) } }
                         else { mic.stopMonitor() }
                     }
                 ))
                 .labelsHidden()
                 .tint(Rs.gold)
-                .disabled(url == nil && !mic.monitorPlaying)
+                .disabled(!available)
             }
+            if available { monitorModeSwitch }
             if let note = mic.monitorNote {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -962,6 +961,39 @@ private struct AudioSourcePanel: View {
         .background(Color.white.opacity(0.03))
         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Rs.border, lineWidth: 1))
+    }
+
+    /// Compact ON-AIR / CUE selector. Switching while the monitor is playing
+    /// swaps the live feed in place (MicBroadcaster.setMonitorMode).
+    private var monitorModeSwitch: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                monitorModeSegment(.onAir, label: "ON-AIR")
+                monitorModeSegment(.cue, label: "CUE")
+                Spacer(minLength: 0)
+            }
+            Text(mic.monitorMode == .onAir
+                 ? "Hear it exactly as broadcast (ducks with presets)"
+                 : "Music always full — DJ cue, ignores ducking")
+                .font(.inter(10)).foregroundStyle(Rs.faint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.leading, 30)      // align under the text column (icon 20 + spacing 10)
+    }
+
+    private func monitorModeSegment(_ mode: MicBroadcaster.MonitorMode, label: String) -> some View {
+        let active = mic.monitorMode == mode
+        return Button { mic.setMonitorMode(mode) } label: {
+            Text(label).font(.inter(9.5, .bold)).tracking(0.7)
+                .foregroundStyle(active ? Color(hex: 0x0A1120) : Rs.dim)
+                .padding(.horizontal, 13).frame(height: 26)
+                .background(Capsule().fill(active ? AnyShapeStyle(Rs.goldFill)
+                                                  : AnyShapeStyle(Color.white.opacity(0.04))))
+                .overlay(Capsule().stroke(active ? Rs.gold.opacity(0.5) : Rs.border, lineWidth: 1))
+        }
+        .pressable().hoverEffect(.highlight)
+        .accessibilityLabel(mode == .onAir ? "On-air monitor feed" : "Cue monitor feed")
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     // MARK: GO ON MIC

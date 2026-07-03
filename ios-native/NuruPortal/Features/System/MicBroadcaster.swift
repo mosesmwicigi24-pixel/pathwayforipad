@@ -62,11 +62,21 @@ final class MicBroadcaster: ObservableObject {
     @Published private(set) var monitoring = false
     @Published private(set) var permissionDenied = false
 
-    // In-ear monitor playback (pre-fader bed + jingles, NO mic — the presenter's
-    // own voice arrives via the mic's hardware sidetone). Plays the engine's
-    // `mon_` mount with a ~1 s buffer, far under the listener stream's 4–6 s.
+    // In-ear monitor playback (NO mic — the presenter's own voice arrives via
+    // the mic's hardware sidetone). Plays one of the engine's two monitor
+    // mounts with a ~1 s buffer, far under the listener stream's 4–6 s.
     @Published private(set) var monitorPlaying = false
     @Published private(set) var monitorNote: String?
+
+    /// Which of the engine's TWO monitor feeds the operator hears. Both derive
+    /// from the program's playback URL (".../listen/s_<hash>.mp3"):
+    ///   .onAir → `mon_` — the broadcast chain minus the mic (ducks with Voice
+    ///            Over Music, follows faders/EQ) — hear it as listeners do.
+    ///   .cue   → `cue_` — pre-fader bed + jingles, music always full and clear
+    ///            (classic DJ cue). Choice persists across launches.
+    enum MonitorMode: String { case onAir, cue }
+    @Published private(set) var monitorMode: MonitorMode = .onAir
+    private static let monitorModeDefaultsKey = "radio.monitorMode"
 
     /// Software mic gain in dB (0…+18, default +6), persisted across launches.
     /// Applied on the audio thread BEFORE metering + encoding (MicUplink), so the
@@ -95,6 +105,9 @@ final class MicBroadcaster: ObservableObject {
     // live broadcast.
     private var monitorPlayer: AVPlayer?
     private var monitorURL: URL?
+    /// The program's base playback URL the current monitor session derived its
+    /// feed from — kept so a mode switch can re-derive the sibling feed.
+    private var monitorBaseHls: String?
     private var monitorItemObservers: [NSObjectProtocol] = []
     private var monitorStatusObservation: NSKeyValueObservation?
     /// Operator INTENT — stays true across retry gaps so a mid-retry route change
@@ -107,6 +120,12 @@ final class MicBroadcaster: ObservableObject {
         let stored = UserDefaults.standard.object(forKey: Self.boostDefaultsKey) as? Double
         boostDb = min(max(stored ?? 6, 0), 18)
         uplink.setBoost(factor: Float(pow(10, boostDb / 20)))
+
+        // Restore the persisted monitor mode (defaults to on-air).
+        if let raw = UserDefaults.standard.string(forKey: Self.monitorModeDefaultsKey),
+           let mode = MonitorMode(rawValue: raw) {
+            monitorMode = mode
+        }
 
         uplink.onLevel = { [weak self] lvl in
             DispatchQueue.main.async { self?.level = lvl }
@@ -217,11 +236,12 @@ final class MicBroadcaster: ObservableObject {
         }
     }
 
-    // MARK: Monitor playback (in-ear pre-fader bed — NO mic passthrough)
-    // The engine publishes a monitor mount (bed + jingles, mic excluded) at the
-    // program's playback URL with `s_` swapped for `mon_`. The presenter hears
-    // the LIVE music through the RØDE's headphone jack with ~1 s of buffer; their
-    // own voice arrives via the mic's hardware sidetone, so no local passthrough.
+    // MARK: Monitor playback (in-ear feed — NO mic passthrough)
+    // The engine publishes TWO monitor mounts (mic excluded from both) at the
+    // program's playback URL with `s_` swapped for the mode's prefix: `mon_`
+    // (on-air chain) or `cue_` (pre-fader DJ cue). The presenter hears the LIVE
+    // music through the RØDE's headphone jack with ~1 s of buffer; their own
+    // voice arrives via the mic's hardware sidetone, so no local passthrough.
 
     private static let monitorFeedbackNote =
         "Plug headphones into the mic (or iPad) — monitoring over the speaker would feed back into the broadcast."
@@ -233,8 +253,38 @@ final class MicBroadcaster: ObservableObject {
         return !outputs.isEmpty && outputs.allSatisfy { $0.portType == .builtInSpeaker }
     }
 
-    func toggleMonitor(url: URL) {
-        if monitorPlaying { stopMonitor() } else { startMonitor(url: url) }
+    /// The ONE place a monitor feed URL is derived. Both feeds live at the
+    /// program's playback URL with `s_` swapped for the mode's prefix:
+    /// …/listen/s_abc.mp3 → …/listen/mon_abc.mp3 (on-air) or …/cue_abc.mp3 (cue).
+    static func monitorFeedURL(baseHlsUrl: String?, mode: MonitorMode) -> URL? {
+        guard let hls = baseHlsUrl, var url = URL(string: hls) else { return nil }
+        let last = url.lastPathComponent
+        guard last.hasPrefix("s_") else { return nil }
+        url.deleteLastPathComponent()
+        let prefix = (mode == .cue) ? "cue_" : "mon_"
+        return url.appendingPathComponent(prefix + last.dropFirst(2))
+    }
+
+    func toggleMonitor(baseHlsUrl: String) {
+        if monitorPlaying {
+            stopMonitor()
+        } else if let url = Self.monitorFeedURL(baseHlsUrl: baseHlsUrl, mode: monitorMode) {
+            monitorBaseHls = baseHlsUrl
+            startMonitor(url: url)
+        }
+    }
+
+    /// Switch which feed the operator hears. Persisted; if the monitor is
+    /// currently running (or mid-retry), the player swaps to the other feed's
+    /// URL through the normal start path — the feedback guard and the retry
+    /// budget behave exactly as on a fresh start.
+    func setMonitorMode(_ mode: MonitorMode) {
+        guard mode != monitorMode else { return }
+        monitorMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: Self.monitorModeDefaultsKey)
+        guard monitorWantsPlay || monitorPlaying,
+              let url = Self.monitorFeedURL(baseHlsUrl: monitorBaseHls, mode: mode) else { return }
+        startMonitor(url: url)
     }
 
     /// Stop in-ear monitoring. Deliberately touches ONLY the dedicated monitor
