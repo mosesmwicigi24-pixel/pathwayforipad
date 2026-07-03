@@ -412,28 +412,17 @@ struct RadioStudioView: View {
         // Program picker strip (horizontal) — select the program to broadcast.
         ProgramPickerStrip(programs: m.programs, selectedId: m.selectedId) { m.select($0) }
 
-        // Audio library + Sessions playlists (global to the studio) — see the
-        // frozen /admin/radio/tracks + /programs/:id/tracks contract.
-        AudioLibrarySection(store: library)
-        SessionsSection(store: library,
-                        liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
-                        nowPlaying: m.health?.nowPlaying)
-
+        // Broadcaster-first ordering: landing on the studio drops you straight
+        // onto the Audio source (mic, monitor, GO ON MIC) + transport — the
+        // fast-path workflow. Library/sessions and the rest scroll below.
         if let p = program {
             // LIVE status bar (only while live/paused) — duration/listeners/bitrate/health.
             if m.broadcast.isLiveOrPaused {
                 LiveStatusBar(program: p, broadcast: m.broadcast, health: m.health)
             }
 
-            ProgramCard(program: p, onEdit: { editProgram = p })
-
-            // Uploaded session audio — inline player when set, otherwise an attach CTA.
-            SessionAudioPanel(program: p, busy: m.busy, onAttach: { showAttachImporter = true })
-
             // Two console columns collapse to a stack in portrait — fixed, stable rows.
             AudioSourcePanel(mic: mic, program: p)
-
-            MeterAndWaveformPanel(active: m.broadcast == .live)
 
             BroadcastControlsPanel(
                 broadcast: m.broadcast, busy: m.busy,
@@ -442,7 +431,26 @@ struct RadioStudioView: View {
                 onPause: { m.togglePause() },
                 onEnd: { m.endBroadcast() }
             )
+        }
 
+        // — everything below here is the scroll-down zone —
+        if let p = program {
+            MeterAndWaveformPanel(active: m.broadcast == .live)
+
+            ProgramCard(program: p, onEdit: { editProgram = p })
+
+            // Uploaded session audio — inline player when set, otherwise an attach CTA.
+            SessionAudioPanel(program: p, busy: m.busy, onAttach: { showAttachImporter = true })
+        }
+
+        // Audio library + Sessions playlists (global to the studio) — see the
+        // frozen /admin/radio/tracks + /programs/:id/tracks contract.
+        AudioLibrarySection(store: library)
+        SessionsSection(store: library,
+                        liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
+                        nowPlaying: m.health?.nowPlaying)
+
+        if let p = program {
             IngestPanel(program: p, onRotate: { m.rotateKey() }, busy: m.busy)
 
             ReactionsPanel(hearts: m.hearts, amens: m.amens, fires: m.fires, comments: m.comments,
