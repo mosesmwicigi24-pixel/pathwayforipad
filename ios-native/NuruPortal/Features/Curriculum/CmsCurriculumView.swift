@@ -1852,6 +1852,28 @@ private struct ModuleEditorPane: View {
     private let visibilityOpts: [(v: String, l: String)] = [("members", "Members"), ("leaders", "Leaders only"), ("public", "Public")]
     private var isQuiz: Bool { evaluationKind == "quiz" }
 
+    // Web parity (LevelDetail.tsx "Insert page break"): the server splits
+    // lesson_content on <!-- page-break --> markers into the mobile reader's
+    // pages. iOS 17's TextEditor exposes no cursor position, so the button
+    // appends the canonical marker on its own paragraph — the author then types
+    // the next page's content beneath it. Same marker the web writes, so the
+    // backend pagination is byte-identical across surfaces.
+    private static let pageBreakMarker = "<!-- page-break -->"
+    private var lessonPageCount: Int {
+        let parts = lessonContent
+            .components(separatedBy: ModuleEditorPane.pageBreakMarker)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return max(1, parts.count)
+    }
+    private func insertPageBreak() {
+        var s = lessonContent
+        while s.hasSuffix("\n") || s.hasSuffix(" ") { s.removeLast() }
+        if !s.isEmpty { s += "\n\n" }
+        s += "\(ModuleEditorPane.pageBreakMarker)\n\n"
+        lessonContent = s
+    }
+
     var body: some View {
         Group {
             switch phase {
@@ -1901,7 +1923,17 @@ private struct ModuleEditorPane: View {
                     .scrollContentBackground(.hidden).padding(8).background(Nuru.white)
                     .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-                Text("\(lessonContent.count) chars").font(.nMicro).foregroundStyle(Nuru.ink400)
+                HStack(spacing: 12) {
+                    Button { insertPageBreak() } label: {
+                        Label("Insert page break", systemImage: "rectangle.split.1x2")
+                            .font(.inter(12, .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Nuru.gold)
+                    Spacer(minLength: 8)
+                    Text("\(lessonPageCount) \(lessonPageCount == 1 ? "page" : "pages") · \(lessonContent.count) chars")
+                        .font(.nMicro).foregroundStyle(Nuru.ink400)
+                }
             } header: { CmsSectionHeader(text: "Lesson content · Markdown") }
             .listRowBackground(Color.clear)
 
