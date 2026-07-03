@@ -94,13 +94,17 @@ struct EqBands: Equatable {
     }
 }
 
-/// A named tone preset across all three buses (tone only — Scenes own levels).
+/// A named tone preset across all three buses. Most are tone-only (Scenes own
+/// level balance), but a preset may optionally carry a level balance too —
+/// `levels` is keyed by engine channel ("mic"/"bed"), 0..100. Preset-chip
+/// highlighting stays EQ-based; levels never take part in the match.
 struct EqPreset: Identifiable, Equatable {
     let id: String
     let name: String
     let mic: EqBands
     let bed: EqBands
     let master: EqBands
+    var levels: [String: Int]? = nil
 }
 
 // MARK: - View model
@@ -346,10 +350,17 @@ private final class MixerModel: ObservableObject {
               mic: EqBands(low: 1.5, mid: 1, high: 2.5),
               bed: EqBands(low: 0, mid: -2, high: 0),
               master: EqBands(low: 0.5, mid: 0, high: 1)),
+        // Presenter loud + clear; music mid-carved and tucked under the voice.
+        .init(id: "voiceover", name: "Voice Over Music",
+              mic: EqBands(low: -1, mid: 3, high: 4),
+              bed: EqBands(low: 1, mid: -5.5, high: -2),
+              master: EqBands(low: 0, mid: 0, high: 0.5),
+              levels: ["mic": 95, "bed": 28]),
         .init(id: "warm", name: "Warm Music",
               mic: EqBands(),
               bed: EqBands(low: 3, mid: 0, high: -1),
-              master: EqBands(low: 1, mid: 0, high: 0)),
+              master: EqBands(low: 1, mid: 0, high: 0),
+              levels: ["mic": 60, "bed": 80]),   // swings back to music-forward
         .init(id: "bright", name: "Bright Music",
               mic: EqBands(),
               bed: EqBands(low: 1, mid: 0.5, high: 3),
@@ -358,6 +369,9 @@ private final class MixerModel: ObservableObject {
 
     /// Apply a preset to all three buses locally, then recall it on the engine in a
     /// single POST carrying every bus. Offline → local-only (same rule as levels).
+    /// Presets that also carry a level balance set the mapped strips the same way
+    /// hydration does — echoes swallowed, pending debounces cancelled — and ride
+    /// one `mixerLiveLevels` POST alongside the EQ POST.
     func applyEqPreset(_ p: EqPreset) {
         eqMic = p.mic; eqBed = p.bed; eqMaster = p.master
         activeEqPreset = p.id
@@ -366,9 +380,27 @@ private final class MixerModel: ObservableObject {
         // A stale per-bus debounce must not overwrite the preset we just applied.
         for t in eqPushTasks.values { t.cancel() }
         eqPushTasks.removeAll()
+        // Level-carrying presets: set the mapped strips directly. The strips'
+        // `.onChange` echoes are swallowed via `hydrationEcho`, and any pending
+        // per-channel debounce is cancelled, so the preset lands as one combined
+        // POST instead of a burst of per-fader pushes.
+        let levels = p.levels?.mapValues { min(100, max(0, $0)) }
+        if let levels {
+            for (stripId, key) in [("mic", "mic"), ("music", "bed"), ("jingle", "jingle")] {
+                guard let v = levels[key],
+                      let i = channels.firstIndex(where: { $0.id == stripId }) else { continue }
+                levelPushTasks[key]?.cancel()
+                levelPushTasks[key] = nil
+                if channels[i].level != Double(v) {
+                    hydrationEcho[key] = v
+                    channels[i].level = Double(v)
+                }
+            }
+        }
         guard engineConnected else { return }
         Task {
             do {
+                if let levels { try await PortalAPI.mixerLiveLevels(levels) }
                 try await PortalAPI.mixerLiveEq([
                     "mic": p.mic.dict(), "bed": p.bed.dict(), "master": p.master.dict(),
                 ])
@@ -636,7 +668,7 @@ struct MixerStudioView: View {
                     }
                     .padding(.vertical, 1)
                 }
-                Text("Presets shape tone (EQ). Use Scenes for level balance.")
+                Text("Presets shape tone (EQ); some also set the mic/music balance. Use Scenes for full level recalls.")
                     .font(.inter(10.5)).foregroundStyle(Rs.dim)
                 // Three bus groups: MIC (gold) · MUSIC BED (green) · MASTER (white).
                 ScrollView(.horizontal, showsIndicators: false) {
