@@ -61,6 +61,15 @@ enum PortalAPI {
         try await api.get("/admin/members/\(userId)", as: MemberDetail.self)
     }
 
+    /// Manual password reset (web ResetPasswordModal): the server mints a temporary
+    /// password, revokes ALL the member's sessions and invalidates the old password.
+    /// The plaintext is returned exactly once and is never retrievable again.
+    /// Rank-guarded server-side — resetting peers/higher roles is rejected (403).
+    static func resetMemberPassword(_ memberId: String) async throws -> String {
+        struct Result: Decodable { let temporaryPassword: String }  // temporary_password
+        return try await api.postEmpty("/admin/members/\(memberId)/password-reset", as: Result.self).temporaryPassword
+    }
+
     // Reflection queue
     static func reflections(state: String? = nil) async throws -> [ReflectionRow] {
         var q: [String: String] = [:]

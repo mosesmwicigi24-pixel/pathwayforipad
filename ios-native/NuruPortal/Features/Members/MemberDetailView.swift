@@ -221,13 +221,21 @@ struct MemberDetailView: View {
     let userId: String
     let name: String
 
-    // Graduation write state (the only mutation on this screen). `reloadToken`
-    // forces AsyncView to refetch after a successful PATCH; `graduatedOverride`
-    // optimistically flips the chips/tag until the refetch lands.
+    // Graduation write state. `reloadToken` forces AsyncView to refetch after a
+    // successful PATCH; `graduatedOverride` optimistically flips the chips/tag
+    // until the refetch lands.
     @State private var reloadToken = 0
     @State private var graduatedOverride: Bool?
     @State private var graduating = false
     @State private var graduationError: String?
+
+    // Manual password reset (web ResetPasswordModal): confirm → the server mints a
+    // temporary password (revoking every session + the old password) → shown ONCE.
+    @State private var showResetConfirm = false
+    @State private var resettingPassword = false
+    @State private var tempPassword: String?
+    @State private var resetError: String?
+    @State private var toast: ToastData?
 
     var body: some View {
         AsyncView({ try await APIClient.shared.get("/admin/members/\(userId)", as: MemberFull.self) }) { m in
@@ -243,6 +251,28 @@ struct MemberDetailView: View {
         .id(reloadToken)
         .portalPage(name)
         .navigationBarTitleDisplayMode(.inline)
+        .toast($toast)
+        .alert("Reset password?", isPresented: $showResetConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset & get password") { Task { await resetPassword() } }
+        } message: {
+            Text("This creates a new temporary password for \(name), signs them out of every device, and invalidates their old password. Use it when a member is locked out and can't reset by themselves.")
+        }
+    }
+
+    // POST /admin/members/{id}/password-reset — server revokes all sessions and
+    // invalidates the old password; the plaintext comes back exactly once.
+    private func resetPassword() async {
+        guard !resettingPassword else { return }
+        resettingPassword = true
+        resetError = nil
+        do {
+            tempPassword = try await PortalAPI.resetMemberPassword(userId)
+        } catch {
+            // 403 rank-guard / network errors — surface the API message inline.
+            resetError = (error as? APIError)?.errorDescription ?? error.localizedDescription
+        }
+        resettingPassword = false
     }
 
     // PATCH /admin/members/{id}/graduation { graduated }, then refresh (web setGraduation).
@@ -412,10 +442,101 @@ struct MemberDetailView: View {
 
             // Results dossier (levels/modules/exams/badges/certs) — full width table.
             ResultsSection(userId: userId)
+
+            // Security — manual password reset (mirrors the web ResetPasswordModal).
+            securityCard(m)
         }
         .padding(.horizontal, Nuru.S.base)
         .padding(.top, Nuru.S.lg)
         .padding(.bottom, Nuru.S.xxl)
+    }
+
+    // MARK: Security (manual password reset)
+
+    /// Teal accent matching the web page's KeyRound affordance (#0E7490).
+    private static let resetTeal = Color(hex: 0x0E7490)
+
+    private func securityCard(_ m: MemberFull) -> some View {
+        let teal = Self.resetTeal
+        let firstName = m.fullName.split(separator: " ").first.map(String.init) ?? m.fullName
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                TintedIcon(systemName: "key.fill", color: teal, size: 38)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Security").font(.inter(14, .bold)).foregroundStyle(Nuru.ink)
+                    Text("Manual password reset for a locked-out member.")
+                        .font(.inter(11.5)).foregroundStyle(Nuru.muted)
+                }
+                Spacer(minLength: 8)
+                Button { showResetConfirm = true } label: {
+                    HStack(spacing: 6) {
+                        if resettingPassword {
+                            ProgressView().controlSize(.small).tint(teal)
+                        } else {
+                            Image(systemName: "key.fill").font(.system(size: 12, weight: .semibold))
+                        }
+                        Text(resettingPassword ? "Resetting…" : "Reset password").font(.inter(12.5, .bold))
+                    }
+                    .foregroundStyle(teal)
+                    .padding(.horizontal, 14).frame(height: 36)
+                    .background(teal.opacity(0.10))
+                    .overlay(Capsule().stroke(teal.opacity(0.25), lineWidth: 1))
+                    .clipShape(Capsule())
+                }
+                .pressable()
+                .hoverEffect(.lift)
+                .disabled(resettingPassword)
+            }
+
+            if let resetError {
+                Text(resetError).font(.inter(12.5)).foregroundStyle(Nuru.danger)
+            }
+
+            // The temporary password is shown ONCE — it is never retrievable again.
+            if let temp = tempPassword {
+                VStack(alignment: .leading, spacing: 10) {
+                    (Text("Hand this to \(firstName) — it works immediately and they can change it in their app under Profile. ")
+                        + Text("It will not be shown again.").bold())
+                        .font(.inter(12.5)).foregroundStyle(Nuru.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 12) {
+                        Text(temp)
+                            .font(.system(size: 20, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Nuru.navy)
+                            .textSelection(.enabled)
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                        Spacer(minLength: 0)
+                        Button {
+                            UIPasteboard.general.string = temp
+                            toast = .success("Password copied")
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc.on.doc").font(.system(size: 12, weight: .semibold))
+                                Text("Copy").font(.inter(12.5, .bold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14).frame(height: 34)
+                            .background(Nuru.navy)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                        .pressable()
+                        .hoverEffect(.lift)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 13)
+                    .background(Nuru.inputBg)
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous)
+                        .strokeBorder(Nuru.gold, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+                    Text("Their previous password no longer works and every signed-in device has been logged out.")
+                        .font(.inter(11.5)).foregroundStyle(Nuru.muted)
+                }
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     // ONE row of 5 compact tiles: Habits · Curriculum · Attendance · Badges · Engagement.
