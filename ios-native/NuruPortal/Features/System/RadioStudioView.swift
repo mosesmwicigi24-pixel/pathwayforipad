@@ -848,6 +848,8 @@ private struct AudioSourcePanel: View {
                 .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Rs.border, lineWidth: 1))
 
+                monitorPlaybackRow
+
                 goOnMicButton
 
                 statusCaptions
@@ -902,6 +904,64 @@ private struct AudioSourcePanel: View {
         case .headsetMic:                                      return "HEADSET"
         default:                                               return type.rawValue.uppercased()
         }
+    }
+
+    // MARK: Monitor playback (in-ear pre-fader cue — NO mic)
+
+    /// The engine publishes a monitor mount — pre-fader bed + jingles, mic
+    /// excluded — at the program's playback URL with `s_` swapped for `mon_`
+    /// (…/listen/s_abc.mp3 → …/listen/mon_abc.mp3). Only meaningful while the
+    /// selected session is actually live.
+    private var monitorURL: URL? {
+        guard let p = program, p.isLive,
+              let hls = p.hlsUrl, var url = URL(string: hls) else { return nil }
+        let last = url.lastPathComponent
+        guard last.hasPrefix("s_") else { return nil }
+        url.deleteLastPathComponent()
+        return url.appendingPathComponent("mon_" + last.dropFirst(2))
+    }
+
+    private var monitorPlaybackRow: some View {
+        let url = monitorURL
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "headphones")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(mic.monitorPlaying ? Rs.gold : Rs.dim)
+                    .frame(width: 20)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("MONITOR PLAYBACK").font(.inter(9, .bold)).tracking(0.8).foregroundStyle(Rs.dim)
+                    Text(url == nil && !mic.monitorPlaying
+                         ? "Select a live session first"
+                         : "Hear the live music in your headphones — pre-fader, no delay-critical mic")
+                        .font(.inter(10.5)).foregroundStyle(Rs.faint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Toggle("Monitor playback", isOn: Binding(
+                    get: { mic.monitorPlaying },
+                    set: { on in
+                        if on { if let url { mic.toggleMonitor(url: url) } }
+                        else { mic.stopMonitor() }
+                    }
+                ))
+                .labelsHidden()
+                .tint(Rs.gold)
+                .disabled(url == nil && !mic.monitorPlaying)
+            }
+            if let note = mic.monitorNote {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10)).foregroundStyle(Rs.red)
+                    Text(note).font(.inter(11, .medium)).foregroundStyle(Rs.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Rs.border, lineWidth: 1))
     }
 
     // MARK: GO ON MIC

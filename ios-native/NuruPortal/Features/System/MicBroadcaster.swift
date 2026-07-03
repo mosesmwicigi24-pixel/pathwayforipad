@@ -62,6 +62,12 @@ final class MicBroadcaster: ObservableObject {
     @Published private(set) var monitoring = false
     @Published private(set) var permissionDenied = false
 
+    // In-ear monitor playback (pre-fader bed + jingles, NO mic — the presenter's
+    // own voice arrives via the mic's hardware sidetone). Plays the engine's
+    // `mon_` mount with a ~1 s buffer, far under the listener stream's 4–6 s.
+    @Published private(set) var monitorPlaying = false
+    @Published private(set) var monitorNote: String?
+
     /// Software mic gain in dB (0…+18, default +6), persisted across launches.
     /// Applied on the audio thread BEFORE metering + encoding (MicUplink), so the
     /// input meter shows the boosted, on-air signal.
@@ -84,6 +90,18 @@ final class MicBroadcaster: ObservableObject {
     /// until that device disappears (so a manual choice is never fought).
     private var manualSelectionUID: String?
 
+    // Monitor playback internals — a DEDICATED player, fully separate from the mic
+    // engine and from any other studio audio, so tearing it down never disturbs a
+    // live broadcast.
+    private var monitorPlayer: AVPlayer?
+    private var monitorURL: URL?
+    private var monitorItemObservers: [NSObjectProtocol] = []
+    private var monitorStatusObservation: NSKeyValueObservation?
+    /// Operator INTENT — stays true across retry gaps so a mid-retry route change
+    /// or manual stop cancels any pending reconnect.
+    private var monitorWantsPlay = false
+    private var monitorFailures = 0
+
     private init() {
         // Restore the persisted boost (didSet doesn't fire in init — push manually).
         let stored = UserDefaults.standard.object(forKey: Self.boostDefaultsKey) as? Double
@@ -97,10 +115,15 @@ final class MicBroadcaster: ObservableObject {
             DispatchQueue.main.async { self?.handle(event) }
         }
         // Live re-scan when the RØDE is plugged/unplugged (or any route change).
+        // The same notification polices the monitor's feedback guard: if the
+        // output falls back to the built-in speaker, kill the monitor at once.
         routeObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.rescanInputs(autoPrefer: true) }
+            Task { @MainActor in
+                self?.rescanInputs(autoPrefer: true)
+                self?.enforceMonitorRouteSafety()
+            }
         }
         rescanInputs(autoPrefer: true)
     }
@@ -109,10 +132,11 @@ final class MicBroadcaster: ObservableObject {
         if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
     }
 
-    /// Full stop — kills monitoring AND a live broadcast. NOT called on mere
-    /// navigation any more (the singleton broadcasts across screens); reserved
-    /// for an explicit shutdown such as sign-out.
+    /// Full stop — kills monitoring, monitor playback AND a live broadcast. NOT
+    /// called on mere navigation any more (the singleton broadcasts across
+    /// screens); reserved for an explicit shutdown such as sign-out.
     func teardown() {
+        stopMonitor()
         uplink.disconnect()
         uplink.stopCapture()
         if isBroadcasting { state = .idle }
@@ -191,6 +215,136 @@ final class MicBroadcaster: ObservableObject {
             restorePlaybackSession()
             level = 0
         }
+    }
+
+    // MARK: Monitor playback (in-ear pre-fader bed — NO mic passthrough)
+    // The engine publishes a monitor mount (bed + jingles, mic excluded) at the
+    // program's playback URL with `s_` swapped for `mon_`. The presenter hears
+    // the LIVE music through the RØDE's headphone jack with ~1 s of buffer; their
+    // own voice arrives via the mic's hardware sidetone, so no local passthrough.
+
+    private static let monitorFeedbackNote =
+        "Plug headphones into the mic (or iPad) — monitoring over the speaker would feed back into the broadcast."
+
+    /// True when the ONLY way out is the iPad's own speaker — the one route where
+    /// monitoring is forbidden (the mic would re-capture the bed → feedback loop).
+    private var speakerOnlyOutput: Bool {
+        let outputs = session.currentRoute.outputs
+        return !outputs.isEmpty && outputs.allSatisfy { $0.portType == .builtInSpeaker }
+    }
+
+    func toggleMonitor(url: URL) {
+        if monitorPlaying { stopMonitor() } else { startMonitor(url: url) }
+    }
+
+    /// Stop in-ear monitoring. Deliberately touches ONLY the dedicated monitor
+    /// player — never the shared audio session — so an active mic broadcast (or
+    /// the studio's baseline playback session) is left exactly as it was.
+    func stopMonitor() {
+        monitorWantsPlay = false
+        monitorFailures = 0
+        monitorPlaying = false
+        tearDownMonitorPlayer()
+    }
+
+    private func startMonitor(url: URL) {
+        // Feedback guard FIRST — never let the bed out of the iPad speaker while
+        // a mic may be hot in the same room.
+        guard !speakerOnlyOutput else {
+            monitorNote = Self.monitorFeedbackNote
+            return
+        }
+        monitorWantsPlay = true
+        monitorFailures = 0
+        monitorURL = url
+        monitorNote = nil               // clears on a successful start
+        activateMonitorSession()
+        playMonitorItem(url: url)
+        monitorPlaying = true
+    }
+
+    /// Make sure SOME active session exists for pure-monitor use. During mic work
+    /// the session is already `.playAndRecord` (+ .mixWithOthers) — never
+    /// downgrade it; otherwise mirror the studio's `.playback` baseline.
+    private func activateMonitorSession() {
+        if session.category != .playAndRecord {
+            try? session.setCategory(.playback, mode: .default)
+        }
+        try? session.setActive(true)
+    }
+
+    private func playMonitorItem(url: URL) {
+        tearDownMonitorPlayer()
+        let item = AVPlayerItem(url: url)
+        item.preferredForwardBufferDuration = 1     // low-latency in-ear cue
+        let player = AVPlayer(playerItem: item)     // waitsToMinimizeStalling stays default ON
+        monitorPlayer = player
+
+        // Healthy playback resets the retry budget; a failed item is a hiccup.
+        monitorStatusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            let status = item.status
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                switch status {
+                case .readyToPlay: self.monitorFailures = 0
+                case .failed:      self.monitorHiccup()
+                default:           break
+                }
+            }
+        }
+        // Ended / failed / stalled all mean the same thing for a live mount: the
+        // engine dropped it (restart) — treat uniformly as a hiccup.
+        let names: [Notification.Name] = [.AVPlayerItemDidPlayToEndTime,
+                                          .AVPlayerItemFailedToPlayToEndTime,
+                                          .AVPlayerItemPlaybackStalled]
+        for name in names {
+            monitorItemObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: item, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.monitorHiccup() }
+            })
+        }
+        player.play()
+    }
+
+    /// Auto-reconnect lite: retry after 2 s while the operator still wants the
+    /// monitor; give up quietly after 3 consecutive failures.
+    private func monitorHiccup() {
+        guard monitorWantsPlay else { return }
+        tearDownMonitorPlayer()
+        monitorFailures += 1
+        guard monitorFailures < 3 else {
+            monitorWantsPlay = false
+            monitorPlaying = false
+            monitorNote = "Monitor stream unavailable"
+            return
+        }
+        let attempt = monitorFailures
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let self, self.monitorWantsPlay, self.monitorFailures == attempt,
+                  self.monitorPlayer == nil, let url = self.monitorURL else { return }
+            self.playMonitorItem(url: url)
+        }
+    }
+
+    /// Route fell back to the built-in speaker mid-monitor (headphones pulled) —
+    /// stop instantly and tell the operator why.
+    private func enforceMonitorRouteSafety() {
+        guard (monitorPlaying || monitorWantsPlay), speakerOnlyOutput else { return }
+        stopMonitor()
+        monitorNote = Self.monitorFeedbackNote
+    }
+
+    private func tearDownMonitorPlayer() {
+        monitorStatusObservation?.invalidate()
+        monitorStatusObservation = nil
+        for observer in monitorItemObservers { NotificationCenter.default.removeObserver(observer) }
+        monitorItemObservers.removeAll()
+        monitorPlayer?.pause()
+        monitorPlayer?.replaceCurrentItem(with: nil)
+        monitorPlayer = nil
+        // NOTE: no session category/active changes here — see stopMonitor().
     }
 
     // MARK: Broadcast lifecycle
