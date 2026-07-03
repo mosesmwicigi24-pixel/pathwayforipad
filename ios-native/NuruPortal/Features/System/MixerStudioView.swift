@@ -14,6 +14,11 @@
 //     bus (mic/bed/master × 100 Hz/1.2 kHz/8 kHz, −12…+12 dB) on the live broadcast.
 //     Tone presets POST all buses at once; slider tweaks debounce ~250ms per bus.
 //     EQ values are client-held (default flat) — offline they're local-only.
+//   • ONE-SHOT HYDRATION       the view is deliberately not kept alive, so a fresh
+//     visit starts from defaults while the engine still holds the real values. The
+//     first connected /live/status poll that carries gains copies the engine truth
+//     into the EQ sliders + mapped strips/master — but only if the operator hasn't
+//     touched anything yet, and without re-pushing those values back on air.
 // CLIENT-ONLY: unmapped strips (they carry a LOCAL tag while the engine is live),
 // pan/solo, and the music-bed player. With the engine offline the studio behaves
 // exactly as before — pure local state.
@@ -80,6 +85,13 @@ struct EqBands: Equatable {
     var mid: Double = 0
     var high: Double = 0
     func dict() -> [String: Double] { ["low": low, "mid": mid, "high": high] }
+    /// True when every band sits within ±tolerance dB of the other's — used to
+    /// re-derive the preset-chip highlight after hydrating from the engine.
+    func matches(_ other: EqBands, tolerance: Double = 0.05) -> Bool {
+        abs(low - other.low) <= tolerance
+            && abs(mid - other.mid) <= tolerance
+            && abs(high - other.high) <= tolerance
+    }
 }
 
 /// A named tone preset across all three buses (tone only — Scenes own levels).
@@ -114,6 +126,17 @@ private final class MixerModel: ObservableObject {
     @Published var eqMaster = EqBands()
     @Published var activeEqPreset: String? = "flat"   // nil once a slider is touched
     @Published var eqNote: String?         // inline note under the EQ panel
+
+    // One-shot hydration bookkeeping (see `hydrate(from:)`): the model is rebuilt
+    // on every visit, so the first connected status with gains restores the
+    // engine's truth — unless the operator already touched something (`dirty`).
+    private var hydrated = false
+    /// Set on any user fader/EQ/mute edit; hydration then never overwrites.
+    private var dirty = false
+    /// Level values just written by hydration, keyed by engine channel. The view's
+    /// `.onChange` echoes them back through the edit handlers; matching echoes are
+    /// swallowed so hydration never marks state dirty or re-pushes gains on air.
+    private var hydrationEcho: [String: Int] = [:]
 
     /// One in-flight debounce task per engine channel (cancel-and-replace).
     private var levelPushTasks: [String: Task<Void, Never>] = [:]
@@ -196,6 +219,7 @@ private final class MixerModel: ObservableObject {
     func applyScene(_ scene: MixerScene) {
         activeSceneId = scene.id
         sceneNote = nil
+        dirty = true   // an explicit level recall — hydration must not undo it
         // Match saved channels onto local strips by name; apply level/pan/mute/solo.
         for saved in scene.channels {
             if let i = channels.firstIndex(where: { $0.name == saved.name }) {
@@ -222,7 +246,53 @@ private final class MixerModel: ObservableObject {
         while !Task.isCancelled {
             let status = try? await PortalAPI.mixerLiveStatus()
             engineConnected = status?.connected ?? false
+            // First connected poll that carries gains → one-shot hydration. If the
+            // early polls are disconnected we simply keep waiting for the first
+            // connected one; after that, later polls never touch view state.
+            if engineConnected, !hydrated, let gains = status?.gains {
+                hydrate(from: gains)
+            }
             try? await Task.sleep(nanoseconds: 5_000_000_000)
+        }
+    }
+
+    /// One-shot: copy the engine's truth into the fresh view state. Runs at most
+    /// once per visit, and only if the operator hasn't edited anything (`dirty`) —
+    /// user state always wins. Backing state is set directly: EQ slider bindings
+    /// only fire `onEdit` on real drags, and the level `.onChange` echoes are
+    /// swallowed via `hydrationEcho`, so hydration never triggers live pushes.
+    private func hydrate(from gains: [String: Double]) {
+        hydrated = true
+        guard !dirty else { return }
+
+        // Nine EQ bands — keys eq_<bus>_<band>, raw dB −12…+12 (missing → flat 0).
+        func bus(_ name: String) -> EqBands {
+            func band(_ b: String) -> Double { min(12, max(-12, gains["eq_\(name)_\(b)"] ?? 0)) }
+            return EqBands(low: band("low"), mid: band("mid"), high: band("high"))
+        }
+        eqMic = bus("mic"); eqBed = bus("bed"); eqMaster = bus("master")
+        // Re-derive the chip highlight: light a preset only if the engine's tone
+        // matches it on every band (±0.05 dB); otherwise none.
+        activeEqPreset = MixerModel.eqPresets.first {
+            $0.mic.matches(eqMic) && $0.bed.matches(eqBed) && $0.master.matches(eqMaster)
+        }?.id
+
+        // Mapped strips + master — only the keys the engine actually reported.
+        for (stripId, key) in [("mic", "mic"), ("music", "bed"), ("jingle", "jingle")] {
+            guard let g = gains[key],
+                  let i = channels.firstIndex(where: { $0.id == stripId }) else { continue }
+            let v = min(100, max(0, g.rounded()))
+            if channels[i].level != v {
+                hydrationEcho[key] = Int(v)
+                channels[i].level = v
+            }
+        }
+        if let g = gains["master"] {
+            let v = min(100, max(0, g.rounded()))
+            if master != v {
+                hydrationEcho["master"] = Int(v)
+                master = v
+            }
         }
     }
 
@@ -230,12 +300,23 @@ private final class MixerModel: ObservableObject {
     /// connected; mute sends 0 and unmute re-sends the fader value. Offline (or on an
     /// unmapped strip) this is a no-op — exactly the old local behaviour.
     func liveLevelChanged(stripId: String, level: Double, muted: Bool) {
-        guard let key = MixerModel.engineKey(forStrip: stripId) else { return }
-        pushLiveLevel(key, value: muted ? 0 : Int(level.rounded()))
+        guard let key = MixerModel.engineKey(forStrip: stripId) else {
+            dirty = true   // local-only strip edits still count as operator edits
+            return
+        }
+        let value = muted ? 0 : Int(level.rounded())
+        // A hydration write echoing back through `.onChange` isn't a user edit —
+        // swallow it instead of marking dirty / re-pushing the engine's own value.
+        if hydrationEcho.removeValue(forKey: key) == value { return }
+        dirty = true
+        pushLiveLevel(key, value: value)
     }
 
     func masterChanged(_ value: Double) {
-        pushLiveLevel("master", value: Int(value.rounded()))
+        let v = Int(value.rounded())
+        if hydrationEcho.removeValue(forKey: "master") == v { return }
+        dirty = true
+        pushLiveLevel("master", value: v)
     }
 
     /// Debounced (~250ms) per-channel push: each movement cancels and replaces the
@@ -281,6 +362,7 @@ private final class MixerModel: ObservableObject {
         eqMic = p.mic; eqBed = p.bed; eqMaster = p.master
         activeEqPreset = p.id
         eqNote = nil
+        dirty = true   // an explicit tone choice — hydration must not undo it
         // A stale per-bus debounce must not overwrite the preset we just applied.
         for t in eqPushTasks.values { t.cancel() }
         eqPushTasks.removeAll()
@@ -302,6 +384,7 @@ private final class MixerModel: ObservableObject {
     /// as the fader level pushes. Offline this is local-only, exactly like levels.
     func eqEdited(_ bus: String) {
         activeEqPreset = nil
+        dirty = true
         guard engineConnected else { return }
         eqPushTasks[bus]?.cancel()
         eqPushTasks[bus] = Task {
