@@ -791,7 +791,7 @@ private struct AudioSourcePanel: View {
     var body: some View {
         StudioPanel {
             VStack(alignment: .leading, spacing: 14) {
-                StudioHeader(icon: "square.stack.3d.up.fill", title: "Audio source", caption: mic.currentInputName)
+                StudioHeader(icon: "square.stack.3d.up.fill", title: "Audio source", caption: mic.currentInputDisplayName)
 
                 // Selectable input rows — real hardware only.
                 if mic.availableInputs.isEmpty {
@@ -874,7 +874,7 @@ private struct AudioSourcePanel: View {
                 Image(systemName: portIcon(input.portType))
                     .font(.system(size: 14)).foregroundStyle(active ? Rs.gold : Rs.text).frame(width: 20)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(input.name).font(.inter(12, .semibold)).foregroundStyle(Rs.text).lineLimit(1)
+                    Text(input.displayName).font(.inter(12, .semibold)).foregroundStyle(Rs.text).lineLimit(1)
                     Text(portLabel(input.portType)).font(.inter(9, .bold)).tracking(0.6)
                         .foregroundStyle(active ? Rs.gold.opacity(0.85) : Rs.dim)
                 }

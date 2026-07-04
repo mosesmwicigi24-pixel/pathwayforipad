@@ -51,12 +51,20 @@ final class MicBroadcaster: ObservableObject {
         let portType: AVAudioSession.Port
         var id: String { uid }
         var isUSB: Bool { portType == .usbAudio }
+        /// Friendly, brand-aware label for the UI (e.g. "RØDE Wireless GO II"
+        /// instead of a terse USB product string). Falls back to `name` when the
+        /// device isn't a known mic — routing/isUSB never depend on this.
+        var displayName: String { MicProfiles.friendlyName(for: name) }
     }
 
     // Published surface the Audio source card binds to.
     @Published private(set) var availableInputs: [InputSource] = []
     @Published private(set) var activeInputUID: String?
     @Published private(set) var currentInputName: String = "No input detected"
+    /// Brand-friendly version of `currentInputName` for the header caption — maps a
+    /// known USB mic's raw port string to its market name (e.g. "Shure MV7"), and
+    /// passes anything unrecognised (including "No input detected") through as-is.
+    var currentInputDisplayName: String { MicProfiles.friendlyName(for: currentInputName) }
     @Published private(set) var level: Double = 0          // 0…1 RMS meter
     @Published private(set) var state: State = .idle
     @Published private(set) var monitoring = false
