@@ -27,7 +27,9 @@ enum PortalAPI {
     private static var api: APIClient { .shared }
 
     // Auth
-    struct LoginBody: Encodable { let email: String; let password: String }
+    // scope:"admin" — this is a staff console. The backend refuses a member
+    // (Student) account here even with a correct password (§5.4).
+    struct LoginBody: Encodable { let email: String; let password: String; let scope = "admin" }
     static func login(email: String, password: String) async throws -> LoginResult {
         try await api.post("/auth/login", body: LoginBody(email: email, password: password), as: LoginResult.self)
     }
