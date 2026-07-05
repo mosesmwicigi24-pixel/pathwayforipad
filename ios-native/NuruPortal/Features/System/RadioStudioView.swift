@@ -120,8 +120,18 @@ private final class RadioModel: ObservableObject {
     @Published var broadcast: Broadcast = .idle
     @Published var health: StreamHealth?
     @Published var comments: [RadioComment] = []
+    // Live listener presence (REAL) — the roster of members heartbeating from the
+    // mobile player, plus the server-authoritative count. Polled with health.
+    @Published var listeners: [RadioListener] = []
+    @Published var listenerRosterCount = 0
     @Published var actionError: String?
     @Published var busy = false
+
+    /// Prefer the real presence count; fall back to the health poll, then the
+    /// program's peak — mirrors the web portal's listenerCount derivation.
+    var displayListeners: Int {
+        listenerRosterCount > 0 ? listenerRosterCount : (health?.listeners ?? selected?.peakListeners ?? 0)
+    }
 
     // Client-only reaction tallies (member reactions arrive via the member API; the
     // admin console shows local applause it accumulates while live).
@@ -154,7 +164,7 @@ private final class RadioModel: ObservableObject {
         guard id != selectedId else { return }
         stopPolling(); countdownTask?.cancel()
         selectedId = id
-        health = nil; comments = []; hearts = 0; amens = 0; fires = 0
+        health = nil; comments = []; listeners = []; listenerRosterCount = 0; hearts = 0; amens = 0; fires = 0
         syncBroadcastToSelected()
     }
 
@@ -270,6 +280,9 @@ private final class RadioModel: ObservableObject {
             while !Task.isCancelled {
                 if let h = try? await PortalAPI.radioHealth(id) { await MainActor.run { self?.health = h } }
                 if let c = try? await PortalAPI.radioComments(id) { await MainActor.run { self?.comments = c } }
+                if let r = try? await PortalAPI.radioListeners(id) {
+                    await MainActor.run { self?.listeners = r.roster; self?.listenerRosterCount = r.count }
+                }
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
             }
         }
@@ -418,7 +431,7 @@ struct RadioStudioView: View {
         if let p = program {
             // LIVE status bar (only while live/paused) — duration/listeners/bitrate/health.
             if m.broadcast.isLiveOrPaused {
-                LiveStatusBar(program: p, broadcast: m.broadcast, health: m.health)
+                LiveStatusBar(program: p, broadcast: m.broadcast, health: m.health, listeners: m.displayListeners)
             }
 
             // Two console columns collapse to a stack in portrait — fixed, stable rows.
@@ -452,6 +465,8 @@ struct RadioStudioView: View {
 
         if let p = program {
             IngestPanel(program: p, onRotate: { m.rotateKey() }, busy: m.busy)
+
+            LiveListenersPanel(listeners: m.listeners, count: m.displayListeners, live: m.broadcast.isLiveOrPaused)
 
             ReactionsPanel(hearts: m.hearts, amens: m.amens, fires: m.fires, comments: m.comments,
                            onReact: { m.react($0) }, onRefresh: { m.loadComments() })
@@ -702,6 +717,8 @@ private struct LiveStatusBar: View {
     let program: RadioProgram
     let broadcast: Broadcast
     let health: StreamHealth?
+    /// Real presence count (roster) with health/peak fallback — from the view model.
+    let listeners: Int
     // Duration ticks locally from live_started_at; a light 1s timer so it counts up.
     // The clock pauses while the view is off-screen or the scene is inactive.
     @State private var now = Date()
@@ -714,7 +731,7 @@ private struct LiveStatusBar: View {
                 HStack(spacing: 0) {
                     stat("DURATION", duration, Rs.gold, "clock")
                     divider
-                    stat("LISTENERS", "\(health?.listeners ?? program.peakListeners)", Rs.green, "person.2.fill")
+                    stat("LISTENERS", "\(listeners)", Rs.green, "person.2.fill")
                     divider
                     stat("BITRATE", health.map { "\(Int($0.bitrate)) kbps" } ?? "—", Rs.text, "waveform")
                     divider
@@ -774,6 +791,71 @@ private struct LiveStatusBar: View {
     private var healthColor: Color {
         guard let st = health?.stability else { return Rs.dim }
         if st >= 85 { return Rs.green }; if st >= 70 { return Rs.gold }; return Rs.red
+    }
+}
+
+// MARK: - Live listeners roster (REAL presence — members heartbeating from the app)
+
+/// The named roster of who is actually listening right now — mirrors the web
+/// portal's "Live listeners" panel. Names + avatars come from real presence rows
+/// (`/radio/programs/:id/listeners`), so this is server-authoritative, not chrome.
+private struct LiveListenersPanel: View {
+    let listeners: [RadioListener]
+    let count: Int
+    let live: Bool
+
+    var body: some View {
+        StudioPanel {
+            VStack(alignment: .leading, spacing: 12) {
+                StudioHeader(icon: "person.2.wave.2.fill", title: "Live listeners",
+                             caption: live ? "\(count) on air" : "Off air")
+                if listeners.isEmpty {
+                    Text(live ? "No one listening yet." : "Off air — no listeners.")
+                        .font(.inter(12)).foregroundStyle(Rs.dim)
+                        .padding(.vertical, 6)
+                } else {
+                    // Cap the rendered rows so a big audience never blows out the
+                    // scroll; the header count stays authoritative (can reach thousands).
+                    ForEach(listeners.prefix(60)) { p in listenerRow(p) }
+                    if listeners.count > 60 {
+                        Text("+ \(count - 60) more listening")
+                            .font(.inter(11, .semibold)).foregroundStyle(Rs.gold)
+                            .padding(.top, 2)
+                    }
+                }
+            }
+        }
+    }
+
+    private func listenerRow(_ p: RadioListener) -> some View {
+        HStack(spacing: 11) {
+            avatar(p)
+            Text(p.name.isEmpty ? "Member" : p.name)
+                .font(.inter(12.5, .semibold)).foregroundStyle(Rs.text)
+                .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 5) {
+                Circle().fill(Rs.green).frame(width: 6, height: 6)
+                Text("Listening").font(.inter(9.5, .bold)).tracking(0.4).foregroundStyle(Rs.green)
+            }.fixedSize()
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Rs.border, lineWidth: 1))
+    }
+
+    @ViewBuilder private func avatar(_ p: RadioListener) -> some View {
+        if let s = p.avatarUrl, let url = URL(string: s), !s.isEmpty {
+            AsyncImage(url: url) { img in
+                img.resizable().scaledToFill()
+            } placeholder: { Rs.gold.opacity(0.15) }
+            .frame(width: 30, height: 30).clipShape(Circle())
+        } else {
+            ZStack {
+                Circle().fill(Rs.goldFill)
+                Text(p.initials).font(.inter(10.5, .heavy)).foregroundStyle(Color(hex: 0x0A1120))
+            }.frame(width: 30, height: 30)
+        }
     }
 }
 

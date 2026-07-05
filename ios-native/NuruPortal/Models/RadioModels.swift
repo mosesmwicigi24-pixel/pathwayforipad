@@ -139,6 +139,31 @@ struct RadioComment: Codable, Identifiable {
     let createdAt: String?
 }
 
+/// One live listener in the studio roster — a REAL member heartbeating from the
+/// mobile player (`/radio/programs/:id/listeners`). Mirrors the web portal's
+/// `RadioListener` DTO ({user_id, name, avatar_url}); the decoder's
+/// convertFromSnakeCase maps user_id→userId, avatar_url→avatarUrl.
+struct RadioListener: Codable, Identifiable {
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var name: String
+    let avatarUrl: String?
+    var id: String { userId }
+    /// Up-to-two-letter initials for the fallback avatar chip.
+    var initials: String {
+        let parts = name.split(separator: " ").prefix(2)
+        let s = parts.compactMap { $0.first.map(String.init) }.joined().uppercased()
+        return s.isEmpty ? "?" : s
+    }
+}
+
+/// `/radio/programs/:id/listeners` → the live roster + server-authoritative count.
+/// `listeners` is optional so an empty/absent array never crashes the decoder.
+struct RadioListenerRoster: Codable {
+    @DefaultZero var count: Int
+    let listeners: [RadioListener]?
+    var roster: [RadioListener] { listeners ?? [] }
+}
+
 // MARK: - Mixer
 
 struct MixerChannel: Codable, Identifiable, Equatable {

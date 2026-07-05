@@ -193,6 +193,12 @@ enum PortalAPI {
     static func radioComments(_ id: String) async throws -> [RadioComment] {
         try await api.get("/admin/radio/programs/\(id)/comments", as: [RadioComment].self)
     }
+    /// Live listener roster — REAL names of members heartbeating from the mobile
+    /// player. This is the MEMBER route (auth-only, no /admin prefix); an admin JWT
+    /// authenticates fine, so the studio reads the same presence rows the app writes.
+    static func radioListeners(_ id: String) async throws -> RadioListenerRoster {
+        try await api.get("/radio/programs/\(id)/listeners", as: RadioListenerRoster.self)
+    }
 
     /// Upload a broadcast audio recording to OUR API (self-hosted disk, multipart).
     /// File field is "file" (audio/* only); optional text field `duration_sec`.
