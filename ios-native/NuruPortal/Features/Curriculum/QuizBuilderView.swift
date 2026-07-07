@@ -43,12 +43,13 @@ private struct QBLevel: Codable, Identifiable {
     var examShowAnswers: Bool?
     var examShowScore: Bool?
     var examShuffle: Bool?
+    var examStatus: String?   // "review" | "published" — the member-visibility gate
     var id: Int { levelNumber }
 
     enum CodingKeys: String, CodingKey {
         case levelNumber, title, theme, duration, status, locked, color
         case publishedCount, draftCount
-        case requiredExamPassMark, examQuestionCount, examShowAnswers, examShowScore, examShuffle
+        case requiredExamPassMark, examQuestionCount, examShowAnswers, examShowScore, examShuffle, examStatus
     }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -66,6 +67,7 @@ private struct QBLevel: Codable, Identifiable {
         examShowAnswers = try? c.decodeIfPresent(Bool.self, forKey: .examShowAnswers)
         examShowScore = try? c.decodeIfPresent(Bool.self, forKey: .examShowScore)
         examShuffle = try? c.decodeIfPresent(Bool.self, forKey: .examShuffle)
+        examStatus = try? c.decodeIfPresent(String.self, forKey: .examStatus)
     }
 }
 private struct QBLevelList: Codable { let data: [QBLevel] }
@@ -424,6 +426,12 @@ private struct UpdateExamBody: Encodable {
     let examShowScore: Bool
 }
 
+/// Body for flipping just the exam's review→publish gate (pass mark required).
+private struct SetExamStatusBody: Encodable {
+    let requiredExamPassMark: Int
+    let examStatus: String
+}
+
 /// Body for POST /admin/modules (createModule parity — the exit_exam module).
 private struct CreateExamModuleBody: Encodable {
     let levelNumber: Int
@@ -474,6 +482,7 @@ struct QuizBuilderView: View {
     @State private var loadError: String?
     @State private var didLoad = false
     @State private var creatingExam = false
+    @State private var togglingPublish = false
 
     private var selLevel: QBLevel? { levels.first { $0.levelNumber == selNo } }
     private var publishedCount: Int { levels.filter { $0.status == "published" }.count }
@@ -715,15 +724,66 @@ struct QuizBuilderView: View {
              + Text("  \(lvl.theme ?? "")").font(.inter(11)).foregroundColor(Nuru.ink600))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            HStack(spacing: 6) {
-                Image(systemName: "rosette").font(.system(size: 12)).foregroundStyle(lc)
-                Text("Final assessment").font(.inter(11, .semibold)).foregroundStyle(lc)
+            HStack(spacing: 12) {
+                HStack(spacing: 6) {
+                    Image(systemName: "rosette").font(.system(size: 12)).foregroundStyle(lc)
+                    Text("Final assessment").font(.inter(11, .semibold)).foregroundStyle(lc)
+                }
+                examPublishToggle(lvl)
             }
         }
         .padding(.horizontal, 24).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(lc.opacity(0.06))
         .overlay(Rectangle().fill(lc.opacity(0.30)).frame(height: 2), alignment: .bottom)
+    }
+
+    /// Review → Publish gate. Members see and take the level exam only once it is
+    /// published; before that it sits "In Review". Carries the current pass mark.
+    @ViewBuilder private func examPublishToggle(_ lvl: QBLevel) -> some View {
+        let published = (lvl.examStatus ?? "review") == "published"
+        let s = qbStatusStyle(published ? "published" : "in_review")
+        HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                Image(systemName: published ? "checkmark.seal.fill" : "clock").font(.system(size: 10, weight: .bold))
+                Text(published ? "Published" : "In Review").font(.inter(10, .bold))
+            }
+            .foregroundStyle(s.fg)
+            .padding(.horizontal, 9).padding(.vertical, 3)
+            .background(Capsule().fill(s.bg))
+
+            Button {
+                Task { await setExamStatus(lvl, to: published ? "review" : "published") }
+            } label: {
+                Text(togglingPublish ? "Saving…" : (published ? "Move to review" : "Publish exam"))
+                    .font(.inter(11.5, .bold))
+                    .foregroundStyle(published ? Color(hex: 0x6B5E45) : .white)
+                    .padding(.horizontal, 14).frame(height: 30)
+                    .background(Capsule().fill(published ? Color(hex: 0xF1EEE7) : Nuru.gold))
+            }
+            .buttonStyle(.plain)
+            .disabled(togglingPublish || examModuleId == nil)
+            .opacity(togglingPublish || examModuleId == nil ? 0.55 : 1)
+        }
+    }
+
+    private func setExamStatus(_ lvl: QBLevel, to next: String) async {
+        await MainActor.run { togglingPublish = true; loadError = nil }
+        let mark = Int(Double(lvl.requiredExamPassMark ?? "80") ?? 80)
+        do {
+            _ = try await APIClient.shared.put(
+                "/admin/levels/\(lvl.levelNumber)/exam",
+                body: SetExamStatusBody(requiredExamPassMark: mark, examStatus: next),
+                as: WriteAck.self)
+            await MainActor.run {
+                if let i = levels.firstIndex(where: { $0.levelNumber == lvl.levelNumber }) {
+                    levels[i].examStatus = next
+                }
+            }
+        } catch {
+            await MainActor.run { loadError = (error as? APIError)?.errorDescription ?? "Could not update publish state." }
+        }
+        await MainActor.run { togglingPublish = false }
     }
 
     @ViewBuilder private func editorBody(_ lvl: QBLevel) -> some View {
