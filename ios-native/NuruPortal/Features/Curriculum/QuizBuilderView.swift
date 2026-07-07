@@ -887,7 +887,7 @@ struct QuizBuilderView: View {
                 "/admin/modules",
                 body: CreateExamModuleBody(
                     levelNumber: n,
-                    title: "Level \(n) — Final Assessment",
+                    title: "Level \(n) Review",
                     lessonContent: "Level exit exam.",
                     evaluationKind: "exit_exam"
                 ),
