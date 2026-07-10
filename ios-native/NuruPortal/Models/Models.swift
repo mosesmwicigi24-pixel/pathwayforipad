@@ -438,3 +438,102 @@ struct ChatConversationDetail: Codable {
     let messages: [ChatMessageRow]
     var displayName: String { title ?? topic ?? "Conversation" }
 }
+
+// MARK: - Discipleship Hub (GET /disciples · GET /disciples/{id})
+// Wire shapes mirror api/client.ts DiscipleRow / RosterSummary / DiscipleDossier
+// (backend modules/discipleship/service.ts). Snake→camel via the shared decoder.
+
+/// One row in the leader's roster (GET /disciples) — server-scoped to the
+/// caller's cells + relationship edges; Admin/SuperAdmin see every student.
+struct DiscipleRow: Codable, Identifiable {
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var fullName: String
+    let avatarUrl: String?
+    let cellName: String?
+    let cellGroupId: String?
+    @DefaultZero var currentLevel: Int
+    let band: String?                      // thriving | steady | watch | at_risk
+    @DefaultZero var streakDays: Int
+    let daysSinceLastActivity: Int?
+    @DefaultZero var pendingReflections: Int
+    let awaitingLevel: Int?                // non-nil → passed the exam, awaiting usher
+    var id: String { userId }
+    var needsAction: Bool { awaitingLevel != nil || pendingReflections > 0 }
+}
+struct DiscipleRosterSummary: Codable {
+    @DefaultZero var totalStudents: Int
+    @DefaultZero var awaitingAction: Int
+}
+struct DiscipleRoster: Codable {
+    let data: [DiscipleRow]
+    let summary: DiscipleRosterSummary
+}
+
+/// A reflection inside the dossier — the discipler DOES see the pastoral body.
+struct DiscipleReflection: Codable, Identifiable {
+    @DefaultEmpty var reflectionId: String
+    @DefaultEmpty var moduleId: String
+    @DefaultEmpty var moduleTitle: String
+    @DefaultZero var levelNumber: Int
+    @DefaultEmpty var state: String        // pending | approved | returned | deferred | rejected
+    @DefaultEmpty var submittedAt: String
+    @DefaultEmpty var body: String
+    let feedbackNotes: String?
+    var id: String { reflectionId }
+}
+
+/// The full per-student journey for their discipler (GET /disciples/{id}).
+struct DiscipleDossier: Codable {
+    struct Member: Codable {
+        @DefaultEmpty var userId: String
+        @DefaultEmpty var fullName: String
+        let avatarUrl: String?
+        let cellName: String?
+        let establishedAt: String?
+        let joinedAt: String?
+    }
+    struct Progression: Codable {
+        @DefaultZero var currentLevel: Int
+        @DefaultEmpty var levelTitle: String
+        @DefaultZero var streakDays: Int
+        @DefaultZero var modulesCompleted: Int
+        @DefaultZero var modulesTotal: Int
+        let awaitingLevel: Int?
+    }
+    struct Scores: Codable {
+        let overall: Double?
+        let word: Double?
+        let prayer: Double?
+        let habits: Double?
+        let curriculum: Double?
+        let attendance: Double?
+    }
+    struct Engagement: Codable {
+        let eScore: Double?                // already 0–100 (server rounds ×100)
+        let band: String?
+        let daysSinceLastActivity: Int?
+    }
+    struct Activity: Codable {
+        @DefaultEmpty var kind: String
+        @DefaultEmpty var occurredAt: String
+    }
+    let member: Member
+    let progression: Progression
+    let scores: Scores
+    let engagement: Engagement
+    let reflections: [DiscipleReflection]
+    let recentActivity: [Activity]
+    let dmConversationId: String?
+}
+struct DiscipleDossierEnvelope: Codable { let data: DiscipleDossier }
+
+/// One pending level advancement awaiting the discipler's usher
+/// (GET /reviews/levels). `id` is the ADVANCEMENT id — the usher path param.
+struct LevelReviewItem: Codable, Identifiable {
+    @DefaultEmpty var id: String
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var memberName: String
+    @DefaultZero var levelNumber: Int
+    let examScore: Double?
+    @DefaultEmpty var createdAt: String
+}

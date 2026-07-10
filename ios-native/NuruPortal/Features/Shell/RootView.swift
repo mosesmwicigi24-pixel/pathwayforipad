@@ -9,7 +9,7 @@ enum Section: String, CaseIterable, Identifiable {
     // Curriculum
     case curriculumLevels, cms, levelDetail, quizBuilder, videoLibrary, contentStudio
     // Operations
-    case cellEngagement, members, reflectionQueue, chat, events, finance, certificates, badges, radio, mixer
+    case cellEngagement, disciples, members, reflectionQueue, chat, events, finance, certificates, badges, radio, mixer
     // System
     case users, roles, congregations, countries, languages, peopleIntelligence, proximity
     // Reachable from the profile menu (not listed in the sidebar)
@@ -27,6 +27,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .videoLibrary: "Video Library"
         case .contentStudio: "Content Studio"
         case .cellEngagement: "Cell Engagement"
+        case .disciples: "Discipleship Hub"
         case .members: "Members"
         case .reflectionQueue: "Reflection Queue"
         case .chat: "Chat"
@@ -58,6 +59,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .videoLibrary: "play.rectangle"
         case .contentStudio: "sparkles"
         case .cellEngagement: "chart.line.uptrend.xyaxis"
+        case .disciples: "figure.2.arms.open"
         case .members: "person.2"
         case .reflectionQueue: "text.bubble"
         case .chat: "bubble.left.and.bubble.right"
@@ -89,7 +91,7 @@ private let navGroups: [NavGroup] = [
     .init(label: "Portal", items: [.dashboard, .notifications]),
     .init(label: "Curriculum", items: [.curriculumLevels, .cms, .levelDetail, .quizBuilder, .contentStudio]),
     .init(label: "Media", items: [.videoLibrary, .radio, .mixer]),
-    .init(label: "Operations", items: [.cellEngagement, .members, .reflectionQueue, .events, .finance, .certificates, .badges]),
+    .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .events, .finance, .certificates, .badges]),
     .init(label: "Communication", items: [.chat]),
     .init(label: "System", items: [.peopleIntelligence, .proximity]),
     .init(label: "Settings", items: [.users, .roles, .congregations, .countries, .languages]),
@@ -325,6 +327,7 @@ struct RootView: View {
         case .dashboard:        DashboardView()
         case .notifications:    NotificationsView()
         case .cellEngagement:   CellEngagementView()
+        case .disciples:        DisciplesView()
         case .members:          MembersView()
         case .reflectionQueue:  ReflectionQueueView()
         case .chat:             ChatView()
