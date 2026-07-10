@@ -20,6 +20,17 @@
 // Resilience: permission denial, missing stream key, refused handshakes, and mid-
 // broadcast network drops all land in `.error(String)` — never a crash. The user
 // can simply retry.
+//
+// Mac Catalyst (feat/macbook-version): AVAudioSession is a SHIM on macOS —
+// `availableInputs` is typically nil, `setPreferredInput` is a no-op, and the
+// reported route often claims `builtInSpeaker` no matter which device macOS is
+// actually using. System Settings ▸ Sound (not this app) picks the devices, and
+// AVAudioEngine's inputNode simply captures the system-default input (the RØDE
+// PodMic when plugged). Every Catalyst divergence below is compile-time gated
+// with `#if targetEnvironment(macCatalyst)` so iPhone/iPad behavior is
+// byte-for-byte unchanged: sensing falls back to the current route then to a
+// single "System input" pseudo-device, and the monitor's speaker-feedback guard
+// becomes a non-blocking advisory (the route can't be trusted enough to block).
 import Foundation
 import AVFoundation
 import Accelerate
@@ -104,6 +115,18 @@ final class MicBroadcaster: ObservableObject {
     private let session = AVAudioSession.sharedInstance()
     private let uplink = MicUplink()
     private var routeObserver: NSObjectProtocol?
+    #if targetEnvironment(macCatalyst)
+    /// Catalyst pseudo-device shown when the shim exposes NO input metadata at
+    /// all: it stands in for "whatever macOS Sound settings has as the default
+    /// input" — AVAudioEngine captures exactly that regardless of anything the
+    /// app could select, so the card must never dead-end on an empty list.
+    static let macSystemInputUID = "mac-system-default-input"
+    static let macSystemInputPort = AVAudioSession.Port(rawValue: "NuruMacSystemDefault")
+    /// Fired when macOS swaps the default input device (PodMic plugged/unplugged)
+    /// — the reliable plug signal on Catalyst, where routeChangeNotification
+    /// rarely arrives.
+    private var configChangeObserver: NSObjectProtocol?
+    #endif
     /// Set when the operator taps a specific row; suppresses USB auto-preference
     /// until that device disappears (so a manual choice is never fought).
     private var manualSelectionUID: String?
@@ -152,11 +175,24 @@ final class MicBroadcaster: ObservableObject {
                 self?.enforceMonitorRouteSafety()
             }
         }
+        #if targetEnvironment(macCatalyst)
+        // Catalyst rarely posts route-change notifications; the engine's
+        // configuration change (fired when macOS swaps the default input) is
+        // the dependable plug/unplug signal — re-sense so the card updates.
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.rescanInputs(autoPrefer: true) }
+        }
+        #endif
         rescanInputs(autoPrefer: true)
     }
 
     deinit {
         if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+        #if targetEnvironment(macCatalyst)
+        if let configChangeObserver { NotificationCenter.default.removeObserver(configChangeObserver) }
+        #endif
     }
 
     /// Full stop — kills monitoring, monitor playback AND a live broadcast. NOT
@@ -188,6 +224,9 @@ final class MicBroadcaster: ObservableObject {
 
     /// Re-read availableInputs; auto-prefer a USB input (the RØDE) when present.
     func rescanInputs(autoPrefer: Bool) {
+        #if targetEnvironment(macCatalyst)
+        rescanInputsMac()
+        #else
         let ports = session.availableInputs ?? []
         let inputs = ports.map { InputSource(uid: $0.uid, name: $0.portName, portType: $0.portType) }
         if inputs != availableInputs { availableInputs = inputs }
@@ -207,14 +246,74 @@ final class MicBroadcaster: ObservableObject {
             ?? ports.first.map { ($0.uid, $0.portName) }
         activeInputUID = active?.0
         currentInputName = active?.1 ?? "No input detected"
+        #endif
+    }
+
+    #if targetEnvironment(macCatalyst)
+    /// Catalyst sensing is DISPLAY-ONLY: the shim's `availableInputs` is usually
+    /// nil, `setPreferredInput` does nothing, and macOS Sound settings — not this
+    /// app — choose the capture device (AVAudioEngine's inputNode follows the
+    /// system default). Prefer whatever the shim exposes, fall back to the
+    /// current route (which often names the real device, e.g. "RØDE PodMic USB"),
+    /// and if both are empty present one pseudo-device standing in for the macOS
+    /// default input so the card never dead-ends. The live RMS meter is fed by
+    /// the engine tap either way — sensing here never gates capture.
+    private func rescanInputsMac() {
+        var inputs = (session.availableInputs ?? []).map {
+            InputSource(uid: $0.uid, name: $0.portName, portType: $0.portType)
+        }
+        if inputs.isEmpty {
+            inputs = session.currentRoute.inputs.map {
+                InputSource(uid: $0.uid, name: $0.portName, portType: $0.portType)
+            }
+        }
+        if inputs.isEmpty {
+            inputs = [InputSource(uid: Self.macSystemInputUID,
+                                  name: "System input (macOS Sound settings)",
+                                  portType: Self.macSystemInputPort)]
+        }
+        if inputs != availableInputs { availableInputs = inputs }
+
+        let active = session.currentRoute.inputs.first.map { ($0.uid, $0.portName) }
+            ?? inputs.first.map { ($0.uid, $0.name) }
+        activeInputUID = active?.0
+        currentInputName = active?.1 ?? "No input detected"
+    }
+    #endif
+
+    /// Catalyst only: input metadata is meaningless until mic permission is
+    /// granted (the shim reports nothing beforehand), so the studio requests it
+    /// on first appearance and re-senses. No-op on iPhone/iPad — sensing works
+    /// unprompted there and permission is requested when capture actually starts.
+    func prepareInputSensing() {
+        #if targetEnvironment(macCatalyst)
+        Task { [weak self] in
+            guard let self else { return }
+            let granted: Bool
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted:  granted = true
+            case .denied:   granted = false
+            default:        granted = await AVAudioApplication.requestRecordPermission()
+            }
+            self.permissionDenied = !granted
+            self.rescanInputs(autoPrefer: true)
+        }
+        #endif
     }
 
     /// Operator picked a row — route capture to that hardware input.
     func select(_ input: InputSource) {
+        #if targetEnvironment(macCatalyst)
+        // macOS Sound settings own device selection — the app can't reroute
+        // (`setPreferredInput` is a no-op on the shim); just re-sense so the
+        // card reflects whatever the system currently uses.
+        rescanInputs(autoPrefer: false)
+        #else
         guard let port = session.availableInputs?.first(where: { $0.uid == input.uid }) else { return }
         manualSelectionUID = input.uid
         try? session.setPreferredInput(port)
         rescanInputs(autoPrefer: false)
+        #endif
     }
 
     // MARK: Monitoring (level meter without broadcasting)
@@ -261,6 +360,34 @@ final class MicBroadcaster: ObservableObject {
         return !outputs.isEmpty && outputs.allSatisfy { $0.portType == .builtInSpeaker }
     }
 
+    #if targetEnvironment(macCatalyst)
+    /// Catalyst advisory (never blocks): the mic is hot and the Mac MIGHT be on
+    /// its built-in speaker — the shim's route is too unreliable to know, so we
+    /// warn instead of refusing.
+    private static let macMonitorFeedbackAdvisory =
+        "Feedback risk: set your Mac's sound output to your headphones/PodMic in System Settings ▸ Sound."
+
+    /// Catalyst's route info can't be trusted — it often reports builtInSpeaker
+    /// no matter which device macOS actually uses, and can be empty. "Looks like
+    /// the speaker" (or unknowable) is therefore only ever ADVISORY, never a block.
+    private var macRouteLooksLikeSpeaker: Bool {
+        let outputs = session.currentRoute.outputs
+        return outputs.isEmpty || outputs.contains { $0.portType == .builtInSpeaker }
+    }
+
+    /// Keep the (non-blocking) feedback advisory in sync with mic + monitor
+    /// state: show it while both are live and the route looks risky; clear it —
+    /// and only it, never a real error note — once either side stops.
+    private func refreshMacMonitorAdvisory() {
+        let risky = (monitorPlaying || monitorWantsPlay) && isBroadcasting && macRouteLooksLikeSpeaker
+        if risky {
+            monitorNote = Self.macMonitorFeedbackAdvisory
+        } else if monitorNote == Self.macMonitorFeedbackAdvisory {
+            monitorNote = nil
+        }
+    }
+    #endif
+
     /// The ONE place a monitor feed URL is derived. Both feeds live at the
     /// program's playback URL with `s_` swapped for the mode's prefix:
     /// …/listen/s_abc.mp3 → …/listen/mon_abc.mp3 (on-air) or …/cue_abc.mp3 (cue).
@@ -303,19 +430,37 @@ final class MicBroadcaster: ObservableObject {
         monitorFailures = 0
         monitorPlaying = false
         tearDownMonitorPlayer()
+        #if targetEnvironment(macCatalyst)
+        // The advisory only makes sense while the monitor runs — clear it (real
+        // error notes like "Monitor stream unavailable" are left alone).
+        if monitorNote == Self.macMonitorFeedbackAdvisory { monitorNote = nil }
+        #endif
     }
 
     private func startMonitor(url: URL) {
+        #if targetEnvironment(macCatalyst)
+        // Catalyst: NEVER hard-block. The route is unreliable (often claims
+        // builtInSpeaker whatever the Mac's real output is) and macOS — not the
+        // app — owns output selection, so a guard here would permanently
+        // dead-end the toggle. Start regardless; if feedback is plausible
+        // (mic on air + route looks like the speaker or is unknowable) show a
+        // non-blocking advisory instead.
+        let startNote: String? =
+            (isBroadcasting && macRouteLooksLikeSpeaker) ? Self.macMonitorFeedbackAdvisory : nil
+        #else
         // Feedback guard FIRST — never let the bed out of the iPad speaker while
-        // a mic may be hot in the same room.
+        // a mic may be hot in the same room. (iPad/iPhone only — the Catalyst
+        // path above must never block.)
         guard !speakerOnlyOutput else {
             monitorNote = Self.monitorFeedbackNote
             return
         }
+        let startNote: String? = nil
+        #endif
         monitorWantsPlay = true
         monitorFailures = 0
         monitorURL = url
-        monitorNote = nil               // clears on a successful start
+        monitorNote = startNote         // nil clears on a successful start
         activateMonitorSession()
         playMonitorItem(url: url)
         monitorPlaying = true
@@ -325,10 +470,28 @@ final class MicBroadcaster: ObservableObject {
     /// the session is already `.playAndRecord` (+ .mixWithOthers) — never
     /// downgrade it; otherwise mirror the studio's `.playback` baseline.
     private func activateMonitorSession() {
+        #if targetEnvironment(macCatalyst)
+        // Catalyst shim: category work is best-effort and must never abort the
+        // player — AVPlayer output on macOS doesn't depend on the iOS session.
+        // Prefer plain `.playback` while only monitoring (the capture engine
+        // manages its own input device), and surface real failures instead of
+        // swallowing them — without clobbering a more useful advisory.
+        do {
+            if session.category != .playAndRecord {
+                try session.setCategory(.playback, mode: .default)
+            }
+            try session.setActive(true)
+        } catch {
+            if monitorNote == nil {
+                monitorNote = "Audio session warning — \(error.localizedDescription)"
+            }
+        }
+        #else
         if session.category != .playAndRecord {
             try? session.setCategory(.playback, mode: .default)
         }
         try? session.setActive(true)
+        #endif
     }
 
     private func playMonitorItem(url: URL) {
@@ -389,9 +552,15 @@ final class MicBroadcaster: ObservableObject {
     /// Route fell back to the built-in speaker mid-monitor (headphones pulled) —
     /// stop instantly and tell the operator why.
     private func enforceMonitorRouteSafety() {
+        #if targetEnvironment(macCatalyst)
+        // macOS owns output selection and the reported route can't be trusted —
+        // never kill the monitor here; keep the advisory in sync instead.
+        refreshMacMonitorAdvisory()
+        #else
         guard (monitorPlaying || monitorWantsPlay), speakerOnlyOutput else { return }
         stopMonitor()
         monitorNote = Self.monitorFeedbackNote
+        #endif
     }
 
     private func tearDownMonitorPlayer() {
@@ -435,13 +604,15 @@ final class MicBroadcaster: ObservableObject {
         uplink.disconnect()
         if isBroadcasting { state = .idle }
         windDownCaptureIfIdle()
+        #if targetEnvironment(macCatalyst)
+        refreshMacMonitorAdvisory()      // mic off air → feedback risk gone
+        #endif
     }
 
     private func handle(_ event: MicUplink.Event) {
         switch event {
         case .connected:
-            guard state == .connecting else { return }
-            state = .onAir
+            if state == .connecting { state = .onAir }
         case .refused(let statusLine):
             state = .error("Station refused the mic — \(statusLine)")
             windDownCaptureIfIdle()
@@ -449,6 +620,11 @@ final class MicBroadcaster: ObservableObject {
             state = .error(message)
             windDownCaptureIfIdle()
         }
+        #if targetEnvironment(macCatalyst)
+        // On-air state changed — the feedback advisory tracks it (advisory shown
+        // when going live with the monitor running; cleared when the mic drops).
+        refreshMacMonitorAdvisory()
+        #endif
     }
 
     /// If neither monitoring nor broadcasting needs the tap, release the hardware
@@ -477,6 +653,17 @@ final class MicBroadcaster: ObservableObject {
     }
 
     private func activateCaptureSession() throws {
+        #if targetEnvironment(macCatalyst)
+        // Catalyst: the session is a shim and iOS-only options (.defaultToSpeaker)
+        // can be refused — and AVAudioEngine captures macOS's system-default
+        // input either way, so a session failure must never abort capture.
+        // Best-effort only; the engine's own start() is where real errors throw.
+        try? session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers])
+        try? session.setActive(true)
+        // Re-sense with the record session (best-effort) live — the route often
+        // names the actual device only once capture is active.
+        rescanInputs(autoPrefer: true)
+        #else
         try session.setCategory(.playAndRecord, mode: .default,
                                 options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers])
         try session.setActive(true)
@@ -486,6 +673,7 @@ final class MicBroadcaster: ObservableObject {
         // Re-assert the preferred input now that the record session is live —
         // availableInputs is fully populated only for record-capable categories.
         rescanInputs(autoPrefer: true)
+        #endif
     }
 
     private func restorePlaybackSession() {

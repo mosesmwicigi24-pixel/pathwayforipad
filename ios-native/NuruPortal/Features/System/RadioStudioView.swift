@@ -1193,7 +1193,9 @@ private struct AudioSourcePanel: View {
                 if mic.availableInputs.isEmpty {
                     HStack(spacing: 9) {
                         Image(systemName: "mic.slash").font(.system(size: 13)).foregroundStyle(Rs.faint)
-                        Text("No audio inputs detected — plug the RØDE USB mic into the iPad.")
+                        Text(MacDesign.isMac
+                             ? "No audio inputs detected — pick your mic in System Settings ▸ Sound ▸ Input on this Mac."
+                             : "No audio inputs detected — plug the RØDE USB mic into the iPad.")
                             .font(.inter(11.5)).foregroundStyle(Rs.dim).fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 12)
@@ -1259,6 +1261,9 @@ private struct AudioSourcePanel: View {
                 statusCaptions
             }
         }
+        // Catalyst: mic permission gates ALL input metadata there — request it
+        // on first appearance, then re-sense. No-op on iPhone/iPad.
+        .onAppear { mic.prepareInputSensing() }
     }
 
     // MARK: rows
@@ -1292,6 +1297,10 @@ private struct AudioSourcePanel: View {
     }
 
     private func portIcon(_ type: AVAudioSession.Port) -> String {
+        #if targetEnvironment(macCatalyst)
+        // Catalyst pseudo-device — stands in for macOS's default input.
+        if type == MicBroadcaster.macSystemInputPort { return "mic.fill" }
+        #endif
         switch type {
         case .usbAudio:                                        return "cable.connector"
         case .builtInMic:                                      return "mic.fill"
@@ -1301,6 +1310,9 @@ private struct AudioSourcePanel: View {
         }
     }
     private func portLabel(_ type: AVAudioSession.Port) -> String {
+        #if targetEnvironment(macCatalyst)
+        if type == MicBroadcaster.macSystemInputPort { return "SYSTEM DEFAULT" }
+        #endif
         switch type {
         case .usbAudio:                                        return "USB AUDIO"
         case .builtInMic:                                      return "BUILT-IN"
