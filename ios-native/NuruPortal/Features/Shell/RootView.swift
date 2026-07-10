@@ -189,6 +189,12 @@ struct RootView: View {
         .onAppear {
             MacWindow.enforceMinimumSize() // Catalyst: declare the desktop window floor (no-op on iPad/iPhone)
             MacWindow.applyPreferredSize() // Catalyst: one-time comfortable default frame (~1560×980, centered)
+            #if targetEnvironment(macCatalyst)
+            // Ask for mic permission AT LAUNCH on the Mac (broadcast console —
+            // the mic is core). Files the real TCC request via AVCaptureDevice,
+            // so the consent dialog appears without navigating to Radio Studio.
+            MicBroadcaster.shared.prepareInputSensing()
+            #endif
             visit(router.section, leaving: nil)
         }
         .onChange(of: router.section) { old, new in visit(new, leaving: old) }
