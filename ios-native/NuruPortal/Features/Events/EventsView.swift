@@ -493,6 +493,20 @@ struct EventsView: View {
                 //    follow-up cards), replacing the old separate insights / queue cards.
                 insightsFollowUpCard
 
+                if MacDesign.isMac {
+                    // Desktop: three top-aligned lanes ordered by workflow —
+                    // run today (calendar + today's flow) · plan ahead (upcoming +
+                    // series) · communicate (announcements + moments). iPad keeps
+                    // the stacked ViewThatFits composition below, byte-identical.
+                    HStack(alignment: .top, spacing: MacDesign.gutter) {
+                        VStack(spacing: 20) { calendarCard; todayPanel }
+                            .frame(maxWidth: .infinity, alignment: .top)
+                        VStack(spacing: 20) { upcomingCard; seriesCard }
+                            .frame(maxWidth: .infinity, alignment: .top)
+                        VStack(spacing: 20) { announcementsCard; momentsCard }
+                            .frame(maxWidth: .infinity, alignment: .top)
+                    }
+                } else {
                 // 3. Calendar + Today panel
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 20) {
@@ -516,6 +530,7 @@ struct EventsView: View {
 
                 // 6. Moments — the final card.
                 momentsCard
+                }
 
                 // Recent attendance now lives in the header "Recent attendance"
                 // sheet (RecentAttendanceSheet); the front-page table + bar chart
@@ -527,7 +542,7 @@ struct EventsView: View {
                     .frame(maxWidth: .infinity).padding(.top, 6)
                 }
                 .padding(24)
-                .macContentColumn()   // Mac: readable centered column; iPhone/iPad unchanged
+                .macContentColumn(MacDesign.workspaceMaxWidth)   // Mac: full workspace — the console composes in lanes
             }
         }
         .background(Nuru.paper)

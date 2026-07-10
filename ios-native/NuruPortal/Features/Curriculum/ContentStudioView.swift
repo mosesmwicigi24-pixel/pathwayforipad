@@ -112,15 +112,17 @@ struct ContentStudioView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 hero
-                // Everything below the full-bleed hero sits in the desktop reading
-                // column on Mac (no-op on iPhone/iPad).
+                // Everything below the full-bleed hero sits in a wide desktop
+                // column on Mac (no-op on iPhone/iPad). The studio's row-tables
+                // carry many columns, so they take ~1500; the create/edit forms
+                // live in sheets and stay at their own readable width.
                 VStack(alignment: .leading, spacing: 0) {
                     switcher
                     Divider().background(Nuru.border)
                     searchBar
                     bodySection
                 }
-                .macContentColumn()
+                .macContentColumn(1500)
             }
         }
         .background(Nuru.paper)

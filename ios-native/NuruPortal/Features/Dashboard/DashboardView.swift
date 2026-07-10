@@ -79,6 +79,11 @@ struct DashboardView: View {
     // KPI strip → FIVE compact tiles per row at portrait width (~740pt usable):
     // 5 × 132 + 4 × 12 spacing = 708 ≤ 740. A 6th KPI wraps cleanly to row 2.
     private let grid = [GridItem(.adaptive(minimum: 132), spacing: 12)]
+    // Mac KPI strip → SIX pinned flexible columns: the six stat chips always sit
+    // in one full-width row (no 5+1 orphan, no dead trailing column at wide
+    // windows — the exact under-utilization an adaptive minimum reintroduces).
+    // Even at the 1080 window floor each tile gets ~160pt (> the iPad 132 min).
+    private let macKpiGrid = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top), count: 6)
 
     var body: some View {
         ScrollView {
@@ -93,17 +98,19 @@ struct DashboardView: View {
                     }
                     .padding(.horizontal, MacDesign.isMac ? 0 : 20)
                 } else if MacDesign.isMac {
-                    // Desktop composition: the KPI tiles flow into an adaptive grid row,
-                    // then the big report cards split into two top-aligned lanes —
-                    // charts left (~58%), feeds/lists right. Same cards, recomposed.
-                    MacGrid(minWidth: 240, spacing: 12) { kpiTiles }
-                    MacLanes {
-                        PipelineSection(levels: vm.levels)
+                    // Desktop composition: ONE clean row of six stat tiles, then three
+                    // top-aligned lanes in morning-review order — REPORTS (how are we
+                    // doing) | PULSE (what happened) | AHEAD (what's coming). Same
+                    // cards as iPad, recomposed to actually use the width.
+                    LazyVGrid(columns: macKpiGrid, spacing: 12) { kpiTiles }
+                    MacDashLanes {
                         PathwayReport(bands: vm.bands, trend: vm.trend)
-                    } secondary: {
+                        PipelineSection(levels: vm.levels)
+                    } pulse: {
                         ActivityCard(activity: vm.activity)
-                        UpcomingCard(events: vm.upcoming)
                         RisksCard(overview: vm.overview, consents: vm.consents, stuck: vm.stuck)
+                    } ahead: {
+                        UpcomingCard(events: vm.upcoming)
                     }
                 } else {
                     LazyVGrid(columns: grid, spacing: 12) { kpiTiles }.padding(.horizontal, 20)
@@ -113,7 +120,9 @@ struct DashboardView: View {
                 }
             }
             .padding(.bottom, 40)
-            .macContentColumn()
+            // Workspace page: fill the window (margins only) — a dashboard composes
+            // in lanes and takes the width, not a readable text column.
+            .macContentColumn(MacDesign.workspaceMaxWidth)
         }
         .background(Nuru.paper)
         .navigationTitle("Dashboard")
@@ -214,6 +223,42 @@ struct MacLanes<Primary: View, Secondary: View>: View {
     }
 }
 
+/// Three top-aligned desktop lanes (~40 / 30 / 30) in morning-review order:
+/// REPORTS (how are we doing) | PULSE (what happened) | AHEAD (what's coming).
+/// Hand-rolled HStack with the same background width-reader trick as `MacLanes`
+/// (a GeometryReader wrapper would collapse inside the vertical ScrollView), so
+/// each lane keeps its natural content-driven height. Mac only.
+private struct MacDashLanes<Reports: View, Pulse: View, Ahead: View>: View {
+    @ViewBuilder var reports: () -> Reports
+    @ViewBuilder var pulse: () -> Pulse
+    @ViewBuilder var ahead: () -> Ahead
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        HStack(alignment: .top, spacing: MacDesign.gutter) {
+            VStack(alignment: .leading, spacing: MacDesign.gutter) { reports() }
+                .frame(width: laneWidth(0.40), alignment: .top)
+            VStack(alignment: .leading, spacing: MacDesign.gutter) { pulse() }
+                .frame(width: laneWidth(0.30), alignment: .top)
+            VStack(alignment: .leading, spacing: MacDesign.gutter) { ahead() }
+                .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { width = geo.size.width }
+                    .onChange(of: geo.size.width) { _, w in width = w }
+            }
+        }
+    }
+
+    /// nil until the first measurement lands — the lanes share the row evenly
+    /// for that single frame, then settle on the 40/30/30 split.
+    private func laneWidth(_ split: CGFloat) -> CGFloat? {
+        width > 0 ? (width - 2 * MacDesign.gutter) * split : nil
+    }
+}
+
 /// Compact KPI tile sized for FIVE-up at portrait width (~132pt). Vertical layout so the
 /// value and label read cleanly at narrow width: tinted icon, then the value (never clipped
 /// via lineLimit + minimumScaleFactor), then a one-line label. Reuses Nuru tokens + Font.inter.
@@ -278,7 +323,12 @@ private struct PipelineSection: View {
                     .pressable()
                     .hoverEffect(.highlight)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
+                // Mac (REPORTS lane, ~40% wide): a pinned 2×2 — the adaptive minimum
+                // lands on 3+1 with an orphan tile at nearly every lane width.
+                LazyVGrid(columns: MacDesign.isMac
+                            ? Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top), count: 2)
+                            : [GridItem(.adaptive(minimum: 180), spacing: 12)],
+                          spacing: 12) {
                     ForEach(items, id: \.0) { it in
                         PipelineTile(label: it.0, value: "\(it.1)", icon: it.2, tint: it.3)
                     }
@@ -341,10 +391,21 @@ private struct PathwayReport: View {
                 }
                 .overlay(alignment: .bottom) { Rectangle().fill(Nuru.border).frame(height: 1) }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 14, alignment: .top)], spacing: 14) {
-                    DonutPanel(slices: slices, total: total)
-                    BreakdownPanel(slices: slices, total: total)
+                if MacDesign.isMac {
+                    // Desktop (REPORTS lane): status distribution + breakdown side by
+                    // side, attendance full-width beneath — the adaptive grid left the
+                    // attendance panel dangling at half width on the wide canvas.
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 14, alignment: .top), count: 2), spacing: 14) {
+                        DonutPanel(slices: slices, total: total)
+                        BreakdownPanel(slices: slices, total: total)
+                    }
                     AttendancePanel(trend: trend)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 14, alignment: .top)], spacing: 14) {
+                        DonutPanel(slices: slices, total: total)
+                        BreakdownPanel(slices: slices, total: total)
+                        AttendancePanel(trend: trend)
+                    }
                 }
             }
         }

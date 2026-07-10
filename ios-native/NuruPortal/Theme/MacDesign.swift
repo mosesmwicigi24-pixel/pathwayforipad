@@ -16,9 +16,13 @@ enum MacDesign {
         #endif
     }
 
-    /// Readable max width for a single content column on desktop. Wider than a
-    /// text column (tables/consoles need room) but never wall-to-wall.
+    /// Readable max width for a single content column on desktop — for
+    /// text/forms/detail pages. CONSOLES and DASHBOARDS should NOT use this:
+    /// they compose in lanes and take the width (`workspaceMaxWidth`).
     static let contentMaxWidth: CGFloat = 1280
+    /// Workspace pages (consoles, dashboards, analytics) fill the window up to
+    /// an ultra-wide sanity cap, with page margins.
+    static let workspaceMaxWidth: CGFloat = 1900
     /// Desktop gutter between columns.
     static let gutter: CGFloat = 20
     /// Desktop page margins (Catalyst windows have no safe-area insets).

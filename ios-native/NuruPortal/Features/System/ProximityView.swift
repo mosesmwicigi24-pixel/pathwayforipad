@@ -125,8 +125,12 @@ struct ProximityView: View {
                         if clusters.isEmpty {
                             emptyState
                         } else {
-                            ForEach(clusters) { c in
-                                ClusterCard(cluster: c) { createTarget = c }
+                            // Mac: cluster cards flow into side-by-side lanes
+                            // (≥520pt each); iPhone/iPad keep the single stack.
+                            MacGrid(minWidth: 520, spacing: 18) {
+                                ForEach(clusters) { c in
+                                    ClusterCard(cluster: c) { createTarget = c }
+                                }
                             }
                             privacyFootnote
                         }
@@ -135,6 +139,7 @@ struct ProximityView: View {
                 .padding(.horizontal, Nuru.S.lg)
                 .padding(.top, Nuru.S.lg)
                 .padding(.bottom, 48)
+                .macContentColumn(MacDesign.workspaceMaxWidth)   // Mac: cluster lanes use the width
             }
         }
         .background(Nuru.paper)

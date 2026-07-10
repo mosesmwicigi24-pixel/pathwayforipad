@@ -561,7 +561,7 @@ private struct CmsCurriculumContent: View {
                 }
                 .padding(.horizontal, Nuru.S.screen)
                 .padding(.vertical, Nuru.S.lg)
-                .macContentColumn()   // Mac: readable centered column; iPhone/iPad unchanged
+                .macContentColumn(MacDesign.workspaceMaxWidth)   // Mac: workspace width — report panels + level grid flow wider
             }
         }
         .frame(maxWidth: .infinity)

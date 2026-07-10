@@ -380,12 +380,12 @@ struct RadioStudioView: View {
                     body(program: m.selected)
                 }
             }
-            // iPad keeps its exact 18pt frame; the Mac page hands horizontal
-            // margins to .macContentColumn (centered readable desk ≤1280pt).
+            // iPad keeps its exact 18pt frame; the Mac desk is a WORKSPACE page —
+            // it fills the window (page margins only, ultra-wide cap at 1900pt).
             .padding(.horizontal, MacDesign.isMac ? 0 : 18)
             .padding(.vertical, 18)
             .padding(.bottom, MacDesign.isMac ? 30 : 48)
-            .macContentColumn()
+            .macContentColumn(MacDesign.workspaceMaxWidth)
         }
         .background(Rs.bg.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
@@ -556,13 +556,18 @@ struct RadioStudioView: View {
 
     // MARK: Mac desk (Catalyst only — iPad/iPhone never reach this branch)
     //
-    // Composed like a broadcast console (Logic/Ferrite): the program picker strip
-    // and the LIVE status bar span the full width; below them the desk splits into
-    // two top-aligned lanes — LEFT (flexible) is the operate-now column (audio
-    // source → transport → meters → session playlists), RIGHT (fixed 420pt, a DAW
-    // inspector rail) is the context column (program, session audio, health,
-    // audience, schedule, ingest, devices, emergency). The Audio Library is a
-    // browsing surface, so it spans the full desk width underneath the lanes.
+    // Composed like a broadcast console across the FULL workspace width: the
+    // program picker strip and the LIVE status bar span the desk; below them
+    // three top-aligned lanes, each ordered by frequency of use mid-show —
+    //   OPERATE  (~36%)  what the broadcaster touches while on air: audio source
+    //                    (mic / monitor / GO ON MIC) → transport → output meters.
+    //   PROGRAM  (~36%)  what airs: session playlists first, the audio library
+    //                    that feeds them beneath.
+    //   CONTEXT  (~28%)  reference rail: program → session audio → audience →
+    //                    schedule → health → ingest (collapsed) → devices →
+    //                    emergency last.
+    // The lanes split the width via flexible frames (the rail caps at 520pt, so
+    // at full desk the split lands ≈36/36/28; mins only guard tiny windows).
     // Every panel is the exact same component the iPad stacks vertically.
     @ViewBuilder private func macBody(program: RadioProgram?) -> some View {
         ProgramPickerStrip(programs: m.programs, selectedId: m.selectedId) { m.select($0) }
@@ -573,7 +578,7 @@ struct RadioStudioView: View {
             }
 
             HStack(alignment: .top, spacing: MacDesign.gutter) {
-                // LEFT — the operate-now column.
+                // OPERATE — mid-show controls, transport above meters.
                 VStack(alignment: .leading, spacing: 16) {
                     AudioSourcePanel(mic: mic, program: p)
                     BroadcastControlsPanel(
@@ -584,38 +589,47 @@ struct RadioStudioView: View {
                         onEnd: { m.endBroadcast() }
                     )
                     MeterAndWaveformPanel(active: m.broadcast == .live)
+                }
+                .frame(minWidth: 300, maxWidth: .infinity)
+
+                // PROGRAM — playlists above the library that feeds them.
+                VStack(alignment: .leading, spacing: 16) {
                     SessionsSection(store: library,
                                     liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
                                     nowPlaying: m.health?.nowPlaying)
+                    AudioLibrarySection(store: library)
                 }
-                .frame(maxWidth: .infinity)
+                .frame(minWidth: 320, maxWidth: .infinity)
 
-                // RIGHT — the context rail.
+                // CONTEXT — reference rail; listeners above schedule, emergency last.
                 VStack(alignment: .leading, spacing: 16) {
                     ProgramCard(program: p, onEdit: { editProgram = p })
                     SessionAudioPanel(program: p, busy: m.busy, onAttach: { showAttachImporter = true })
-                    if m.broadcast.isLiveOrPaused, let h = m.health {
-                        StreamHealthPanel(health: h)
-                    }
                     LiveListenersPanel(listeners: m.listeners, count: m.displayListeners, live: m.broadcast.isLiveOrPaused)
                     ReactionsPanel(hearts: m.hearts, amens: m.amens, fires: m.fires, comments: m.comments,
                                    onReact: { m.react($0) }, onRefresh: { m.loadComments() })
                     SchedulePanel(program: p)
+                    if m.broadcast.isLiveOrPaused, let h = m.health {
+                        StreamHealthPanel(health: h)
+                    }
                     IngestPanel(program: p, onRotate: { m.rotateKey() }, busy: m.busy)   // collapsed by default
                     DeviceManagerPanel()
                     EmergencyPanel(onEnd: { m.endBroadcast() }, canEnd: m.broadcast.isLiveOrPaused)
                 }
-                .frame(width: 420)
+                .frame(minWidth: 280, maxWidth: 520)
             }
-
-            // Full-width browsing surface below the desk.
-            AudioLibrarySection(store: library)
         } else {
-            AudioLibrarySection(store: library)
-            SessionsSection(store: library,
-                            liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
-                            nowPlaying: m.health?.nowPlaying)
+            // No programs yet — the CTA leads, then the two program-building
+            // surfaces share the desk (never full-width monoliths).
             noProgramsPanel
+            HStack(alignment: .top, spacing: MacDesign.gutter) {
+                SessionsSection(store: library,
+                                liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
+                                nowPlaying: m.health?.nowPlaying)
+                    .frame(minWidth: 320, maxWidth: .infinity)
+                AudioLibrarySection(store: library)
+                    .frame(minWidth: 320, maxWidth: .infinity)
+            }
         }
     }
 }

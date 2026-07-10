@@ -244,7 +244,9 @@ struct VideoLibraryView: View {
 
     private enum ViewMode { case table, grid }
 
-    private let grid = [GridItem(.adaptive(minimum: 224), spacing: 14)]
+    // Mac: roomier media tiles (≥300pt) across the workspace row; iPad keeps
+    // the denser 224pt flow.
+    private let grid = [GridItem(.adaptive(minimum: MacDesign.isMac ? 300 : 224), spacing: 14)]
 
     var body: some View {
         ScrollView {
@@ -265,6 +267,7 @@ struct VideoLibraryView: View {
                 .padding(.horizontal, 22)
                 .padding(.top, 20)
                 .padding(.bottom, 40)
+                .macContentColumn(MacDesign.workspaceMaxWidth)   // Mac: media grid + asset table use the width
             }
         }
         .background(Nuru.paper)
@@ -367,7 +370,9 @@ struct VideoLibraryView: View {
     // hierarchy that fits at ~740pt portrait (minimum 150 → all four on one row). ──────
     private var kpiCards: some View {
         let pct = vm.totalCount > 0 ? "\(Int((Double(vm.ready) / Double(vm.totalCount) * 100).rounded()))% of library" : "—"
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+        // Mac: the four KPI tiles spread across the workspace row (≥380pt each)
+        // instead of huddling at 150pt with dead space trailing.
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: MacDesign.isMac ? 380 : 150), spacing: 12)], spacing: 12) {
             kpiCard("Total assets", vm.totalCount, "film", "in the library", tint: 1)
             kpiCard("Ready", vm.ready, "checkmark.circle.fill", pct, tint: 2)
             kpiCard("Processing", vm.processing, "arrow.triangle.2.circlepath", "uploading / transcoding", tint: 1)

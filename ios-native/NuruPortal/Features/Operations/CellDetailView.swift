@@ -123,6 +123,10 @@ private final class CellDetailViewModel: ObservableObject {
     }
 }
 
+/// Fixed width of the trailing engagement column (score + bar) in the member
+/// table — wider on the Mac where the table fills the workspace lane.
+private let engagementColWidth: CGFloat = MacDesign.isMac ? 260 : 168
+
 struct CellDetailView: View {
     let cellGroupId: String
     let name: String
@@ -144,22 +148,50 @@ struct CellDetailView: View {
                     notFound.padding(.horizontal, 20)
                 } else {
                     VStack(spacing: 14) {
-                        // Health mix + KPI tiles share one row on the wide canvas
-                        // so neither leaves a band of empty space beside it.
-                        ViewThatFits(in: .horizontal) {
-                            HStack(alignment: .top, spacing: 14) {
-                                bandsCard.frame(maxWidth: 460)
-                                LazyVGrid(columns: kpiGrid, alignment: .leading, spacing: 12) { kpiTiles }
-                                    .frame(maxWidth: .infinity)
+                        if MacDesign.isMac {
+                            // Desktop dossier (like MemberDetail): a fixed summary
+                            // rail — health mix over a 2-up KPI grid — beside the
+                            // member engagement table, which takes the rest of the
+                            // workspace. Read the cell's health at a glance left,
+                            // work the roster right. The table's minWidth makes
+                            // ViewThatFits fall back to stacked at narrow windows.
+                            ViewThatFits(in: .horizontal) {
+                                HStack(alignment: .top, spacing: 14) {
+                                    VStack(spacing: 14) {
+                                        bandsCard
+                                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2),
+                                                  alignment: .leading, spacing: 12) { kpiTiles }
+                                    }
+                                    .frame(width: 400)
+                                    memberTable.frame(minWidth: 560, maxWidth: .infinity)
+                                }
+                                VStack(spacing: 14) {
+                                    bandsCard
+                                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4),
+                                              alignment: .leading, spacing: 12) { kpiTiles }
+                                    memberTable
+                                }
                             }
-                            VStack(spacing: 14) {
-                                bandsCard
-                                LazyVGrid(columns: kpiGrid, alignment: .leading, spacing: 12) { kpiTiles }
+                        } else {
+                            // Health mix + KPI tiles share one row on the wide canvas
+                            // so neither leaves a band of empty space beside it.
+                            ViewThatFits(in: .horizontal) {
+                                HStack(alignment: .top, spacing: 14) {
+                                    bandsCard.frame(maxWidth: 460)
+                                    LazyVGrid(columns: kpiGrid, alignment: .leading, spacing: 12) { kpiTiles }
+                                        .frame(maxWidth: .infinity)
+                                }
+                                VStack(spacing: 14) {
+                                    bandsCard
+                                    LazyVGrid(columns: kpiGrid, alignment: .leading, spacing: 12) { kpiTiles }
+                                }
                             }
+                            memberTable
                         }
-                        memberTable
                     }
                     .padding(.horizontal, 20)
+                    // Mac: lanes take the workspace width (with margins).
+                    .macContentColumn(MacDesign.workspaceMaxWidth)
                 }
             }
             .padding(.bottom, 40)
@@ -285,7 +317,7 @@ struct CellDetailView: View {
                     Text("MEMBER").font(.nOverline).tracking(1.1).foregroundStyle(Nuru.ink600)
                     Spacer(minLength: 8)
                     Text("ENGAGEMENT").font(.nOverline).tracking(1.1).foregroundStyle(Nuru.ink600)
-                        .frame(width: 168, alignment: .trailing)
+                        .frame(width: engagementColWidth, alignment: .trailing)
                     Spacer().frame(width: 18)
                 }
                 .padding(.horizontal, 22).padding(.vertical, 9)
@@ -341,7 +373,7 @@ struct CellDetailView: View {
                 Text("\(score)%").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink)
                 ProgressBar(pct: Double(score), fill: band.color, height: 6)
             }
-            .frame(width: 168)
+            .frame(width: engagementColWidth)
             Image(systemName: "chevron.right").font(.system(size: 11)).foregroundStyle(Nuru.ink300)
         }
         .padding(.horizontal, 22).padding(.vertical, 11)

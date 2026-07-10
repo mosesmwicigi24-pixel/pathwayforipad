@@ -416,7 +416,9 @@ struct PeopleIntelligenceView: View {
                 .padding(.top, Nuru.S.lg)
                 .padding(.bottom, 48)
             }
-            .macContentColumn()
+            // Workspace page: fill the window (margins only) — an analytics console
+            // composes in lanes/grids and takes the width, not a readable column.
+            .macContentColumn(MacDesign.workspaceMaxWidth)
         }
         .background(Nuru.paper)
         .navigationBarTitleDisplayMode(.inline)
@@ -674,8 +676,10 @@ private struct PeopleRowsSection: View {
     /// Presentation only — no data/decoding/gating changes.
     private var macRows: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // Signal cards flow into an adaptive grid (3-up at the full column).
-            MacGrid(minWidth: 320) {
+            // Signal cards flow into an adaptive grid. Min 460 caps the flow at 2–3
+            // columns on the full workspace width — six cards always fill their rows
+            // exactly (3+3 or 2+2+2), never a stray orphan or a dead trailing column.
+            MacGrid(minWidth: 460) {
                 giving.giversCard
                 usage.activeHighlight
                 giving.frequencyCard
@@ -698,7 +702,9 @@ private struct PeopleRowsSection: View {
             // SECTION — Engagement & growth
             piSectionHeader(icon: "chart.pie.fill", "Engagement & growth",
                             "\(eng.total) members · \(Pctf1(p.kpis.avgEngagement)) avg score")
-            MacGrid(minWidth: 320) {
+            // Rows of three: min 460 holds 3-up on the workspace width without the
+            // adaptive grid opening extra empty columns beside the three cards.
+            MacGrid(minWidth: 460) {
                 eng.bandsDonutCard
                 eng.bandBreakdownCard
                 eng.levelCard
@@ -706,7 +712,7 @@ private struct PeopleRowsSection: View {
 
             // SECTION — Location
             piSectionHeader(icon: "mappin.and.ellipse", "Location", "Where your people are — coarse, free-text")
-            MacGrid(minWidth: 320) {
+            MacGrid(minWidth: 460) {
                 location.byCityCard
                 location.byCountryCard
                 location.proximityCard
@@ -792,11 +798,12 @@ private struct KpiStripSection: View {
         VStack(alignment: .leading, spacing: 12) {
             piSectionTitle(icon: "person.3.fill", "Overview", "Live membership, engagement & giving signal")
             if MacDesign.isMac {
-                // Desktop: adaptive flows — a full 8-up at the 1280 content column,
+                // Desktop: adaptive flows on the workspace width — minima re-tuned for
+                // the 1900 column so a typical ~1600 window lands exactly 8-up / 6-up,
                 // reflowing gracefully at narrower windows instead of squeezing a
                 // pinned row of 8 into skinny tiles.
-                MacGrid(minWidth: 150, spacing: 10) { kpiTiles }
-                MacGrid(minWidth: 200, spacing: 10) { growthTiles }
+                MacGrid(minWidth: 170, spacing: 10) { kpiTiles }
+                MacGrid(minWidth: 230, spacing: 10) { growthTiles }
             } else {
                 // Row of 8 — overview KPI tiles.
                 LazyVGrid(columns: kpiGrid, spacing: 10) { kpiTiles }

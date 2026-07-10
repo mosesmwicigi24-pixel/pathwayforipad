@@ -255,6 +255,19 @@ private final class MembersVM: ObservableObject {
     }
 }
 
+// MARK: - Desktop table columns
+
+/// Fixed table-column widths. On the Mac the directory is a workspace page —
+/// the table fills the window, so the fixed columns widen to match. iPhone/iPad
+/// keep the ~740pt-tuned values (compile-time gate → byte-identical layouts).
+private enum MCol {
+    static let name: CGFloat = MacDesign.isMac ? 280 : 175
+    static let cell: CGFloat = MacDesign.isMac ? 170 : 105
+    static let start: CGFloat = MacDesign.isMac ? 92 : 72
+    static let progress: CGFloat = MacDesign.isMac ? 230 : 120
+    static let status: CGFloat = MacDesign.isMac ? 92 : 70
+}
+
 // MARK: - Members screen
 
 struct MembersView: View {
@@ -307,7 +320,9 @@ struct MembersView: View {
                     }
                 }
                 .padding(20)
-                .macContentColumn()   // Mac: readable centered column; iPhone/iPad unchanged
+                // Mac: the directory is a workspace page — the table fills the
+                // window (with margins) instead of a narrow reading column.
+                .macContentColumn(MacDesign.workspaceMaxWidth)
             }
         }
         .background(Nuru.paper)
@@ -448,16 +463,16 @@ struct MembersView: View {
     private var tableHeader: some View {
         HStack(spacing: 10) {
             Text("Member").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                .frame(width: 44 + 175 + 10, alignment: .leading)
+                .frame(width: 44 + MCol.name + 10, alignment: .leading)
             Text("Cell").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                .frame(width: 105, alignment: .leading)
+                .frame(width: MCol.cell, alignment: .leading)
             Text("Start").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                .frame(width: 72, alignment: .leading)
+                .frame(width: MCol.start, alignment: .leading)
             Text("Progress").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                .frame(width: 120, alignment: .leading)
+                .frame(width: MCol.progress, alignment: .leading)
             Spacer(minLength: 0)
             Text("Status").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
-                .frame(width: 70, alignment: .center)
+                .frame(width: MCol.status, alignment: .center)
             Text("").frame(width: 34 + 10 + 30)   // Results + menu action columns
         }
         .padding(.horizontal, 18).padding(.vertical, 11)
@@ -537,18 +552,18 @@ private struct MemberRowCard: View {
                         }
                     }
                 }
-                .frame(width: 175, alignment: .leading)
+                .frame(width: MCol.name, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(member.cellName ?? "—").font(.inter(12, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
                     Label("cell", systemImage: "person.crop.circle.badge.checkmark").font(.nMicro).foregroundStyle(Nuru.ink600)
-                }.frame(width: 105, alignment: .leading)
+                }.frame(width: MCol.cell, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Label("L\(member.startLevel ?? 1)·M\(member.startModuleSequence ?? 1)", systemImage: "flag.fill")
                         .font(.inter(12, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.85)
                     Text("start").font(.nMicro).foregroundStyle(Nuru.ink600)
-                }.frame(width: 72, alignment: .leading)
+                }.frame(width: MCol.start, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -557,13 +572,13 @@ private struct MemberRowCard: View {
                         Text("\(progress)%").font(.inter(11.5, .bold)).foregroundStyle(Nuru.navy)
                     }
                     ProgressBar(pct: Double(progress), fill: sm.fg, height: 6)
-                }.frame(width: 120)
+                }.frame(width: MCol.progress)
 
                 Spacer(minLength: 0)
 
                 Text(sm.label).font(.inter(10.5, .bold)).foregroundStyle(sm.fg)
                     .lineLimit(1).minimumScaleFactor(0.8)
-                    .frame(width: 70).padding(.vertical, 5)
+                    .frame(width: MCol.status).padding(.vertical, 5)
                     .background(sm.bg).overlay(Capsule().stroke(sm.fg.opacity(0.2), lineWidth: 1)).clipShape(Capsule())
 
                 Button(action: onResults) {

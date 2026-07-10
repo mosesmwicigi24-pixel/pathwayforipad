@@ -117,6 +117,7 @@ struct CertificatesView: View {
                     }
                 }
                 .padding(24)
+                .macContentColumn(MacDesign.workspaceMaxWidth)   // Mac: registry table + preview lane use the width
             }
         }
         .background(Nuru.paper)

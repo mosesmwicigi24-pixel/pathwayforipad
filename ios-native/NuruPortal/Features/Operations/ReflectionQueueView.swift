@@ -179,6 +179,9 @@ struct ReflectionQueueView: View {
                     }
                 }
                 .padding(.horizontal, 20)
+                // Mac: queue-left / review-right console — fills the workspace
+                // width (with margins); iPhone/iPad unchanged.
+                .macContentColumn(MacDesign.workspaceMaxWidth)
             }
             .padding(.bottom, 40)
         }
@@ -345,7 +348,13 @@ struct ReflectionQueueView: View {
             ("Needs attention", "\(overdue)", nil, "exclamationmark.shield.fill", Color(hex: 0xFDF0E6), Color(hex: 0xC2410C)),
             ("In view", "\(rows.count)", nil, "checkmark.circle.fill", Color(hex: 0xE8F6EE), Color(hex: 0x0F6B33)),
         ]
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+        // Mac: exactly four flexible columns so the strip fills the workspace row
+        // (an adaptive grid would bunch four small cards on the left); iPad keeps
+        // the adaptive wrap.
+        let columns = MacDesign.isMac
+            ? Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
+            : [GridItem(.adaptive(minimum: 200), spacing: 12)]
+        return LazyVGrid(columns: columns, spacing: 12) {
             ForEach(cards, id: \.0) { c in
                 Card(padding: 14) {
                     HStack(spacing: 12) {
@@ -574,15 +583,40 @@ private struct Workspace: View {
         VStack(spacing: 14) {
             memberHeader
             growthStrip
+            if MacDesign.isMac {
+                // Desktop review: READ left, DECIDE right — the reflection keeps a
+                // readable measure while the decision panel rides alongside in a
+                // fixed rail, so the reviewer never scrolls past the text to act.
+                // The minWidth on the reading lane makes ViewThatFits fall back to
+                // the stacked layout at narrow Mac windows instead of crushing it.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: MacDesign.gutter) {
+                        reflectionContent.frame(minWidth: 480, maxWidth: .infinity)
+                        Group {
+                            if current.state == "pending" { decisionPanel } else { reviewedBanner }
+                        }
+                        .frame(width: 440)
+                    }
+                    stackedReviewLanes
+                }
+            } else {
+                stackedReviewLanes
+            }
+        }
+        .task(id: current.userId) {
+            member = try? await PortalAPI.memberDetail(current.userId)
+        }
+    }
+
+    /// Reflection + decision stacked (iPhone/iPad layout, and the narrow-Mac fallback).
+    @ViewBuilder private var stackedReviewLanes: some View {
+        VStack(spacing: 14) {
             reflectionContent
             if current.state == "pending" {
                 decisionPanel
             } else {
                 reviewedBanner
             }
-        }
-        .task(id: current.userId) {
-            member = try? await PortalAPI.memberDetail(current.userId)
         }
     }
 

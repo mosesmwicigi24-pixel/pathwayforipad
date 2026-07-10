@@ -154,33 +154,44 @@ extension Color {
 
 // MARK: - Typography (Inter body · Fraunces display), iPad-tuned
 
+// Mac Catalyst renders the iPad point sizes ~77%-scaled, which reads small on
+// a 14"/16" panel at desk distance. One global bump here (every font funnels
+// through this block) sizes type for the Mac; iPhone/iPad are untouched (×1).
+private let macTypeScale: CGFloat = {
+    #if targetEnvironment(macCatalyst)
+    1.08
+    #else
+    1.0
+    #endif
+}()
+
 extension Font {
     // Raw helpers scale with the user's Dynamic Type setting via `relativeTo:
     // .body` — at the default text size this renders pixel-identical to a fixed
     // size, and at larger/smaller settings every call site scales proportionally.
     static func inter(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .custom(interFace(weight), size: size, relativeTo: .body)
+        .custom(interFace(weight), size: size * macTypeScale, relativeTo: .body)
     }
     static func fraunces(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
-        .custom(frauncesFace(weight), size: size, relativeTo: .body)
+        .custom(frauncesFace(weight), size: size * macTypeScale, relativeTo: .body)
     }
     /// Display serif (Fraunces). Back-compat name retained.
     static func nuruDisplay(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
-        .custom(frauncesFace(weight), size: size, relativeTo: .body)
+        .custom(frauncesFace(weight), size: size * macTypeScale, relativeTo: .body)
     }
 
     // Semantic scale (mobile type scale, bumped for iPad). These scale with the
     // user's Dynamic Type setting via `relativeTo:` mapped to their natural
     // text style (the raw helpers above scale relative to `.body`).
-    static var nDisplay: Font  { .custom(frauncesFace(.medium), size: 33, relativeTo: .largeTitle) }
-    static var nTitle: Font    { .custom(frauncesFace(.semibold), size: 24, relativeTo: .title2) }
-    static var nHeading: Font  { .custom(interFace(.semibold), size: 17, relativeTo: .headline) }
-    static var nBody: Font     { .custom(interFace(.regular), size: 15, relativeTo: .body) }
-    static var nBodyLg: Font   { .custom(interFace(.regular), size: 17, relativeTo: .body) }
-    static var nLabel: Font    { .custom(interFace(.medium), size: 13, relativeTo: .subheadline) }
-    static var nCaption: Font  { .custom(interFace(.regular), size: 13, relativeTo: .caption) }
-    static var nMicro: Font    { .custom(interFace(.medium), size: 11.5, relativeTo: .caption2) }
-    static var nOverline: Font { .custom(interFace(.semibold), size: 11.5, relativeTo: .caption2) }
+    static var nDisplay: Font  { .custom(frauncesFace(.medium), size: 33 * macTypeScale, relativeTo: .largeTitle) }
+    static var nTitle: Font    { .custom(frauncesFace(.semibold), size: 24 * macTypeScale, relativeTo: .title2) }
+    static var nHeading: Font  { .custom(interFace(.semibold), size: 17 * macTypeScale, relativeTo: .headline) }
+    static var nBody: Font     { .custom(interFace(.regular), size: 15 * macTypeScale, relativeTo: .body) }
+    static var nBodyLg: Font   { .custom(interFace(.regular), size: 17 * macTypeScale, relativeTo: .body) }
+    static var nLabel: Font    { .custom(interFace(.medium), size: 13 * macTypeScale, relativeTo: .subheadline) }
+    static var nCaption: Font  { .custom(interFace(.regular), size: 13 * macTypeScale, relativeTo: .caption) }
+    static var nMicro: Font    { .custom(interFace(.medium), size: 11.5 * macTypeScale, relativeTo: .caption2) }
+    static var nOverline: Font { .custom(interFace(.semibold), size: 11.5 * macTypeScale, relativeTo: .caption2) }
 }
 
 private func interFace(_ w: Font.Weight) -> String {

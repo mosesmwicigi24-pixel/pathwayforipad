@@ -242,7 +242,11 @@ struct NotificationsView: View {
                 .padding(.horizontal, Nuru.S.lg)
                 .padding(.top, 18)
                 .padding(.bottom, 36)
-                .frame(maxWidth: 1040, alignment: .leading)
+                // iPad: left-aligned 1040 cap. Mac: a feed reads best in a CENTERED
+                // readable column (contentMaxWidth), never stretched to the full
+                // workspace — macContentColumn supplies the cap + margins there.
+                .frame(maxWidth: MacDesign.isMac ? .infinity : 1040, alignment: .leading)
+                .macContentColumn()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

@@ -422,16 +422,20 @@ struct MemberDetailView: View {
     private func body(_ m: MemberFull) -> some View {
         VStack(spacing: 16) {
             if MacDesign.isMac {
-                // Desktop dossier (macOS HIG): two top-aligned lanes. Left (flexible)
-                // carries progression + results — progress rings, milestones, activity,
-                // and the full results table. Right (fixed ~480) carries the growth-
-                // score tiles, certificates, badges and the security card. Same cards,
-                // recomposed — nothing restyled. (MacColumns is GeometryReader-based
-                // and collapses inside a ScrollView, so the lanes are a plain HStack.)
+                // Desktop dossier (macOS HIG): THREE top-aligned equal lanes on the
+                // workspace canvas, ordered by how a discipler reads a member —
+                // (1) progression: progress rings + milestones; (2) evidence: recent
+                // activity + the full results table; (3) standing: score tiles,
+                // certificates, badges and the security card. Same cards, recomposed
+                // — nothing restyled. (MacColumns is GeometryReader-based and
+                // collapses inside a ScrollView, so the lanes are a plain HStack.)
                 HStack(alignment: .top, spacing: MacDesign.gutter) {
                     VStack(spacing: 16) {
                         progressCard(m)
                         milestonesCard(m)
+                    }
+                    .frame(maxWidth: .infinity)
+                    VStack(spacing: 16) {
                         activityCard(m)
                         ResultsSection(userId: userId)
                     }
@@ -442,7 +446,7 @@ struct MemberDetailView: View {
                         badgesCard(m)
                         securityCard(m)
                     }
-                    .frame(maxWidth: 480)   // caps at ~45%; splits evenly when the window is narrow
+                    .frame(maxWidth: .infinity)
                 }
             } else {
                 // ONE consolidated row of 5 compact KPI tiles (no duplicate Habits/
@@ -474,7 +478,9 @@ struct MemberDetailView: View {
         .padding(.horizontal, Nuru.S.base)
         .padding(.top, Nuru.S.lg)
         .padding(.bottom, Nuru.S.xxl)
-        .macContentColumn()
+        // Mac: the dossier composes in three lanes, so it takes the workspace
+        // width (with margins) rather than a narrow reading column.
+        .macContentColumn(MacDesign.workspaceMaxWidth)
     }
 
     // MARK: Security (manual password reset)

@@ -162,7 +162,10 @@ struct ProfileView: View {
                 .padding(.horizontal, Nuru.S.lg)
                 .padding(.top, 18)
                 .padding(.bottom, 36)
-                .frame(maxWidth: 1100, alignment: .leading)
+                // Personal page: a READING column. Mac centers it at the desktop
+                // content width; iPad keeps the leading 1100pt column unchanged.
+                .frame(maxWidth: MacDesign.isMac ? MacDesign.contentMaxWidth : 1100, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: MacDesign.isMac ? .center : .leading)
             }
             .frame(maxWidth: .infinity)
         }

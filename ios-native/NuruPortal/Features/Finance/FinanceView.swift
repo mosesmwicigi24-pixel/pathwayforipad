@@ -474,7 +474,7 @@ struct FinanceView: View {
                     .padding(.horizontal, Nuru.S.lg)
                     .padding(.top, Nuru.S.lg)
                     .padding(.bottom, 48)
-                    .macContentColumn()   // Mac: readable centered column; iPhone/iPad unchanged
+                    .macContentColumn(MacDesign.workspaceMaxWidth)   // Mac: full workspace — KPI tiles + charts compose in lanes
             }
         }
         .background(Nuru.paper)
@@ -640,9 +640,10 @@ private struct OverviewTab: View {
             statusStrip
             channelSection
             fundSection
-            // Mac: the three chart cards flow into side-by-side lanes (their heights
-            // differ, cells are top-aligned); elsewhere they stack as before.
-            MacGrid(minWidth: 380, spacing: 18) {
+            // Mac: the three chart cards sit as exactly three lanes at workspace
+            // width (min 560 keeps a 4th column from ever squeezing in and stops
+            // tiles going comically wide); elsewhere they stack as before.
+            MacGrid(minWidth: 560, spacing: 18) {
                 trendCard
                 givingByFundCard
                 givingByMethodCard

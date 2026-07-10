@@ -87,7 +87,8 @@ struct LanguagesView: View {
 
     // PORTRAIT-tuned adaptive grid: ~224pt min so a clean 3-up fits the ~724pt
     // content width (falls to 2-up when narrower / in split view).
-    private let columns = [GridItem(.adaptive(minimum: 224), spacing: 14)]
+    // Mac: roomier language cards (≥280pt) in the wider column; iPad keeps 224pt.
+    private let columns = [GridItem(.adaptive(minimum: MacDesign.isMac ? 280 : 224), spacing: 14)]
 
     var body: some View {
         Group {
@@ -161,6 +162,7 @@ struct LanguagesView: View {
                     }
                 }
                 .padding(Nuru.S.screen)
+                .macContentColumn(1500)   // Mac: language cards breathe at ~1500; form stays in a sheet
             }
         }
     }
