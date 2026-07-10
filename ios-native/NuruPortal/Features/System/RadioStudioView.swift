@@ -382,30 +382,48 @@ struct RadioStudioView: View {
     @ObservedObject private var mic = MicBroadcaster.shared
     @State private var showAttachImporter = false
 
+    // WIDTH-ADAPTIVE DESK (not platform-gated): the broadcast desk (console
+    // strip + OPERATE|PROGRAM|CONTEXT lanes) renders whenever the page is wide
+    // enough — Catalyst always, iPad in landscape (Pro 13" ≈1376, 11" ≈1194
+    // qualify; every iPad portrait ≤1032 falls back to the stacked body).
+    // iPhone always stacks. The viewport is measured on the ScrollView itself
+    // (stable — independent of the content's own desk-dependent padding), and
+    // rotation just flips the layout branch: the RadioModel/mic state is shared,
+    // so nothing reloads or drops mid-broadcast.
+    @State private var pageWidth: CGFloat = 0
+    /// Minimum page width for the three-lane desk.
+    private static let deskMinWidth: CGFloat = 1100
+    private var useDesk: Bool {
+        if MacDesign.isMac { return true }
+        return UIDevice.current.userInterfaceIdiom == .pad && pageWidth >= Self.deskMinWidth
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // Mac collapses the iPad's three stacked bands (hero header,
-                // program picker strip, LIVE status bar) into ONE compact
-                // console strip — the desk lanes start one row down.
-                if MacDesign.isMac { consoleStrip } else { header }
+                // The desk collapses the stacked layout's three bands (hero
+                // header, program picker strip, LIVE status bar) into ONE
+                // compact console strip — the desk lanes start one row down.
+                if useDesk { consoleStrip } else { header }
                 if let error = m.error, m.programs.isEmpty {
                     DarkError(message: error) { Task { await m.load() } }
                 } else if !m.loaded {
                     DarkSkeleton()
-                } else if MacDesign.isMac {
+                } else if useDesk {
                     macBody(program: m.selected)
                 } else {
                     body(program: m.selected)
                 }
             }
-            // iPad keeps its exact 18pt frame; the Mac desk is a WORKSPACE page —
-            // it fills the window (page margins only, ultra-wide cap at 1900pt).
+            // iPad keeps its exact 18pt frame (desk or stacked); the Mac desk is
+            // a WORKSPACE page — it fills the window (page margins only,
+            // ultra-wide cap at 1900pt via macContentColumn, a Catalyst no-op).
             .padding(.horizontal, MacDesign.isMac ? 0 : 18)
             .padding(.vertical, 18)
             .padding(.bottom, MacDesign.isMac ? 30 : 48)
             .macContentColumn(MacDesign.workspaceMaxWidth)
         }
+        .measureWidth($pageWidth)
         .background(Rs.bg.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
@@ -433,7 +451,7 @@ struct RadioStudioView: View {
         } message: { Text(m.actionError ?? "") }
     }
 
-    // MARK: Header (dark studio hero — iPad/iPhone only; the Mac uses consoleStrip)
+    // MARK: Header (dark studio hero — stacked layout only; the desk uses consoleStrip)
 
     private var header: some View {
         StudioPanel(padding: 20, glow: m.broadcast.isLiveOrPaused) {
@@ -475,11 +493,11 @@ struct RadioStudioView: View {
         }.pressable().hoverEffect(.highlight)
     }
 
-    // MARK: Mac console strip (Catalyst only)
+    // MARK: Desk console strip (Catalyst + wide iPad — `useDesk`)
     //
     // ONE compact bordered Rs row spanning the workspace width, replacing the
-    // three full-width bands the iPad stacks (hero header, program picker
-    // strip, LIVE status bar). Four columns split by vertical hairlines:
+    // three full-width bands the stacked layout shows (hero header, program
+    // picker strip, LIVE status bar). Four columns split by vertical hairlines:
     // identity · sessions (flex, the same picker chips) · live stats (or a dim
     // off-air tag) · actions (ON AIR chip + New program). ≤ ~92pt tall so the
     // desk lanes start almost at the top of the window.
@@ -637,7 +655,8 @@ struct RadioStudioView: View {
         }
     }
 
-    // MARK: Mac desk (Catalyst only — iPad/iPhone never reach this branch)
+    // MARK: The desk (Catalyst always; iPad when the page is ≥1100pt wide —
+    // landscape. iPhone never reaches this branch; see `useDesk`.)
     //
     // Composed like a broadcast console across the FULL workspace width. The
     // program picker and the live stats live in the console strip at the top
@@ -1183,11 +1202,16 @@ private struct AudioSourcePanel: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
+    /// Transient plug/unplug banner ("RØDE PodMic connected") — auto-dismisses.
+    @State private var banner: MicBroadcaster.DeviceEvent?
+    @State private var bannerDismiss: Task<Void, Never>?
 
     var body: some View {
         StudioPanel {
             VStack(alignment: .leading, spacing: 14) {
                 StudioHeader(icon: "square.stack.3d.up.fill", title: "Audio source", caption: mic.currentInputDisplayName)
+
+                if let banner { connectionBanner(banner) }
 
                 // Selectable input rows — real hardware only.
                 if mic.availableInputs.isEmpty {
@@ -1204,12 +1228,26 @@ private struct AudioSourcePanel: View {
                     .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Rs.border, lineWidth: 1))
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 10, alignment: .top)], spacing: 10) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 10, alignment: .top)], spacing: 10) {
                         ForEach(mic.availableInputs) { input in
                             inputRow(input)
                         }
                     }
                 }
+
+                #if targetEnvironment(macCatalyst)
+                // Honest routing note: tapping a row can't reroute capture on
+                // macOS — Sound settings own that. Say so instead of pretending.
+                if let pending = mic.macPendingSelection {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "gearshape").font(.system(size: 10))
+                            .foregroundStyle(Rs.dim).padding(.top, 1.5)
+                        Text("macOS routes capture — to use \(pending.displayName), set it as the Input in System Settings ▸ Sound.")
+                            .font(.inter(11)).foregroundStyle(Rs.dim)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                #endif
 
                 // Live input level — real RMS while monitoring or on mic.
                 HStack(spacing: 12) {
@@ -1261,65 +1299,126 @@ private struct AudioSourcePanel: View {
                 statusCaptions
             }
         }
-        // Catalyst: mic permission gates ALL input metadata there — request it
-        // on first appearance, then re-sense. No-op on iPhone/iPad.
+        // Catalyst: sense immediately (metadata needs no permission), then
+        // request the mic grant capture needs. No-op on iPhone/iPad.
         .onAppear { mic.prepareInputSensing() }
+        // Live plug/unplug awareness: every rescan diff lands here — show the
+        // banner with a gentle spring, hold ~5 s, then let it slip away.
+        .onChange(of: mic.deviceEvent) { _, event in
+            guard let event else { return }
+            withAnimation(bannerAnimation) { banner = event }
+            bannerDismiss?.cancel()
+            bannerDismiss = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard !Task.isCancelled else { return }
+                withAnimation(bannerAnimation) { banner = nil }
+            }
+        }
+        .onDisappear { bannerDismiss?.cancel() }
+    }
+
+    // MARK: Connection banner (plug/unplug awareness)
+
+    private var bannerAnimation: Animation {
+        reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.45, dampingFraction: 0.78)
+    }
+
+    private func connectionBanner(_ event: MicBroadcaster.DeviceEvent) -> some View {
+        let connected = event.kind == .connected
+        let tint = connected ? Rs.gold : Rs.red
+        let text = connected
+            ? "\(event.name) connected"
+            : "\(event.name) disconnected\(event.fallbackName.map { " — using \($0)" } ?? "")"
+        return HStack(spacing: 9) {
+            Image(systemName: connected ? "mic.badge.plus" : "mic.slash.fill")
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(tint)
+            Text(text).font(.inter(11.5, .semibold)).foregroundStyle(Rs.text)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(tint.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(tint.opacity(0.35), lineWidth: 1))
+        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+        .accessibilityAddTraits(.updatesFrequently)
     }
 
     // MARK: rows
 
     private func inputRow(_ input: MicBroadcaster.InputSource) -> some View {
         let active = input.uid == mic.activeInputUID
+        let identity = input.identity
+        #if targetEnvironment(macCatalyst)
+        let pending = mic.macPendingSelection?.uid == input.uid
+        #else
+        let pending = false
+        #endif
         return Button { mic.select(input) } label: {
-            HStack(spacing: 9) {
-                Image(systemName: portIcon(input.portType))
-                    .font(.system(size: 14)).foregroundStyle(active ? Rs.gold : Rs.text).frame(width: 20)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(input.displayName).font(.inter(12, .semibold)).foregroundStyle(Rs.text).lineLimit(1)
-                    Text(portLabel(input.portType)).font(.inter(9, .bold)).tracking(0.6)
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: identity.glyph)
+                    .font(.system(size: 14)).foregroundStyle(active ? Rs.gold : Rs.text)
+                    .frame(width: 20).padding(.top, 1)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        if let brand = identity.brand { brandChip(brand) }
+                        Text(nameSansBrand(identity)).font(.inter(12, .semibold)).foregroundStyle(Rs.text)
+                            .lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                    Text("\(transportTag(input)) · \(identity.deviceClass.uppercased())")
+                        .font(.inter(8.5, .bold)).tracking(0.5)
                         .foregroundStyle(active ? Rs.gold.opacity(0.85) : Rs.dim)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    // The registry's one-line pro hint — shown for the live input.
+                    if active, let hint = identity.hint {
+                        Text(hint).font(.inter(10)).foregroundStyle(Rs.faint)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Spacer(minLength: 0)
-                if active && input.isUSB {
-                    Text("DETECTED").font(.inter(8, .bold)).tracking(0.7)
-                        .foregroundStyle(Color(hex: 0x0A1120))
+                if active {
+                    Text("CONNECTED").font(.inter(8, .bold)).tracking(0.7)
+                        .foregroundStyle(Rs.green)
                         .padding(.horizontal, 6).padding(.vertical, 2.5)
-                        .background(Rs.goldFill).clipShape(Capsule())
-                } else if active {
-                    Circle().fill(Rs.green).frame(width: 7, height: 7)
+                        .background(Rs.green.opacity(0.14)).clipShape(Capsule())
+                        .overlay(Capsule().stroke(Rs.green.opacity(0.4), lineWidth: 1))
                 }
             }
             .padding(.horizontal, 11).padding(.vertical, 10)
             .background(active ? Rs.gold.opacity(0.10) : Color.white.opacity(0.03))
             .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(active ? Rs.gold.opacity(0.45) : Rs.border, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .stroke(active ? Rs.gold.opacity(0.45) : (pending ? Rs.gold.opacity(0.25) : Rs.border), lineWidth: 1))
         }.pressable().hoverEffect(.highlight)
     }
 
-    private func portIcon(_ type: AVAudioSession.Port) -> String {
+    /// Gold brand monogram capsule ("RØDE", "SHURE") — the recognition badge.
+    private func brandChip(_ brand: String) -> some View {
+        Text(brand.uppercased()).font(.inter(8, .bold)).tracking(0.6)
+            .foregroundStyle(Color(hex: 0x0A1120))
+            .padding(.horizontal, 6).padding(.vertical, 2.5)
+            .background(Rs.goldFill).clipShape(Capsule())
+            .fixedSize()
+    }
+
+    /// Avoid "RØDE | RØDE PodMic" next to the brand chip — trim a leading brand
+    /// prefix off the display name (never down to an empty string).
+    private func nameSansBrand(_ identity: MicBrandRegistry.Identity) -> String {
+        guard let brand = identity.brand,
+              identity.displayName.lowercased().hasPrefix(brand.lowercased()) else {
+            return identity.displayName
+        }
+        let trimmed = identity.displayName.dropFirst(brand.count)
+            .trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? identity.displayName : trimmed
+    }
+
+    private func transportTag(_ input: MicBroadcaster.InputSource) -> String {
         #if targetEnvironment(macCatalyst)
         // Catalyst pseudo-device — stands in for macOS's default input.
-        if type == MicBroadcaster.macSystemInputPort { return "mic.fill" }
+        if input.portType == MicBroadcaster.macSystemInputPort { return "SYSTEM DEFAULT" }
         #endif
-        switch type {
-        case .usbAudio:                                        return "cable.connector"
-        case .builtInMic:                                      return "mic.fill"
-        case .bluetoothHFP, .bluetoothLE, .bluetoothA2DP,
-             .headsetMic:                                      return "headphones"
-        default:                                               return "mic"
-        }
-    }
-    private func portLabel(_ type: AVAudioSession.Port) -> String {
-        #if targetEnvironment(macCatalyst)
-        if type == MicBroadcaster.macSystemInputPort { return "SYSTEM DEFAULT" }
-        #endif
-        switch type {
-        case .usbAudio:                                        return "USB AUDIO"
-        case .builtInMic:                                      return "BUILT-IN"
-        case .bluetoothHFP, .bluetoothLE, .bluetoothA2DP:      return "BLUETOOTH"
-        case .headsetMic:                                      return "HEADSET"
-        default:                                               return type.rawValue.uppercased()
-        }
+        return input.transport.tag
     }
 
     // MARK: Monitor playback (in-ear feed — NO mic)
@@ -2450,6 +2549,8 @@ final class AudioLibraryStore: ObservableObject {
         }
     }
 
+    /// Mode changes while ALREADY looping, and deactivation — PATCH loop_mode
+    /// only (duration_min untouched). Activation goes through `activateLoop`.
     func setLoop(_ sessionId: String, _ mode: LoopMode) {
         Task {
             do {
@@ -2458,6 +2559,27 @@ final class AudioLibraryStore: ObservableObject {
                 if previewSessionId == sessionId { previewLoop = mode }
             } catch {
                 self.error = (error as? APIError)?.errorDescription ?? "Could not set loop mode."
+            }
+        }
+    }
+
+    /// Activating a loop (none → loop_all/repeat_one) after the airtime ask:
+    /// ONE PATCH carrying both the mode and the chosen airtime —
+    /// `{ loop_mode, duration_min: minutes|null }` (null = until ended manually,
+    /// clearing any stale airtime). The server echo reconciles the store, same
+    /// as `setLoop` (web parity: `confirmLoop`).
+    func activateLoop(_ sessionId: String, _ mode: LoopMode, durationMin: Int?) {
+        Task {
+            do {
+                let body: [String: RadioJSON] = [
+                    "loop_mode": .string(mode.rawValue),
+                    "duration_min": durationMin.map(RadioJSON.int) ?? .null,
+                ]
+                let updated = try await PortalAPI.updateRadioProgram(sessionId, body)
+                if let i = sessions.firstIndex(where: { $0.id == sessionId }) { sessions[i] = updated }
+                if previewSessionId == sessionId { previewLoop = mode }
+            } catch {
+                self.error = (error as? APIError)?.errorDescription ?? "Could not turn the loop on."
             }
         }
     }
@@ -2550,6 +2672,41 @@ private func fmtDuration(_ sec: Int?) -> String? {
     guard let s = sec, s > 0 else { return nil }
     let h = s / 3600, m = (s % 3600) / 60, ss = s % 60
     return h > 0 ? String(format: "%d:%02d:%02d", h, m, ss) : String(format: "%d:%02d", m, ss)
+}
+
+/// Cumulative playlist runtime — the sum of the KNOWN track durations. Tracks
+/// with no duration are skipped and the label gains a trailing "+" so it stays
+/// honest ("3:47:12+"). Nil when nothing is summable. ONE helper feeding the
+/// session cards AND the console-sheet header (web parity: `playlistRuntime`).
+private func playlistRuntime(_ items: [RadioPlaylistItem]) -> String? {
+    var total = 0
+    var unknown = false
+    for it in items {
+        if let d = it.track.durationSec, d > 0 { total += d } else { unknown = true }
+    }
+    guard let clock = fmtDuration(total) else { return nil }
+    return unknown ? clock + "+" : clock
+}
+
+/// Minutes → short airtime label for the loop captions (45 → "45 min",
+/// 60 → "1h", 90 → "1h 30m", 120 → "2h"). Web parity: `fmtAirtime`.
+private func fmtAirtime(_ min: Int) -> String {
+    guard min >= 60 else { return "\(min) min" }
+    let h = min / 60, m = min % 60
+    return m == 0 ? "\(h)h" : "\(h)h \(m)m"
+}
+
+/// The one playback-contract sentence under a session header — what happens on
+/// air: loop + airtime, loop until ended, or one pass + total runtime. Shared
+/// by the lane SessionCard and the SessionConsoleSheet so the wording can
+/// never drift. Nil when there is nothing to promise (no loop, no runtime).
+private func playbackContractLabel(loop: LoopMode, durationMin: Int?, runtime: String?) -> String? {
+    if loop != .none {
+        if let m = durationMin { return "Loops · ends after \(fmtAirtime(m)) on air" }
+        return "Loops until ended manually"
+    }
+    guard let runtime else { return nil }
+    return "Plays once · \(runtime)"
 }
 
 // MARK: - Audio library section
@@ -3107,6 +3264,7 @@ struct SessionsSection: View {
                                 previewLimit: macLanePreviewCap,
                                 onView: { viewSession = SessionSheetTarget(id: s.id) },
                                 onSetLoop: { store.setLoop(s.id, $0) },
+                                onActivateLoop: { store.activateLoop(s.id, $0, durationMin: $1) },
                                 onPlay: { store.playLive(s.id) },
                                 onDeleteSession: { store.deleteSession(s.id) },
                                 onMove: { idx, delta in store.move(s.id, index: idx, by: delta) },
@@ -3156,7 +3314,10 @@ private struct SessionCard: View {
     /// `onView` opens the full session-console sheet (both platforms).
     var previewLimit: Int? = nil
     var onView: (() -> Void)? = nil
+    /// Mode change while already looping / deactivation — PATCH loop_mode only.
     let onSetLoop: (LoopMode) -> Void
+    /// Loop activation after the airtime ask — ONE PATCH { loop_mode, duration_min }.
+    let onActivateLoop: (LoopMode, Int?) -> Void
     let onPlay: () -> Void
     let onDeleteSession: () -> Void
     let onMove: (Int, Int) -> Void
@@ -3180,7 +3341,15 @@ private struct SessionCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.title.isEmpty ? "Untitled" : session.title)
                         .font(.inter(13.5, .bold)).foregroundStyle(Rs.text).lineLimit(1)
-                    Text("\(items.count) item\(items.count == 1 ? "" : "s")").font(.inter(10.5)).foregroundStyle(Rs.dim)
+                    // Item count · cumulative runtime (honest "+" when any track
+                    // has an unknown duration) — same helper as the console sheet.
+                    HStack(spacing: 5) {
+                        Text("\(items.count) item\(items.count == 1 ? "" : "s")").font(.inter(10.5)).foregroundStyle(Rs.dim)
+                        if let runtime = playlistRuntime(items) {
+                            Text("·").font(.inter(10.5)).foregroundStyle(Rs.faint)
+                            Text(runtime).font(Rs.mono(10.5)).foregroundStyle(Rs.dim)
+                        }
+                    }
                 }
                 Spacer(minLength: 6)
 
@@ -3189,8 +3358,12 @@ private struct SessionCard: View {
                     ViewChipButton(action: onView)
                 }
 
-                // Loop control (Off / Loop all / Repeat one)
-                LoopMenuChip(loop: loop, onSetLoop: onSetLoop)
+                // Loop control (Off / Loop all / Repeat one) — activation asks
+                // for the airtime first (LoopAirtimeDialog inside the chip).
+                LoopMenuChip(loop: loop,
+                             sessionTitle: session.title.isEmpty ? "Untitled" : session.title,
+                             onSetLoop: onSetLoop,
+                             onActivateLoop: onActivateLoop)
 
                 Button(action: onPlay) {
                     HStack(spacing: 5) {
@@ -3207,6 +3380,18 @@ private struct SessionCard: View {
                         .foregroundStyle(Rs.red).frame(width: 30, height: 30)
                         .background(Rs.red.opacity(0.12)).clipShape(Circle())
                 }.pressable().hoverEffect(.highlight)
+            }
+
+            // Playback contract — what happens on air (loop + airtime, loop
+            // until ended, or one pass + total runtime).
+            if let contract = playbackContractLabel(loop: loop, durationMin: session.durationMin,
+                                                    runtime: playlistRuntime(items)) {
+                HStack(spacing: 6) {
+                    Image(systemName: loop == .none ? "play.fill" : loop.icon)
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(contract).font(.inter(10.5, .semibold)).lineLimit(1)
+                }
+                .foregroundStyle(loop == .none ? Rs.faint : Rs.green)
             }
 
             // Numbered playlist
@@ -3300,15 +3485,28 @@ private func trackMatchesNowPlaying(_ track: RadioTrack, _ np: String) -> Bool {
 }
 
 /// Loop chip (Menu selecting Off / Loop all / Repeat one) — shared by the lane
-/// SessionCard header and the session console's controls strip.
+/// SessionCard header and the session console's controls strip. ACTIVATING a
+/// loop (none → loop_all/repeat_one) first asks how long it should stay on air
+/// (LoopAirtimeDialog); the answer rides in ONE PATCH with the mode via
+/// `onActivateLoop`. Mode changes while already looping, and deactivation, go
+/// straight through `onSetLoop` (loop_mode only). Cancel → the loop stays off.
 private struct LoopMenuChip: View {
     let loop: LoopMode
+    let sessionTitle: String
+    /// Mode change while already looping / deactivation — PATCH loop_mode only.
     let onSetLoop: (LoopMode) -> Void
+    /// Activation with the chosen airtime — ONE PATCH { loop_mode, duration_min:
+    /// minutes|null } (nil = until ended manually).
+    let onActivateLoop: (LoopMode, Int?) -> Void
+
+    /// Pending activation awaiting its airtime answer.
+    @State private var ask: LoopAskTarget?
+
     var body: some View {
         Menu {
             ForEach(LoopMode.allCases, id: \.rawValue) { mode in
                 Button {
-                    onSetLoop(mode)
+                    select(mode)
                 } label: {
                     Label(mode.label, systemImage: mode == loop ? "checkmark" : mode.icon)
                 }
@@ -3323,6 +3521,153 @@ private struct LoopMenuChip: View {
             .background((loop == .none ? Rs.faint : Rs.gold).opacity(0.12)).clipShape(Capsule())
             .overlay(Capsule().stroke((loop == .none ? Rs.faint : Rs.gold).opacity(0.3), lineWidth: 1))
         }
+        .studioModal(item: $ask, maxWidth: 480, maxHeight: 460) { target in
+            LoopAirtimeDialog(mode: target.mode, sessionTitle: sessionTitle) { minutes in
+                onActivateLoop(target.mode, minutes)
+            }
+        }
+    }
+
+    private func select(_ mode: LoopMode) {
+        guard mode != loop else { return }
+        if loop == .none, mode != .none { ask = LoopAskTarget(mode: mode) }   // activation → airtime ask
+        else { onSetLoop(mode) }                                              // change / deactivate
+    }
+}
+
+/// `studioModal(item:)` payload for the airtime ask (LoopMode isn't Identifiable).
+private struct LoopAskTarget: Identifiable {
+    let mode: LoopMode
+    var id: String { mode.rawValue }
+}
+
+/// "How long should the loop play?" — the Rs-themed airtime ask shown when a
+/// loop mode is activated. Preset chips (30 min / 1h / 2h / 3h), a custom
+/// minutes field, and "Until ended manually" (the default). Confirm hands the
+/// chosen minutes (nil = manual) back to the caller; Cancel/Esc dismisses with
+/// no PATCH so the loop stays off. Mirrors the web console's loop dialog.
+private struct LoopAirtimeDialog: View {
+    let mode: LoopMode
+    let sessionTitle: String
+    let onConfirm: (Int?) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private enum Choice: Equatable { case manual, preset(Int), custom }
+    @State private var choice: Choice = .manual
+    @State private var customText = ""
+    @FocusState private var customFocused: Bool
+
+    private static let presets = [30, 60, 120, 180]
+
+    private var customMinutes: Int? {
+        guard let n = Int(customText.trimmingCharacters(in: .whitespaces)), n > 0 else { return nil }
+        return n
+    }
+    /// Confirm is gated only while "custom" is selected with no valid minutes.
+    private var confirmDisabled: Bool { choice == .custom && customMinutes == nil }
+    private var chosenMinutes: Int? {
+        switch choice {
+        case .manual:         return nil
+        case .preset(let m):  return m
+        case .custom:         return customMinutes
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Title row — loop glyph + serif question, session context beneath.
+            HStack(alignment: .top, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Rs.green.opacity(0.16))
+                    Image(systemName: mode.icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(Rs.green)
+                }.frame(width: 32, height: 32)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("How long should the loop play?").font(Rs.serif(19)).foregroundStyle(Rs.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("\(mode.label) · \(sessionTitle)")
+                        .font(.inter(11.5)).foregroundStyle(Rs.dim).lineLimit(1)
+                }
+            }
+
+            // Preset airtimes.
+            HStack(spacing: 8) {
+                ForEach(Self.presets, id: \.self) { min in
+                    choiceChip(fmtAirtime(min), on: choice == .preset(min)) {
+                        choice = .preset(min); customFocused = false
+                    }
+                }
+            }
+
+            // Custom minutes + until-ended-manually (default).
+            HStack(spacing: 8) {
+                HStack(spacing: 5) {
+                    TextField("", text: $customText, prompt: Text("Custom").foregroundColor(Rs.faint))
+                        .font(.inter(11.5, .bold))
+                        .foregroundStyle(choice == .custom ? Rs.gold : Rs.text)
+                        .keyboardType(.numberPad)
+                        .textFieldStyle(.plain)
+                        .focused($customFocused)
+                        .frame(width: 64)
+                        .onChange(of: customText) { _, new in if !new.isEmpty { choice = .custom } }
+                    Text("min").font(.inter(10.5)).foregroundStyle(Rs.dim)
+                }
+                .padding(.horizontal, 10).frame(height: 32)
+                .background((choice == .custom ? Rs.gold : Color.white).opacity(choice == .custom ? 0.10 : 0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(choice == .custom ? Rs.gold.opacity(0.4) : Rs.border, lineWidth: 1))
+                .contentShape(Rectangle())
+                .onTapGesture { choice = .custom; customFocused = true }
+
+                choiceChip("Until ended manually", on: choice == .manual) {
+                    choice = .manual; customFocused = false
+                }
+            }
+
+            Text("The broadcast ends automatically after this long on air.")
+                .font(.inter(11)).foregroundStyle(Rs.faint)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Cancel (loop stays off) · Turn loop on.
+            HStack(spacing: 10) {
+                Button { dismiss() } label: {
+                    Text("Cancel").font(.inter(12.5, .semibold)).foregroundStyle(Rs.text)
+                        .frame(maxWidth: .infinity).frame(height: 40)
+                        .background(Color.white.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }.pressable().hoverEffect(.highlight)
+                .keyboardShortcut(.cancelAction)
+
+                Button {
+                    onConfirm(chosenMinutes)
+                    dismiss()
+                } label: {
+                    Text("Turn loop on").font(.inter(12.5, .bold)).foregroundStyle(Color(hex: 0x0A1120))
+                        .frame(maxWidth: .infinity).frame(height: 40)
+                        .background(Rs.goldFill)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .opacity(confirmDisabled ? 0.55 : 1)
+                }.pressable().hoverEffect(.highlight)
+                .disabled(confirmDisabled)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: 440)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Rs.bg.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+    }
+
+    private func choiceChip(_ label: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).font(.inter(11.5, .bold))
+                .foregroundStyle(on ? Rs.gold : Rs.dim)
+                .padding(.horizontal, 12).frame(height: 32)
+                .background((on ? Rs.gold : Color.white).opacity(on ? 0.16 : 0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(on ? Rs.gold.opacity(0.4) : Rs.border, lineWidth: 1))
+        }.pressable().hoverEffect(.highlight)
     }
 }
 
@@ -3674,10 +4019,22 @@ private struct SessionConsoleSheet: View {
                 HStack(spacing: 7) {
                     Text("\(items.count) track\(items.count == 1 ? "" : "s")")
                         .font(.inter(11.5, .medium)).foregroundStyle(Rs.dim)
-                    if let total = fmtDuration(items.compactMap { $0.track.durationSec }.reduce(0, +)) {
+                    // Same honest runtime helper as the lane cards — unknown
+                    // durations are skipped and flagged with a trailing "+".
+                    if let runtime = playlistRuntime(items) {
                         Text("·").font(.inter(11)).foregroundStyle(Rs.faint)
-                        Text("\(total) total").font(Rs.mono(11.5)).foregroundStyle(Rs.dim)
+                        Text("\(runtime) total").font(Rs.mono(11.5)).foregroundStyle(Rs.dim)
                     }
+                }
+                // Playback contract — loop + airtime / until ended / one pass.
+                if let contract = playbackContractLabel(loop: loop, durationMin: session?.durationMin,
+                                                        runtime: playlistRuntime(items)) {
+                    HStack(spacing: 6) {
+                        Image(systemName: loop == .none ? "play.fill" : loop.icon)
+                            .font(.system(size: 9, weight: .semibold))
+                        Text(contract).font(.inter(11, .semibold)).lineLimit(1)
+                    }
+                    .foregroundStyle(loop == .none ? Rs.faint : Rs.green)
                 }
             }
             Spacer(minLength: 12)
@@ -3705,7 +4062,10 @@ private struct SessionConsoleSheet: View {
 
     private var controlsStrip: some View {
         HStack(spacing: 10) {
-            LoopMenuChip(loop: loop, onSetLoop: { store.setLoop(sessionId, $0) })
+            LoopMenuChip(loop: loop,
+                         sessionTitle: title,
+                         onSetLoop: { store.setLoop(sessionId, $0) },
+                         onActivateLoop: { store.activateLoop(sessionId, $0, durationMin: $1) })
 
             Button { store.playLive(sessionId) } label: {
                 HStack(spacing: 5) {

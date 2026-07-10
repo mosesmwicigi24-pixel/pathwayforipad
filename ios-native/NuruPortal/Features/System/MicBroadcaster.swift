@@ -28,9 +28,14 @@
 // AVAudioEngine's inputNode simply captures the system-default input (the RØDE
 // PodMic when plugged). Every Catalyst divergence below is compile-time gated
 // with `#if targetEnvironment(macCatalyst)` so iPhone/iPad behavior is
-// byte-for-byte unchanged: sensing falls back to the current route then to a
-// single "System input" pseudo-device, and the monitor's speaker-feedback guard
-// becomes a non-blocking advisory (the route can't be trusted enough to block).
+// byte-for-byte unchanged: sensing enumerates REAL devices via AVCaptureDevice
+// discovery (names, manufacturers, uniqueIDs — works pre-permission), reacts
+// instantly to AVCaptureDevice wasConnected/wasDisconnected, falls back to the
+// shim route then to a single "System input" pseudo-device, and the monitor's
+// speaker-feedback guard becomes a non-blocking advisory (the route can't be
+// trusted enough to block). Both platforms diff every rescan into a published
+// DeviceEvent so the studio can toast "RØDE PodMic connected" the moment the
+// cable lands.
 import Foundation
 import AVFoundation
 import Accelerate
@@ -55,17 +60,49 @@ final class MicBroadcaster: ObservableObject {
         case error(String)
     }
 
-    /// One selectable hardware input, derived from AVAudioSession.availableInputs.
+    /// One selectable hardware input — from AVAudioSession.availableInputs on
+    /// iPhone/iPad, from AVCaptureDevice discovery on Catalyst.
     struct InputSource: Identifiable, Equatable {
         let uid: String
         let name: String
         let portType: AVAudioSession.Port
+        /// USB manufacturer string when the platform exposes one (Catalyst
+        /// discovery does; AVAudioSession does not). Feeds brand matching only.
+        var manufacturer: String? = nil
         var id: String { uid }
         var isUSB: Bool { portType == .usbAudio }
+        /// Transport bucket for the row tag + registry fallbacks.
+        var transport: MicTransport {
+            switch portType {
+            case .usbAudio:                                   return .usb
+            case .builtInMic:                                 return .builtIn
+            case .bluetoothHFP, .bluetoothLE, .bluetoothA2DP: return .bluetooth
+            case .headsetMic:                                 return .headset
+            default:                                          return .unknown
+            }
+        }
+        /// Smart identity — brand chip, friendly name, device class, pro hint,
+        /// glyph. Presentation only; routing/isUSB never depend on this.
+        var identity: MicBrandRegistry.Identity {
+            MicBrandRegistry.identity(rawName: name, manufacturer: manufacturer, transport: transport)
+        }
         /// Friendly, brand-aware label for the UI (e.g. "RØDE Wireless GO II"
         /// instead of a terse USB product string). Falls back to `name` when the
-        /// device isn't a known mic — routing/isUSB never depend on this.
-        var displayName: String { MicProfiles.friendlyName(for: name) }
+        /// device isn't a known mic.
+        var displayName: String { identity.displayName }
+    }
+
+    /// One plug/unplug moment, published for the Audio source panel's transient
+    /// banner ("RØDE PodMic connected"). `id` makes back-to-back events for the
+    /// same device distinct so the UI re-triggers.
+    struct DeviceEvent: Equatable, Identifiable {
+        enum Kind: Equatable { case connected, disconnected }
+        let id: UUID
+        let kind: Kind
+        /// Friendly device name (registry-mapped when recognised).
+        let name: String
+        /// Disconnect only: the input capture falls back to, if any remain.
+        let fallbackName: String?
     }
 
     // Published surface the Audio source card binds to.
@@ -80,6 +117,13 @@ final class MicBroadcaster: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var monitoring = false
     @Published private(set) var permissionDenied = false
+    /// Latest plug/unplug moment — the Audio source panel shows it as a ~5 s
+    /// banner. Diffed inside every rescan on BOTH platforms; the very first scan
+    /// only baselines (devices present at launch are not "news").
+    @Published private(set) var deviceEvent: DeviceEvent?
+    /// uid → friendly name snapshot from the previous scan. nil until the first
+    /// scan completes so launch-time devices never fire a connected banner.
+    private var knownInputNames: [String: String]?
 
     // In-ear monitor playback (NO mic — the presenter's own voice arrives via
     // the mic's hardware sidetone). Plays one of the engine's two monitor
@@ -123,9 +167,20 @@ final class MicBroadcaster: ObservableObject {
     static let macSystemInputUID = "mac-system-default-input"
     static let macSystemInputPort = AVAudioSession.Port(rawValue: "NuruMacSystemDefault")
     /// Fired when macOS swaps the default input device (PodMic plugged/unplugged)
-    /// — the reliable plug signal on Catalyst, where routeChangeNotification
-    /// rarely arrives.
+    /// — a reliable re-scan signal on Catalyst, where routeChangeNotification
+    /// rarely arrives. Kept belt-and-braces alongside the AVCaptureDevice
+    /// connect/disconnect notifications below.
     private var configChangeObserver: NSObjectProtocol?
+    /// AVCaptureDevice.wasConnected/wasDisconnected — the INSTANT plug/unplug
+    /// signal on Catalyst (fires the moment the RØDE lands on the USB bus,
+    /// before any engine reconfiguration).
+    private var deviceObservers: [NSObjectProtocol] = []
+    /// Catalyst: the row the operator tapped when it is NOT the macOS default
+    /// input. The app cannot reroute capture there (macOS Sound settings own
+    /// device selection; setPreferredInput is a no-op on the shim), so the UI
+    /// shows a "set it in System Settings ▸ Sound" caption instead of pretending
+    /// to switch. Cleared once macOS actually routes to it — or it unplugs.
+    @Published private(set) var macPendingSelection: InputSource?
     #endif
     /// Set when the operator taps a specific row; suppresses USB auto-preference
     /// until that device disappears (so a manual choice is never fought).
@@ -178,11 +233,24 @@ final class MicBroadcaster: ObservableObject {
         #if targetEnvironment(macCatalyst)
         // Catalyst rarely posts route-change notifications; the engine's
         // configuration change (fired when macOS swaps the default input) is
-        // the dependable plug/unplug signal — re-sense so the card updates.
+        // a dependable re-scan signal — kept as belt-and-braces.
         configChangeObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.rescanInputs(autoPrefer: true) }
+        }
+        // INSTANT plug/unplug: AVCaptureDevice posts these the moment an audio
+        // device joins/leaves the bus — no waiting for an engine reconfigure.
+        for name in [AVCaptureDevice.wasConnectedNotification,
+                     AVCaptureDevice.wasDisconnectedNotification] {
+            deviceObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] note in
+                // Cameras post here too — only audio devices concern the studio.
+                guard let device = note.object as? AVCaptureDevice,
+                      device.hasMediaType(.audio) || device.deviceType == .external else { return }
+                Task { @MainActor in self?.rescanInputs(autoPrefer: true) }
+            })
         }
         #endif
         rescanInputs(autoPrefer: true)
@@ -192,6 +260,7 @@ final class MicBroadcaster: ObservableObject {
         if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
         #if targetEnvironment(macCatalyst)
         if let configChangeObserver { NotificationCenter.default.removeObserver(configChangeObserver) }
+        for observer in deviceObservers { NotificationCenter.default.removeObserver(observer) }
         #endif
     }
 
@@ -246,21 +315,51 @@ final class MicBroadcaster: ObservableObject {
             ?? ports.first.map { ($0.uid, $0.portName) }
         activeInputUID = active?.0
         currentInputName = active?.1 ?? "No input detected"
+        publishInputDiff()
         #endif
     }
 
+    /// Compare this scan's devices against the previous one and publish a
+    /// connected/disconnected DeviceEvent for the panel banner. Runs on BOTH
+    /// platforms at the end of every rescan; the first scan only baselines.
+    private func publishInputDiff() {
+        var current: [String: String] = [:]
+        for input in availableInputs {
+            #if targetEnvironment(macCatalyst)
+            if input.uid == Self.macSystemInputUID { continue }   // pseudo-device isn't hardware
+            #endif
+            current[input.uid] = input.displayName
+        }
+        defer { knownInputNames = current }
+        guard let known = knownInputNames else { return }         // baseline scan
+
+        if let added = current.first(where: { known[$0.key] == nil }) {
+            deviceEvent = DeviceEvent(id: UUID(), kind: .connected,
+                                      name: added.value, fallbackName: nil)
+        } else if let removed = known.first(where: { current[$0.key] == nil }) {
+            let fallback = currentInputName == "No input detected" ? nil : currentInputDisplayName
+            deviceEvent = DeviceEvent(id: UUID(), kind: .disconnected,
+                                      name: removed.value, fallbackName: fallback)
+        }
+    }
+
     #if targetEnvironment(macCatalyst)
-    /// Catalyst sensing is DISPLAY-ONLY: the shim's `availableInputs` is usually
-    /// nil, `setPreferredInput` does nothing, and macOS Sound settings — not this
-    /// app — choose the capture device (AVAudioEngine's inputNode follows the
-    /// system default). Prefer whatever the shim exposes, fall back to the
-    /// current route (which often names the real device, e.g. "RØDE PodMic USB"),
-    /// and if both are empty present one pseudo-device standing in for the macOS
-    /// default input so the card never dead-ends. The live RMS meter is fed by
-    /// the engine tap either way — sensing here never gates capture.
+    /// Catalyst sensing is DISPLAY-ONLY — macOS Sound settings, not this app,
+    /// choose the capture device (AVAudioEngine's inputNode follows the system
+    /// default; setPreferredInput is a no-op on the shim). But unlike the shim's
+    /// usually-nil `availableInputs`, AVCaptureDevice DISCOVERY enumerates every
+    /// real audio device with its market name ("RØDE PodMic USB"), manufacturer
+    /// and uniqueID — and it works BEFORE the mic permission grant (metadata
+    /// needs no TCC; capture still does). Fallback chain: discovery → shim
+    /// availableInputs → current route → one pseudo-device standing in for the
+    /// macOS default input, so the card never dead-ends. The live RMS meter is
+    /// fed by the engine tap either way — sensing never gates capture.
     private func rescanInputsMac() {
-        var inputs = (session.availableInputs ?? []).map {
-            InputSource(uid: $0.uid, name: $0.portName, portType: $0.portType)
+        var inputs = Self.discoverMacInputs()
+        if inputs.isEmpty {
+            inputs = (session.availableInputs ?? []).map {
+                InputSource(uid: $0.uid, name: $0.portName, portType: $0.portType)
+            }
         }
         if inputs.isEmpty {
             inputs = session.currentRoute.inputs.map {
@@ -274,19 +373,77 @@ final class MicBroadcaster: ObservableObject {
         }
         if inputs != availableInputs { availableInputs = inputs }
 
-        let active = session.currentRoute.inputs.first.map { ($0.uid, $0.portName) }
-            ?? inputs.first.map { ($0.uid, $0.name) }
-        activeInputUID = active?.0
-        currentInputName = active?.1 ?? "No input detected"
+        // ACTIVE = the macOS default input — exactly what AVAudioEngine captures.
+        if let def = AVCaptureDevice.default(for: .audio),
+           inputs.contains(where: { $0.uid == def.uniqueID }) {
+            activeInputUID = def.uniqueID
+            currentInputName = def.localizedName
+        } else {
+            let active = session.currentRoute.inputs.first.map { ($0.uid, $0.portName) }
+                ?? inputs.first.map { ($0.uid, $0.name) }
+            activeInputUID = active?.0
+            currentInputName = active?.1 ?? "No input detected"
+        }
+
+        // A pending row-tap resolves once macOS actually routes to that device —
+        // or dissolves when the device unplugs.
+        if let pending = macPendingSelection,
+           pending.uid == activeInputUID || !inputs.contains(where: { $0.uid == pending.uid }) {
+            macPendingSelection = nil
+        }
+        publishInputDiff()
+    }
+
+    /// Enumerate every audio-capable capture device macOS knows about.
+    /// `.microphone` covers built-in + USB mics on macOS 14 / Catalyst 17;
+    /// `.external` catches interfaces that present as external audio hardware.
+    private static func discoverMacInputs() -> [InputSource] {
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.microphone, .external],
+            mediaType: .audio,
+            position: .unspecified)
+        return discovery.devices.map { device in
+            let transport = inferTransport(of: device)
+            return InputSource(uid: device.uniqueID,
+                               name: device.localizedName,
+                               portType: portType(for: transport),
+                               manufacturer: device.manufacturer.isEmpty ? nil : device.manufacturer)
+        }
+    }
+
+    /// Catalyst discovery exposes no transport API — classify by name/type.
+    /// Built-in and Bluetooth are recognisable by name; everything else external
+    /// on a Mac is overwhelmingly USB, the least-wrong default.
+    private static func inferTransport(of device: AVCaptureDevice) -> MicTransport {
+        let folded = MicProfiles.fold(device.localizedName + " " + device.manufacturer)
+        if MicBrandRegistry.looksLikeAppleBuiltIn(device.localizedName) { return .builtIn }
+        if folded.contains("bluetooth") || folded.contains("airpods") || folded.contains("beats") {
+            return .bluetooth
+        }
+        if folded.contains("iphone") { return .unknown }   // Continuity mic — wireless
+        return .usb
+    }
+
+    /// Map an inferred transport back into the AVAudioSession port vocabulary the
+    /// shared InputSource speaks (drives isUSB + the row icon; never routing).
+    private static func portType(for transport: MicTransport) -> AVAudioSession.Port {
+        switch transport {
+        case .usb:       return .usbAudio
+        case .builtIn:   return .builtInMic
+        case .bluetooth: return .bluetoothHFP
+        case .headset:   return .headsetMic
+        case .unknown:   return AVAudioSession.Port(rawValue: "NuruMacDiscoveredInput")
+        }
     }
     #endif
 
-    /// Catalyst only: input metadata is meaningless until mic permission is
-    /// granted (the shim reports nothing beforehand), so the studio requests it
-    /// on first appearance and re-senses. No-op on iPhone/iPad — sensing works
+    /// Catalyst only: sense IMMEDIATELY (device metadata needs no mic grant),
+    /// then request permission — capture and the level meter still need it —
+    /// and re-sense once answered. No-op on iPhone/iPad — sensing works
     /// unprompted there and permission is requested when capture actually starts.
     func prepareInputSensing() {
         #if targetEnvironment(macCatalyst)
+        rescanInputs(autoPrefer: true)
         Task { [weak self] in
             guard let self else { return }
             let granted = await self.requestMicPermission()
@@ -300,9 +457,12 @@ final class MicBroadcaster: ObservableObject {
     func select(_ input: InputSource) {
         #if targetEnvironment(macCatalyst)
         // macOS Sound settings own device selection — the app can't reroute
-        // (`setPreferredInput` is a no-op on the shim); just re-sense so the
-        // card reflects whatever the system currently uses.
+        // (`setPreferredInput` is a no-op on the shim). Re-sense, and if the
+        // tapped row still isn't the system default, surface the honest
+        // "set it in System Settings ▸ Sound" caption instead of pretending.
         rescanInputs(autoPrefer: false)
+        macPendingSelection =
+            (input.uid == activeInputUID || input.uid == Self.macSystemInputUID) ? nil : input
         #else
         guard let port = session.availableInputs?.first(where: { $0.uid == input.uid }) else { return }
         manualSelectionUID = input.uid
