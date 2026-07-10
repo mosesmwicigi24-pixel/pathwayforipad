@@ -233,6 +233,22 @@ enum PortalAPI {
             fields: fields, as: RadioAudioUpload.self)
     }
 
+    /// Progress-capable variant of `uploadRadioAudio` (ADDITIVE — same endpoint,
+    /// fields and response). `onProgress` streams (bytesSent, bytesTotal) from the
+    /// URLSession task delegate while the multipart body uploads; it fires on a
+    /// background queue, so UI callers hop to the main actor.
+    static func uploadRadioAudioWithProgress(
+        data: Data, filename: String, durationSec: Int? = nil,
+        onProgress: @escaping @Sendable (Int64, Int64) -> Void
+    ) async throws -> RadioAudioUpload {
+        var fields: [String: String] = [:]
+        if let durationSec { fields["duration_sec"] = String(durationSec) }
+        return try await api.uploadFileWithProgress(
+            "/admin/media/audio/upload",
+            fileData: data, filename: filename, mimeType: mimeType(for: filename),
+            fields: fields, as: RadioAudioUpload.self, onProgress: onProgress)
+    }
+
     /// Create a program from an omit-null JSON body (audioUrl/autoGoLive included by caller).
     static func createRadioProgram(_ body: [String: RadioJSON]) async throws -> RadioProgram {
         try await api.post("/admin/radio/programs", body: body, as: RadioProgram.self)

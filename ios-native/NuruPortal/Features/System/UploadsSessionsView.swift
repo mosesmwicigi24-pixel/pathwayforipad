@@ -1,16 +1,32 @@
-// Uploads & Sessions — the Mac-only media workbench (feat/macbook-version).
+// Uploads & Sessions — the media workbench (feat/macbook-version).
 //
-// The Mac radio desk keeps the LIVE workflow; the library management moved
-// HERE: upload music into the station's audio library and curate the session
-// playlists that feed the desk. This page reuses the exact SessionsSection +
-// AudioLibrarySection components from RadioStudioView.swift (same module — no
-// forks) over a page-owned AudioLibraryStore, painted in the same dark Rs
-// studio chrome.
+// The Radio Studio (Mac desk AND iPad) keeps the LIVE workflow only; session
+// playlist + upload management lives HERE, on both platforms: upload music into
+// the station's audio library and curate the session playlists that feed the
+// desk. This page reuses the exact SessionsSection + AudioLibrarySection
+// components from RadioStudioView.swift (same module — no forks) over a
+// page-owned AudioLibraryStore, painted in the same dark Rs studio chrome.
+// On the Mac the two lanes sit side by side and the View consoles open as big
+// CENTERED studio modals; on iPad the lanes stack and the consoles present as
+// native page sheets.
 //
-// Reachable only from the Mac sidebar (RootView gates the nav entry with
-// MacDesign.isMac), and treated as ephemeral like Radio/Mixer, so the store's
-// preview player and the live poll tear down cleanly on leave. The iPad Radio
-// Studio keeps these sections inline and renders byte-identical.
+// Media-workbench affordances (both platforms, all inside the shared sections):
+//   • MULTI-FILE uploads — the picker takes several audio files at once; each
+//     shows a queued row with a live Rs-gold progress bar (percent + MB), a ✓
+//     done state that self-clears, or a retry-able error. Real byte progress
+//     streams from APIClient.uploadFileWithProgress (URLSession upload task
+//     delegate); the store drains the queue sequentially.
+//   • CHECKBOX MULTI-SELECT in the library (page + library sheet only) — tri-
+//     state select-all over the current kind filter, then bulk "Add N to
+//     session" / "Delete N" (one confirm).
+//   • DRAG-TO-REORDER on session playlists (lane cards + console sheets) —
+//     mouse on the Mac, long-press drag on iPad, gold insertion line, persisted
+//     through the same PUT …/tracks/order path as the ↑/↓ arrows (which remain
+//     for accessibility). The library list stays undraggable — it has no
+//     server-side order.
+//
+// Treated as ephemeral like Radio/Mixer, so the store's preview player and the
+// live poll tear down cleanly on leave.
 import SwiftUI
 
 struct UploadsSessionsView: View {

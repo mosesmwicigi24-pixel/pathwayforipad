@@ -356,7 +356,6 @@ private final class RadioModel: ObservableObject {
 
 struct RadioStudioView: View {
     @StateObject private var m = RadioModel()
-    @StateObject private var library = AudioLibraryStore()
     @State private var showCreate = false
     @State private var editProgram: RadioProgram?
 
@@ -396,11 +395,10 @@ struct RadioStudioView: View {
             // auto-aired sessions light up while the studio is on screen.
             m.startAutoRefresh()
         }
-        .task { if !library.loaded { await library.load() } }
         // Leaving the studio stops the level-meter monitoring only — a live mic
         // broadcast keeps running (MicBroadcaster is an app-wide singleton; the
         // top bar's ON MIC pill stays visible until the operator stops it).
-        .onDisappear { m.teardown(); library.teardown(); mic.stopMonitorIfIdle() }
+        .onDisappear { m.teardown(); mic.stopMonitorIfIdle() }
         .sheet(isPresented: $showCreate) { RadioProgramForm { Task { await m.load() } } }
         .sheet(item: $editProgram) { p in
             RadioProgramForm(existing: p) { Task { await m.load() } }
@@ -482,7 +480,8 @@ struct RadioStudioView: View {
 
         // Broadcaster-first ordering: landing on the studio drops you straight
         // onto the Audio source (mic, monitor, GO ON MIC) + transport — the
-        // fast-path workflow. Library/sessions and the rest scroll below.
+        // fast-path workflow. The rest scrolls below. Session playlists + the
+        // audio library live on the Uploads & Sessions page, not here.
         if let p = program {
             // LIVE status bar (only while live/paused) — duration/listeners/bitrate/health.
             if m.broadcast.isLiveOrPaused {
@@ -509,16 +508,7 @@ struct RadioStudioView: View {
 
             // Uploaded session audio — inline player when set, otherwise an attach CTA.
             SessionAudioPanel(program: p, busy: m.busy, onAttach: { showAttachImporter = true })
-        }
 
-        // Sessions in COMPACT form (5-track previews + the View console modal) —
-        // full playlist + upload management lives on the Uploads & Sessions page.
-        SessionsSection(store: library,
-                        liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
-                        nowPlaying: m.health?.nowPlaying,
-                        compact: true)
-
-        if let p = program {
             IngestPanel(program: p, onRotate: { m.rotateKey() }, busy: m.busy)
 
             LiveListenersPanel(listeners: m.listeners, count: m.displayListeners, live: m.broadcast.isLiveOrPaused)
@@ -563,18 +553,17 @@ struct RadioStudioView: View {
     //                    (broadcast controls) first → audio source (mic sensing /
     //                    monitor playback / mic boost / GO ON MIC) → output meters.
     //   PROGRAM  (~36%)  what airs: program card (Edit) → session audio (attach)
-    //                    → Sessions in COMPACT form (5-track preview cards with
-    //                    Loop / Play live / View modal — full management lives on
-    //                    the Uploads & Sessions page).
+    //                    → schedule (promoted from the rail so the center lane
+    //                    stays balanced).
     //   CONTEXT  (~28%)  reference rail: live listeners → interactions → stream
-    //                    health (live) → schedule → utility tail (ingest
-    //                    collapsed → devices → emergency last).
-    // The audio-library shelf moved OFF this page entirely — uploads live on the
-    // Mac-only Uploads & Sessions page (the store here still feeds the session
-    // cards' Add track menus). The lanes split the width via flexible frames
-    // (the rail caps at 520pt, so at full desk the split lands ≈36/36/28; mins
-    // only guard tiny windows). Every panel is the exact same component the
-    // iPad stacks vertically.
+    //                    health (live) → utility tail (ingest collapsed →
+    //                    devices → emergency last).
+    // Sessions AND the audio library moved OFF this page entirely — playlist +
+    // upload management lives only on the Uploads & Sessions page (both
+    // platforms). The lanes split the width via flexible frames (the rail caps
+    // at 520pt, so at full desk the split lands ≈36/36/28; mins only guard tiny
+    // windows). Every panel is the exact same component the iPad stacks
+    // vertically.
     @ViewBuilder private func macBody(program: RadioProgram?) -> some View {
         ProgramPickerStrip(programs: m.programs, selectedId: m.selectedId) { m.select($0) }
 
@@ -598,14 +587,11 @@ struct RadioStudioView: View {
                 }
                 .frame(minWidth: 300, maxWidth: .infinity)
 
-                // PROGRAM — the program itself, its audio, then compact sessions.
+                // PROGRAM — the program itself, its audio, then its schedule.
                 VStack(alignment: .leading, spacing: 16) {
                     ProgramCard(program: p, onEdit: { editProgram = p })
                     SessionAudioPanel(program: p, busy: m.busy, onAttach: { showAttachImporter = true })
-                    SessionsSection(store: library,
-                                    liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
-                                    nowPlaying: m.health?.nowPlaying,
-                                    compact: true)
+                    SchedulePanel(program: p)
                 }
                 .frame(minWidth: 320, maxWidth: .infinity)
 
@@ -617,7 +603,6 @@ struct RadioStudioView: View {
                     if m.broadcast.isLiveOrPaused, let h = m.health {
                         StreamHealthPanel(health: h)
                     }
-                    SchedulePanel(program: p)
                     IngestPanel(program: p, onRotate: { m.rotateKey() }, busy: m.busy)   // collapsed by default
                     DeviceManagerPanel()
                     EmergencyPanel(onEnd: { m.endBroadcast() }, canEnd: m.broadcast.isLiveOrPaused)
@@ -1851,8 +1836,10 @@ struct DarkError: View {
 // Two dark panels wired to the frozen library/playlist contract. A single store
 // owns the library tracks + every session's playlist and drives a lightweight
 // AVQueuePlayer preview that honours the session's loopMode.
-// The store + the two sections are internal (not file-private): the Mac-only
-// Uploads & Sessions page (UploadsSessionsView.swift) reuses them verbatim.
+// The store + the two sections are internal (not file-private) but render ONLY
+// on the Uploads & Sessions page (UploadsSessionsView.swift, both platforms) —
+// the Radio Studio dropped its inline copies; they just live in this file
+// because they share the Rs chrome and the radio API surface.
 
 enum TrackKind: String, CaseIterable, Identifiable {
     case music, preaching, audio
@@ -1893,6 +1880,32 @@ enum LoopMode: String, CaseIterable {
     static func from(_ s: String) -> LoopMode { LoopMode(rawValue: s) ?? .none }
 }
 
+/// One visible entry in the upload queue — filename, size, live progress, then a
+/// ✓ done (auto-clears after ~4s) or a retry-able error. The kind is captured at
+/// enqueue time so a mid-queue filter switch doesn't re-file earlier picks.
+struct UploadJob: Identifiable, Equatable {
+    enum Phase: Equatable {
+        case queued
+        case uploading
+        case done
+        case failed(String)
+    }
+    let id = UUID()
+    let url: URL                 // security-scoped picker URL (read when the job runs)
+    let filename: String
+    let kind: String             // library kind at pick time (music|preaching|audio)
+    var totalBytes: Int64        // file size at enqueue; refined to the multipart total mid-flight
+    var sentBytes: Int64 = 0
+    var phase: Phase = .queued
+    /// Validation failures (bad extension / over the cap) re-fail identically, so
+    /// their rows offer dismiss only — transport/server errors keep the Retry.
+    var canRetry = true
+
+    var fraction: Double {
+        totalBytes > 0 ? min(1, Double(sentBytes) / Double(totalBytes)) : 0
+    }
+}
+
 @MainActor
 final class AudioLibraryStore: ObservableObject {
     // Library
@@ -1902,6 +1915,15 @@ final class AudioLibraryStore: ObservableObject {
     @Published var error: String?
     @Published var busy = false
     @Published var uploading = false
+
+    // Upload queue (multi-file picker) — rows render above the library list.
+    // Jobs run SEQUENTIALLY through one worker; each completed file registers its
+    // track and refreshes the list, so the library grows as the queue drains.
+    @Published var uploads: [UploadJob] = []
+    private var uploadWorkerRunning = false
+
+    // Checkbox multi-select over the CURRENT kind filter (ids of library tracks).
+    @Published var selectedTrackIds: Set<String> = []
 
     // Sessions + their playlists (keyed by program id)
     @Published var sessions: [RadioProgram] = []
@@ -1928,13 +1950,18 @@ final class AudioLibraryStore: ObservableObject {
     }
 
     func reloadTracks() async {
-        do { tracks = try await PortalAPI.radioTracks(kind: kind.rawValue); error = nil }
+        do {
+            tracks = try await PortalAPI.radioTracks(kind: kind.rawValue); error = nil
+            // Prune selection to tracks that still exist in the current filter.
+            selectedTrackIds.formIntersection(tracks.map(\.id))
+        }
         catch { self.error = (error as? APIError)?.errorDescription ?? "Could not load the audio library." }
     }
 
     func selectKind(_ k: TrackKind) {
         guard k != kind else { return }
         kind = k
+        selectedTrackIds = []          // selection is per-filter
         Task { await reloadTracks() }
     }
 
@@ -1950,35 +1977,114 @@ final class AudioLibraryStore: ObservableObject {
         if let items = try? await PortalAPI.radioPlaylist(id) { playlists[id] = items }
     }
 
-    // MARK: Library mutations
+    // MARK: Library mutations — multi-file upload queue
 
-    func upload(_ fileURL: URL) {
-        Task {
-            uploading = true; error = nil
-            let scoped = fileURL.startAccessingSecurityScopedResource()
-            defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
-            do {
-                let data = try Data(contentsOf: fileURL)
-                if let msg = AudioUploadRules.validate(filename: fileURL.lastPathComponent, byteCount: data.count) {
-                    self.error = msg
-                    uploading = false
-                    return
-                }
-                let up = try await PortalAPI.uploadRadioAudio(data: data, filename: fileURL.lastPathComponent)
-                let title = (fileURL.lastPathComponent as NSString).deletingPathExtension
-                var body: [String: RadioJSON] = [
-                    "title": .string(title.isEmpty ? "Untitled" : title),
-                    "kind": .string(kind.rawValue),
-                    "audio_url": .string(up.url),
-                    "size_bytes": .int(data.count),
-                ]
-                if let d = up.durationSec { body["duration_sec"] = .int(d) }
-                _ = try await PortalAPI.createRadioTrack(body)
-                await reloadTracks()
-            } catch {
-                self.error = (error as? APIError)?.errorDescription ?? "Could not upload the audio file."
+    /// Enqueue every picked file as a visible upload row and kick the worker.
+    /// Client-side pre-checks (extension + 110 MB cap) run immediately on the
+    /// stat'd size so an invalid pick fails fast without a wasted transfer.
+    func enqueueUploads(_ urls: [URL]) {
+        for url in urls {
+            var size: Int64 = 0
+            let scoped = url.startAccessingSecurityScopedResource()
+            if let s = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize { size = Int64(s) }
+            if scoped { url.stopAccessingSecurityScopedResource() }
+
+            var job = UploadJob(url: url, filename: url.lastPathComponent,
+                                kind: kind.rawValue, totalBytes: size)
+            if let msg = AudioUploadRules.validate(filename: job.filename, byteCount: Int(size)) {
+                job.phase = .failed(msg)
+                job.canRetry = false           // re-running can't fix a bad file
             }
+            uploads.append(job)
+        }
+        pumpUploads()
+    }
+
+    /// Re-queue a failed job (transport/server errors only) and restart the worker.
+    func retryUpload(_ id: UUID) {
+        guard let i = uploads.firstIndex(where: { $0.id == id }),
+              case .failed = uploads[i].phase, uploads[i].canRetry else { return }
+        uploads[i].phase = .queued
+        uploads[i].sentBytes = 0
+        pumpUploads()
+    }
+
+    /// Remove a finished/failed row from the queue display.
+    func dismissUpload(_ id: UUID) {
+        uploads.removeAll { $0.id == id }
+    }
+
+    /// Single sequential worker: drains `.queued` jobs one at a time. `uploading`
+    /// mirrors "worker active" so the Upload button can show a spinner (it stays
+    /// tappable — more files just join the queue).
+    private func pumpUploads() {
+        guard !uploadWorkerRunning else { return }
+        uploadWorkerRunning = true
+        uploading = true
+        Task {
+            while let next = uploads.first(where: { $0.phase == .queued }) {
+                await runUpload(next.id)
+            }
+            uploadWorkerRunning = false
             uploading = false
+        }
+    }
+
+    private func runUpload(_ id: UUID) async {
+        guard let i = uploads.firstIndex(where: { $0.id == id }) else { return }
+        uploads[i].phase = .uploading
+        let job = uploads[i]
+
+        let scoped = job.url.startAccessingSecurityScopedResource()
+        defer { if scoped { job.url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try Data(contentsOf: job.url)
+            if let msg = AudioUploadRules.validate(filename: job.filename, byteCount: data.count) {
+                fail(id, msg, canRetry: false)
+                return
+            }
+            update(id) { $0.totalBytes = Int64(data.count) }
+            let up = try await PortalAPI.uploadRadioAudioWithProgress(
+                data: data, filename: job.filename,
+                onProgress: { [weak self] sent, total in
+                    Task { @MainActor in
+                        self?.update(id) { j in
+                            j.sentBytes = sent
+                            if total > 0 { j.totalBytes = total }
+                        }
+                    }
+                })
+            let title = (job.filename as NSString).deletingPathExtension
+            var body: [String: RadioJSON] = [
+                "title": .string(title.isEmpty ? "Untitled" : title),
+                "kind": .string(job.kind),
+                "audio_url": .string(up.url),
+                "size_bytes": .int(data.count),
+            ]
+            if let d = up.durationSec { body["duration_sec"] = .int(d) }
+            _ = try await PortalAPI.createRadioTrack(body)
+            update(id) { j in j.phase = .done; j.sentBytes = j.totalBytes }
+            await reloadTracks()
+            scheduleDoneClear(id)
+        } catch {
+            fail(id, (error as? APIError)?.errorDescription ?? "Could not upload the audio file.")
+        }
+    }
+
+    private func update(_ id: UUID, _ mutate: (inout UploadJob) -> Void) {
+        guard let i = uploads.firstIndex(where: { $0.id == id }) else { return }
+        mutate(&uploads[i])
+    }
+
+    private func fail(_ id: UUID, _ message: String, canRetry: Bool = true) {
+        update(id) { j in j.phase = .failed(message); j.canRetry = canRetry }
+    }
+
+    /// Green ✓ rows tidy themselves away after ~4s.
+    private func scheduleDoneClear(_ id: UUID) {
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            uploads.removeAll { $0.id == id && $0.phase == .done }
         }
     }
 
@@ -1987,6 +2093,72 @@ final class AudioLibraryStore: ObservableObject {
             busy = true; error = nil
             do { try await PortalAPI.deleteRadioTrack(id); await reloadTracks() }
             catch { self.error = (error as? APIError)?.errorDescription ?? "Could not delete the track." }
+            busy = false
+        }
+    }
+
+    // MARK: Library multi-select + bulk actions
+
+    enum SelectionState { case none, some, all }
+
+    /// Ids of the CURRENTLY LISTED tracks (kind filter applied) that are selected,
+    /// in library order — bulk actions run in the order the user sees.
+    var orderedSelection: [String] {
+        tracks.map(\.id).filter { selectedTrackIds.contains($0) }
+    }
+    var selectedCount: Int { orderedSelection.count }
+
+    var selectionState: SelectionState {
+        let n = selectedCount
+        if n == 0 { return .none }
+        return n == tracks.count ? .all : .some
+    }
+
+    func toggleSelect(_ trackId: String) {
+        if selectedTrackIds.contains(trackId) { selectedTrackIds.remove(trackId) }
+        else { selectedTrackIds.insert(trackId) }
+    }
+
+    /// Tri-state header checkbox: all-selected clears; anything else selects the
+    /// whole current filter.
+    func toggleSelectAll() {
+        if selectionState == .all { selectedTrackIds = [] }
+        else { selectedTrackIds = Set(tracks.map(\.id)) }
+    }
+
+    func clearSelection() { selectedTrackIds = [] }
+
+    /// Append every selected track to a session — sequentially, via the same
+    /// endpoint the single add uses — then reconcile and clear the selection.
+    func addSelected(to sessionId: String) {
+        let ids = orderedSelection
+        guard !ids.isEmpty else { return }
+        Task {
+            busy = true; error = nil
+            do {
+                for id in ids { _ = try await PortalAPI.addToRadioPlaylist(sessionId, trackId: id) }
+            } catch {
+                self.error = (error as? APIError)?.errorDescription ?? "Could not add the selected tracks."
+            }
+            await reloadSession(sessionId)
+            selectedTrackIds = []
+            busy = false
+        }
+    }
+
+    /// Delete every selected track (the caller confirms ONCE before invoking).
+    func deleteSelected() {
+        let ids = orderedSelection
+        guard !ids.isEmpty else { return }
+        Task {
+            busy = true; error = nil
+            do {
+                for id in ids { try await PortalAPI.deleteRadioTrack(id) }
+            } catch {
+                self.error = (error as? APIError)?.errorDescription ?? "Could not delete the selected tracks."
+            }
+            await reloadTracks()
+            selectedTrackIds = []
             busy = false
         }
     }
@@ -2050,6 +2222,24 @@ final class AudioLibraryStore: ObservableObject {
         guard items.indices.contains(index), items.indices.contains(dest) else { return }
         items.swapAt(index, dest)
         playlists[sessionId] = items                    // optimistic
+        persistOrder(sessionId, items)
+    }
+
+    /// Drag-to-reorder: lift the item at `from` and drop it at `to`, then persist
+    /// through the SAME path as the arrow moves (PUT the full id order; the server
+    /// response reconciles the optimistic local state).
+    func move(_ sessionId: String, from: Int, to: Int) {
+        guard var items = playlists[sessionId], from != to,
+              items.indices.contains(from), items.indices.contains(to) else { return }
+        let it = items.remove(at: from)
+        items.insert(it, at: to)
+        playlists[sessionId] = items                    // optimistic
+        persistOrder(sessionId, items)
+    }
+
+    /// One persist path for BOTH reorder gestures (arrows + drag): PUT the id
+    /// order, adopt the server's echo, reload on failure.
+    private func persistOrder(_ sessionId: String, _ items: [RadioPlaylistItem]) {
         let order = items.map { $0.id }
         Task {
             busy = true; error = nil
@@ -2191,12 +2381,18 @@ struct AudioLibrarySection: View {
                     UploadMusicButton(uploading: store.uploading) { showImporter = true }
                 }
 
+                // In-flight uploads render ABOVE the list (also in the sheet).
+                UploadQueueList(store: store)
+
                 if store.tracks.isEmpty {
                     LibraryEmptyState(kind: store.kind)
                 } else {
+                    LibrarySelectionBar(store: store)
                     VStack(spacing: 8) {
                         ForEach(visibleTracks) { t in
                             TrackRow(track: t, sessions: store.sessions,
+                                     isSelected: store.selectedTrackIds.contains(t.id),
+                                     onToggleSelect: { store.toggleSelect(t.id) },
                                      onAddToSession: { store.addTrack(t.id, to: $0) },
                                      onDelete: { store.deleteTrack(t.id) })
                         }
@@ -2211,12 +2407,14 @@ struct AudioLibrarySection: View {
             }
         }
         .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: AudioUploadRules.allowedContentTypes) { result in
-            if case .success(let url) = result { store.upload(url) }
+                      allowedContentTypes: AudioUploadRules.allowedContentTypes,
+                      allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result { store.enqueueUploads(urls) }
             else if case .failure(let err) = result { store.error = err.localizedDescription }
         }
-        // Mac only — the View chip sets `showFullLibrary`; iPad never presents this.
-        .sheet(isPresented: $showFullLibrary) { AudioLibrarySheet(store: store) }
+        // Mac only — the View chip sets `showFullLibrary` (iPad shows the full
+        // list inline); presents as a big CENTERED studio modal.
+        .studioModal(isPresented: $showFullLibrary) { AudioLibrarySheet(store: store) }
     }
 }
 
@@ -2234,6 +2432,8 @@ private struct LibraryEmptyState: View {
 
 /// The gold "Upload music" pill (lane card + full-library sheet) — same view
 /// tree the section always rendered, extracted so the sheet reuses it verbatim.
+/// Stays TAPPABLE while the queue drains — new picks simply join the queue; the
+/// spinner just signals that uploads are in flight.
 private struct UploadMusicButton: View {
     let uploading: Bool
     let action: () -> Void
@@ -2247,7 +2447,277 @@ private struct UploadMusicButton: View {
             .foregroundStyle(Color(hex: 0x0A1120))
             .padding(.horizontal, 14).frame(height: 34)
             .background(Rs.goldFill).clipShape(Capsule())
-        }.pressable().hoverEffect(.highlight).disabled(uploading)
+        }.pressable().hoverEffect(.highlight)
+    }
+}
+
+// MARK: - Upload queue (multi-file, per-file progress)
+
+/// The visible upload queue — one row per picked file, rendered above the
+/// library list in BOTH the lane card and the full-library sheet. Empty queue
+/// renders nothing (EmptyView keeps the surrounding VStack spacing clean).
+private struct UploadQueueList: View {
+    @ObservedObject var store: AudioLibraryStore
+    var body: some View {
+        if !store.uploads.isEmpty {
+            VStack(spacing: 6) {
+                ForEach(store.uploads) { job in
+                    UploadJobRow(job: job,
+                                 onRetry: { store.retryUpload(job.id) },
+                                 onDismiss: { store.dismissUpload(job.id) })
+                }
+            }
+        }
+    }
+}
+
+/// One upload row: filename + size, then a determinate Rs-gold progress bar with
+/// percent and uploaded/total MB while transferring; a green ✓ done state (the
+/// store auto-clears it after ~4s); or a red error with Retry (transport/server
+/// failures) and a dismiss ×.
+private struct UploadJobRow: View {
+    let job: UploadJob
+    let onRetry: () -> Void
+    let onDismiss: () -> Void
+
+    private var mb: (sent: Double, total: Double) {
+        (Double(job.sentBytes) / 1_048_576, Double(job.totalBytes) / 1_048_576)
+    }
+
+    var body: some View {
+        HStack(spacing: 11) {
+            statusIcon
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(job.filename)
+                        .font(.inter(12, .semibold)).foregroundStyle(Rs.text)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 6)
+                    trailing
+                }
+                detail
+            }
+        }
+        .padding(.horizontal, 11).padding(.vertical, 9)
+        .background(rowTint.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+            .stroke(rowTint.opacity(0.3), lineWidth: 1))
+    }
+
+    private var rowTint: Color {
+        switch job.phase {
+        case .done:   return Rs.green
+        case .failed: return Rs.red
+        default:      return Rs.gold
+        }
+    }
+
+    @ViewBuilder private var statusIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9, style: .continuous).fill(rowTint.opacity(0.16))
+            switch job.phase {
+            case .done:
+                Image(systemName: "checkmark").font(.system(size: 13, weight: .bold)).foregroundStyle(Rs.green)
+            case .failed:
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12, weight: .bold)).foregroundStyle(Rs.red)
+            case .uploading:
+                Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold)).foregroundStyle(Rs.gold)
+            case .queued:
+                Image(systemName: "clock").font(.system(size: 12, weight: .semibold)).foregroundStyle(Rs.dim)
+            }
+        }.frame(width: 34, height: 34)
+    }
+
+    @ViewBuilder private var trailing: some View {
+        switch job.phase {
+        case .uploading:
+            Text("\(Int(job.fraction * 100))%").font(Rs.mono(10.5, .semibold)).foregroundStyle(Rs.gold).fixedSize()
+        case .queued:
+            Text("QUEUED").font(.inter(8.5, .bold)).tracking(0.7).foregroundStyle(Rs.dim)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Color.white.opacity(0.06)).clipShape(Capsule())
+        case .done:
+            Text("UPLOADED").font(.inter(8.5, .bold)).tracking(0.7).foregroundStyle(Rs.green)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Rs.green.opacity(0.16)).clipShape(Capsule())
+        case .failed:
+            HStack(spacing: 6) {
+                if job.canRetry {
+                    Button(action: onRetry) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.clockwise").font(.system(size: 9, weight: .bold))
+                            Text("Retry").font(.inter(10.5, .bold))
+                        }
+                        .foregroundStyle(Rs.red)
+                        .padding(.horizontal, 9).frame(height: 24)
+                        .background(Rs.red.opacity(0.14)).clipShape(Capsule())
+                        .overlay(Capsule().stroke(Rs.red.opacity(0.35), lineWidth: 1))
+                    }.pressable().hoverEffect(.highlight)
+                }
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Rs.dim).frame(width: 24, height: 24)
+                }.pressable().hoverEffect(.highlight)
+                .accessibilityLabel("Dismiss failed upload")
+            }
+        }
+    }
+
+    @ViewBuilder private var detail: some View {
+        switch job.phase {
+        case .uploading:
+            VStack(alignment: .leading, spacing: 4) {
+                RsProgressBar(fraction: job.fraction)
+                Text(String(format: "%.1f / %.1f MB", mb.sent, mb.total))
+                    .font(Rs.mono(9.5)).foregroundStyle(Rs.dim)
+            }
+        case .queued:
+            Text(fmtBytes(Int(job.totalBytes)) ?? "Waiting…")
+                .font(.inter(10)).foregroundStyle(Rs.faint)
+        case .done:
+            Text("\(fmtBytes(Int(job.totalBytes)) ?? "") · added to the library")
+                .font(.inter(10)).foregroundStyle(Rs.dim)
+        case .failed(let msg):
+            Text(msg).font(.inter(10)).foregroundStyle(Rs.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// Determinate Rs-gold progress bar (capsule track + goldFill).
+private struct RsProgressBar: View {
+    let fraction: Double
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.07))
+                Capsule().fill(Rs.goldFill)
+                    .frame(width: max(6, geo.size.width * min(1, max(0, fraction))))
+            }
+        }
+        .frame(height: 6)
+        .animation(.linear(duration: 0.2), value: fraction)
+    }
+}
+
+// MARK: - Library multi-select (checkboxes + bulk actions)
+
+/// Rs-themed square checkbox for a single track row.
+private struct SelectCheckbox: View {
+    let isOn: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isOn ? AnyShapeStyle(Rs.goldFill) : AnyShapeStyle(Color.white.opacity(0.04)))
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(isOn ? Rs.goldDeep : Rs.borderHi, lineWidth: 1)
+                if isOn {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold)).foregroundStyle(Color(hex: 0x0A1120))
+                }
+            }
+            .frame(width: 20, height: 20)
+            .contentShape(Rectangle())
+        }.pressable().hoverEffect(.highlight)
+        .accessibilityLabel(isOn ? "Deselect track" : "Select track")
+    }
+}
+
+/// Header select-all checkbox — tri-state (none / some / all over the current
+/// kind filter), plus the "N selected" label and, when ≥1 is selected, the bulk
+/// actions: "Add N to session ▾" (session picker) and "Delete N" (confirm once).
+private struct LibrarySelectionBar: View {
+    @ObservedObject var store: AudioLibraryStore
+    @State private var confirmDelete = false
+
+    private var n: Int { store.selectedCount }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            triState
+            Text(n == 0 ? "Select all" : "\(n) selected")
+                .font(.inter(11.5, n == 0 ? .medium : .bold))
+                .foregroundStyle(n == 0 ? Rs.dim : Rs.gold)
+                .fixedSize()
+            Spacer(minLength: 6)
+            if n > 0 {
+                addMenu
+                deleteButton
+            }
+        }
+        .padding(.horizontal, 11).frame(minHeight: 40)
+        .background((n > 0 ? Rs.gold : Color.white).opacity(n > 0 ? 0.07 : 0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+            .stroke(n > 0 ? Rs.gold.opacity(0.3) : Rs.border, lineWidth: 1))
+        .alert("Delete \(n) track\(n == 1 ? "" : "s")?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) { store.deleteSelected() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the selected tracks from the station library. Sessions using them lose those playlist entries.")
+        }
+    }
+
+    /// none → empty square · some → gold minus square · all → gold check square.
+    private var triState: some View {
+        Button { store.toggleSelectAll() } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(store.selectionState == .none
+                          ? AnyShapeStyle(Color.white.opacity(0.04))
+                          : AnyShapeStyle(Rs.goldFill))
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(store.selectionState == .none ? Rs.borderHi : Rs.goldDeep, lineWidth: 1)
+                switch store.selectionState {
+                case .none: EmptyView()
+                case .some:
+                    Image(systemName: "minus").font(.system(size: 11, weight: .bold)).foregroundStyle(Color(hex: 0x0A1120))
+                case .all:
+                    Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Color(hex: 0x0A1120))
+                }
+            }
+            .frame(width: 20, height: 20)
+            .contentShape(Rectangle())
+        }.pressable().hoverEffect(.highlight)
+        .accessibilityLabel(store.selectionState == .all ? "Deselect all tracks" : "Select all tracks")
+    }
+
+    @ViewBuilder private var addMenu: some View {
+        if store.sessions.isEmpty {
+            Text("No sessions").font(.inter(10)).foregroundStyle(Rs.faint)
+        } else {
+            Menu {
+                ForEach(store.sessions) { s in
+                    Button(s.title.isEmpty ? "Untitled" : s.title) { store.addSelected(to: s.id) }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus").font(.system(size: 10, weight: .bold))
+                    Text("Add \(n) to session").font(.inter(11, .semibold))
+                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+                }
+                .foregroundStyle(Rs.gold)
+                .padding(.horizontal, 10).frame(height: 28)
+                .background(Rs.gold.opacity(0.12)).clipShape(Capsule())
+                .overlay(Capsule().stroke(Rs.gold.opacity(0.3), lineWidth: 1))
+            }
+        }
+    }
+
+    private var deleteButton: some View {
+        Button { confirmDelete = true } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "trash").font(.system(size: 10, weight: .bold))
+                Text("Delete \(n)").font(.inter(11, .semibold))
+            }
+            .foregroundStyle(Rs.red)
+            .padding(.horizontal, 10).frame(height: 28)
+            .background(Rs.red.opacity(0.12)).clipShape(Capsule())
+            .overlay(Capsule().stroke(Rs.red.opacity(0.3), lineWidth: 1))
+        }.pressable().hoverEffect(.highlight)
     }
 }
 
@@ -2277,13 +2747,29 @@ private struct KindSegmented: View {
 private struct TrackRow: View {
     let track: RadioTrack
     let sessions: [RadioProgram]
+    /// Full-library sheet passes the row index for zebra striping; nil (lane
+    /// cards) keeps the uniform card background.
+    var zebraIndex: Int? = nil
+    /// Multi-select checkbox (Uploads & Sessions page + library sheet). nil on
+    /// any context that shouldn't offer selection — the checkbox simply doesn't
+    /// render there.
+    var isSelected: Bool? = nil
+    var onToggleSelect: (() -> Void)? = nil
     let onAddToSession: (String) -> Void
     let onDelete: () -> Void
 
     private var kind: TrackKind { TrackKind(rawValue: track.kind) ?? .audio }
+    private var bgOpacity: Double {
+        guard let i = zebraIndex else { return 0.03 }
+        return i.isMultiple(of: 2) ? 0.045 : 0.02
+    }
+    private var selected: Bool { isSelected == true }
 
     var body: some View {
         HStack(spacing: 11) {
+            if let isSelected, let onToggleSelect {
+                SelectCheckbox(isOn: isSelected, action: onToggleSelect)
+            }
             ZStack {
                 RoundedRectangle(cornerRadius: 9, style: .continuous).fill(kind.color.opacity(0.16))
                 Image(systemName: "music.note").font(.system(size: 13, weight: .semibold)).foregroundStyle(kind.color)
@@ -2335,8 +2821,10 @@ private struct TrackRow: View {
             }
         }
         .padding(.horizontal, 11).padding(.vertical, 8)
-        .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Rs.border, lineWidth: 1))
+        .background(selected ? Rs.gold.opacity(0.07) : Color.white.opacity(bgOpacity))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+            .stroke(selected ? Rs.gold.opacity(0.4) : Rs.border, lineWidth: 1))
     }
 }
 
@@ -2348,12 +2836,8 @@ struct SessionsSection: View {
     /// title from the ~3s health poll — used to badge the airing playlist row.
     var liveProgramId: String? = nil
     var nowPlaying: String? = nil
-    /// Mac radio desk only — COMPACT form: hides the create-session field (full
-    /// session management lives on the Uploads & Sessions page); the preview
-    /// cards, Loop / Play live and the View modal keep working. Defaults false,
-    /// so the iPad render (and the Uploads & Sessions page) is unchanged.
-    var compact: Bool = false
-    /// Mac only — the session whose full console sheet is open (never set on iPad).
+    /// The session whose full console sheet is open — iPad presents a native
+    /// page sheet, the Mac a centered studio modal (see `studioModal`).
     @State private var viewSession: SessionSheetTarget?
 
     var body: some View {
@@ -2362,29 +2846,26 @@ struct SessionsSection: View {
                 StudioHeader(icon: "square.stack.3d.down.right.fill", title: "Sessions",
                              caption: "\(store.sessions.count) session\(store.sessions.count == 1 ? "" : "s")")
 
-                // Create a session (hidden in the Mac desk's compact form — session
-                // creation lives on the Uploads & Sessions page there).
-                if !compact {
-                    HStack(spacing: 10) {
-                        TextField("", text: Binding(get: { store.newSessionName }, set: { store.newSessionName = $0 }),
-                                  prompt: Text("New session name…").foregroundColor(Rs.faint))
-                            .font(.inter(12.5)).foregroundStyle(Rs.text)
-                            .padding(.horizontal, 12).frame(height: 36)
-                            .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Rs.border, lineWidth: 1))
-                            .submitLabel(.done)
-                            .onSubmit { store.createSession() }
-                        Button { store.createSession() } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: "plus").font(.system(size: 11, weight: .bold))
-                                Text("Create").font(.inter(12, .bold))
-                            }
-                            .foregroundStyle(Color(hex: 0x0A1120))
-                            .padding(.horizontal, 14).frame(height: 36)
-                            .background(Rs.goldFill).clipShape(Capsule())
-                        }.pressable().hoverEffect(.highlight)
-                        .disabled(store.newSessionName.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
+                // Create a session
+                HStack(spacing: 10) {
+                    TextField("", text: Binding(get: { store.newSessionName }, set: { store.newSessionName = $0 }),
+                              prompt: Text("New session name…").foregroundColor(Rs.faint))
+                        .font(.inter(12.5)).foregroundStyle(Rs.text)
+                        .padding(.horizontal, 12).frame(height: 36)
+                        .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Rs.border, lineWidth: 1))
+                        .submitLabel(.done)
+                        .onSubmit { store.createSession() }
+                    Button { store.createSession() } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                            Text("Create").font(.inter(12, .bold))
+                        }
+                        .foregroundStyle(Color(hex: 0x0A1120))
+                        .padding(.horizontal, 14).frame(height: 36)
+                        .background(Rs.goldFill).clipShape(Capsule())
+                    }.pressable().hoverEffect(.highlight)
+                    .disabled(store.newSessionName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
 
                 // Now previewing line
@@ -2406,8 +2887,7 @@ struct SessionsSection: View {
                     VStack(spacing: 8) {
                         Image(systemName: "square.stack.3d.down.right").font(.system(size: 24)).foregroundStyle(Rs.faint)
                         Text("No sessions yet").font(.inter(12.5, .semibold)).foregroundStyle(Rs.text)
-                        Text(compact ? "Create sessions in Uploads & Sessions."
-                                     : "Name a session above to build a playlist.")
+                        Text("Name a session above to build a playlist.")
                             .font(.inter(11)).foregroundStyle(Rs.dim)
                     }.frame(maxWidth: .infinity).padding(.vertical, 22)
                 } else {
@@ -2421,11 +2901,12 @@ struct SessionsSection: View {
                                 nowPlaying: s.id == liveProgramId ? nowPlaying : nil,
                                 previewItemId: store.previewSessionId == s.id ? store.previewItemId : nil,
                                 previewLimit: macLanePreviewCap,
-                                onView: MacDesign.isMac ? { viewSession = SessionSheetTarget(id: s.id) } : nil,
+                                onView: { viewSession = SessionSheetTarget(id: s.id) },
                                 onSetLoop: { store.setLoop(s.id, $0) },
                                 onPlay: { store.playLive(s.id) },
                                 onDeleteSession: { store.deleteSession(s.id) },
                                 onMove: { idx, delta in store.move(s.id, index: idx, by: delta) },
+                                onReorder: { from, to in store.move(s.id, from: from, to: to) },
                                 onRemove: { store.removeItem($0, from: s.id) },
                                 onAddTrack: { store.addTrack($0, to: s.id) }
                             )
@@ -2434,8 +2915,9 @@ struct SessionsSection: View {
                 }
             }
         }
-        // Mac only — the View chip sets `viewSession`; iPad never presents this.
-        .sheet(item: $viewSession) { target in
+        // The View chip opens the full session console — native page sheet on
+        // iPad, big centered studio modal on the Mac.
+        .studioModal(item: $viewSession) { target in
             SessionConsoleSheet(store: store,
                                 sessionId: target.id,
                                 liveProgramId: liveProgramId,
@@ -2454,19 +2936,28 @@ private struct SessionCard: View {
     /// Playlist item the local AVQueuePlayer preview is on (non-nil only for the
     /// previewing session).
     let previewItemId: String?
-    /// Mac lane preview (nil everywhere else): render at most this many playlist
-    /// rows — the full-height list lives in the View sheet — followed by a fixed
+    /// Lane preview (nil = full list): render at most this many playlist rows —
+    /// the full-height list lives in the View console — followed by a fixed
     /// "+N more tracks" line so the card height stays stable while tracks change.
-    /// `onView` opens the full session-console sheet. Both default nil, so the
-    /// iPhone/iPad render is byte-identical.
+    /// `onView` opens the full session-console sheet (both platforms).
     var previewLimit: Int? = nil
     var onView: (() -> Void)? = nil
     let onSetLoop: (LoopMode) -> Void
     let onPlay: () -> Void
     let onDeleteSession: () -> Void
     let onMove: (Int, Int) -> Void
+    /// Drag-to-reorder drop: (from, to) — persists via the same store path as
+    /// the arrow moves.
+    let onReorder: (Int, Int) -> Void
     let onRemove: (String) -> Void
     let onAddTrack: (String) -> Void
+
+    /// Themed Add-track picker (replaces the old bare `Menu`, which rendered as
+    /// a giant unthemed native dropdown on Catalyst).
+    @State private var showAddTrack = false
+    /// Drag-to-reorder state (id being dragged + insertion index shown gold).
+    @State private var draggingId: String?
+    @State private var dropIndex: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -2479,30 +2970,13 @@ private struct SessionCard: View {
                 }
                 Spacer(minLength: 6)
 
-                // Mac lanes only: open the full session console (sheet).
+                // Open the full session console (sheet on iPad, centered modal on Mac).
                 if let onView {
                     ViewChipButton(action: onView)
                 }
 
-                // Loop control (Menu selecting Off / Loop all / Repeat one)
-                Menu {
-                    ForEach(LoopMode.allCases, id: \.rawValue) { mode in
-                        Button {
-                            onSetLoop(mode)
-                        } label: {
-                            Label(mode.label, systemImage: mode == loop ? "checkmark" : mode.icon)
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: loop.icon).font(.system(size: 11, weight: .semibold))
-                        Text(loop.label).font(.inter(11, .semibold))
-                    }
-                    .foregroundStyle(loop == .none ? Rs.dim : Rs.gold)
-                    .padding(.horizontal, 10).frame(height: 30)
-                    .background((loop == .none ? Rs.faint : Rs.gold).opacity(0.12)).clipShape(Capsule())
-                    .overlay(Capsule().stroke((loop == .none ? Rs.faint : Rs.gold).opacity(0.3), lineWidth: 1))
-                }
+                // Loop control (Off / Loop all / Repeat one)
+                LoopMenuChip(loop: loop, onSetLoop: onSetLoop)
 
                 Button(action: onPlay) {
                     HStack(spacing: 5) {
@@ -2544,6 +3018,13 @@ private struct SessionCard: View {
                             onMoveDown: { onMove(idx, 1) },
                             onRemove: { onRemove(item.id) }
                         )
+                        // Rows drag to reorder (indices are the FULL-list ones,
+                        // so a capped lane preview still reorders correctly).
+                        .playlistDraggable(
+                            itemId: item.id, index: idx,
+                            draggingId: $draggingId, dropIndex: $dropIndex,
+                            indexOf: { id in items.firstIndex { $0.id == id } },
+                            onReorder: onReorder)
                     }
                     if let cap = previewLimit, items.count > cap {
                         MoreTracksLine(count: items.count - cap)
@@ -2551,15 +3032,11 @@ private struct SessionCard: View {
                 }
             }
 
-            // Footer: + Add track menu
+            // Footer: + Add track — opens the themed library picker.
             if tracks.isEmpty {
                 Text("Upload library tracks to add them here.").font(.inter(10.5)).foregroundStyle(Rs.faint)
             } else {
-                Menu {
-                    ForEach(tracks) { t in
-                        Button(t.title.isEmpty ? "Untitled" : t.title) { onAddTrack(t.id) }
-                    }
-                } label: {
+                Button { showAddTrack = true } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "plus").font(.system(size: 11, weight: .bold))
                         Text("Add track…").font(.inter(11.5, .semibold))
@@ -2568,37 +3045,70 @@ private struct SessionCard: View {
                     .padding(.horizontal, 12).frame(height: 32)
                     .background(Rs.gold.opacity(0.10)).clipShape(Capsule())
                     .overlay(Capsule().stroke(Rs.gold.opacity(0.3), lineWidth: 1))
-                }
+                }.pressable().hoverEffect(.highlight)
             }
         }
         .padding(14)
         .background(Color.white.opacity(0.025)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Rs.border, lineWidth: 1))
+        .studioModal(isPresented: $showAddTrack, maxWidth: 560, maxHeight: 680) {
+            AddTrackPicker(tracks: tracks, items: items, onAdd: onAddTrack)
+        }
     }
 
     private func dotColor(_ kind: String) -> Color {
         (TrackKind(rawValue: kind) ?? .audio).color
     }
 
-    /// First playlist item whose track matches the icy `now_playing` string —
-    /// case-insensitive containment either direction on the title, falling back to
-    /// the audio-url basename sans extension. No match → nil (no highlight).
-    private var onAirItemId: String? {
-        guard let raw = nowPlaying?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              !raw.isEmpty else { return nil }
-        return items.first { matches($0.track, nowPlaying: raw) }?.id
+    private var onAirItemId: String? { airingItemId(in: items, nowPlaying: nowPlaying) }
+}
+
+/// First playlist item whose track matches the icy `now_playing` string —
+/// case-insensitive containment either direction on the title, falling back to
+/// the audio-url basename sans extension. No match → nil (no highlight).
+/// Shared by the lane SessionCard and the full SessionConsoleSheet.
+private func airingItemId(in items: [RadioPlaylistItem], nowPlaying: String?) -> String? {
+    guard let raw = nowPlaying?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+          !raw.isEmpty else { return nil }
+    return items.first { trackMatchesNowPlaying($0.track, raw) }?.id
+}
+private func trackMatchesNowPlaying(_ track: RadioTrack, _ np: String) -> Bool {
+    let title = track.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if !title.isEmpty, title.contains(np) || np.contains(title) { return true }
+    // Fallback: liquidsoap often reports the source filename.
+    if let last = URL(string: track.audioUrl)?.lastPathComponent {
+        let base = ((last.removingPercentEncoding ?? last) as NSString)
+            .deletingPathExtension
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !base.isEmpty, base.contains(np) || np.contains(base) { return true }
     }
-    private func matches(_ track: RadioTrack, nowPlaying np: String) -> Bool {
-        let title = track.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !title.isEmpty, title.contains(np) || np.contains(title) { return true }
-        // Fallback: liquidsoap often reports the source filename.
-        if let last = URL(string: track.audioUrl)?.lastPathComponent {
-            let base = ((last.removingPercentEncoding ?? last) as NSString)
-                .deletingPathExtension
-                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if !base.isEmpty, base.contains(np) || np.contains(base) { return true }
+    return false
+}
+
+/// Loop chip (Menu selecting Off / Loop all / Repeat one) — shared by the lane
+/// SessionCard header and the session console's controls strip.
+private struct LoopMenuChip: View {
+    let loop: LoopMode
+    let onSetLoop: (LoopMode) -> Void
+    var body: some View {
+        Menu {
+            ForEach(LoopMode.allCases, id: \.rawValue) { mode in
+                Button {
+                    onSetLoop(mode)
+                } label: {
+                    Label(mode.label, systemImage: mode == loop ? "checkmark" : mode.icon)
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: loop.icon).font(.system(size: 11, weight: .semibold))
+                Text(loop.label).font(.inter(11, .semibold))
+            }
+            .foregroundStyle(loop == .none ? Rs.dim : Rs.gold)
+            .padding(.horizontal, 10).frame(height: 30)
+            .background((loop == .none ? Rs.faint : Rs.gold).opacity(0.12)).clipShape(Capsule())
+            .overlay(Capsule().stroke((loop == .none ? Rs.faint : Rs.gold).opacity(0.3), lineWidth: 1))
         }
-        return false
     }
 }
 
@@ -2670,13 +3180,171 @@ private struct PlaylistItemRow: View {
     }
 }
 
-// MARK: - Mac full-console sheets (Catalyst only — iPad never presents these)
+// MARK: - Playlist drag-to-reorder (lane card + session console)
 //
-// The three-lane desk keeps the PROGRAM lane scannable: session cards and the
-// audio library render a stable 5-row preview + "+N more tracks", and the gold
-// View chip opens a large centered sheet with the FULL console. The sheets are
-// pure composition — the SAME SessionCard / TrackRow / store handlers the lane
-// uses — so an edit made in the sheet repaints the lane preview instantly.
+// Playlist rows are draggable — `.onDrag` + a per-row DropDelegate, which works
+// with the mouse on Catalyst and long-press-drag on iPad. While a drag hovers a
+// row, a gold insertion line marks the drop position; the drop calls
+// `onReorder(from, to)` → the SAME store persist path the ↑/↓ arrows use (PUT
+// the full id order; the server echo reconciles). The arrows stay for
+// accessibility. The LIBRARY list is deliberately NOT draggable — it has no
+// server-side order to persist. Only the session playlists reorder.
+
+private struct PlaylistRowDrag: ViewModifier {
+    let itemId: String
+    let index: Int
+    /// Vertical offset for the insertion line (sits in the row gap on the lane
+    /// card; hugs the divider in the console's zero-spacing list).
+    var indicatorOffset: CGFloat = -4
+    @Binding var draggingId: String?
+    @Binding var dropIndex: Int?
+    let indexOf: (String) -> Int?
+    let onReorder: (Int, Int) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(draggingId == itemId ? 0.35 : 1)
+            .overlay(alignment: .top) {
+                if dropIndex == index, let d = draggingId, d != itemId {
+                    RoundedRectangle(cornerRadius: 1.5).fill(Rs.goldFill)
+                        .frame(height: 2.5)
+                        .padding(.horizontal, 4)
+                        .offset(y: indicatorOffset)
+                        .allowsHitTesting(false)
+                }
+            }
+            .onDrag {
+                draggingId = itemId
+                return NSItemProvider(object: itemId as NSString)
+            }
+            .onDrop(of: [UTType.text], delegate: PlaylistReorderDropDelegate(
+                itemId: itemId, index: index,
+                draggingId: $draggingId, dropIndex: $dropIndex,
+                indexOf: indexOf, onReorder: onReorder))
+    }
+}
+
+private struct PlaylistReorderDropDelegate: DropDelegate {
+    let itemId: String
+    let index: Int
+    @Binding var draggingId: String?
+    @Binding var dropIndex: Int?
+    let indexOf: (String) -> Int?
+    let onReorder: (Int, Int) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool { draggingId != nil }
+    func dropEntered(info: DropInfo) {
+        guard let d = draggingId, d != itemId else { return }
+        dropIndex = index
+    }
+    func dropExited(info: DropInfo) {
+        if dropIndex == index { dropIndex = nil }
+    }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool {
+        defer { draggingId = nil; dropIndex = nil }
+        guard let d = draggingId, d != itemId, let from = indexOf(d) else { return false }
+        if from != index { onReorder(from, index) }
+        return true
+    }
+}
+
+private extension View {
+    /// Wire a playlist row for drag-to-reorder (see PlaylistRowDrag).
+    func playlistDraggable(
+        itemId: String, index: Int, indicatorOffset: CGFloat = -4,
+        draggingId: Binding<String?>, dropIndex: Binding<Int?>,
+        indexOf: @escaping (String) -> Int?, onReorder: @escaping (Int, Int) -> Void
+    ) -> some View {
+        modifier(PlaylistRowDrag(itemId: itemId, index: index, indicatorOffset: indicatorOffset,
+                                 draggingId: draggingId, dropIndex: dropIndex,
+                                 indexOf: indexOf, onReorder: onReorder))
+    }
+}
+
+// MARK: - Full-console sheets + centered Mac presentation
+//
+// The lanes keep the page scannable: session cards and the audio library render
+// a stable 5-row preview + "+N more tracks", and the gold View chip opens the
+// FULL console. On iPhone/iPad these present as native page sheets; Catalyst
+// pins form sheets high in the window, so on the Mac `studioModal` presents a
+// full-window cover instead — dimmed backdrop, Rs panel CENTERED, click outside
+// (or Esc via the Done buttons) to dismiss. Every sheet is pure composition
+// over the shared store, so an edit made in a sheet repaints the lane preview
+// instantly.
+
+/// Panel chrome for the Mac's centered studio modal — dim scrim, centered
+/// rounded Rs panel capped at `maxWidth`/`maxHeight` (shrinks on small windows).
+private struct StudioModalChrome<C: View>: View {
+    let maxWidth: CGFloat
+    let maxHeight: CGFloat
+    let onDismiss: () -> Void
+    @ViewBuilder var content: C
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onDismiss)
+            content
+                .frame(maxWidth: maxWidth, maxHeight: maxHeight)
+                .background(Rs.bg)
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Rs.borderHi, lineWidth: 1))
+                .shadow(color: .black.opacity(0.55), radius: 44, y: 18)
+                .padding(28)
+        }
+        .presentationBackground(.clear)
+    }
+}
+
+fileprivate extension View {
+    /// Item-driven studio modal — Mac: centered cover · iPhone/iPad: native sheet.
+    @ViewBuilder func studioModal<Item: Identifiable, C: View>(
+        item: Binding<Item?>,
+        maxWidth: CGFloat = 1000, maxHeight: CGFloat = 860,
+        @ViewBuilder content: @escaping (Item) -> C
+    ) -> some View {
+        if MacDesign.isMac {
+            fullScreenCover(item: item) { it in
+                StudioModalChrome(maxWidth: maxWidth, maxHeight: maxHeight,
+                                  onDismiss: { item.wrappedValue = nil }) { content(it) }
+            }
+        } else {
+            sheet(item: item, content: content)
+        }
+    }
+
+    /// Bool-driven studio modal — Mac: centered cover · iPhone/iPad: native sheet.
+    @ViewBuilder func studioModal<C: View>(
+        isPresented: Binding<Bool>,
+        maxWidth: CGFloat = 1000, maxHeight: CGFloat = 860,
+        @ViewBuilder content: @escaping () -> C
+    ) -> some View {
+        if MacDesign.isMac {
+            fullScreenCover(isPresented: isPresented) {
+                StudioModalChrome(maxWidth: maxWidth, maxHeight: maxHeight,
+                                  onDismiss: { isPresented.wrappedValue = false }) { content() }
+            }
+        } else {
+            sheet(isPresented: isPresented, content: content)
+        }
+    }
+}
+
+/// Gold Done capsule shared by the studio sheets — Esc (cancel action) also fires it.
+private struct SheetDoneButton: View {
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        Button { dismiss() } label: {
+            Text("Done").font(.inter(12, .bold))
+                .foregroundStyle(Color(hex: 0x0A1120))
+                .padding(.horizontal, 16).frame(height: 32)
+                .background(Rs.goldFill).clipShape(Capsule())
+        }.pressable().hoverEffect(.highlight)
+        .keyboardShortcut(.cancelAction)
+    }
+}
 
 /// Rows a lane preview card shows before deferring to its View sheet.
 private let macLanePreviewCap = 5
@@ -2714,129 +3382,483 @@ private struct MoreTracksLine: View {
 /// `.sheet(item:)` payload for the session console (String isn't Identifiable).
 private struct SessionSheetTarget: Identifiable { let id: String }
 
-/// Full session console: title header with live/on-air state, then the exact
-/// SessionCard with NO preview cap — loop menu, Play live, complete reorderable
-/// playlist, Add track…, and session delete all flow through the shared store.
+/// Full session console — a purpose-built layout (not the lane card): generous
+/// header (title · count · total duration · ON AIR state · Done), a controls
+/// strip (loop · Play live · preview stop · delete session), the FULL
+/// zebra-striped reorderable track list, and an Add-track footer that opens the
+/// themed library picker. Everything flows through the same store handlers the
+/// lane preview uses, so edits repaint the lane instantly.
 private struct SessionConsoleSheet: View {
     @ObservedObject var store: AudioLibraryStore
     let sessionId: String
     var liveProgramId: String? = nil
     var nowPlaying: String? = nil
     @Environment(\.dismiss) private var dismiss
+    @State private var showAddTrack = false
+    /// Drag-to-reorder state for the full track list.
+    @State private var draggingId: String?
+    @State private var dropIndex: Int?
 
     private var session: RadioProgram? { store.sessions.first { $0.id == sessionId } }
+    private var items: [RadioPlaylistItem] { store.playlists[sessionId] ?? [] }
     private var isLive: Bool { sessionId == liveProgramId }
+    private var loop: LoopMode { store.loopMode(for: sessionId) }
+    private var airingId: String? { isLive ? airingItemId(in: items, nowPlaying: nowPlaying) : nil }
+    private var previewItemId: String? { store.previewSessionId == sessionId ? store.previewItemId : nil }
     private var title: String {
         let t = session?.title ?? ""
         return t.isEmpty ? "Untitled session" : t
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    header
-                    if let s = session {
-                        SessionCard(
-                            session: s,
-                            items: store.playlists[s.id] ?? [],
-                            loop: store.loopMode(for: s.id),
-                            tracks: store.tracks,
-                            nowPlaying: isLive ? nowPlaying : nil,
-                            previewItemId: store.previewSessionId == s.id ? store.previewItemId : nil,
-                            onSetLoop: { store.setLoop(s.id, $0) },
-                            onPlay: { store.playLive(s.id) },
-                            onDeleteSession: { store.deleteSession(s.id); dismiss() },
-                            onMove: { idx, delta in store.move(s.id, index: idx, by: delta) },
-                            onRemove: { store.removeItem($0, from: s.id) },
-                            onAddTrack: { store.addTrack($0, to: s.id) }
-                        )
-                    } else {
-                        // Deleted elsewhere (auto-refresh) while the sheet was open.
-                        StudioPanel {
-                            Text("This session no longer exists.")
-                                .font(.inter(12.5)).foregroundStyle(Rs.dim)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.vertical, 24)
+        VStack(spacing: 0) {
+            if session != nil {
+                header
+                controlsStrip
+                Rectangle().fill(Rs.border).frame(height: 1)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if items.isEmpty { emptyList } else { trackList }
+                        if let e = store.error {
+                            Text(e).font(.inter(11)).foregroundStyle(Rs.red)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
-                    if let e = store.error {
-                        Text(e).font(.inter(11)).foregroundStyle(Rs.red).fixedSize(horizontal: false, vertical: true)
-                    }
+                    .padding(20)
                 }
-                .padding(18)
-            }
-            .background(Rs.bg.ignoresSafeArea())
-            .navigationTitle("Session console")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }.foregroundStyle(Rs.gold)
+                Rectangle().fill(Rs.border).frame(height: 1)
+                footer
+            } else {
+                // Deleted elsewhere (auto-refresh) while the sheet was open.
+                VStack(spacing: 12) {
+                    Image(systemName: "square.stack.3d.down.right").font(.system(size: 26)).foregroundStyle(Rs.faint)
+                    Text("This session no longer exists.")
+                        .font(.inter(12.5)).foregroundStyle(Rs.dim)
+                    SheetDoneButton()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Rs.bg.ignoresSafeArea())
         .preferredColorScheme(.dark)
-        // Desktop-sized so Catalyst presents a big centered window-style modal.
-        .frame(minWidth: MacDesign.isMac ? 760 : nil, idealWidth: MacDesign.isMac ? 860 : nil, minHeight: MacDesign.isMac ? 640 : nil)
+        .studioModal(isPresented: $showAddTrack, maxWidth: 560, maxHeight: 680) {
+            AddTrackPicker(tracks: store.tracks, items: items) { store.addTrack($0, to: sessionId) }
+        }
     }
 
+    // MARK: header
+
     private var header: some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text("SESSION CONSOLE").font(.inter(10, .bold)).tracking(1.6).foregroundStyle(Rs.gold)
-                Text(title).font(Rs.serif(24)).foregroundStyle(Rs.text).lineLimit(2)
-                let n = store.playlists[sessionId]?.count ?? 0
-                Text("\(n) track\(n == 1 ? "" : "s") in this playlist")
-                    .font(.inter(11.5)).foregroundStyle(Rs.dim)
-            }
-            Spacer(minLength: 8)
-            if isLive {
-                HStack(spacing: 6) {
-                    Circle().fill(Rs.red).frame(width: 7, height: 7)
-                    Text("ON AIR").font(.inter(10.5, .bold)).tracking(1.0).foregroundStyle(Rs.text)
+                Text(title).font(Rs.serif(26)).foregroundStyle(Rs.text).lineLimit(1)
+                HStack(spacing: 7) {
+                    Text("\(items.count) track\(items.count == 1 ? "" : "s")")
+                        .font(.inter(11.5, .medium)).foregroundStyle(Rs.dim)
+                    if let total = fmtDuration(items.compactMap { $0.track.durationSec }.reduce(0, +)) {
+                        Text("·").font(.inter(11)).foregroundStyle(Rs.faint)
+                        Text("\(total) total").font(Rs.mono(11.5)).foregroundStyle(Rs.dim)
+                    }
                 }
-                .padding(.horizontal, 10).frame(height: 26).background(Rs.red.opacity(0.18)).clipShape(Capsule())
-                .overlay(Capsule().stroke(Rs.red.opacity(0.5), lineWidth: 1))
-            } else {
-                Text("OFF AIR").font(.inter(10.5, .bold)).tracking(1.0).foregroundStyle(Rs.faint)
-                    .padding(.horizontal, 10).frame(height: 26).background(Rs.faint.opacity(0.14)).clipShape(Capsule())
+            }
+            Spacer(minLength: 12)
+            liveChip
+            SheetDoneButton()
+        }
+        .padding(.horizontal, 22).padding(.top, 20).padding(.bottom, 16)
+    }
+
+    @ViewBuilder private var liveChip: some View {
+        if isLive {
+            HStack(spacing: 6) {
+                Circle().fill(Rs.red).frame(width: 7, height: 7)
+                Text("ON AIR").font(.inter(10.5, .bold)).tracking(1.0).foregroundStyle(Rs.text)
+            }
+            .padding(.horizontal, 10).frame(height: 26).background(Rs.red.opacity(0.18)).clipShape(Capsule())
+            .overlay(Capsule().stroke(Rs.red.opacity(0.5), lineWidth: 1))
+        } else {
+            Text("OFF AIR").font(.inter(10.5, .bold)).tracking(1.0).foregroundStyle(Rs.faint)
+                .padding(.horizontal, 10).frame(height: 26).background(Rs.faint.opacity(0.14)).clipShape(Capsule())
+        }
+    }
+
+    // MARK: controls strip (loop · play live · preview · delete)
+
+    private var controlsStrip: some View {
+        HStack(spacing: 10) {
+            LoopMenuChip(loop: loop, onSetLoop: { store.setLoop(sessionId, $0) })
+
+            Button { store.playLive(sessionId) } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "play.fill").font(.system(size: 10, weight: .bold))
+                    Text("Play live").font(.inter(11, .bold))
+                }
+                .foregroundStyle(Color(hex: 0x0A1120))
+                .padding(.horizontal, 14).frame(height: 30)
+                .background(Rs.goldFill).clipShape(Capsule())
+            }.pressable().hoverEffect(.highlight).disabled(items.isEmpty)
+
+            if store.previewSessionId == sessionId, let t = store.previewTitle {
+                HStack(spacing: 7) {
+                    Image(systemName: "waveform").font(.system(size: 11)).foregroundStyle(Rs.gold)
+                    Text("Previewing: \(t)").font(.inter(11, .semibold)).foregroundStyle(Rs.gold).lineLimit(1)
+                    Button { store.stopPreview() } label: {
+                        Text("Stop").font(.inter(11, .semibold)).foregroundStyle(Rs.dim)
+                    }.pressable().hoverEffect(.highlight)
+                }
+                .padding(.horizontal, 11).frame(height: 30)
+                .background(Rs.gold.opacity(0.10)).clipShape(Capsule())
+                .overlay(Capsule().stroke(Rs.gold.opacity(0.3), lineWidth: 1))
+            }
+
+            Spacer(minLength: 8)
+
+            Button { store.deleteSession(sessionId); dismiss() } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "trash").font(.system(size: 10, weight: .bold))
+                    Text("Delete session").font(.inter(11, .semibold))
+                }
+                .foregroundStyle(Rs.red)
+                .padding(.horizontal, 12).frame(height: 30)
+                .background(Rs.red.opacity(0.12)).clipShape(Capsule())
+                .overlay(Capsule().stroke(Rs.red.opacity(0.3), lineWidth: 1))
+            }.pressable().hoverEffect(.highlight)
+        }
+        .padding(.horizontal, 22).padding(.bottom, 16)
+    }
+
+    // MARK: track list (zebra rows in one bordered container)
+
+    private var trackList: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                ConsoleTrackRow(
+                    index: idx,
+                    item: item,
+                    isOnAir: item.id == airingId,
+                    isPreviewing: item.id == previewItemId,
+                    isFirst: idx == 0,
+                    isLast: idx == items.count - 1,
+                    onMoveUp: { store.move(sessionId, index: idx, by: -1) },
+                    onMoveDown: { store.move(sessionId, index: idx, by: 1) },
+                    onRemove: { store.removeItem(item.id, from: sessionId) }
+                )
+                // Drag anywhere on the row to reorder — same persist path as
+                // the arrows. Zero-spacing list, so the insertion line hugs
+                // the divider (offset -1).
+                .playlistDraggable(
+                    itemId: item.id, index: idx, indicatorOffset: -1,
+                    draggingId: $draggingId, dropIndex: $dropIndex,
+                    indexOf: { id in items.firstIndex { $0.id == id } },
+                    onReorder: { from, to in store.move(sessionId, from: from, to: to) })
+                if idx < items.count - 1 {
+                    Rectangle().fill(Rs.border.opacity(0.7)).frame(height: 1)
+                }
             }
         }
+        .background(Color.white.opacity(0.02))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Rs.border, lineWidth: 1))
+    }
+
+    private var emptyList: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "music.note.list").font(.system(size: 26)).foregroundStyle(Rs.faint)
+            Text("No tracks yet").font(.inter(13, .semibold)).foregroundStyle(Rs.text)
+            Text("Add tracks from the library with the button below.")
+                .font(.inter(11.5)).foregroundStyle(Rs.dim)
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 44)
+    }
+
+    // MARK: footer (Add track)
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            Button { showAddTrack = true } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                    Text("Add track").font(.inter(12, .bold))
+                }
+                .foregroundStyle(Color(hex: 0x0A1120))
+                .padding(.horizontal, 16).frame(height: 36)
+                .background(Rs.goldFill).clipShape(Capsule())
+            }.pressable().hoverEffect(.highlight).disabled(store.tracks.isEmpty)
+            Text(store.tracks.isEmpty
+                 ? "Upload library tracks first — the picker is empty."
+                 : "Appends to the end of the playlist — drag rows (or use the arrows) to reorder.")
+                .font(.inter(11)).foregroundStyle(Rs.faint)
+                .lineLimit(1).minimumScaleFactor(0.8)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 22).padding(.vertical, 14)
     }
 }
 
-/// Full audio library: upload control + the complete track list, reusing
-/// KindSegmented / UploadMusicButton / TrackRow with the shared store handlers.
+/// One full-console playlist row — roomier than the lane's PlaylistItemRow:
+/// number chip (gold while airing), title + kind badge, ON AIR / PREVIEW state,
+/// mono duration and comfortable 32pt reorder/remove targets. Zebra-striped by
+/// row index; the airing row overrides the stripe with a gold wash.
+private struct ConsoleTrackRow: View {
+    let index: Int
+    let item: RadioPlaylistItem
+    let isOnAir: Bool
+    let isPreviewing: Bool
+    let isFirst: Bool
+    let isLast: Bool
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+    let onRemove: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    private var kind: TrackKind { TrackKind(rawValue: item.track.kind) ?? .audio }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text("\(index + 1)")
+                .font(Rs.mono(11.5, .bold))
+                .foregroundStyle(isOnAir ? Color(hex: 0x0A1120) : Rs.dim)
+                .frame(width: 28, height: 28)
+                .background(isOnAir ? AnyShapeStyle(Rs.goldFill) : AnyShapeStyle(Color.white.opacity(0.05)))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 7) {
+                    Text(item.track.title.isEmpty ? "Untitled" : item.track.title)
+                        .font(.inter(13, isOnAir ? .bold : .semibold))
+                        .foregroundStyle(isOnAir ? Rs.gold : Rs.text).lineLimit(1)
+                    if isOnAir {
+                        HStack(spacing: 4) {
+                            Circle().fill(Rs.gold).frame(width: 6, height: 6)
+                                .opacity(!reduceMotion && pulse ? 0.3 : 1)
+                                .animation(reduceMotion ? nil : .easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulse)
+                                .onAppear { pulse = true }
+                                .onDisappear { pulse = false }
+                            Text("ON AIR").font(.inter(8.5, .bold)).tracking(0.7).foregroundStyle(Rs.gold)
+                        }
+                        .padding(.horizontal, 7).padding(.vertical, 2.5)
+                        .background(Rs.gold.opacity(0.16)).clipShape(Capsule())
+                    } else if isPreviewing {
+                        Text("PREVIEW").font(.inter(8.5, .bold)).tracking(0.7).foregroundStyle(Rs.green)
+                            .padding(.horizontal, 7).padding(.vertical, 2.5)
+                            .background(Rs.green.opacity(0.16)).clipShape(Capsule())
+                    }
+                }
+                Text(kind.label.uppercased()).font(.inter(8.5, .bold)).tracking(0.5)
+                    .foregroundStyle(kind.color)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(kind.color.opacity(0.16)).clipShape(Capsule())
+            }
+
+            Spacer(minLength: 8)
+
+            Text(fmtDuration(item.track.durationSec) ?? "—")
+                .font(Rs.mono(11.5)).foregroundStyle(Rs.dim).fixedSize()
+
+            HStack(spacing: 4) {
+                controlButton("chevron.up", disabled: isFirst, action: onMoveUp)
+                controlButton("chevron.down", disabled: isLast, action: onMoveDown)
+                controlButton("xmark", tint: Rs.red, action: onRemove)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 11)
+        .background(rowBackground)
+    }
+
+    private var rowBackground: Color {
+        if isOnAir { return Rs.gold.opacity(0.08) }
+        return index.isMultiple(of: 2) ? Color.white.opacity(0.028) : Color.clear
+    }
+
+    private func controlButton(_ icon: String, disabled: Bool = false, tint: Color = Rs.dim, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 11, weight: .bold))
+                .foregroundStyle(disabled ? Rs.faint : tint)
+                .frame(width: 32, height: 32)
+                .background(Color.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Rs.border, lineWidth: 1))
+        }.pressable().hoverEffect(.highlight).disabled(disabled)
+    }
+}
+
+/// Themed library picker for building a playlist — replaces the old bare `Menu`
+/// (which rendered as a giant unthemed native dropdown on Catalyst listing the
+/// entire library). Dark Rs panel: search at the top, scrollable themed rows
+/// (kind badge · title · duration) each with a gold + that appends via the
+/// store handler and KEEPS the panel open for multi-add; Done closes. A ×N chip
+/// shows how many times a track already sits in this playlist.
+private struct AddTrackPicker: View {
+    let tracks: [RadioTrack]
+    let items: [RadioPlaylistItem]
+    let onAdd: (String) -> Void
+    @State private var query = ""
+
+    private var filtered: [RadioTrack] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return tracks }
+        return tracks.filter { $0.title.localizedCaseInsensitiveContains(q) }
+    }
+    private func timesInPlaylist(_ trackId: String) -> Int {
+        items.reduce(0) { $0 + ($1.track.id == trackId ? 1 : 0) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("ADD TRACKS").font(.inter(10, .bold)).tracking(1.6).foregroundStyle(Rs.gold)
+                    Text("From the library").font(Rs.serif(22)).foregroundStyle(Rs.text)
+                    Text("Tap + to append — the panel stays open so you can add several.")
+                        .font(.inter(11)).foregroundStyle(Rs.dim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
+                SheetDoneButton()
+            }
+            .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 14)
+
+            searchField
+                .padding(.horizontal, 20).padding(.bottom, 14)
+
+            Rectangle().fill(Rs.border).frame(height: 1)
+
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    if filtered.isEmpty {
+                        Text(tracks.isEmpty
+                             ? "No library tracks yet — upload in Uploads & Sessions."
+                             : "No tracks match “\(query)”.")
+                            .font(.inter(11.5)).foregroundStyle(Rs.dim)
+                            .frame(maxWidth: .infinity).padding(.vertical, 28)
+                    } else {
+                        ForEach(filtered) { t in pickerRow(t) }
+                    }
+                }
+                .padding(14)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Rs.bg.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .semibold)).foregroundStyle(Rs.dim)
+            TextField("", text: $query, prompt: Text("Search tracks…").foregroundColor(Rs.faint))
+                .font(.inter(12.5)).foregroundStyle(Rs.text)
+                .textFieldStyle(.plain)
+                .autocorrectionDisabled()
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(Rs.faint)
+                }.pressable().hoverEffect(.highlight)
+            }
+        }
+        .padding(.horizontal, 12).frame(height: 38)
+        .background(Color.white.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Rs.border, lineWidth: 1))
+    }
+
+    private func pickerRow(_ t: RadioTrack) -> some View {
+        let kind = TrackKind(rawValue: t.kind) ?? .audio
+        let n = timesInPlaylist(t.id)
+        return HStack(spacing: 11) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(kind.color.opacity(0.16))
+                Image(systemName: "music.note").font(.system(size: 13, weight: .semibold)).foregroundStyle(kind.color)
+            }.frame(width: 34, height: 34)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(t.title.isEmpty ? "Untitled" : t.title)
+                    .font(.inter(12.5, .semibold)).foregroundStyle(Rs.text).lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(kind.label.uppercased()).font(.inter(8.5, .bold)).tracking(0.5)
+                        .foregroundStyle(kind.color)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(kind.color.opacity(0.16)).clipShape(Capsule())
+                    if let d = fmtDuration(t.durationSec) {
+                        Text(d).font(Rs.mono(10)).foregroundStyle(Rs.dim)
+                    }
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            if n > 0 {
+                Text("×\(n)").font(Rs.mono(10.5, .semibold)).foregroundStyle(Rs.gold)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Rs.gold.opacity(0.14)).clipShape(Capsule())
+            }
+
+            Button { onAdd(t.id) } label: {
+                ZStack {
+                    Circle().fill(Rs.goldFill)
+                    Image(systemName: "plus").font(.system(size: 13, weight: .bold)).foregroundStyle(Color(hex: 0x0A1120))
+                }.frame(width: 30, height: 30)
+            }.pressable().hoverEffect(.highlight)
+            .accessibilityLabel("Add \(t.title.isEmpty ? "untitled track" : t.title)")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Rs.border, lineWidth: 1))
+    }
+}
+
+/// Full audio library console — generous header (eyebrow · title · count · Done),
+/// a clean controls row (kind picker + upload), then the complete zebra-striped
+/// track list with the per-row actions (+ Session, delete), reusing
+/// KindSegmented / UploadMusicButton / TrackRow over the shared store.
 private struct AudioLibrarySheet: View {
     @ObservedObject var store: AudioLibraryStore
-    @Environment(\.dismiss) private var dismiss
     @State private var showImporter = false
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("AUDIO LIBRARY").font(.inter(10, .bold)).tracking(1.6).foregroundStyle(Rs.green)
+                    Text("All tracks").font(Rs.serif(26)).foregroundStyle(Rs.text)
+                    Text("\(store.tracks.count) track\(store.tracks.count == 1 ? "" : "s") · \(store.kind.label)")
+                        .font(.inter(11.5)).foregroundStyle(Rs.dim)
+                }
+                Spacer(minLength: 12)
+                SheetDoneButton()
+            }
+            .padding(.horizontal, 22).padding(.top, 20).padding(.bottom, 14)
+
+            // Controls row: kind picker + upload.
+            HStack(spacing: 10) {
+                KindSegmented(selection: store.kind) { store.selectKind($0) }
+                Spacer(minLength: 8)
+                UploadMusicButton(uploading: store.uploading) { showImporter = true }
+            }
+            .padding(.horizontal, 22).padding(.bottom, 16)
+
+            Rectangle().fill(Rs.border).frame(height: 1)
+
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("AUDIO LIBRARY").font(.inter(10, .bold)).tracking(1.6).foregroundStyle(Rs.green)
-                        Text("All tracks").font(Rs.serif(24)).foregroundStyle(Rs.text)
-                        Text("\(store.tracks.count) track\(store.tracks.count == 1 ? "" : "s") · \(store.kind.label)")
-                            .font(.inter(11.5)).foregroundStyle(Rs.dim)
-                    }
-                    HStack(spacing: 10) {
-                        KindSegmented(selection: store.kind) { store.selectKind($0) }
-                        Spacer(minLength: 8)
-                        UploadMusicButton(uploading: store.uploading) { showImporter = true }
-                    }
+                VStack(alignment: .leading, spacing: 6) {
+                    // In-flight uploads (same queue the lane card shows).
+                    UploadQueueList(store: store)
                     if store.tracks.isEmpty {
                         LibraryEmptyState(kind: store.kind)
                     } else {
-                        VStack(spacing: 8) {
-                            ForEach(store.tracks) { t in
-                                TrackRow(track: t, sessions: store.sessions,
-                                         onAddToSession: { store.addTrack(t.id, to: $0) },
-                                         onDelete: { store.deleteTrack(t.id) })
-                            }
+                        LibrarySelectionBar(store: store)
+                        ForEach(Array(store.tracks.enumerated()), id: \.element.id) { idx, t in
+                            TrackRow(track: t, sessions: store.sessions,
+                                     zebraIndex: idx,
+                                     isSelected: store.selectedTrackIds.contains(t.id),
+                                     onToggleSelect: { store.toggleSelect(t.id) },
+                                     onAddToSession: { store.addTrack(t.id, to: $0) },
+                                     onDelete: { store.deleteTrack(t.id) })
                         }
                     }
                     if let e = store.error {
@@ -2845,24 +3867,16 @@ private struct AudioLibrarySheet: View {
                 }
                 .padding(18)
             }
-            .background(Rs.bg.ignoresSafeArea())
-            .navigationTitle("Audio library")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }.foregroundStyle(Rs.gold)
-                }
-            }
-            .fileImporter(isPresented: $showImporter,
-                          allowedContentTypes: AudioUploadRules.allowedContentTypes) { result in
-                if case .success(let url) = result { store.upload(url) }
-                else if case .failure(let err) = result { store.error = err.localizedDescription }
-            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Rs.bg.ignoresSafeArea())
         .preferredColorScheme(.dark)
-        // Desktop-sized so Catalyst presents a big centered window-style modal.
-        .frame(minWidth: MacDesign.isMac ? 760 : nil, idealWidth: MacDesign.isMac ? 860 : nil, minHeight: MacDesign.isMac ? 640 : nil)
+        .fileImporter(isPresented: $showImporter,
+                      allowedContentTypes: AudioUploadRules.allowedContentTypes,
+                      allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result { store.enqueueUploads(urls) }
+            else if case .failure(let err) = result { store.error = err.localizedDescription }
+        }
     }
 }
 
