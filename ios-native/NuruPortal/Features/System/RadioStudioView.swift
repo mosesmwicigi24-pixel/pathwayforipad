@@ -3475,7 +3475,7 @@ fileprivate extension View {
     /// Item-driven studio modal — Mac: centered cover · iPhone/iPad: native sheet.
     @ViewBuilder func studioModal<Item: Identifiable, C: View>(
         item: Binding<Item?>,
-        maxWidth: CGFloat = 1000, maxHeight: CGFloat = 860,
+        maxWidth: CGFloat = 1000, maxHeight: CGFloat = 1040,
         @ViewBuilder content: @escaping (Item) -> C
     ) -> some View {
         if MacDesign.isMac {
@@ -3491,7 +3491,7 @@ fileprivate extension View {
     /// Bool-driven studio modal — Mac: centered cover · iPhone/iPad: native sheet.
     @ViewBuilder func studioModal<C: View>(
         isPresented: Binding<Bool>,
-        maxWidth: CGFloat = 1000, maxHeight: CGFloat = 860,
+        maxWidth: CGFloat = 1000, maxHeight: CGFloat = 1040,
         @ViewBuilder content: @escaping () -> C
     ) -> some View {
         if MacDesign.isMac {
