@@ -108,6 +108,26 @@ private let navGroups: [NavGroup] = [
 /// sidebar section (the iPad equivalent of the web portal's cross-page links).
 struct MemberRef: Identifiable, Equatable { let id: String; let name: String }
 
+extension Notification.Name {
+    /// Cross-page deep link: the Radio Studio's Session-audio card posts this
+    /// (userInfo: ["programId": String]) to open Uploads & Sessions with that
+    /// session's console sheet showing. RootView routes; UploadsSessionsView opens.
+    static let nuruOpenUploadsSession = Notification.Name("nuruOpenUploadsSession")
+}
+
+/// Hand-off box for `.nuruOpenUploadsSession`: RootView stashes the requested
+/// program id here as it switches sections, and UploadsSessionsView consumes it
+/// once its sessions have loaded — so the deep link survives the race where the
+/// page mounts (or reloads) AFTER the notification was posted.
+@MainActor enum UploadsSessionsLink {
+    static var pendingProgramId: String?
+    /// Read-and-clear, so a consumed link never replays on a later mount.
+    static func consume() -> String? {
+        defer { pendingProgramId = nil }
+        return pendingProgramId
+    }
+}
+
 @MainActor final class NavRouter: ObservableObject {
     @Published var section: Section? = .dashboard
     /// Global-search hand-off: set then route to Members, which applies it.
@@ -171,6 +191,14 @@ struct RootView: View {
             visit(router.section, leaving: nil)
         }
         .onChange(of: router.section) { old, new in visit(new, leaving: old) }
+        // Radio Studio → Uploads & Sessions deep link (Mac AND iPad): stash the
+        // program id for UploadsSessionsView to consume, then switch sections.
+        .onReceive(NotificationCenter.default.publisher(for: .nuruOpenUploadsSession)) { note in
+            if let id = note.userInfo?["programId"] as? String {
+                UploadsSessionsLink.pendingProgramId = id
+            }
+            router.go(.uploadsSessions)
+        }
     }
 
     /// Keep-alive container: every visited section keeps its own NavigationStack

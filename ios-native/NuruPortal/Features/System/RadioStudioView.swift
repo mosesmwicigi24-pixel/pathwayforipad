@@ -368,7 +368,10 @@ struct RadioStudioView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                header
+                // Mac collapses the iPad's three stacked bands (hero header,
+                // program picker strip, LIVE status bar) into ONE compact
+                // console strip — the desk lanes start one row down.
+                if MacDesign.isMac { consoleStrip } else { header }
                 if let error = m.error, m.programs.isEmpty {
                     DarkError(message: error) { Task { await m.load() } }
                 } else if !m.loaded {
@@ -413,7 +416,7 @@ struct RadioStudioView: View {
         } message: { Text(m.actionError ?? "") }
     }
 
-    // MARK: Header (dark studio hero)
+    // MARK: Header (dark studio hero — iPad/iPhone only; the Mac uses consoleStrip)
 
     private var header: some View {
         StudioPanel(padding: 20, glow: m.broadcast.isLiveOrPaused) {
@@ -436,18 +439,91 @@ struct RadioStudioView: View {
                             .font(.inter(13)).foregroundStyle(Rs.dim).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 12)
-                    Button { showCreate = true } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "plus").font(.system(size: 11, weight: .bold))
-                            Text("New program").font(.inter(12, .bold))
-                        }
-                        .foregroundStyle(Color(hex: 0x0A1120))
-                        .padding(.horizontal, 14).frame(height: 34)
-                        .background(Rs.goldFill).clipShape(Capsule())
-                    }.pressable().hoverEffect(.highlight)
+                    newProgramButton
                 }
             }
         }
+    }
+
+    /// Gold "+ New program" CTA — shared by the iPad hero and the Mac console strip.
+    private var newProgramButton: some View {
+        Button { showCreate = true } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                Text("New program").font(.inter(12, .bold))
+            }
+            .foregroundStyle(Color(hex: 0x0A1120))
+            .padding(.horizontal, 14).frame(height: 34)
+            .background(Rs.goldFill).clipShape(Capsule())
+        }.pressable().hoverEffect(.highlight)
+    }
+
+    // MARK: Mac console strip (Catalyst only)
+    //
+    // ONE compact bordered Rs row spanning the workspace width, replacing the
+    // three full-width bands the iPad stacks (hero header, program picker
+    // strip, LIVE status bar). Four columns split by vertical hairlines:
+    // identity · sessions (flex, the same picker chips) · live stats (or a dim
+    // off-air tag) · actions (ON AIR chip + New program). ≤ ~92pt tall so the
+    // desk lanes start almost at the top of the window.
+    private var consoleStrip: some View {
+        StudioPanel(padding: 0, glow: m.broadcast.isLiveOrPaused) {
+            HStack(spacing: 0) {
+                // 1 — identity (the breadcrumb + subtitle are dropped on Mac).
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("LIVE BROADCAST CONSOLE").font(.inter(9, .bold)).tracking(1.6).foregroundStyle(Rs.gold)
+                    Text("Radio Studio").font(Rs.serif(22)).foregroundStyle(Rs.text)
+                }
+                .padding(.horizontal, 16)
+                .fixedSize()
+
+                stripHairline
+
+                // 2 — sessions (flex): the exact picker chips, inline; the
+                // ProgramPickerStrip already horizontal-scrolls on overflow.
+                Group {
+                    if m.programs.isEmpty {
+                        Text("No sessions yet").font(.inter(11.5)).foregroundStyle(Rs.faint)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ProgramPickerStrip(programs: m.programs, selectedId: m.selectedId) { m.select($0) }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 14)
+
+                stripHairline
+
+                // 3 — live stats while live/paused; otherwise a dim off-air tag.
+                Group {
+                    if m.broadcast.isLiveOrPaused, let p = m.selected {
+                        StripLiveStats(program: p, paused: m.broadcast == .paused,
+                                       health: m.health, listeners: m.displayListeners)
+                    } else {
+                        Text("Off air").font(.inter(10.5, .bold)).tracking(0.8).foregroundStyle(Rs.faint)
+                            .padding(.horizontal, 12).frame(height: 26)
+                            .background(Color.white.opacity(0.04)).clipShape(Capsule())
+                    }
+                }
+                .padding(.horizontal, 16)
+
+                stripHairline
+
+                // 4 — actions.
+                HStack(spacing: 10) {
+                    liveBadge
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: m.broadcast)
+                    newProgramButton
+                }
+                .padding(.horizontal, 16)
+                .fixedSize()
+            }
+            .frame(height: 88)
+        }
+    }
+
+    private var stripHairline: some View {
+        Rectangle().fill(Rs.border).frame(width: 1).frame(maxHeight: .infinity)
     }
 
     @ViewBuilder private var liveBadge: some View {
@@ -478,17 +554,19 @@ struct RadioStudioView: View {
         // Program picker strip (horizontal) — select the program to broadcast.
         ProgramPickerStrip(programs: m.programs, selectedId: m.selectedId) { m.select($0) }
 
-        // Broadcaster-first ordering: landing on the studio drops you straight
-        // onto the Audio source (mic, monitor, GO ON MIC) + transport — the
-        // fast-path workflow. The rest scrolls below. Session playlists + the
-        // audio library live on the Uploads & Sessions page, not here.
+        // Broadcaster-first ordering: output meters & waveform lead, then the
+        // transport, then the Audio source (mic, monitor, GO ON MIC) — mirrors
+        // the Mac desk's OPERATE lane. The rest scrolls below. Session
+        // playlists + the audio library live on the Uploads & Sessions page,
+        // not here.
         if let p = program {
             // LIVE status bar (only while live/paused) — duration/listeners/bitrate/health.
             if m.broadcast.isLiveOrPaused {
                 LiveStatusBar(program: p, broadcast: m.broadcast, health: m.health, listeners: m.displayListeners)
             }
 
-            // Transport first, then the mic — mirrors the Mac desk's OPERATE lane.
+            MeterAndWaveformPanel(active: m.broadcast == .live)
+
             BroadcastControlsPanel(
                 broadcast: m.broadcast, busy: m.busy,
                 onGoLive: { m.startCountdown() },
@@ -502,8 +580,6 @@ struct RadioStudioView: View {
 
         // — everything below here is the scroll-down zone —
         if let p = program {
-            MeterAndWaveformPanel(active: m.broadcast == .live)
-
             ProgramCard(program: p, onEdit: { editProgram = p })
 
             // Uploaded session audio — inline player when set, otherwise an attach CTA.
@@ -546,12 +622,14 @@ struct RadioStudioView: View {
 
     // MARK: Mac desk (Catalyst only — iPad/iPhone never reach this branch)
     //
-    // Composed like a broadcast console across the FULL workspace width: the
-    // program picker strip and the LIVE status bar span the desk; below them
-    // three top-aligned lanes —
-    //   OPERATE  (~36%)  what the broadcaster touches while on air: transport
-    //                    (broadcast controls) first → audio source (mic sensing /
-    //                    monitor playback / mic boost / GO ON MIC) → output meters.
+    // Composed like a broadcast console across the FULL workspace width. The
+    // program picker and the live stats live in the console strip at the top
+    // of the page (see `consoleStrip`); the desk itself is three top-aligned
+    // lanes —
+    //   OPERATE  (~36%)  what the broadcaster touches while on air: output
+    //                    meters & waveform on top → transport (broadcast
+    //                    controls) → audio source (mic sensing / monitor
+    //                    playback / mic boost / GO ON MIC).
     //   PROGRAM  (~36%)  what airs: program card (Edit) → session audio (attach)
     //                    → schedule (promoted from the rail so the center lane
     //                    stays balanced).
@@ -565,16 +643,11 @@ struct RadioStudioView: View {
     // windows). Every panel is the exact same component the iPad stacks
     // vertically.
     @ViewBuilder private func macBody(program: RadioProgram?) -> some View {
-        ProgramPickerStrip(programs: m.programs, selectedId: m.selectedId) { m.select($0) }
-
         if let p = program {
-            if m.broadcast.isLiveOrPaused {
-                LiveStatusBar(program: p, broadcast: m.broadcast, health: m.health, listeners: m.displayListeners)
-            }
-
             HStack(alignment: .top, spacing: MacDesign.gutter) {
-                // OPERATE — transport first, then the audio source, meters last.
+                // OPERATE — meters on top, then transport, then the source.
                 VStack(alignment: .leading, spacing: 16) {
+                    MeterAndWaveformPanel(active: m.broadcast == .live)
                     BroadcastControlsPanel(
                         broadcast: m.broadcast, busy: m.busy,
                         onGoLive: { m.startCountdown() },
@@ -583,7 +656,6 @@ struct RadioStudioView: View {
                         onEnd: { m.endBroadcast() }
                     )
                     AudioSourcePanel(mic: mic, program: p)
-                    MeterAndWaveformPanel(active: m.broadcast == .live)
                 }
                 .frame(minWidth: 300, maxWidth: .infinity)
 
@@ -715,6 +787,7 @@ private struct ProgramCard: View {
 }
 
 // MARK: - Session audio (uploaded recording) — inline player or attach CTA
+// The header row is also a deep link into Uploads & Sessions (console sheet).
 
 private struct SessionAudioPanel: View {
     let program: RadioProgram
@@ -724,8 +797,21 @@ private struct SessionAudioPanel: View {
     var body: some View {
         StudioPanel {
             VStack(alignment: .leading, spacing: 12) {
-                StudioHeader(icon: "waveform.badge.mic", title: "Session audio",
-                             caption: program.audioUrl == nil ? "no recording" : "uploaded")
+                // The header row doubles as a deep link: press → the Uploads &
+                // Sessions page with THIS session's console sheet open (RootView
+                // routes the notification; the page consumes the program id).
+                // Attach below keeps its inline behavior — this is additional.
+                Button(action: openInUploads) {
+                    HStack(spacing: 8) {
+                        StudioHeader(icon: "waveform.badge.mic", title: "Session audio",
+                                     caption: program.audioUrl == nil ? "no recording" : "uploaded")
+                        openLinkAffordance
+                    }
+                    .contentShape(Rectangle())
+                }
+                .pressable().hoverEffect(.highlight)
+                .accessibilityLabel("Session audio — open in Uploads and Sessions")
+                .accessibilityHint("Opens this session's console on the Uploads & Sessions page")
                 if let s = program.audioUrl, let url = URL(string: s) {
                     AudioPlayerBar(url: url, durationSec: program.audioDurationSec)
                     Text("This recording broadcasts to listeners when the session goes live.")
@@ -747,6 +833,31 @@ private struct SessionAudioPanel: View {
                 }
             }
         }
+    }
+
+    /// Trailing gold chevron affordance — full label where the lane is wide
+    /// enough, degrading to a short label, then a bare chevron in tight lanes.
+    private var openLinkAffordance: some View {
+        ViewThatFits(in: .horizontal) {
+            openLinkLabel("Open in Uploads & Sessions")
+            openLinkLabel("Uploads & Sessions")
+            openLinkLabel(nil)
+        }
+    }
+    private func openLinkLabel(_ text: String?) -> some View {
+        HStack(spacing: 4) {
+            if let text { Text(text).font(.inter(11, .semibold)) }
+            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+        }
+        .foregroundStyle(Rs.gold)
+        .lineLimit(1).fixedSize()
+    }
+
+    /// Post the app-internal deep link; RootView switches to Uploads & Sessions
+    /// and that page opens this session's console once its data is in.
+    private func openInUploads() {
+        NotificationCenter.default.post(name: .nuruOpenUploadsSession, object: nil,
+                                        userInfo: ["programId": program.id])
     }
 }
 
@@ -835,6 +946,73 @@ private struct AudioPlayerBar: View {
 
 // MARK: - LIVE status bar (duration / listeners / bitrate / health)
 
+/// Live-stat formatting — ONE implementation feeding both the iPad's full-width
+/// LiveStatusBar and the Mac console strip's stats column, so the two surfaces
+/// can never drift.
+private enum LiveStat {
+    static func duration(startISO: String?, now: Date) -> String {
+        guard let iso = startISO, let start = parseISO(iso) else { return "00:00:00" }
+        let secs = max(0, Int(now.timeIntervalSince(start)))
+        let h = secs / 3600, m = (secs % 3600) / 60, s = secs % 60
+        return String(format: "%02d:%02d:%02d", h, m, s)
+    }
+    static func bitrate(_ health: StreamHealth?) -> String {
+        health.map { "\(Int($0.bitrate)) kbps" } ?? "—"
+    }
+    /// Icy now-playing metadata — only when the health poll reports it.
+    static func nowPlaying(_ health: StreamHealth?) -> String? {
+        guard let np = health?.nowPlaying?.trimmingCharacters(in: .whitespacesAndNewlines), !np.isEmpty else { return nil }
+        return np
+    }
+    static func healthLabel(_ health: StreamHealth?, paused: Bool) -> String {
+        guard let st = health?.stability else { return paused ? "Paused" : "—" }
+        if st >= 95 { return "Excellent" }; if st >= 85 { return "Good" }; if st >= 70 { return "Fair" }; return "Poor"
+    }
+    static func healthColor(_ health: StreamHealth?) -> Color {
+        guard let st = health?.stability else { return Rs.dim }
+        if st >= 85 { return Rs.green }; if st >= 70 { return Rs.gold }; return Rs.red
+    }
+}
+
+/// The Mac console strip's live-stats column: duration (gold mono) with the
+/// ♪ now-playing line in micro type beneath, then listeners / bitrate / health
+/// as tight labeled columns. Every value comes from the same `LiveStat` helpers
+/// the iPad's LiveStatusBar renders.
+private struct StripLiveStats: View {
+    let program: RadioProgram
+    let paused: Bool
+    let health: StreamHealth?
+    let listeners: Int
+
+    var body: some View {
+        // TimelineView ticks the duration once a second (pauses off-screen).
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(LiveStat.duration(startISO: program.liveStartedAt, now: ctx.date))
+                        .font(Rs.mono(17, .semibold)).foregroundStyle(Rs.gold)
+                    if let np = LiveStat.nowPlaying(health) {
+                        Text("♪ \(np)")
+                            .font(.inter(9, .semibold)).foregroundStyle(Rs.gold.opacity(0.8))
+                            .lineLimit(1).truncationMode(.tail)
+                            .frame(maxWidth: 170, alignment: .leading)
+                    }
+                }
+                statColumn("LISTENERS", "\(listeners)", Rs.green)
+                statColumn("BITRATE", LiveStat.bitrate(health), Rs.text)
+                statColumn("HEALTH", LiveStat.healthLabel(health, paused: paused), LiveStat.healthColor(health))
+            }
+        }
+    }
+
+    private func statColumn(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.inter(8.5, .bold)).tracking(0.7).foregroundStyle(Rs.dim)
+            Text(value).font(Rs.mono(13, .semibold)).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
+        }
+    }
+}
+
 private struct LiveStatusBar: View {
     let program: RadioProgram
     let broadcast: Broadcast
@@ -851,16 +1029,16 @@ private struct LiveStatusBar: View {
         StudioPanel(padding: 14, glow: true) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 0) {
-                    stat("DURATION", duration, Rs.gold, "clock")
+                    stat("DURATION", LiveStat.duration(startISO: program.liveStartedAt, now: now), Rs.gold, "clock")
                     divider
                     stat("LISTENERS", "\(listeners)", Rs.green, "person.2.fill")
                     divider
-                    stat("BITRATE", health.map { "\(Int($0.bitrate)) kbps" } ?? "—", Rs.text, "waveform")
+                    stat("BITRATE", LiveStat.bitrate(health), Rs.text, "waveform")
                     divider
-                    stat("HEALTH", healthLabel, healthColor, "heart.text.square")
+                    stat("HEALTH", LiveStat.healthLabel(health, paused: broadcast == .paused), LiveStat.healthColor(health), "heart.text.square")
                 }
                 // Now playing (icy metadata) — only when the health poll reports it.
-                if let np = nowPlaying {
+                if let np = LiveStat.nowPlaying(health) {
                     Text("♪ \(np)")
                         .font(.inter(11.5, .semibold)).foregroundStyle(Rs.gold)
                         .lineLimit(1).truncationMode(.tail)
@@ -896,24 +1074,6 @@ private struct LiveStatusBar: View {
         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12)
     }
 
-    private var duration: String {
-        guard let startISO = program.liveStartedAt, let start = parseISO(startISO) else { return "00:00:00" }
-        let secs = max(0, Int(now.timeIntervalSince(start)))
-        let h = secs / 3600, m = (secs % 3600) / 60, s = secs % 60
-        return String(format: "%02d:%02d:%02d", h, m, s)
-    }
-    private var nowPlaying: String? {
-        guard let np = health?.nowPlaying?.trimmingCharacters(in: .whitespacesAndNewlines), !np.isEmpty else { return nil }
-        return np
-    }
-    private var healthLabel: String {
-        guard let st = health?.stability else { return broadcast == .paused ? "Paused" : "—" }
-        if st >= 95 { return "Excellent" }; if st >= 85 { return "Good" }; if st >= 70 { return "Fair" }; return "Poor"
-    }
-    private var healthColor: Color {
-        guard let st = health?.stability else { return Rs.dim }
-        if st >= 85 { return Rs.green }; if st >= 70 { return Rs.gold }; return Rs.red
-    }
 }
 
 // MARK: - Live listeners roster (REAL presence — members heartbeating from the app)
@@ -2836,6 +2996,9 @@ struct SessionsSection: View {
     /// title from the ~3s health poll — used to badge the airing playlist row.
     var liveProgramId: String? = nil
     var nowPlaying: String? = nil
+    /// Deep-link hand-off (Radio Studio's Session-audio card → this page): when
+    /// the bound id is set, open that session's console sheet and clear it.
+    var openSessionId: Binding<String?> = .constant(nil)
     /// The session whose full console sheet is open — iPad presents a native
     /// page sheet, the Mac a centered studio modal (see `studioModal`).
     @State private var viewSession: SessionSheetTarget?
@@ -2923,6 +3086,16 @@ struct SessionsSection: View {
                                 liveProgramId: liveProgramId,
                                 nowPlaying: nowPlaying)
         }
+        // Deep link: the id may be set before this section mounts (fresh page
+        // load) or after (page already on screen) — cover both.
+        .onAppear { openFromDeepLink() }
+        .onChange(of: openSessionId.wrappedValue) { _, _ in openFromDeepLink() }
+    }
+
+    private func openFromDeepLink() {
+        guard let id = openSessionId.wrappedValue else { return }
+        openSessionId.wrappedValue = nil
+        viewSession = SessionSheetTarget(id: id)
     }
 }
 

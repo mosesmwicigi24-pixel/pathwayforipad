@@ -40,6 +40,11 @@ struct UploadsSessionsView: View {
     @State private var liveProgramId: String?
     @State private var nowPlaying: String?
 
+    /// Deep link from the Radio Studio's Session-audio card: once sessions are
+    /// loaded this carries the program id whose console sheet should open;
+    /// SessionsSection consumes it (opens the View modal) and clears it.
+    @State private var openSessionId: String?
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -53,7 +58,8 @@ struct UploadsSessionsView: View {
                         HStack(alignment: .top, spacing: MacDesign.gutter) {
                             SessionsSection(store: library,
                                             liveProgramId: liveProgramId,
-                                            nowPlaying: nowPlaying)
+                                            nowPlaying: nowPlaying,
+                                            openSessionId: $openSessionId)
                                 .frame(minWidth: 360, maxWidth: .infinity)
                             AudioLibrarySection(store: library)
                                 .frame(minWidth: 360, maxWidth: .infinity)
@@ -62,7 +68,8 @@ struct UploadsSessionsView: View {
                         // iPad: the lanes stack — portrait can't hold two 360pt lanes.
                         SessionsSection(store: library,
                                         liveProgramId: liveProgramId,
-                                        nowPlaying: nowPlaying)
+                                        nowPlaying: nowPlaying,
+                                        openSessionId: $openSessionId)
                         AudioLibrarySection(store: library)
                     }
                 }
@@ -79,12 +86,32 @@ struct UploadsSessionsView: View {
         .toolbar(.hidden, for: .navigationBar)
         .task {
             if !library.loaded { await library.load() }
+            // The Radio Studio deep link usually lands on a FRESH mount (this
+            // page is ephemeral), so the pending id is consumed here — after
+            // the sessions list is in, never before.
+            consumeDeepLink()
             while !Task.isCancelled {
                 await refreshLive()
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
             }
         }
+        // Already-mounted case: the notification arrives while this page is on
+        // screen. Defer one tick so RootView's handler (subscriber order is
+        // undefined) has definitely stashed the id before we consume it.
+        .onReceive(NotificationCenter.default.publisher(for: .nuruOpenUploadsSession)) { _ in
+            Task { @MainActor in consumeDeepLink() }
+        }
         .onDisappear { library.teardown() }
+    }
+
+    /// Pop the stashed deep-link id (read-and-clear) and open that session's
+    /// console. If the id no longer matches a session (deleted elsewhere), just
+    /// land on the page with no sheet. No-op until the library has loaded — the
+    /// stash survives untouched for the post-load consume.
+    private func consumeDeepLink() {
+        guard library.loaded, let id = UploadsSessionsLink.consume() else { return }
+        guard library.sessions.contains(where: { $0.id == id }) else { return }
+        openSessionId = id
     }
 
     /// One coarse pass: find the live program; if there is one, fetch its
