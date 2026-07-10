@@ -60,10 +60,10 @@ enum Rs {
     static let liveGlow = LinearGradient(colors: [red.opacity(0.9), Color(hex: 0xB91C1C)], startPoint: .topLeading, endPoint: .bottomTrailing)
     static let goldFill = LinearGradient(colors: [gold, goldDeep], startPoint: .top, endPoint: .bottom)
 
-    // Serif titles / mono numerics (contract asks DM Serif / DM Mono; we use the
-    // bundled Fraunces serif + a monospaced-digit system face to stay on-brand).
+    // Serif titles / mono numerics — the web portal's DM Serif Display (via the
+    // theme's display face) + bundled DM Mono for durations/bitrates/levels.
     static func serif(_ s: CGFloat, _ w: Font.Weight = .semibold) -> Font { .fraunces(s, w) }
-    static func mono(_ s: CGFloat, _ w: Font.Weight = .medium) -> Font { .system(size: s, weight: w, design: .monospaced) }
+    static func mono(_ s: CGFloat, _ w: Font.Weight = .medium) -> Font { .nMono(s, w) }
 }
 
 /// A dark studio panel — the equivalent of the light portal's `Card`. Shared with
@@ -2734,7 +2734,7 @@ private struct UploadJobRow: View {
             }
         case .queued:
             Text(fmtBytes(Int(job.totalBytes)) ?? "Waiting…")
-                .font(.inter(10)).foregroundStyle(Rs.faint)
+                .font(Rs.mono(9.5)).foregroundStyle(Rs.faint)
         case .done:
             Text("\(fmtBytes(Int(job.totalBytes)) ?? "") · added to the library")
                 .font(.inter(10)).foregroundStyle(Rs.dim)
@@ -2947,7 +2947,7 @@ private struct TrackRow: View {
                         Text(d).font(Rs.mono(10)).foregroundStyle(Rs.dim)
                     }
                     if let s = fmtBytes(track.sizeBytes) {
-                        Text(s).font(.inter(10)).foregroundStyle(Rs.faint)
+                        Text(s).font(Rs.mono(9.5)).foregroundStyle(Rs.faint)
                     }
                 }
             }

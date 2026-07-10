@@ -125,14 +125,16 @@ extension KeyedDecodingContainer {
 
 // MARK: - Status meta (band → label + colors)
 
+// Web-parity pills: soft pastel background + a darker cut of the same hue
+// (e.g. At-risk = rose bg + deep rose text), fully rounded, no border.
 private struct StatusMeta { let label: String; let fg: Color; let bg: Color }
 private func statusMeta(_ key: String?) -> StatusMeta {
     switch key {
-    case "thriving":  return StatusMeta(label: "Thriving", fg: Color(hex: 0x16A34A), bg: Color(hex: 0x16A34A).opacity(0.10))
-    case "watch":     return StatusMeta(label: "Watch", fg: Color(hex: 0x8B6914), bg: Color(hex: 0xC89B3C).opacity(0.12))
-    case "at_risk":   return StatusMeta(label: "At-risk", fg: Color(hex: 0xDC2626), bg: Color(hex: 0xDC2626).opacity(0.10))
-    case "graduated": return StatusMeta(label: "Graduated", fg: Color(hex: 0x7C3AED), bg: Color(hex: 0x7C3AED).opacity(0.10))
-    default:          return StatusMeta(label: "Steady", fg: Nuru.navy, bg: Nuru.navy.opacity(0.08))
+    case "thriving":  return StatusMeta(label: "Thriving", fg: Color(hex: 0x157F3D), bg: Color(hex: 0xE9F9EF))
+    case "watch":     return StatusMeta(label: "Watch", fg: Color(hex: 0x8A6116), bg: Color(hex: 0xFDF3DC))
+    case "at_risk":   return StatusMeta(label: "At-risk", fg: Color(hex: 0xB4232E), bg: Color(hex: 0xFDECEC))
+    case "graduated": return StatusMeta(label: "Graduated", fg: Color(hex: 0x6D28D9), bg: Color(hex: 0xF1EBFB))
+    default:          return StatusMeta(label: "Steady", fg: Color(hex: 0x33456B), bg: Color(hex: 0xEEF2FA))
     }
 }
 private let PROGRAMME_LABELS: [String: String] = [
@@ -285,6 +287,7 @@ struct MembersView: View {
                 hero
                 VStack(spacing: 14) {
                     if let e = vm.error { ErrorBanner(message: e) { Task { await vm.reload() } } }
+                    statTiles
                     toolbar
                     if vm.loading && vm.rows.isEmpty {
                         SkeletonTable(rows: 8)
@@ -365,15 +368,9 @@ struct MembersView: View {
         VStack(alignment: .leading, spacing: 0) {
             PortalHero(
                 breadcrumb: ["Nuru Pathway", "Members"],
-                title: "Members",
-                stats: [
-                    HeroStat(label: "Total members", value: "\(vm.counts.total)", hint: ""),
-                    // Band colors carry meaning (health bands) — same hues the old
-                    // hand-rolled pills used, now as tinted strip values.
-                    HeroStat(label: "Thriving", value: "\(vm.counts.thriving)", hint: "", tint: Color(hex: 0x4ADE80)),
-                    HeroStat(label: "Watch", value: "\(vm.counts.watch)", hint: "", tint: Color(hex: 0xFACC15)),
-                    HeroStat(label: "At-risk", value: "\(vm.counts.atRisk)", hint: "", tint: Color(hex: 0xF87171)),
-                ]
+                title: "Members"
+                // Band counts moved out of the navy strip into the web-parity
+                // pastel stat tiles just below the hero (see `statTiles`).
             ) {
                 HStack(spacing: 8) {
                     HeroChip(label: "\(vm.counts.total) on pathway", icon: "person.2.fill", style: .tag)
@@ -397,6 +394,21 @@ struct MembersView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.navyCeremony)
+    }
+
+    // Web-parity stat tiles — soft pastel tints on the warm paper with deep-tint
+    // numerals (blue-grey total · mint thriving · amber watch · rose at-risk).
+    private var statTiles: some View {
+        HStack(spacing: 12) {
+            MemberStatTile(label: "Total members", value: vm.counts.total,
+                           bg: Color(hex: 0xEEF2FA), fg: Color(hex: 0x33456B))
+            MemberStatTile(label: "Thriving", value: vm.counts.thriving,
+                           bg: Color(hex: 0xE9F9EF), fg: Color(hex: 0x157F3D))
+            MemberStatTile(label: "Watch", value: vm.counts.watch,
+                           bg: Color(hex: 0xFDF3DC), fg: Color(hex: 0x8A6116))
+            MemberStatTile(label: "At-risk", value: vm.counts.atRisk,
+                           bg: Color(hex: 0xFDECEC), fg: Color(hex: 0xB4232E))
+        }
     }
 
     private func countryChip(_ name: String, flag: String?, count: Int?, code: String) -> some View {
@@ -505,6 +517,28 @@ struct MembersView: View {
 
 private struct IdBox: Identifiable { let id: String }
 
+/// One pastel stat tile: quiet muted label over a big deep-tint numeral —
+/// borderless tinted surface, exactly the web Members page's airy tiles.
+private struct MemberStatTile: View {
+    let label: String
+    let value: Int
+    let bg: Color
+    let fg: Color
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.inter(12, .semibold)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.85)
+            Text("\(value)").font(.fraunces(27, .semibold)).foregroundStyle(fg)
+                .contentTransition(.numericText())
+                .animation(.default, value: value)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .background(bg)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
 // MARK: - Member row
 
 private struct MemberRowCard: View {
@@ -576,10 +610,11 @@ private struct MemberRowCard: View {
 
                 Spacer(minLength: 0)
 
+                // Fully-rounded web pill: tinted bg + darker same-hue text, no border.
                 Text(sm.label).font(.inter(10.5, .bold)).foregroundStyle(sm.fg)
                     .lineLimit(1).minimumScaleFactor(0.8)
-                    .frame(width: MCol.status).padding(.vertical, 5)
-                    .background(sm.bg).overlay(Capsule().stroke(sm.fg.opacity(0.2), lineWidth: 1)).clipShape(Capsule())
+                    .frame(width: MCol.status).padding(.vertical, 6)
+                    .background(sm.bg).clipShape(Capsule())
 
                 Button(action: onResults) {
                     Image(systemName: "chart.bar.xaxis").font(.system(size: 14)).foregroundStyle(Nuru.goldLo)
@@ -600,7 +635,9 @@ private struct MemberRowCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
                 }
             }
-            .padding(.horizontal, 18).padding(.vertical, 11)
+            // ~72pt rows (44pt avatar + 14pt above/below) — the web directory's
+            // generous row height; hairline dividers do the separating.
+            .padding(.horizontal, 18).padding(.vertical, 14)
             .background(Nuru.white)
             .contentShape(Rectangle())
         }
