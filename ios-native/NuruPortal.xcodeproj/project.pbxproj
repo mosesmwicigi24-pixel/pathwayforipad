@@ -197,6 +197,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				SUPPORTS_MACCATALYST = YES;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Config/NuruPortal-Mac.entitlements";
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = YES;
 			};
 			name = Debug;
@@ -229,6 +230,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				SUPPORTS_MACCATALYST = YES;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Config/NuruPortal-Mac.entitlements";
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = YES;
 			};
 			name = Release;
