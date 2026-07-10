@@ -2166,38 +2166,42 @@ private func fmtDuration(_ sec: Int?) -> String? {
 private struct AudioLibrarySection: View {
     @ObservedObject var store: AudioLibraryStore
     @State private var showImporter = false
+    /// Mac only — full-library sheet (never set on iPad).
+    @State private var showFullLibrary = false
+
+    /// Mac lanes show a stable 5-row preview; the full list lives in the sheet.
+    private var visibleTracks: [RadioTrack] {
+        MacDesign.isMac ? Array(store.tracks.prefix(macLanePreviewCap)) : store.tracks
+    }
 
     var body: some View {
         StudioPanel {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
+                HStack(spacing: 10) {
                     StudioHeader(icon: "music.note.list", title: "Audio library",
                                  caption: "\(store.tracks.count) track\(store.tracks.count == 1 ? "" : "s")", tint: Rs.green)
+                    if MacDesign.isMac {
+                        ViewChipButton { showFullLibrary = true }
+                    }
                 }
                 // Kind picker + Upload
                 HStack(spacing: 10) {
                     KindSegmented(selection: store.kind) { store.selectKind($0) }
                     Spacer(minLength: 8)
-                    Button { showImporter = true } label: {
-                        HStack(spacing: 6) {
-                            if store.uploading { ProgressView().tint(Color(hex: 0x0A1120)) }
-                            else { Image(systemName: "arrow.up.circle.fill").font(.system(size: 12, weight: .bold)) }
-                            Text("Upload music").font(.inter(12, .bold))
-                        }
-                        .foregroundStyle(Color(hex: 0x0A1120))
-                        .padding(.horizontal, 14).frame(height: 34)
-                        .background(Rs.goldFill).clipShape(Capsule())
-                    }.pressable().hoverEffect(.highlight).disabled(store.uploading)
+                    UploadMusicButton(uploading: store.uploading) { showImporter = true }
                 }
 
                 if store.tracks.isEmpty {
-                    emptyState
+                    LibraryEmptyState(kind: store.kind)
                 } else {
                     VStack(spacing: 8) {
-                        ForEach(store.tracks) { t in
+                        ForEach(visibleTracks) { t in
                             TrackRow(track: t, sessions: store.sessions,
                                      onAddToSession: { store.addTrack(t.id, to: $0) },
                                      onDelete: { store.deleteTrack(t.id) })
+                        }
+                        if MacDesign.isMac, store.tracks.count > macLanePreviewCap {
+                            MoreTracksLine(count: store.tracks.count - macLanePreviewCap)
                         }
                     }
                 }
@@ -2211,14 +2215,39 @@ private struct AudioLibrarySection: View {
             if case .success(let url) = result { store.upload(url) }
             else if case .failure(let err) = result { store.error = err.localizedDescription }
         }
+        // Mac only — the View chip sets `showFullLibrary`; iPad never presents this.
+        .sheet(isPresented: $showFullLibrary) { AudioLibrarySheet(store: store) }
     }
+}
 
-    private var emptyState: some View {
+/// Shared library empty state (lane card + full-library sheet).
+private struct LibraryEmptyState: View {
+    let kind: TrackKind
+    var body: some View {
         VStack(spacing: 8) {
             Image(systemName: "music.note").font(.system(size: 24)).foregroundStyle(Rs.faint)
-            Text("No \(store.kind.label.lowercased()) tracks yet").font(.inter(12.5, .semibold)).foregroundStyle(Rs.text)
+            Text("No \(kind.label.lowercased()) tracks yet").font(.inter(12.5, .semibold)).foregroundStyle(Rs.text)
             Text("Upload audio to build a reusable library.").font(.inter(11)).foregroundStyle(Rs.dim)
         }.frame(maxWidth: .infinity).padding(.vertical, 22)
+    }
+}
+
+/// The gold "Upload music" pill (lane card + full-library sheet) — same view
+/// tree the section always rendered, extracted so the sheet reuses it verbatim.
+private struct UploadMusicButton: View {
+    let uploading: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if uploading { ProgressView().tint(Color(hex: 0x0A1120)) }
+                else { Image(systemName: "arrow.up.circle.fill").font(.system(size: 12, weight: .bold)) }
+                Text("Upload music").font(.inter(12, .bold))
+            }
+            .foregroundStyle(Color(hex: 0x0A1120))
+            .padding(.horizontal, 14).frame(height: 34)
+            .background(Rs.goldFill).clipShape(Capsule())
+        }.pressable().hoverEffect(.highlight).disabled(uploading)
     }
 }
 
@@ -2319,6 +2348,8 @@ private struct SessionsSection: View {
     /// title from the ~3s health poll — used to badge the airing playlist row.
     var liveProgramId: String? = nil
     var nowPlaying: String? = nil
+    /// Mac only — the session whose full console sheet is open (never set on iPad).
+    @State private var viewSession: SessionSheetTarget?
 
     var body: some View {
         StudioPanel {
@@ -2379,6 +2410,8 @@ private struct SessionsSection: View {
                                 tracks: store.tracks,
                                 nowPlaying: s.id == liveProgramId ? nowPlaying : nil,
                                 previewItemId: store.previewSessionId == s.id ? store.previewItemId : nil,
+                                previewLimit: MacDesign.isMac ? macLanePreviewCap : nil,
+                                onView: MacDesign.isMac ? { viewSession = SessionSheetTarget(id: s.id) } : nil,
                                 onSetLoop: { store.setLoop(s.id, $0) },
                                 onPlay: { store.playLive(s.id) },
                                 onDeleteSession: { store.deleteSession(s.id) },
@@ -2390,6 +2423,13 @@ private struct SessionsSection: View {
                     }
                 }
             }
+        }
+        // Mac only — the View chip sets `viewSession`; iPad never presents this.
+        .sheet(item: $viewSession) { target in
+            SessionConsoleSheet(store: store,
+                                sessionId: target.id,
+                                liveProgramId: liveProgramId,
+                                nowPlaying: nowPlaying)
         }
     }
 }
@@ -2404,6 +2444,13 @@ private struct SessionCard: View {
     /// Playlist item the local AVQueuePlayer preview is on (non-nil only for the
     /// previewing session).
     let previewItemId: String?
+    /// Mac lane preview (nil everywhere else): render at most this many playlist
+    /// rows — the full-height list lives in the View sheet — followed by a fixed
+    /// "+N more tracks" line so the card height stays stable while tracks change.
+    /// `onView` opens the full session-console sheet. Both default nil, so the
+    /// iPhone/iPad render is byte-identical.
+    var previewLimit: Int? = nil
+    var onView: (() -> Void)? = nil
     let onSetLoop: (LoopMode) -> Void
     let onPlay: () -> Void
     let onDeleteSession: () -> Void
@@ -2421,6 +2468,11 @@ private struct SessionCard: View {
                     Text("\(items.count) item\(items.count == 1 ? "" : "s")").font(.inter(10.5)).foregroundStyle(Rs.dim)
                 }
                 Spacer(minLength: 6)
+
+                // Mac lanes only: open the full session console (sheet).
+                if let onView {
+                    ViewChipButton(action: onView)
+                }
 
                 // Loop control (Menu selecting Off / Loop all / Repeat one)
                 Menu {
@@ -2464,8 +2516,12 @@ private struct SessionCard: View {
                 Text("No tracks yet — add one below.").font(.inter(11)).foregroundStyle(Rs.dim)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
             } else {
+                // Mac lane preview caps the rows (full list lives in the View
+                // sheet); indices/handlers are the FULL-list ones, so reorder and
+                // remove on the visible rows behave exactly like the full console.
+                let visible = previewLimit.map { Array(items.prefix($0)) } ?? items
                 VStack(spacing: 6) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                    ForEach(Array(visible.enumerated()), id: \.element.id) { idx, item in
                         PlaylistItemRow(
                             index: idx,
                             item: item,
@@ -2478,6 +2534,9 @@ private struct SessionCard: View {
                             onMoveDown: { onMove(idx, 1) },
                             onRemove: { onRemove(item.id) }
                         )
+                    }
+                    if let cap = previewLimit, items.count > cap {
+                        MoreTracksLine(count: items.count - cap)
                     }
                 }
             }
@@ -2598,6 +2657,202 @@ private struct PlaylistItemRow: View {
         Text(label).font(.inter(8, .bold)).tracking(0.7).foregroundStyle(color)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(color.opacity(0.16)).clipShape(Capsule())
+    }
+}
+
+// MARK: - Mac full-console sheets (Catalyst only — iPad never presents these)
+//
+// The three-lane desk keeps the PROGRAM lane scannable: session cards and the
+// audio library render a stable 5-row preview + "+N more tracks", and the gold
+// View chip opens a large centered sheet with the FULL console. The sheets are
+// pure composition — the SAME SessionCard / TrackRow / store handlers the lane
+// uses — so an edit made in the sheet repaints the lane preview instantly.
+
+/// Rows a lane preview card shows before deferring to its View sheet.
+private let macLanePreviewCap = 5
+
+/// The gold "View" chip (session-card header + library header) — styled like the
+/// studio's other gold chips (Edit / Attach audio).
+private struct ViewChipButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10, weight: .bold))
+                Text("View").font(.inter(11, .bold))
+            }
+            .foregroundStyle(Rs.gold)
+            .padding(.horizontal, 12).frame(height: 30)
+            .background(Rs.gold.opacity(0.12)).clipShape(Capsule())
+            .overlay(Capsule().stroke(Rs.gold.opacity(0.35), lineWidth: 1))
+        }.pressable().hoverEffect(.highlight)
+    }
+}
+
+/// Fixed-height "+N more tracks" line — constant height so the preview cards
+/// never jump as the list grows/shrinks past the cap.
+private struct MoreTracksLine: View {
+    let count: Int
+    var body: some View {
+        Text("+\(count) more track\(count == 1 ? "" : "s")")
+            .font(.inter(11, .semibold)).foregroundStyle(Rs.gold)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 22)
+    }
+}
+
+/// `.sheet(item:)` payload for the session console (String isn't Identifiable).
+private struct SessionSheetTarget: Identifiable { let id: String }
+
+/// Full session console: title header with live/on-air state, then the exact
+/// SessionCard with NO preview cap — loop menu, Play live, complete reorderable
+/// playlist, Add track…, and session delete all flow through the shared store.
+private struct SessionConsoleSheet: View {
+    @ObservedObject var store: AudioLibraryStore
+    let sessionId: String
+    var liveProgramId: String? = nil
+    var nowPlaying: String? = nil
+    @Environment(\.dismiss) private var dismiss
+
+    private var session: RadioProgram? { store.sessions.first { $0.id == sessionId } }
+    private var isLive: Bool { sessionId == liveProgramId }
+    private var title: String {
+        let t = session?.title ?? ""
+        return t.isEmpty ? "Untitled session" : t
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    header
+                    if let s = session {
+                        SessionCard(
+                            session: s,
+                            items: store.playlists[s.id] ?? [],
+                            loop: store.loopMode(for: s.id),
+                            tracks: store.tracks,
+                            nowPlaying: isLive ? nowPlaying : nil,
+                            previewItemId: store.previewSessionId == s.id ? store.previewItemId : nil,
+                            onSetLoop: { store.setLoop(s.id, $0) },
+                            onPlay: { store.playLive(s.id) },
+                            onDeleteSession: { store.deleteSession(s.id); dismiss() },
+                            onMove: { idx, delta in store.move(s.id, index: idx, by: delta) },
+                            onRemove: { store.removeItem($0, from: s.id) },
+                            onAddTrack: { store.addTrack($0, to: s.id) }
+                        )
+                    } else {
+                        // Deleted elsewhere (auto-refresh) while the sheet was open.
+                        StudioPanel {
+                            Text("This session no longer exists.")
+                                .font(.inter(12.5)).foregroundStyle(Rs.dim)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 24)
+                        }
+                    }
+                    if let e = store.error {
+                        Text(e).font(.inter(11)).foregroundStyle(Rs.red).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(18)
+            }
+            .background(Rs.bg.ignoresSafeArea())
+            .navigationTitle("Session console")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }.foregroundStyle(Rs.gold)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        // Desktop-sized so Catalyst presents a big centered window-style modal.
+        .frame(minWidth: 760, idealWidth: 860, minHeight: 640)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("SESSION CONSOLE").font(.inter(10, .bold)).tracking(1.6).foregroundStyle(Rs.gold)
+                Text(title).font(Rs.serif(24)).foregroundStyle(Rs.text).lineLimit(2)
+                let n = store.playlists[sessionId]?.count ?? 0
+                Text("\(n) track\(n == 1 ? "" : "s") in this playlist")
+                    .font(.inter(11.5)).foregroundStyle(Rs.dim)
+            }
+            Spacer(minLength: 8)
+            if isLive {
+                HStack(spacing: 6) {
+                    Circle().fill(Rs.red).frame(width: 7, height: 7)
+                    Text("ON AIR").font(.inter(10.5, .bold)).tracking(1.0).foregroundStyle(Rs.text)
+                }
+                .padding(.horizontal, 10).frame(height: 26).background(Rs.red.opacity(0.18)).clipShape(Capsule())
+                .overlay(Capsule().stroke(Rs.red.opacity(0.5), lineWidth: 1))
+            } else {
+                Text("OFF AIR").font(.inter(10.5, .bold)).tracking(1.0).foregroundStyle(Rs.faint)
+                    .padding(.horizontal, 10).frame(height: 26).background(Rs.faint.opacity(0.14)).clipShape(Capsule())
+            }
+        }
+    }
+}
+
+/// Full audio library: upload control + the complete track list, reusing
+/// KindSegmented / UploadMusicButton / TrackRow with the shared store handlers.
+private struct AudioLibrarySheet: View {
+    @ObservedObject var store: AudioLibraryStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var showImporter = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("AUDIO LIBRARY").font(.inter(10, .bold)).tracking(1.6).foregroundStyle(Rs.green)
+                        Text("All tracks").font(Rs.serif(24)).foregroundStyle(Rs.text)
+                        Text("\(store.tracks.count) track\(store.tracks.count == 1 ? "" : "s") · \(store.kind.label)")
+                            .font(.inter(11.5)).foregroundStyle(Rs.dim)
+                    }
+                    HStack(spacing: 10) {
+                        KindSegmented(selection: store.kind) { store.selectKind($0) }
+                        Spacer(minLength: 8)
+                        UploadMusicButton(uploading: store.uploading) { showImporter = true }
+                    }
+                    if store.tracks.isEmpty {
+                        LibraryEmptyState(kind: store.kind)
+                    } else {
+                        VStack(spacing: 8) {
+                            ForEach(store.tracks) { t in
+                                TrackRow(track: t, sessions: store.sessions,
+                                         onAddToSession: { store.addTrack(t.id, to: $0) },
+                                         onDelete: { store.deleteTrack(t.id) })
+                            }
+                        }
+                    }
+                    if let e = store.error {
+                        Text(e).font(.inter(11)).foregroundStyle(Rs.red).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(18)
+            }
+            .background(Rs.bg.ignoresSafeArea())
+            .navigationTitle("Audio library")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }.foregroundStyle(Rs.gold)
+                }
+            }
+            .fileImporter(isPresented: $showImporter,
+                          allowedContentTypes: AudioUploadRules.allowedContentTypes) { result in
+                if case .success(let url) = result { store.upload(url) }
+                else if case .failure(let err) = result { store.error = err.localizedDescription }
+            }
+        }
+        .preferredColorScheme(.dark)
+        // Desktop-sized so Catalyst presents a big centered window-style modal.
+        .frame(minWidth: 760, idealWidth: 860, minHeight: 640)
     }
 }
 
