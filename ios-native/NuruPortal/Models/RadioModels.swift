@@ -134,10 +134,30 @@ struct RadioComment: Codable, Identifiable {
     @DefaultEmpty var id: String
     let memberId: String?
     let memberName: String?
+    /// Real author identity from the admin comments read (users LEFT JOIN):
+    /// wire `author_name` / `author_avatar_url` (snake→camel via the decoder).
+    let authorName: String?
+    let authorAvatarUrl: String?
     @DefaultEmpty var body: String
     @DefaultFalse var hidden: Bool
     let createdAt: String?
+
+    /// Best display name — real author first, legacy memberName, then "Listener".
+    var displayName: String { authorName ?? memberName ?? "Listener" }
+    /// Raw name for the initials fallback ("" → "?" chip when the member is gone).
+    var avatarName: String { authorName ?? memberName ?? "" }
 }
+
+/// `GET /admin/radio/programs/:id/reactions` → TRUE aggregate reaction totals
+/// across ALL members (server-authoritative — the console never invents counts).
+struct RadioReactionCounts: Codable {
+    @DefaultZero var heart: Int
+    @DefaultZero var amen: Int
+    @DefaultZero var fire: Int
+}
+
+/// `POST /radio/programs/:id/react` ack → { counts } (fresh totals after the write).
+struct RadioReactAck: Codable { let counts: RadioReactionCounts }
 
 /// One live listener in the studio roster — a REAL member heartbeating from the
 /// mobile player (`/radio/programs/:id/listeners`). Mirrors the web portal's

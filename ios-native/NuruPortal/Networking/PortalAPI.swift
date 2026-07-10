@@ -193,6 +193,20 @@ enum PortalAPI {
     static func radioComments(_ id: String) async throws -> [RadioComment] {
         try await api.get("/admin/radio/programs/\(id)/comments", as: [RadioComment].self)
     }
+    /// TRUE aggregate reaction totals ({heart, amen, fire} across ALL members) —
+    /// polled with the comments cadence so the console shows server truth.
+    static func radioReactions(_ id: String) async throws -> RadioReactionCounts {
+        try await api.get("/admin/radio/programs/\(id)/reactions", as: RadioReactionCounts.self)
+    }
+    /// The admin's own reaction — the MEMBER /radio/* route (admin JWT accepted,
+    /// like the listener roster). Idempotent per client_event_id; the ack carries
+    /// the fresh server totals so the caller never locally increments.
+    static func radioReact(_ id: String, kind: String) async throws -> RadioReactAck {
+        try await api.post("/radio/programs/\(id)/react",
+                           body: ["kind": RadioJSON.string(kind),
+                                  "client_event_id": RadioJSON.string(UUID().uuidString.lowercased())],
+                           as: RadioReactAck.self)
+    }
     /// Live listener roster — REAL names of members heartbeating from the mobile
     /// player. This is the MEMBER route (auth-only, no /admin prefix); an admin JWT
     /// authenticates fine, so the studio reads the same presence rows the app writes.

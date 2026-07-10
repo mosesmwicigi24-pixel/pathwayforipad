@@ -11,11 +11,12 @@
 //   • broadcast lifecycle                   POST …/go-live · …/end
 //   • live stream health (polled ~3s)       GET  …/health  (409 until live)
 //   • stream key + rotate                   POST …/rotate-key
-//   • listener comments                     GET  …/comments
+//   • listener comments (real authors)      GET  …/comments (author_name/avatar)
+//   • reaction totals (ALL members)         GET  …/reactions ({heart, amen, fire})
 // CLIENT-ONLY telemetry (never leaves the device): L/R output meters, waveform,
-// reaction tallies, countdown — Timer-driven simulations with STABLE layouts (fixed
-// frames, no `.frame(maxHeight:.infinity)` in the ticking subtrees) so the meters
-// animate without the LazyVGrid flicker pattern.
+// countdown — Timer-driven simulations with STABLE layouts (fixed frames, no
+// `.frame(maxHeight:.infinity)` in the ticking subtrees) so the meters animate
+// without the LazyVGrid flicker pattern.
 // REAL hardware: the "Audio source" card senses actual AVAudioSession inputs (a
 // RØDE USB mic is auto-preferred), meters the live input via an engine tap, and can
 // broadcast the mic into the station's liquidsoap mix — see MicBroadcaster (Icecast
@@ -133,11 +134,16 @@ private final class RadioModel: ObservableObject {
         listenerRosterCount > 0 ? listenerRosterCount : (health?.listeners ?? selected?.peakListeners ?? 0)
     }
 
-    // Client-only reaction tallies (member reactions arrive via the member API; the
-    // admin console shows local applause it accumulates while live).
+    // TRUE aggregate reaction totals across ALL members (server-authoritative —
+    // GET …/reactions, polled with the comments cadence; taps POST /react and
+    // adopt the server's totals, never a local +1).
     @Published var hearts = 0
     @Published var amens = 0
     @Published var fires = 0
+
+    private func applyReactions(_ c: RadioReactionCounts) {
+        hearts = c.heart; amens = c.amen; fires = c.fire
+    }
 
     private var pollTask: Task<Void, Never>?
     private var countdownTask: Task<Void, Never>?
@@ -313,13 +319,14 @@ private final class RadioModel: ObservableObject {
         }
     }
 
-    // Poll health every ~3s + refresh comments while live.
+    // Poll health every ~3s + refresh comments/reaction totals while live.
     private func startLiveWork(_ id: String) {
         stopPolling()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 if let h = try? await PortalAPI.radioHealth(id) { await MainActor.run { self?.health = h } }
                 if let c = try? await PortalAPI.radioComments(id) { await MainActor.run { self?.comments = c } }
+                if let rc = try? await PortalAPI.radioReactions(id) { await MainActor.run { self?.applyReactions(rc) } }
                 if let r = try? await PortalAPI.radioListeners(id) {
                     await MainActor.run { self?.listeners = r.roster; self?.listenerRosterCount = r.count }
                 }
@@ -332,7 +339,10 @@ private final class RadioModel: ObservableObject {
 
     func loadComments() {
         guard let id = selectedId else { return }
-        Task { if let c = try? await PortalAPI.radioComments(id) { comments = c } }
+        Task {
+            if let c = try? await PortalAPI.radioComments(id) { comments = c }
+            if let rc = try? await PortalAPI.radioReactions(id) { applyReactions(rc) }
+        }
     }
 
     private func merge(_ p: RadioProgram) {
@@ -341,8 +351,15 @@ private final class RadioModel: ObservableObject {
         selectedId = p.id
     }
 
+    /// The admin's own reaction: POST it (idempotent per client_event_id), then
+    /// adopt the SERVER totals from the ack — never a local +1. If the POST fails
+    /// (e.g. offline), fall back to a plain refresh so the tallies stay honest.
     func react(_ kind: String) {
-        switch kind { case "heart": hearts += 1; case "amen": amens += 1; default: fires += 1 }
+        guard let id = selectedId else { return }
+        Task {
+            if let ack = try? await PortalAPI.radioReact(id, kind: kind) { applyReactions(ack.counts) }
+            else if let rc = try? await PortalAPI.radioReactions(id) { applyReactions(rc) }
+        }
     }
 
     func teardown() {
@@ -1081,6 +1098,35 @@ private struct LiveStatusBar: View {
 /// The named roster of who is actually listening right now — mirrors the web
 /// portal's "Live listeners" panel. Names + avatars come from real presence rows
 /// (`/radio/programs/:id/listeners`), so this is server-authoritative, not chrome.
+/// Circular member avatar with an initials fallback — shared by the listener
+/// roster rows and the comment rows (AsyncImage when a photo URL exists, else a
+/// gold initials chip; an empty name renders "?").
+private struct StudioAvatar: View {
+    let urlString: String?
+    let name: String
+    var size: CGFloat = 30
+
+    private var initials: String {
+        let parts = name.split(separator: " ").prefix(2)
+        let s = parts.compactMap { $0.first.map(String.init) }.joined().uppercased()
+        return s.isEmpty ? "?" : s
+    }
+
+    var body: some View {
+        if let s = urlString, !s.isEmpty, let url = URL(string: s) {
+            AsyncImage(url: url) { img in
+                img.resizable().scaledToFill()
+            } placeholder: { Rs.gold.opacity(0.15) }
+            .frame(width: size, height: size).clipShape(Circle())
+        } else {
+            ZStack {
+                Circle().fill(Rs.goldFill)
+                Text(initials).font(.inter(size * 0.35, .heavy)).foregroundStyle(Color(hex: 0x0A1120))
+            }.frame(width: size, height: size)
+        }
+    }
+}
+
 private struct LiveListenersPanel: View {
     let listeners: [RadioListener]
     let count: Int
@@ -1111,7 +1157,7 @@ private struct LiveListenersPanel: View {
 
     private func listenerRow(_ p: RadioListener) -> some View {
         HStack(spacing: 11) {
-            avatar(p)
+            StudioAvatar(urlString: p.avatarUrl, name: p.name)
             Text(p.name.isEmpty ? "Member" : p.name)
                 .font(.inter(12.5, .semibold)).foregroundStyle(Rs.text)
                 .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
@@ -1124,20 +1170,6 @@ private struct LiveListenersPanel: View {
         .background(Color.white.opacity(0.03))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Rs.border, lineWidth: 1))
-    }
-
-    @ViewBuilder private func avatar(_ p: RadioListener) -> some View {
-        if let s = p.avatarUrl, let url = URL(string: s), !s.isEmpty {
-            AsyncImage(url: url) { img in
-                img.resizable().scaledToFill()
-            } placeholder: { Rs.gold.opacity(0.15) }
-            .frame(width: 30, height: 30).clipShape(Circle())
-        } else {
-            ZStack {
-                Circle().fill(Rs.goldFill)
-                Text(p.initials).font(.inter(10.5, .heavy)).foregroundStyle(Color(hex: 0x0A1120))
-            }.frame(width: 30, height: 30)
-        }
     }
 }
 
@@ -1761,9 +1793,9 @@ private struct ReactionsPanel: View {
                     Button(action: onRefresh) { Image(systemName: "arrow.clockwise").font(.system(size: 12)).foregroundStyle(Rs.dim) }.pressable().hoverEffect(.highlight)
                 }
                 HStack(spacing: 10) {
-                    reactionButton("heart.fill", hearts, Rs.red) { onReact("heart") }
-                    reactionButton("hands.clap.fill", amens, Rs.gold) { onReact("amen") }
-                    reactionButton("flame.fill", fires, Color(hex: 0xF97316)) { onReact("fire") }
+                    reactionButton("❤️", hearts, Rs.red) { onReact("heart") }
+                    reactionButton("🙏", amens, Rs.gold) { onReact("amen") }
+                    reactionButton("🔥", fires, Color(hex: 0xF97316)) { onReact("fire") }
                 }
                 Divider().overlay(Rs.border)
                 if comments.isEmpty {
@@ -1772,11 +1804,10 @@ private struct ReactionsPanel: View {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(comments.prefix(8)) { c in
                             HStack(alignment: .top, spacing: 10) {
-                                Circle().fill(Rs.goldFill).frame(width: 26, height: 26)
-                                    .overlay(Text(initials(c.memberName ?? "?")).font(.inter(10, .bold)).foregroundStyle(Color(hex: 0x0A1120)))
+                                StudioAvatar(urlString: c.authorAvatarUrl, name: c.avatarName, size: 26)
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack(spacing: 6) {
-                                        Text(c.memberName ?? "Listener").font(.inter(11.5, .semibold)).foregroundStyle(c.hidden ? Rs.faint : Rs.text)
+                                        Text(c.displayName).font(.inter(11.5, .semibold)).foregroundStyle(c.hidden ? Rs.faint : Rs.text)
                                         if c.hidden { Text("HIDDEN").font(.inter(8, .bold)).foregroundStyle(Rs.faint).padding(.horizontal, 5).padding(.vertical, 1).background(Rs.faint.opacity(0.2)).clipShape(Capsule()) }
                                     }
                                     Text(c.body).font(.inter(12)).foregroundStyle(c.hidden ? Rs.faint : Rs.dim).fixedSize(horizontal: false, vertical: true)
@@ -1789,20 +1820,18 @@ private struct ReactionsPanel: View {
             }
         }
     }
-    private func reactionButton(_ icon: String, _ count: Int, _ color: Color, action: @escaping () -> Void) -> some View {
+    /// One reaction counter — the member-app emoji (❤️ 🙏 🔥) over the TRUE
+    /// all-member total; tapping POSTs the admin's own reaction.
+    private func reactionButton(_ emoji: String, _ count: Int, _ color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                Image(systemName: icon).font(.system(size: 14)).foregroundStyle(color)
+                Text(emoji).font(.system(size: 15))
                 Text("\(count)").font(Rs.mono(13, .semibold)).foregroundStyle(Rs.text)
             }
             .frame(maxWidth: .infinity).frame(height: 44)
             .background(color.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(color.opacity(0.3), lineWidth: 1))
         }.pressable().hoverEffect(.highlight)
-    }
-    private func initials(_ n: String) -> String {
-        let p = n.split(separator: " ").prefix(2).compactMap { $0.first }
-        return p.isEmpty ? "?" : String(p).uppercased()
     }
 }
 
@@ -2521,7 +2550,7 @@ struct AudioLibrarySection: View {
 
     /// Mac lanes show a stable 5-row preview; the full list lives in the sheet.
     private var visibleTracks: [RadioTrack] {
-        MacDesign.isMac ? Array(store.tracks.prefix(macLanePreviewCap)) : store.tracks
+        MacDesign.isMac ? Array(store.tracks.prefix(libraryPreviewCap)) : store.tracks
     }
 
     var body: some View {
@@ -2556,8 +2585,8 @@ struct AudioLibrarySection: View {
                                      onAddToSession: { store.addTrack(t.id, to: $0) },
                                      onDelete: { store.deleteTrack(t.id) })
                         }
-                        if MacDesign.isMac, store.tracks.count > macLanePreviewCap {
-                            MoreTracksLine(count: store.tracks.count - macLanePreviewCap)
+                        if MacDesign.isMac, store.tracks.count > libraryPreviewCap {
+                            MoreTracksLine(count: store.tracks.count - libraryPreviewCap)
                         }
                     }
                 }
@@ -3521,6 +3550,9 @@ private struct SheetDoneButton: View {
 
 /// Rows a lane preview card shows before deferring to its View sheet.
 private let macLanePreviewCap = 5
+/// The Uploads & Sessions library lane shows a longer slice (user request:
+/// "show 20, the rest in the popup"); session playlists keep the tight 5.
+private let libraryPreviewCap = 20
 
 /// The gold "View" chip (session-card header + library header) — styled like the
 /// studio's other gold chips (Edit / Attach audio).
