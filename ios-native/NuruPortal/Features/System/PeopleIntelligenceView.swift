@@ -396,7 +396,7 @@ struct PeopleIntelligenceView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                hero
+                heroBlock
                 VStack(spacing: 18) {
                     if let error, payload == nil {
                         ErrorBanner(message: error) { Task { await load() } }
@@ -411,10 +411,12 @@ struct PeopleIntelligenceView: View {
                         if let at = p.generatedAt, !at.isEmpty { asOfCaption(at) }
                     }
                 }
-                .padding(.horizontal, Nuru.S.lg)
+                // Mac: the centered content column already carries the page margins.
+                .padding(.horizontal, MacDesign.isMac ? 0 : Nuru.S.lg)
                 .padding(.top, Nuru.S.lg)
                 .padding(.bottom, 48)
             }
+            .macContentColumn()
         }
         .background(Nuru.paper)
         .navigationBarTitleDisplayMode(.inline)
@@ -439,6 +441,18 @@ struct PeopleIntelligenceView: View {
     }
 
     // MARK: hero
+
+    /// The navy hero — full-bleed on iPad; on the Mac it floats inside the centered
+    /// content column, so it gets card corners and a breath of top space.
+    @ViewBuilder private var heroBlock: some View {
+        if MacDesign.isMac {
+            hero
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+                .padding(.top, MacDesign.gutter)
+        } else {
+            hero
+        }
+    }
 
     private var hero: some View {
         let k = payload?.kpis ?? IntelKpis()
@@ -651,6 +665,57 @@ private struct PeopleRowsSection: View {
     private var location: LocationCards { LocationCards(loc: p.location) }
 
     var body: some View {
+        if MacDesign.isMac { macRows } else { padRows }
+    }
+
+    /// Desktop recomposition (Mac only): the SAME cards from the factories, flowed
+    /// into adaptive grids plus a two-lane split (tables/heavy panels left ~58%,
+    /// device & platform panels right) so the wide canvas is actually used.
+    /// Presentation only — no data/decoding/gating changes.
+    private var macRows: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            // Signal cards flow into an adaptive grid (3-up at the full column).
+            MacGrid(minWidth: 320) {
+                giving.giversCard
+                usage.activeHighlight
+                giving.frequencyCard
+                usage.activeDaysCard
+                usage.activityByHourCard
+                usage.activeTrendCard
+            }
+            // Big panels: tables left, device/usage rail right.
+            MacLanes {
+                giving.topGiversCard
+                affinity.contentAreasCard
+                affinity.timePerAreaCard
+            } secondary: {
+                usage.deviceModelsCard
+                usage.platformCard
+                usage.appVersionCard
+                usage.comingNotes
+            }
+
+            // SECTION — Engagement & growth
+            piSectionHeader(icon: "chart.pie.fill", "Engagement & growth",
+                            "\(eng.total) members · \(Pctf1(p.kpis.avgEngagement)) avg score")
+            MacGrid(minWidth: 320) {
+                eng.bandsDonutCard
+                eng.bandBreakdownCard
+                eng.levelCard
+            }
+
+            // SECTION — Location
+            piSectionHeader(icon: "mappin.and.ellipse", "Location", "Where your people are — coarse, free-text")
+            MacGrid(minWidth: 320) {
+                location.byCityCard
+                location.byCountryCard
+                location.proximityCard
+            }
+        }
+    }
+
+    /// iPad/iPhone rows — unchanged.
+    private var padRows: some View {
         VStack(alignment: .leading, spacing: 18) {
 
             // ROW 1 — Givers · Giving frequency · Active in app (3-up)
@@ -726,42 +791,54 @@ private struct KpiStripSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             piSectionTitle(icon: "person.3.fill", "Overview", "Live membership, engagement & giving signal")
-            // Row of 8 — overview KPI tiles.
-            LazyVGrid(columns: kpiGrid, spacing: 10) {
-                PiKpiTile(label: "Total members", value: "\(k.totalMembers)", icon: "person.3.fill",
-                          tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)))
-                PiKpiTile(label: "Active (7d)", value: "\(k.active7d)", icon: "iphone.gen3",
-                          tint: .init(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33)))
-                PiKpiTile(label: "Active (30d)", value: "\(k.active30d)", icon: "calendar",
-                          tint: .init(bg: Color(hex: 0xE2F4F1), fg: Color(hex: 0x0D7E73)))
-                PiKpiTile(label: "Avg engagement", value: Pctf1(k.avgEngagement), icon: "chart.bar.xaxis",
-                          tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F)))
-                PiKpiTile(label: "Members at risk", value: "\(k.membersAtRisk)", icon: "exclamationmark.triangle.fill",
-                          tint: .init(bg: Color(hex: 0xFDECEC), fg: Color(hex: 0xB42318)))
-                PiKpiTile(label: "Givers", value: "\(k.givers)", icon: "person.crop.circle.badge.checkmark",
-                          tint: .init(bg: Color(hex: 0xDCFCE7), fg: Color(hex: 0x166534)))
-                PiKpiTile(label: "Recurring givers", value: "\(k.recurringGivers)", icon: "arrow.triangle.2.circlepath",
-                          tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)))
-                PiKpiTile(label: "Certificates (mo.)", value: "\(k.certificatesThisMonth)", icon: "rosette",
-                          tint: .init(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0xA87616)))
-            }
-            // Row of 6 — growth stats, pulled up here so the two rows read as one
-            // overview block. Same tile styling (small variant), matching the web.
-            LazyVGrid(columns: growthGrid, spacing: 10) {
-                PiKpiTile(label: "Verse learners", value: "\(growth.verseLearners)", icon: "text.book.closed.fill",
-                          tint: .init(bg: Color(hex: 0xDCFCE7), fg: Color(hex: 0x166534)), small: true)
-                PiKpiTile(label: "Verses mastered", value: "\(growth.versesMastered)", icon: "checkmark.seal.fill",
-                          tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F)), small: true)
-                PiKpiTile(label: "Plans completed", value: "\(growth.plansCompleted)", icon: "calendar.badge.checkmark",
-                          tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)), small: true)
-                PiKpiTile(label: "Plans active", value: "\(growth.plansActive)", icon: "calendar",
-                          tint: .init(bg: Color(hex: 0xE2F4F1), fg: Color(hex: 0x0D7E73)), small: true)
-                PiKpiTile(label: "Quiz attempts", value: "\(growth.quizAttempts)", icon: "questionmark.circle.fill",
-                          tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)), small: true)
-                PiKpiTile(label: "Quiz passed · \(passRate)%", value: "\(growth.quizPassed)", icon: "checkmark.circle.fill",
-                          tint: .init(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0xA87616)), small: true)
+            if MacDesign.isMac {
+                // Desktop: adaptive flows — a full 8-up at the 1280 content column,
+                // reflowing gracefully at narrower windows instead of squeezing a
+                // pinned row of 8 into skinny tiles.
+                MacGrid(minWidth: 150, spacing: 10) { kpiTiles }
+                MacGrid(minWidth: 200, spacing: 10) { growthTiles }
+            } else {
+                // Row of 8 — overview KPI tiles.
+                LazyVGrid(columns: kpiGrid, spacing: 10) { kpiTiles }
+                // Row of 6 — growth stats, pulled up here so the two rows read as one
+                // overview block. Same tile styling (small variant), matching the web.
+                LazyVGrid(columns: growthGrid, spacing: 10) { growthTiles }
             }
         }
+    }
+
+    @ViewBuilder private var kpiTiles: some View {
+        PiKpiTile(label: "Total members", value: "\(k.totalMembers)", icon: "person.3.fill",
+                  tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)))
+        PiKpiTile(label: "Active (7d)", value: "\(k.active7d)", icon: "iphone.gen3",
+                  tint: .init(bg: Color(hex: 0xE8F6EE), fg: Color(hex: 0x0F6B33)))
+        PiKpiTile(label: "Active (30d)", value: "\(k.active30d)", icon: "calendar",
+                  tint: .init(bg: Color(hex: 0xE2F4F1), fg: Color(hex: 0x0D7E73)))
+        PiKpiTile(label: "Avg engagement", value: Pctf1(k.avgEngagement), icon: "chart.bar.xaxis",
+                  tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F)))
+        PiKpiTile(label: "Members at risk", value: "\(k.membersAtRisk)", icon: "exclamationmark.triangle.fill",
+                  tint: .init(bg: Color(hex: 0xFDECEC), fg: Color(hex: 0xB42318)))
+        PiKpiTile(label: "Givers", value: "\(k.givers)", icon: "person.crop.circle.badge.checkmark",
+                  tint: .init(bg: Color(hex: 0xDCFCE7), fg: Color(hex: 0x166534)))
+        PiKpiTile(label: "Recurring givers", value: "\(k.recurringGivers)", icon: "arrow.triangle.2.circlepath",
+                  tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)))
+        PiKpiTile(label: "Certificates (mo.)", value: "\(k.certificatesThisMonth)", icon: "rosette",
+                  tint: .init(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0xA87616)))
+    }
+
+    @ViewBuilder private var growthTiles: some View {
+        PiKpiTile(label: "Verse learners", value: "\(growth.verseLearners)", icon: "text.book.closed.fill",
+                  tint: .init(bg: Color(hex: 0xDCFCE7), fg: Color(hex: 0x166534)), small: true)
+        PiKpiTile(label: "Verses mastered", value: "\(growth.versesMastered)", icon: "checkmark.seal.fill",
+                  tint: .init(bg: Color(hex: 0xFDF5E5), fg: Color(hex: 0x8A6B1F)), small: true)
+        PiKpiTile(label: "Plans completed", value: "\(growth.plansCompleted)", icon: "calendar.badge.checkmark",
+                  tint: .init(bg: Color(hex: 0xE3EAF3), fg: Color(hex: 0x1D4E86)), small: true)
+        PiKpiTile(label: "Plans active", value: "\(growth.plansActive)", icon: "calendar",
+                  tint: .init(bg: Color(hex: 0xE2F4F1), fg: Color(hex: 0x0D7E73)), small: true)
+        PiKpiTile(label: "Quiz attempts", value: "\(growth.quizAttempts)", icon: "questionmark.circle.fill",
+                  tint: .init(bg: Color(hex: 0xF3EAFE), fg: Color(hex: 0x6D28D9)), small: true)
+        PiKpiTile(label: "Quiz passed · \(passRate)%", value: "\(growth.quizPassed)", icon: "checkmark.circle.fill",
+                  tint: .init(bg: Color(hex: 0xFFF4DA), fg: Color(hex: 0xA87616)), small: true)
     }
 }
 

@@ -157,7 +157,10 @@ struct RootView: View {
         .sheet(item: $router.openMember) { ref in
             NavigationStack { MemberDetailView(userId: ref.id, name: ref.name) }
         }
-        .onAppear { visit(router.section, leaving: nil) }
+        .onAppear {
+            MacWindow.enforceMinimumSize() // Catalyst: declare the desktop window floor (no-op on iPad/iPhone)
+            visit(router.section, leaving: nil)
+        }
         .onChange(of: router.section) { old, new in visit(new, leaving: old) }
     }
 
@@ -248,10 +251,14 @@ struct RootView: View {
                 }
                 .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 16)
             }
-            collapseToggle
+            // Mac: the sidebar is persistent (never collapses) like a native
+            // source list, so the collapse affordance only ships on iPad.
+            if !MacDesign.isMac { collapseToggle }
             profileFooter
         }
-        .frame(width: collapsed ? 76 : 264)
+        // Desktop: a fixed source-list width (the shell is a hand-rolled split
+        // view, so this is the Mac analogue of navigationSplitViewColumnWidth).
+        .frame(width: MacDesign.isMac ? 250 : (collapsed ? 76 : 264))
         .frame(maxHeight: .infinity)
         .background(Nuru.sidebarGradient.ignoresSafeArea())
         .animation(.easeInOut(duration: 0.22), value: collapsed)

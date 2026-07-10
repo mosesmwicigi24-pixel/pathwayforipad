@@ -374,12 +374,18 @@ struct RadioStudioView: View {
                     DarkError(message: error) { Task { await m.load() } }
                 } else if !m.loaded {
                     DarkSkeleton()
+                } else if MacDesign.isMac {
+                    macBody(program: m.selected)
                 } else {
                     body(program: m.selected)
                 }
             }
-            .padding(18)
-            .padding(.bottom, 48)
+            // iPad keeps its exact 18pt frame; the Mac page hands horizontal
+            // margins to .macContentColumn (centered readable desk ≤1280pt).
+            .padding(.horizontal, MacDesign.isMac ? 0 : 18)
+            .padding(.vertical, 18)
+            .padding(.bottom, MacDesign.isMac ? 30 : 48)
+            .macContentColumn()
         }
         .background(Rs.bg.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
@@ -528,18 +534,88 @@ struct RadioStudioView: View {
             DeviceManagerPanel()
             EmergencyPanel(onEnd: { m.endBroadcast() }, canEnd: m.broadcast.isLiveOrPaused)
         } else {
-            StudioPanel {
-                VStack(spacing: 10) {
-                    Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 30)).foregroundStyle(Rs.faint)
-                    Text("No programs yet").font(.inter(15, .semibold)).foregroundStyle(Rs.text)
-                    Text("Create a broadcast program to begin.").font(.inter(12)).foregroundStyle(Rs.dim)
-                    Button { showCreate = true } label: {
-                        Text("New program").font(.inter(12, .bold)).foregroundStyle(Color(hex: 0x0A1120))
-                            .padding(.horizontal, 16).frame(height: 34).background(Rs.goldFill).clipShape(Capsule())
-                    }.pressable().hoverEffect(.highlight).padding(.top, 4)
-                }
-                .frame(maxWidth: .infinity).padding(.vertical, 32)
+            noProgramsPanel
+        }
+    }
+
+    /// Shared "no programs" empty state (same view tree the stacked body always used).
+    private var noProgramsPanel: some View {
+        StudioPanel {
+            VStack(spacing: 10) {
+                Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 30)).foregroundStyle(Rs.faint)
+                Text("No programs yet").font(.inter(15, .semibold)).foregroundStyle(Rs.text)
+                Text("Create a broadcast program to begin.").font(.inter(12)).foregroundStyle(Rs.dim)
+                Button { showCreate = true } label: {
+                    Text("New program").font(.inter(12, .bold)).foregroundStyle(Color(hex: 0x0A1120))
+                        .padding(.horizontal, 16).frame(height: 34).background(Rs.goldFill).clipShape(Capsule())
+                }.pressable().hoverEffect(.highlight).padding(.top, 4)
             }
+            .frame(maxWidth: .infinity).padding(.vertical, 32)
+        }
+    }
+
+    // MARK: Mac desk (Catalyst only — iPad/iPhone never reach this branch)
+    //
+    // Composed like a broadcast console (Logic/Ferrite): the program picker strip
+    // and the LIVE status bar span the full width; below them the desk splits into
+    // two top-aligned lanes — LEFT (flexible) is the operate-now column (audio
+    // source → transport → meters → session playlists), RIGHT (fixed 420pt, a DAW
+    // inspector rail) is the context column (program, session audio, health,
+    // audience, schedule, ingest, devices, emergency). The Audio Library is a
+    // browsing surface, so it spans the full desk width underneath the lanes.
+    // Every panel is the exact same component the iPad stacks vertically.
+    @ViewBuilder private func macBody(program: RadioProgram?) -> some View {
+        ProgramPickerStrip(programs: m.programs, selectedId: m.selectedId) { m.select($0) }
+
+        if let p = program {
+            if m.broadcast.isLiveOrPaused {
+                LiveStatusBar(program: p, broadcast: m.broadcast, health: m.health, listeners: m.displayListeners)
+            }
+
+            HStack(alignment: .top, spacing: MacDesign.gutter) {
+                // LEFT — the operate-now column.
+                VStack(alignment: .leading, spacing: 16) {
+                    AudioSourcePanel(mic: mic, program: p)
+                    BroadcastControlsPanel(
+                        broadcast: m.broadcast, busy: m.busy,
+                        onGoLive: { m.startCountdown() },
+                        onCancel: { m.cancelCountdown() },
+                        onPause: { m.togglePause() },
+                        onEnd: { m.endBroadcast() }
+                    )
+                    MeterAndWaveformPanel(active: m.broadcast == .live)
+                    SessionsSection(store: library,
+                                    liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
+                                    nowPlaying: m.health?.nowPlaying)
+                }
+                .frame(maxWidth: .infinity)
+
+                // RIGHT — the context rail.
+                VStack(alignment: .leading, spacing: 16) {
+                    ProgramCard(program: p, onEdit: { editProgram = p })
+                    SessionAudioPanel(program: p, busy: m.busy, onAttach: { showAttachImporter = true })
+                    if m.broadcast.isLiveOrPaused, let h = m.health {
+                        StreamHealthPanel(health: h)
+                    }
+                    LiveListenersPanel(listeners: m.listeners, count: m.displayListeners, live: m.broadcast.isLiveOrPaused)
+                    ReactionsPanel(hearts: m.hearts, amens: m.amens, fires: m.fires, comments: m.comments,
+                                   onReact: { m.react($0) }, onRefresh: { m.loadComments() })
+                    SchedulePanel(program: p)
+                    IngestPanel(program: p, onRotate: { m.rotateKey() }, busy: m.busy)   // collapsed by default
+                    DeviceManagerPanel()
+                    EmergencyPanel(onEnd: { m.endBroadcast() }, canEnd: m.broadcast.isLiveOrPaused)
+                }
+                .frame(width: 420)
+            }
+
+            // Full-width browsing surface below the desk.
+            AudioLibrarySection(store: library)
+        } else {
+            AudioLibrarySection(store: library)
+            SessionsSection(store: library,
+                            liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
+                            nowPlaying: m.health?.nowPlaying)
+            noProgramsPanel
         }
     }
 }

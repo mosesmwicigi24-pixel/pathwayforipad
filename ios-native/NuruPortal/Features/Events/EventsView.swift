@@ -527,6 +527,7 @@ struct EventsView: View {
                     .frame(maxWidth: .infinity).padding(.top, 6)
                 }
                 .padding(24)
+                .macContentColumn()   // Mac: readable centered column; iPhone/iPad unchanged
             }
         }
         .background(Nuru.paper)
@@ -1104,7 +1105,9 @@ struct EventsView: View {
                     emptyState(icon: "bell", title: "No announcements yet",
                                body: "Send updates, reminders, and event notices to the right audience.")
                 } else {
-                    let cols = [GridItem(.adaptive(minimum: 240), spacing: 12)]
+                    // Mac: roomier announcement cards (≥320pt) in the desktop column;
+                    // iPad keeps the denser 240pt flow.
+                    let cols = [GridItem(.adaptive(minimum: MacDesign.isMac ? 320 : 240), spacing: 12)]
                     LazyVGrid(columns: cols, alignment: .leading, spacing: 12) {
                         ForEach(announcements) { a in announcementTile(a) }
                     }

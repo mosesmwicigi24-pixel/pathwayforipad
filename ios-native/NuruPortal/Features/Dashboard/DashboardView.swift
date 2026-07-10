@@ -83,7 +83,7 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
-                hero
+                heroBlock
                 if vm.loading && vm.overview == nil {
                     // Loading mirrors the real layout: KPI-tile grid up top, then a
                     // table-shaped strip where the pipeline/report cards land.
@@ -91,7 +91,20 @@ struct DashboardView: View {
                         SkeletonGrid(tiles: 6, columns: 3)
                         SkeletonTable(rows: 5)
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, MacDesign.isMac ? 0 : 20)
+                } else if MacDesign.isMac {
+                    // Desktop composition: the KPI tiles flow into an adaptive grid row,
+                    // then the big report cards split into two top-aligned lanes —
+                    // charts left (~58%), feeds/lists right. Same cards, recomposed.
+                    MacGrid(minWidth: 240, spacing: 12) { kpiTiles }
+                    MacLanes {
+                        PipelineSection(levels: vm.levels)
+                        PathwayReport(bands: vm.bands, trend: vm.trend)
+                    } secondary: {
+                        ActivityCard(activity: vm.activity)
+                        UpcomingCard(events: vm.upcoming)
+                        RisksCard(overview: vm.overview, consents: vm.consents, stuck: vm.stuck)
+                    }
                 } else {
                     LazyVGrid(columns: grid, spacing: 12) { kpiTiles }.padding(.horizontal, 20)
                     PipelineSection(levels: vm.levels).padding(.horizontal, 20)
@@ -100,12 +113,25 @@ struct DashboardView: View {
                 }
             }
             .padding(.bottom, 40)
+            .macContentColumn()
         }
         .background(Nuru.paper)
         .navigationTitle("Dashboard")
         .navigationBarTitleDisplayMode(.inline)
         .task { if vm.overview == nil { await vm.load() } }
         .refreshable { await vm.load() }
+    }
+
+    /// The navy hero — full-bleed on iPad; on the Mac it floats inside the centered
+    /// content column, so it gets card corners and a breath of top space.
+    @ViewBuilder private var heroBlock: some View {
+        if MacDesign.isMac {
+            hero
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+                .padding(.top, MacDesign.gutter)
+        } else {
+            hero
+        }
     }
 
     // Hero
@@ -150,6 +176,43 @@ struct DashboardView: View {
 }
 
 func Pctf(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
+
+// MARK: - Desktop two-lane composition (Mac only)
+
+/// Two top-aligned desktop lanes (~58/42 by default): heavy charts/tables in the
+/// primary lane, feeds/lists in the secondary. The frozen kit's `MacColumns` sizes
+/// itself with a GeometryReader, which collapses inside a vertical ScrollView —
+/// this variant measures its width from a background reader instead, so the lanes
+/// keep their natural content-driven heights on scrolling pages. Only instantiate
+/// on Mac (`MacDesign.isMac`); shared by Dashboard and People Intelligence.
+struct MacLanes<Primary: View, Secondary: View>: View {
+    var split: CGFloat = 0.58
+    @ViewBuilder var primary: () -> Primary
+    @ViewBuilder var secondary: () -> Secondary
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        HStack(alignment: .top, spacing: MacDesign.gutter) {
+            VStack(alignment: .leading, spacing: MacDesign.gutter) { primary() }
+                .frame(width: primaryWidth, alignment: .top)
+            VStack(alignment: .leading, spacing: MacDesign.gutter) { secondary() }
+                .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { width = geo.size.width }
+                    .onChange(of: geo.size.width) { _, w in width = w }
+            }
+        }
+    }
+
+    /// nil until the first measurement lands — the lanes share the row evenly
+    /// for that single frame, then settle on the split.
+    private var primaryWidth: CGFloat? {
+        width > 0 ? (width - MacDesign.gutter) * split : nil
+    }
+}
 
 /// Compact KPI tile sized for FIVE-up at portrait width (~132pt). Vertical layout so the
 /// value and label read cleanly at narrow width: tinted icon, then the value (never clipped

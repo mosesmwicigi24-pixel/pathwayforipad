@@ -474,6 +474,7 @@ struct FinanceView: View {
                     .padding(.horizontal, Nuru.S.lg)
                     .padding(.top, Nuru.S.lg)
                     .padding(.bottom, 48)
+                    .macContentColumn()   // Mac: readable centered column; iPhone/iPad unchanged
             }
         }
         .background(Nuru.paper)
@@ -629,7 +630,8 @@ private struct OverviewTab: View {
     let txnCount: Int
 
     // Grid columns for the remaining pastel card sections (status / fund rows).
-    private let fundCols = [GridItem(.adaptive(minimum: 172), spacing: 12)]
+    // Mac: roomier fund cards (≥240pt); iPad keeps the denser 172pt flow.
+    private let fundCols = [GridItem(.adaptive(minimum: MacDesign.isMac ? 240 : 172), spacing: 12)]
     private let statusCols = [GridItem(.adaptive(minimum: 150), spacing: 12)]
 
     var body: some View {
@@ -638,9 +640,13 @@ private struct OverviewTab: View {
             statusStrip
             channelSection
             fundSection
-            trendCard
-            givingByFundCard
-            givingByMethodCard
+            // Mac: the three chart cards flow into side-by-side lanes (their heights
+            // differ, cells are top-aligned); elsewhere they stack as before.
+            MacGrid(minWidth: 380, spacing: 18) {
+                trendCard
+                givingByFundCard
+                givingByMethodCard
+            }
             comingSoonNote
         }
     }
@@ -683,28 +689,59 @@ private struct OverviewTab: View {
 
     private var kpiStrip: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Card(padding: 0) {
-                VStack(spacing: 0) {
-                    // uppercase column-header band
-                    HStack(spacing: 12) {
-                        Text("METRIC").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("VALUE").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
-                            .frame(width: 140, alignment: .trailing)
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 11)
-                    .background(Nuru.surface)
-                    Divider().overlay(Nuru.border)
+            if MacDesign.isMac {
+                // Desktop: the seven metrics flow as tinted KPI tiles (≥240pt each)
+                // instead of a single tall table — same data, desktop composition.
+                MacGrid(minWidth: 240, spacing: 12) {
+                    ForEach(kpiRows) { r in kpiTile(r) }
+                }
+            } else {
+                Card(padding: 0) {
+                    VStack(spacing: 0) {
+                        // uppercase column-header band
+                        HStack(spacing: 12) {
+                            Text("METRIC").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text("VALUE").font(.inter(11, .bold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                                .frame(width: 140, alignment: .trailing)
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 11)
+                        .background(Nuru.surface)
+                        Divider().overlay(Nuru.border)
 
-                    ForEach(Array(kpiRows.enumerated()), id: \.element.id) { i, r in
-                        kpiTableRow(r, zebra: i % 2 == 1)
-                        if i < kpiRows.count - 1 { Divider().overlay(Nuru.border.opacity(0.6)) }
+                        ForEach(Array(kpiRows.enumerated()), id: \.element.id) { i, r in
+                            kpiTableRow(r, zebra: i % 2 == 1)
+                            if i < kpiRows.count - 1 { Divider().overlay(Nuru.border.opacity(0.6)) }
+                        }
                     }
                 }
             }
             Text("Pending and failed are counted in the \(txnCount) most-recent transactions fetched, not all-time.")
                 .font(.inter(10.5)).foregroundStyle(Nuru.ink400)
         }
+    }
+
+    /// Mac-only KPI tile: tinted card with icon chip · name · big value · sub-note.
+    private func kpiTile(_ r: KpiRow) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                TintedIcon(systemName: r.icon, color: r.tint.fg, size: 30)
+                Text(r.name).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink600)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+            }
+            Text(r.value).font(.fraunces(22, .semibold)).monospacedDigit().foregroundStyle(Nuru.navy)
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .contentTransition(.numericText())
+                .animation(.default, value: r.value)
+            Text(r.sub).font(.nMicro).foregroundStyle(Nuru.ink400)
+                .lineLimit(1).minimumScaleFactor(0.85)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(r.tint.bg)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(r.tint.fg.opacity(0.18), lineWidth: 1))
     }
 
     /// One ~52pt metric row: tinted icon chip · name (+ sub-note) · right-aligned value.

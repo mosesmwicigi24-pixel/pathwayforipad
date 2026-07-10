@@ -112,10 +112,15 @@ struct ContentStudioView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 hero
-                switcher
-                Divider().background(Nuru.border)
-                searchBar
-                bodySection
+                // Everything below the full-bleed hero sits in the desktop reading
+                // column on Mac (no-op on iPhone/iPad).
+                VStack(alignment: .leading, spacing: 0) {
+                    switcher
+                    Divider().background(Nuru.border)
+                    searchBar
+                    bodySection
+                }
+                .macContentColumn()
             }
         }
         .background(Nuru.paper)

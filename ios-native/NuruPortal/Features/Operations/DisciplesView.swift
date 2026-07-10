@@ -153,6 +153,7 @@ struct DisciplesView: View {
                     content
                 }
                 .padding(.horizontal, 20)
+                .macContentColumn()   // Mac: readable centered column; iPhone/iPad unchanged
             }
             .padding(.bottom, 40)
         }
@@ -506,18 +507,13 @@ private struct DossierPanel: View {
         return Card(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
                 sectionLabel("Growth scores", icon: "waveform.path.ecg")
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
-                    ForEach(rows, id: \.0) { row in
-                        let t = scoreTone(row.1)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(row.0).font(.inter(11, .semibold)).foregroundStyle(t.fg.opacity(0.85))
-                            Text(row.1.map { "\(Int($0.rounded()))" } ?? "—")
-                                .font(.fraunces(23, .medium)).foregroundStyle(t.fg)
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(t.bg)
-                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                // Mac: score tiles flow to as many ≥200pt columns as fit; elsewhere the
+                // fixed 3-up grid the iPad ships with.
+                if MacDesign.isMac {
+                    MacGrid(minWidth: 200, spacing: 10) { scoreTiles(rows) }
+                } else {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                        scoreTiles(rows)
                     }
                 }
                 HStack(spacing: 16) {
@@ -533,6 +529,22 @@ private struct DossierPanel: View {
                 }
                 .font(.nMicro).foregroundStyle(Nuru.ink600)
             }
+        }
+    }
+
+    /// The six tone-scaled score tiles (shared by the Mac flow grid and the iPad 3-up grid).
+    private func scoreTiles(_ rows: [(String, Double?)]) -> some View {
+        ForEach(rows, id: \.0) { row in
+            let t = scoreTone(row.1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.0).font(.inter(11, .semibold)).foregroundStyle(t.fg.opacity(0.85))
+                Text(row.1.map { "\(Int($0.rounded()))" } ?? "—")
+                    .font(.fraunces(23, .medium)).foregroundStyle(t.fg)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(t.bg)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
         }
     }
 

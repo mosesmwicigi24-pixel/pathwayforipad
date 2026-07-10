@@ -421,34 +421,60 @@ struct MemberDetailView: View {
 
     private func body(_ m: MemberFull) -> some View {
         VStack(spacing: 16) {
-            // ONE consolidated row of 5 compact KPI tiles (no duplicate Habits/
-            // Curriculum/Attendance strip). 5-up at ~740pt via adaptive minimum 132.
-            kpiRow(m)
+            if MacDesign.isMac {
+                // Desktop dossier (macOS HIG): two top-aligned lanes. Left (flexible)
+                // carries progression + results — progress rings, milestones, activity,
+                // and the full results table. Right (fixed ~480) carries the growth-
+                // score tiles, certificates, badges and the security card. Same cards,
+                // recomposed — nothing restyled. (MacColumns is GeometryReader-based
+                // and collapses inside a ScrollView, so the lanes are a plain HStack.)
+                HStack(alignment: .top, spacing: MacDesign.gutter) {
+                    VStack(spacing: 16) {
+                        progressCard(m)
+                        milestonesCard(m)
+                        activityCard(m)
+                        ResultsSection(userId: userId)
+                    }
+                    .frame(maxWidth: .infinity)
+                    VStack(spacing: 16) {
+                        kpiRow(m)
+                        certificatesCard(m)
+                        badgesCard(m)
+                        securityCard(m)
+                    }
+                    .frame(maxWidth: 480)   // caps at ~45%; splits evenly when the window is narrow
+                }
+            } else {
+                // ONE consolidated row of 5 compact KPI tiles (no duplicate Habits/
+                // Curriculum/Attendance strip). 5-up at ~740pt via adaptive minimum 132.
+                kpiRow(m)
 
-            // Two-column layout so content spreads sideways instead of marching down.
-            // Left column: progress detail + recent activity. Right column: milestones,
-            // certificates, badges. Falls back to a single stack when narrow.
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 16, alignment: .top)], spacing: 16) {
-                VStack(spacing: 16) {
-                    progressCard(m)
-                    activityCard(m)
+                // Two-column layout so content spreads sideways instead of marching down.
+                // Left column: progress detail + recent activity. Right column: milestones,
+                // certificates, badges. Falls back to a single stack when narrow.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 16, alignment: .top)], spacing: 16) {
+                    VStack(spacing: 16) {
+                        progressCard(m)
+                        activityCard(m)
+                    }
+                    VStack(spacing: 16) {
+                        milestonesCard(m)
+                        certificatesCard(m)
+                        badgesCard(m)
+                    }
                 }
-                VStack(spacing: 16) {
-                    milestonesCard(m)
-                    certificatesCard(m)
-                    badgesCard(m)
-                }
+
+                // Results dossier (levels/modules/exams/badges/certs) — full width table.
+                ResultsSection(userId: userId)
+
+                // Security — manual password reset (mirrors the web ResetPasswordModal).
+                securityCard(m)
             }
-
-            // Results dossier (levels/modules/exams/badges/certs) — full width table.
-            ResultsSection(userId: userId)
-
-            // Security — manual password reset (mirrors the web ResetPasswordModal).
-            securityCard(m)
         }
         .padding(.horizontal, Nuru.S.base)
         .padding(.top, Nuru.S.lg)
         .padding(.bottom, Nuru.S.xxl)
+        .macContentColumn()
     }
 
     // MARK: Security (manual password reset)

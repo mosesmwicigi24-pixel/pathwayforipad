@@ -531,6 +531,8 @@ struct MixerStudioView: View {
                 header
                 if let error = m.error, m.scenes.isEmpty, !m.loaded {
                     DarkError(message: error) { Task { await m.load() } }
+                } else if MacDesign.isMac {
+                    macDesk
                 } else {
                     scenePresets
                     channelStrips
@@ -539,7 +541,12 @@ struct MixerStudioView: View {
                     jingleBoard
                 }
             }
-            .padding(18).padding(.bottom, 48)
+            // iPad keeps its exact 18pt frame; the Mac page hands horizontal
+            // margins to .macContentColumn (centered readable desk ≤1280pt).
+            .padding(.horizontal, MacDesign.isMac ? 0 : 18)
+            .padding(.vertical, 18)
+            .padding(.bottom, MacDesign.isMac ? 30 : 48)
+            .macContentColumn()
         }
         .background(Rs.bg.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
@@ -587,6 +594,29 @@ struct MixerStudioView: View {
                     }.pressable()
                 }
             }
+        }
+    }
+
+    // MARK: Mac desk (Catalyst only — iPad/iPhone never reach this branch)
+    //
+    // Composed like a hardware console: the LEFT lane (flexible — at the full
+    // 1280pt column it fits all 7 strips + master without scrolling) carries the
+    // channel faders with the music-bed transport beneath them; the RIGHT lane
+    // (fixed 420pt processing rack) carries EQ & Sound, scene recalls, and the
+    // jingle soundboard. Same components as the iPad stack, just recomposed.
+    @ViewBuilder private var macDesk: some View {
+        HStack(alignment: .top, spacing: MacDesign.gutter) {
+            VStack(alignment: .leading, spacing: 16) {
+                channelStrips
+                musicBed
+            }
+            .frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 16) {
+                eqAndSound
+                scenePresets
+                jingleBoard
+            }
+            .frame(width: 420)
         }
     }
 

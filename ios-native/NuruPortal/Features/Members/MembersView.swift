@@ -307,6 +307,7 @@ struct MembersView: View {
                     }
                 }
                 .padding(20)
+                .macContentColumn()   // Mac: readable centered column; iPhone/iPad unchanged
             }
         }
         .background(Nuru.paper)
