@@ -63,6 +63,13 @@ struct RadioProgramForm: View {
     @State private var saving = false
     @State private var error: String?
 
+    // Schedule-overlap warning (GET /admin/radio/schedule/conflicts). Debounced
+    // ~0.5s after every date/duration edit; the token guards against a slow older
+    // response landing after a newer one and painting stale conflicts.
+    @State private var conflicts: [PortalAPI.ScheduleConflict] = []
+    @State private var conflictTask: Task<Void, Never>?
+    @State private var conflictToken = 0
+
     @State private var artworkItem: PhotosPickerItem?
     @State private var artworkUploading = false
     @State private var artworkError: String?
@@ -113,6 +120,9 @@ struct RadioProgramForm: View {
                             Text("Goes live automatically at the scheduled time.").font(.inter(11)).foregroundStyle(Rs.dim)
                         }
                     }
+                    if scheduled && !conflicts.isEmpty {
+                        conflictCard
+                    }
                     section("Recording") {
                         Toggle(isOn: $recordBroadcast) { Text("Record this broadcast").font(.inter(13.5, .semibold)).foregroundStyle(Rs.text) }.tint(Rs.red)
                         if recordBroadcast { picker("Store to", $recordTarget, targets) }
@@ -136,6 +146,64 @@ struct RadioProgramForm: View {
         }
         .preferredColorScheme(.dark)
         .onAppear(perform: prefillIfNeeded)
+        .onChange(of: scheduled) { _, _ in scheduleConflictCheck() }
+        .onChange(of: scheduledAt) { _, _ in scheduleConflictCheck() }
+        .onChange(of: durationMin) { _, _ in scheduleConflictCheck() }
+        .onDisappear { conflictTask?.cancel() }
+    }
+
+    // MARK: Schedule-overlap warning
+
+    /// Debounced frequency check: cancel any in-flight probe, wait ~0.5s of quiet,
+    /// then ask the backend which sessions overlap [scheduledAt, +duration). When
+    /// editing, the program's own id is excluded so it never conflicts with itself.
+    private func scheduleConflictCheck() {
+        conflictTask?.cancel()
+        conflictToken += 1
+        guard scheduled else { conflicts = []; return }
+        let token = conflictToken
+        let when = scheduledAt
+        let dur = durationMin
+        let exclude = existing?.id
+        conflictTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return }
+            let found = (try? await PortalAPI.radioScheduleConflicts(
+                scheduledAt: ISO8601DateFormatter().string(from: when),
+                durationMin: dur, excludeId: exclude)) ?? []
+            if Task.isCancelled || token != conflictToken { return }   // stale response
+            conflicts = found
+        }
+    }
+
+    /// Amber overlap card under the Schedule section — up to 3 conflicting sessions
+    /// plus the auto-air queueing note. Rs has no amber token, so it leans on the
+    /// gold/goldDeep pair (the studio's warning hue).
+    @ViewBuilder private var conflictCard: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ForEach(conflicts.prefix(3)) { c in
+                Text(conflictLine(c))
+                    .font(.inter(12.5, .semibold)).foregroundStyle(Rs.gold)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Only one session can be live; this one will start automatically when the frequency frees.")
+                .font(.inter(11)).foregroundStyle(Rs.dim)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Rs.goldDeep.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Rs.goldDeep.opacity(0.4), lineWidth: 1))
+    }
+
+    private func conflictLine(_ c: PortalAPI.ScheduleConflict) -> String {
+        let mins = c.durationMin ?? 60
+        let title = c.title.isEmpty ? "Untitled" : c.title
+        if c.isLive == true {
+            return "⚠︎ Overlaps «\(title)» — on air now · \(mins) min"
+        }
+        let when = c.scheduledAt.flatMap(parseISO).map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "unscheduled"
+        return "⚠︎ Overlaps «\(title)» — \(when) · \(mins) min"
     }
 
     // MARK: Prefill (edit mode)
@@ -169,6 +237,8 @@ struct RadioProgramForm: View {
         if let u = p.audioUrl, !u.isEmpty {
             audioFilename = URL(string: u)?.lastPathComponent ?? "Existing recording"
         }
+        // An already-scheduled session shows its overlap state straight away.
+        if scheduled { scheduleConflictCheck() }
     }
 
     // MARK: Building blocks

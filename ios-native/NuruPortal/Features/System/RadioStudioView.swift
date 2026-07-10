@@ -141,6 +141,7 @@ private final class RadioModel: ObservableObject {
 
     private var pollTask: Task<Void, Never>?
     private var countdownTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
 
     var selected: RadioProgram? { programs.first { $0.id == selectedId } }
 
@@ -273,6 +274,45 @@ private final class RadioModel: ObservableObject {
         }
     }
 
+    // Auto-air freshness: while the studio is open, silently re-pull the program
+    // list every ~30s so a session the backend worker flips live (or defers/ends)
+    // lights up the picker strip + LIVE console without leaving the page.
+    func startAutoRefresh() {
+        guard refreshTask == nil else { return }
+        refreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                if Task.isCancelled { return }
+                await self?.refreshPrograms()
+            }
+        }
+    }
+
+    /// One silent refresh pass — server truth wins, but it never interrupts a local
+    /// countdown or an in-flight action. Edit sheets hold value copies of the
+    /// program (RadioProgramForm prefills once), so swapping `programs` here can
+    /// never clobber an open form.
+    private func refreshPrograms() async {
+        guard let list = try? await PortalAPI.radioPrograms() else { return }
+        programs = list
+        if selectedId == nil || !list.contains(where: { $0.id == selectedId }) {
+            selectedId = list.first(where: { $0.isLive })?.id ?? list.first?.id
+        }
+        guard !busy else { return }
+        if case .countdown = broadcast { return }
+        guard let p = selected else { return }
+        if p.isLive, !broadcast.isLiveOrPaused {
+            // The worker auto-aired the selected session — light up the console.
+            broadcast = .live
+            startLiveWork(p.id)
+        } else if !p.isLive, broadcast.isLiveOrPaused {
+            // Ended from elsewhere (web console / worker) — drop back to idle.
+            broadcast = .idle
+            stopPolling()
+            health = nil
+        }
+    }
+
     // Poll health every ~3s + refresh comments while live.
     private func startLiveWork(_ id: String) {
         stopPolling()
@@ -305,7 +345,11 @@ private final class RadioModel: ObservableObject {
         switch kind { case "heart": hearts += 1; case "amen": amens += 1; default: fires += 1 }
     }
 
-    func teardown() { stopPolling(); countdownTask?.cancel() }
+    func teardown() {
+        stopPolling()
+        countdownTask?.cancel()
+        refreshTask?.cancel(); refreshTask = nil
+    }
 }
 
 // MARK: - ===================== RadioStudioView =====================
@@ -340,7 +384,12 @@ struct RadioStudioView: View {
         .background(Rs.bg.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
-        .task { if !m.loaded { await m.load() } }
+        .task {
+            if !m.loaded { await m.load() }
+            // Restarted on every appear (teardown cancels it on disappear) so
+            // auto-aired sessions light up while the studio is on screen.
+            m.startAutoRefresh()
+        }
         .task { if !library.loaded { await library.load() } }
         // Leaving the studio stops the level-meter monitoring only — a live mic
         // broadcast keeps running (MicBroadcaster is an app-wide singleton; the

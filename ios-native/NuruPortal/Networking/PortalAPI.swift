@@ -200,6 +200,28 @@ enum PortalAPI {
         try await api.get("/radio/programs/\(id)/listeners", as: RadioListenerRoster.self)
     }
 
+    /// One overlapping session from GET /admin/radio/schedule/conflicts (snake_case
+    /// wire; the shared convertFromSnakeCase decoder maps to these camelCase keys).
+    struct ScheduleConflict: Decodable, Identifiable {
+        let id: String
+        let title: String
+        let scheduledAt: String?
+        let durationMin: Int?
+        let status: String?
+        let isLive: Bool?
+    }
+
+    /// Frequency check for the program form — windows are [start, start+duration);
+    /// sessions without a duration are assumed 60 min, a LIVE session projects from
+    /// its live_started_at, and `excludeId` skips the program being edited.
+    static func radioScheduleConflicts(scheduledAt: String, durationMin: Int?, excludeId: String?) async throws -> [ScheduleConflict] {
+        struct Wrapper: Decodable { let conflicts: [ScheduleConflict] }
+        var q: [String: String] = ["scheduled_at": scheduledAt]
+        if let durationMin { q["duration_min"] = String(durationMin) }
+        if let excludeId, !excludeId.isEmpty { q["exclude_id"] = excludeId }
+        return try await api.get("/admin/radio/schedule/conflicts", query: q, as: Wrapper.self).conflicts
+    }
+
     /// Upload a broadcast audio recording to OUR API (self-hosted disk, multipart).
     /// File field is "file" (audio/* only); optional text field `duration_sec`.
     static func uploadRadioAudio(data: Data, filename: String, durationSec: Int? = nil) async throws -> RadioAudioUpload {
@@ -323,5 +345,56 @@ enum PortalAPI {
     }
     static func chatConversation(_ id: String) async throws -> ChatConversationDetail {
         try await api.get("/chat/conversations/\(id)", as: ChatConversationDetail.self)
+    }
+
+    // MARK: Disciples (Discipleship Hub — web DiscipleshipHub.tsx / DisciplesApi)
+    // Roster + dossier are pure read-aggregation (Instructor+, server-scoped to the
+    // caller's disciple set; Admin/SuperAdmin unrestricted, §5.4). The three actions
+    // reuse existing write surfaces: POST /chat/dms + /chat/conversations/{id}/messages,
+    // POST /reviews/levels/{advancementId}/usher, POST /admin/reflections/{id}/decision.
+
+    /// GET /disciples — the leader's roster + triage summary.
+    static func disciplesRoster() async throws -> DiscipleRoster {
+        try await api.get("/disciples", as: DiscipleRoster.self)
+    }
+    /// GET /disciples/{id} — one student's full journey.
+    /// 403 FORBIDDEN_SCOPE if the student is outside the caller's disciple set.
+    static func discipleDossier(_ userId: String) async throws -> DiscipleDossier {
+        try await api.get("/disciples/\(userId)", as: DiscipleDossierEnvelope.self).data
+    }
+    /// Create-or-open a 1:1 DM with a member (portal staff may DM anyone).
+    static func createDm(userId: String) async throws -> String {
+        struct Body: Encodable { let userId: String }
+        struct Ack: Decodable { let conversationId: String }
+        return try await api.post("/chat/dms", body: Body(userId: userId), as: Ack.self).conversationId
+    }
+    /// Send a text message over an existing conversation (idempotent on message_id, §3.6).
+    static func sendChatMessage(_ conversationId: String, text: String) async throws {
+        struct Body: Encodable { let messageId: String; let body: String; let msgType = "text" }
+        struct Ack: Decodable { let messageId: String?; let duplicate: Bool? }
+        _ = try await api.post("/chat/conversations/\(conversationId)/messages",
+                               body: Body(messageId: UUID().uuidString, body: text), as: Ack.self)
+    }
+    /// GET /reviews/levels — pending level advancements the caller may usher
+    /// (cell-scoped; Admin sees all). Used to resolve the ADVANCEMENT id.
+    static func levelReviews() async throws -> [LevelReviewItem] {
+        try await api.get("/reviews/levels", as: DataList<LevelReviewItem>.self).data
+    }
+    /// Usher a member into the next level. NOTE the path param is the advancement
+    /// id from /reviews/levels — NOT the member's user id. Idempotent server-side.
+    static func usherLevel(advancementId: String, note: String?) async throws {
+        struct Ack: Decodable { let status: String?; let advanced: Bool? }
+        var body: [String: String] = [:]
+        let n = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !n.isEmpty { body["note"] = n }
+        _ = try await api.post("/reviews/levels/\(advancementId)/usher", body: body, as: Ack.self)
+    }
+    /// Decide a reflection (approve | return | defer); feedback required to return.
+    static func decideReflection(_ reflectionId: String, decision: String, feedback: String?) async throws {
+        struct Ack: Decodable { let state: String? }
+        var body: [String: String] = ["decision": decision]
+        let fb = feedback?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !fb.isEmpty { body["feedback_notes"] = fb }
+        _ = try await api.post("/admin/reflections/\(reflectionId)/decision", body: body, as: Ack.self)
     }
 }
