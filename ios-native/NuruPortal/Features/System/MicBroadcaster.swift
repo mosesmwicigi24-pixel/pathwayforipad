@@ -289,12 +289,7 @@ final class MicBroadcaster: ObservableObject {
         #if targetEnvironment(macCatalyst)
         Task { [weak self] in
             guard let self else { return }
-            let granted: Bool
-            switch AVAudioApplication.shared.recordPermission {
-            case .granted:  granted = true
-            case .denied:   granted = false
-            default:        granted = await AVAudioApplication.requestRecordPermission()
-            }
+            let granted = await self.requestMicPermission()
             self.permissionDenied = !granted
             self.rescanInputs(autoPrefer: true)
         }
@@ -638,13 +633,30 @@ final class MicBroadcaster: ObservableObject {
 
     // MARK: Permission + audio session
 
-    private func ensurePermission() async -> Bool {
-        let granted: Bool
-        switch AVAudioApplication.shared.recordPermission {
-        case .granted:      granted = true
-        case .denied:       granted = false
-        default:            granted = await AVAudioApplication.requestRecordPermission()
+
+    /// Ask for mic permission through the path that actually reaches the OS.
+    /// Catalyst: AVCaptureDevice — the canonical macOS TCC request (the
+    /// AVAudioApplication shim answers locally, never files with Privacy ▸
+    /// Microphone, so the prompt never appears and the app is never listed).
+    /// iPhone/iPad: AVAudioApplication as before.
+    private func requestMicPermission() async -> Bool {
+        #if targetEnvironment(macCatalyst)
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:            return true
+        case .denied, .restricted:   return false
+        default:                     return await AVCaptureDevice.requestAccess(for: .audio)
         }
+        #else
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:  return true
+        case .denied:   return false
+        default:        return await AVAudioApplication.requestRecordPermission()
+        }
+        #endif
+    }
+
+    private func ensurePermission() async -> Bool {
+        let granted = await requestMicPermission()
         permissionDenied = !granted
         if !granted {
             state = .error("Microphone access denied — enable it in Settings.")
