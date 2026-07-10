@@ -558,17 +558,23 @@ struct RadioStudioView: View {
     //
     // Composed like a broadcast console across the FULL workspace width: the
     // program picker strip and the LIVE status bar span the desk; below them
-    // three top-aligned lanes, each ordered by frequency of use mid-show —
-    //   OPERATE  (~36%)  what the broadcaster touches while on air: audio source
-    //                    (mic / monitor / GO ON MIC) → transport → output meters.
-    //   PROGRAM  (~36%)  what airs: session playlists first, the audio library
-    //                    that feeds them beneath.
-    //   CONTEXT  (~28%)  reference rail: program → session audio → audience →
-    //                    schedule → health → ingest (collapsed) → devices →
-    //                    emergency last.
-    // The lanes split the width via flexible frames (the rail caps at 520pt, so
-    // at full desk the split lands ≈36/36/28; mins only guard tiny windows).
-    // Every panel is the exact same component the iPad stacks vertically.
+    // three top-aligned lanes —
+    //   OPERATE  (~36%)  what the broadcaster touches while on air: transport
+    //                    (broadcast controls) first → audio source (mic sensing /
+    //                    monitor playback / mic boost / GO ON MIC) → output meters.
+    //   PROGRAM  (~36%)  what airs: program card (Edit) → session audio (attach)
+    //                    → Sessions in COMPACT form (5-track preview cards with
+    //                    Loop / Play live / View modal — full management lives on
+    //                    the Uploads & Sessions page).
+    //   CONTEXT  (~28%)  reference rail: live listeners → interactions → stream
+    //                    health (live) → schedule → utility tail (ingest
+    //                    collapsed → devices → emergency last).
+    // The audio-library shelf moved OFF this page entirely — uploads live on the
+    // Mac-only Uploads & Sessions page (the store here still feeds the session
+    // cards' Add track menus). The lanes split the width via flexible frames
+    // (the rail caps at 520pt, so at full desk the split lands ≈36/36/28; mins
+    // only guard tiny windows). Every panel is the exact same component the
+    // iPad stacks vertically.
     @ViewBuilder private func macBody(program: RadioProgram?) -> some View {
         ProgramPickerStrip(programs: m.programs, selectedId: m.selectedId) { m.select($0) }
 
@@ -578,9 +584,8 @@ struct RadioStudioView: View {
             }
 
             HStack(alignment: .top, spacing: MacDesign.gutter) {
-                // OPERATE — mid-show controls, transport above meters.
+                // OPERATE — transport first, then the audio source, meters last.
                 VStack(alignment: .leading, spacing: 16) {
-                    AudioSourcePanel(mic: mic, program: p)
                     BroadcastControlsPanel(
                         broadcast: m.broadcast, busy: m.busy,
                         onGoLive: { m.startCountdown() },
@@ -588,30 +593,31 @@ struct RadioStudioView: View {
                         onPause: { m.togglePause() },
                         onEnd: { m.endBroadcast() }
                     )
+                    AudioSourcePanel(mic: mic, program: p)
                     MeterAndWaveformPanel(active: m.broadcast == .live)
                 }
                 .frame(minWidth: 300, maxWidth: .infinity)
 
-                // PROGRAM — playlists above the library that feeds them.
-                VStack(alignment: .leading, spacing: 16) {
-                    SessionsSection(store: library,
-                                    liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
-                                    nowPlaying: m.health?.nowPlaying)
-                    AudioLibrarySection(store: library)
-                }
-                .frame(minWidth: 320, maxWidth: .infinity)
-
-                // CONTEXT — reference rail; listeners above schedule, emergency last.
+                // PROGRAM — the program itself, its audio, then compact sessions.
                 VStack(alignment: .leading, spacing: 16) {
                     ProgramCard(program: p, onEdit: { editProgram = p })
                     SessionAudioPanel(program: p, busy: m.busy, onAttach: { showAttachImporter = true })
+                    SessionsSection(store: library,
+                                    liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
+                                    nowPlaying: m.health?.nowPlaying,
+                                    compact: true)
+                }
+                .frame(minWidth: 320, maxWidth: .infinity)
+
+                // CONTEXT — reference rail; audience first, emergency last.
+                VStack(alignment: .leading, spacing: 16) {
                     LiveListenersPanel(listeners: m.listeners, count: m.displayListeners, live: m.broadcast.isLiveOrPaused)
                     ReactionsPanel(hearts: m.hearts, amens: m.amens, fires: m.fires, comments: m.comments,
                                    onReact: { m.react($0) }, onRefresh: { m.loadComments() })
-                    SchedulePanel(program: p)
                     if m.broadcast.isLiveOrPaused, let h = m.health {
                         StreamHealthPanel(health: h)
                     }
+                    SchedulePanel(program: p)
                     IngestPanel(program: p, onRotate: { m.rotateKey() }, busy: m.busy)   // collapsed by default
                     DeviceManagerPanel()
                     EmergencyPanel(onEnd: { m.endBroadcast() }, canEnd: m.broadcast.isLiveOrPaused)
@@ -619,17 +625,9 @@ struct RadioStudioView: View {
                 .frame(minWidth: 280, maxWidth: 520)
             }
         } else {
-            // No programs yet — the CTA leads, then the two program-building
-            // surfaces share the desk (never full-width monoliths).
+            // No programs yet — the CTA leads; session/library building lives on
+            // the Uploads & Sessions page now.
             noProgramsPanel
-            HStack(alignment: .top, spacing: MacDesign.gutter) {
-                SessionsSection(store: library,
-                                liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
-                                nowPlaying: m.health?.nowPlaying)
-                    .frame(minWidth: 320, maxWidth: .infinity)
-                AudioLibrarySection(store: library)
-                    .frame(minWidth: 320, maxWidth: .infinity)
-            }
         }
     }
 }
@@ -1821,7 +1819,7 @@ private struct EmergencyPanel: View {
 
 // MARK: - Dark loading / error states
 
-private struct DarkSkeleton: View {
+struct DarkSkeleton: View {
     var body: some View {
         VStack(spacing: 14) {
             ForEach(0..<4, id: \.self) { _ in
@@ -1853,8 +1851,10 @@ struct DarkError: View {
 // Two dark panels wired to the frozen library/playlist contract. A single store
 // owns the library tracks + every session's playlist and drives a lightweight
 // AVQueuePlayer preview that honours the session's loopMode.
+// The store + the two sections are internal (not file-private): the Mac-only
+// Uploads & Sessions page (UploadsSessionsView.swift) reuses them verbatim.
 
-private enum TrackKind: String, CaseIterable, Identifiable {
+enum TrackKind: String, CaseIterable, Identifiable {
     case music, preaching, audio
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
@@ -1867,7 +1867,7 @@ private enum TrackKind: String, CaseIterable, Identifiable {
     }
 }
 
-private enum LoopMode: String, CaseIterable {
+enum LoopMode: String, CaseIterable {
     case none, loop_all, repeat_one
     var label: String {
         switch self {
@@ -1894,7 +1894,7 @@ private enum LoopMode: String, CaseIterable {
 }
 
 @MainActor
-private final class AudioLibraryStore: ObservableObject {
+final class AudioLibraryStore: ObservableObject {
     // Library
     @Published var tracks: [RadioTrack] = []
     @Published var kind: TrackKind = .music
@@ -2163,7 +2163,7 @@ private func fmtDuration(_ sec: Int?) -> String? {
 
 // MARK: - Audio library section
 
-private struct AudioLibrarySection: View {
+struct AudioLibrarySection: View {
     @ObservedObject var store: AudioLibraryStore
     @State private var showImporter = false
     /// Mac only — full-library sheet (never set on iPad).
@@ -2342,12 +2342,17 @@ private struct TrackRow: View {
 
 // MARK: - Sessions section
 
-private struct SessionsSection: View {
+struct SessionsSection: View {
     @ObservedObject var store: AudioLibraryStore
     /// Id of the program currently on air (nil when off air) + the icy `now_playing`
     /// title from the ~3s health poll — used to badge the airing playlist row.
     var liveProgramId: String? = nil
     var nowPlaying: String? = nil
+    /// Mac radio desk only — COMPACT form: hides the create-session field (full
+    /// session management lives on the Uploads & Sessions page); the preview
+    /// cards, Loop / Play live and the View modal keep working. Defaults false,
+    /// so the iPad render (and the Uploads & Sessions page) is unchanged.
+    var compact: Bool = false
     /// Mac only — the session whose full console sheet is open (never set on iPad).
     @State private var viewSession: SessionSheetTarget?
 
@@ -2357,26 +2362,29 @@ private struct SessionsSection: View {
                 StudioHeader(icon: "square.stack.3d.down.right.fill", title: "Sessions",
                              caption: "\(store.sessions.count) session\(store.sessions.count == 1 ? "" : "s")")
 
-                // Create a session
-                HStack(spacing: 10) {
-                    TextField("", text: Binding(get: { store.newSessionName }, set: { store.newSessionName = $0 }),
-                              prompt: Text("New session name…").foregroundColor(Rs.faint))
-                        .font(.inter(12.5)).foregroundStyle(Rs.text)
-                        .padding(.horizontal, 12).frame(height: 36)
-                        .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Rs.border, lineWidth: 1))
-                        .submitLabel(.done)
-                        .onSubmit { store.createSession() }
-                    Button { store.createSession() } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "plus").font(.system(size: 11, weight: .bold))
-                            Text("Create").font(.inter(12, .bold))
-                        }
-                        .foregroundStyle(Color(hex: 0x0A1120))
-                        .padding(.horizontal, 14).frame(height: 36)
-                        .background(Rs.goldFill).clipShape(Capsule())
-                    }.pressable().hoverEffect(.highlight)
-                    .disabled(store.newSessionName.trimmingCharacters(in: .whitespaces).isEmpty)
+                // Create a session (hidden in the Mac desk's compact form — session
+                // creation lives on the Uploads & Sessions page there).
+                if !compact {
+                    HStack(spacing: 10) {
+                        TextField("", text: Binding(get: { store.newSessionName }, set: { store.newSessionName = $0 }),
+                                  prompt: Text("New session name…").foregroundColor(Rs.faint))
+                            .font(.inter(12.5)).foregroundStyle(Rs.text)
+                            .padding(.horizontal, 12).frame(height: 36)
+                            .background(Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Rs.border, lineWidth: 1))
+                            .submitLabel(.done)
+                            .onSubmit { store.createSession() }
+                        Button { store.createSession() } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                                Text("Create").font(.inter(12, .bold))
+                            }
+                            .foregroundStyle(Color(hex: 0x0A1120))
+                            .padding(.horizontal, 14).frame(height: 36)
+                            .background(Rs.goldFill).clipShape(Capsule())
+                        }.pressable().hoverEffect(.highlight)
+                        .disabled(store.newSessionName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
                 }
 
                 // Now previewing line
@@ -2398,7 +2406,9 @@ private struct SessionsSection: View {
                     VStack(spacing: 8) {
                         Image(systemName: "square.stack.3d.down.right").font(.system(size: 24)).foregroundStyle(Rs.faint)
                         Text("No sessions yet").font(.inter(12.5, .semibold)).foregroundStyle(Rs.text)
-                        Text("Name a session above to build a playlist.").font(.inter(11)).foregroundStyle(Rs.dim)
+                        Text(compact ? "Create sessions in Uploads & Sessions."
+                                     : "Name a session above to build a playlist.")
+                            .font(.inter(11)).foregroundStyle(Rs.dim)
                     }.frame(maxWidth: .infinity).padding(.vertical, 22)
                 } else {
                     VStack(spacing: 12) {
