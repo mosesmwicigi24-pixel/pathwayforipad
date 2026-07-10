@@ -188,6 +188,7 @@ struct RootView: View {
         }
         .onAppear {
             MacWindow.enforceMinimumSize() // Catalyst: declare the desktop window floor (no-op on iPad/iPhone)
+            MacWindow.applyPreferredSize() // Catalyst: one-time comfortable default frame (~1560×980, centered)
             visit(router.section, leaving: nil)
         }
         .onChange(of: router.section) { old, new in visit(new, leaving: old) }

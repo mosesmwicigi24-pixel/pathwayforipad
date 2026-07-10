@@ -29,6 +29,27 @@ enum MacDesign {
     static let pageMargin: CGFloat = 28
     /// Minimum sensible window for the console (enforced at scene connect).
     static let minWindow = CGSize(width: 1080, height: 720)
+    /// Comfortable default window on first launch — roomy enough for the
+    /// dashboard's full three-lane composition (clamped to the visible screen).
+    static let preferredWindow = CGSize(width: 1560, height: 980)
+}
+
+// MARK: - Width measurement
+
+extension View {
+    /// Measure this view's laid-out width into a binding via a *background*
+    /// GeometryReader — safe inside vertical ScrollViews, where wrapping the
+    /// content in a GeometryReader would collapse its height. Drives the Mac
+    /// responsive breakpoints (dashboard lanes, `MacLanes` splits).
+    func measureWidth(_ width: Binding<CGFloat>) -> some View {
+        background {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { width.wrappedValue = geo.size.width }
+                    .onChange(of: geo.size.width) { _, w in width.wrappedValue = w }
+            }
+        }
+    }
 }
 
 // MARK: - Content column
@@ -99,4 +120,51 @@ enum MacWindow {
         }
         #endif
     }
+
+    /// One-time comfortable default frame (call right after `enforceMinimumSize`).
+    /// Catalyst's default window is barely wider than the 1080 floor, which lands
+    /// every fresh install in the dashboard's compressed modes. Request a
+    /// desktop-worthy centered frame ONCE per install (UserDefaults flag) —
+    /// afterwards macOS state restoration owns the frame, so we never fight the
+    /// user's own resizing.
+    static func applyPreferredSize() {
+        #if targetEnvironment(macCatalyst)
+        let appliedKey = "mac.window.defaultApplied"
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: appliedKey) else { return }
+        guard #available(macCatalyst 16.0, *) else { return } // requestGeometryUpdate(.Mac)
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return } // no scene yet — retry next launch
+        defaults.set(true, forKey: appliedKey)
+        // Already comfortable (e.g. frame restored from a previous install) — leave it.
+        guard windowScene.effectiveGeometry.systemFrame.width < MacDesign.preferredWindow.width - 60 else { return }
+        windowScene.requestGeometryUpdate(.Mac(systemFrame: preferredFrame(for: windowScene)))
+        #endif
+    }
+
+    #if targetEnvironment(macCatalyst)
+    /// Centered ~1560×980 frame, clamped to the screen's *visible* area (menu
+    /// bar and Dock excluded). NSScreen isn't importable from Catalyst code, but
+    /// AppKit lives in every Catalyst process — reach it via KVC. Fallback:
+    /// grow in place (the window server keeps windows on-screen).
+    @available(macCatalyst 16.0, *)
+    private static func preferredFrame(for windowScene: UIWindowScene) -> CGRect {
+        let target = MacDesign.preferredWindow
+        if let screenClass = NSClassFromString("NSScreen") as AnyObject?,
+           let screen = screenClass.value(forKey: "mainScreen") as? NSObject,
+           let visible = (screen.value(forKey: "visibleFrame") as? NSValue)?.cgRectValue,
+           let full = (screen.value(forKey: "frame") as? NSValue)?.cgRectValue,
+           visible.width > 0, visible.height > 0 {
+            let size = CGSize(width: min(target.width, visible.width),
+                              height: min(target.height, visible.height))
+            // Center in the visible area, then flip Cocoa's bottom-left origin
+            // into the top-left-origin space `.Mac(systemFrame:)` expects.
+            let x = visible.midX - size.width / 2
+            let cocoaY = visible.midY - size.height / 2
+            return CGRect(x: x, y: full.maxY - (cocoaY + size.height),
+                          width: size.width, height: size.height)
+        }
+        return CGRect(origin: windowScene.effectiveGeometry.systemFrame.origin, size: target)
+    }
+    #endif
 }
