@@ -33,13 +33,21 @@ struct UploadsSessionsView: View {
                 } else {
                     // Two top-aligned lanes sharing the workspace width:
                     // SESSIONS (playlist curation) · AUDIO LIBRARY (uploads).
-                    HStack(alignment: .top, spacing: MacDesign.gutter) {
+                    if MacDesign.isMac {
+                        HStack(alignment: .top, spacing: MacDesign.gutter) {
+                            SessionsSection(store: library,
+                                            liveProgramId: liveProgramId,
+                                            nowPlaying: nowPlaying)
+                                .frame(minWidth: 360, maxWidth: .infinity)
+                            AudioLibrarySection(store: library)
+                                .frame(minWidth: 360, maxWidth: .infinity)
+                        }
+                    } else {
+                        // iPad: the lanes stack — portrait can't hold two 360pt lanes.
                         SessionsSection(store: library,
                                         liveProgramId: liveProgramId,
                                         nowPlaying: nowPlaying)
-                            .frame(minWidth: 360, maxWidth: .infinity)
                         AudioLibrarySection(store: library)
-                            .frame(minWidth: 360, maxWidth: .infinity)
                     }
                 }
             }

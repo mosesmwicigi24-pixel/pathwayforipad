@@ -97,8 +97,7 @@ private let navGroups: [NavGroup] = [
     // Uploads & Sessions is Mac-only (MacDesign.isMac is compile-time): the Mac
     // radio desk moved library/session management there; the iPad Radio Studio
     // keeps those sections inline, so its sidebar is unchanged.
-    .init(label: "Media", items: MacDesign.isMac ? [.videoLibrary, .radio, .mixer, .uploadsSessions]
-                                                 : [.videoLibrary, .radio, .mixer]),
+    .init(label: "Media", items: [.videoLibrary, .radio, .mixer, .uploadsSessions]),
     .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .events, .finance, .certificates, .badges]),
     .init(label: "Communication", items: [.chat]),
     .init(label: "System", items: [.peopleIntelligence, .proximity]),

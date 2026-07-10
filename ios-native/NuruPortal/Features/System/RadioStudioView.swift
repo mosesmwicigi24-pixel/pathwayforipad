@@ -489,9 +489,7 @@ struct RadioStudioView: View {
                 LiveStatusBar(program: p, broadcast: m.broadcast, health: m.health, listeners: m.displayListeners)
             }
 
-            // Two console columns collapse to a stack in portrait — fixed, stable rows.
-            AudioSourcePanel(mic: mic, program: p)
-
+            // Transport first, then the mic — mirrors the Mac desk's OPERATE lane.
             BroadcastControlsPanel(
                 broadcast: m.broadcast, busy: m.busy,
                 onGoLive: { m.startCountdown() },
@@ -499,6 +497,8 @@ struct RadioStudioView: View {
                 onPause: { m.togglePause() },
                 onEnd: { m.endBroadcast() }
             )
+
+            AudioSourcePanel(mic: mic, program: p)
         }
 
         // — everything below here is the scroll-down zone —
@@ -511,12 +511,12 @@ struct RadioStudioView: View {
             SessionAudioPanel(program: p, busy: m.busy, onAttach: { showAttachImporter = true })
         }
 
-        // Audio library + Sessions playlists (global to the studio) — see the
-        // frozen /admin/radio/tracks + /programs/:id/tracks contract.
-        AudioLibrarySection(store: library)
+        // Sessions in COMPACT form (5-track previews + the View console modal) —
+        // full playlist + upload management lives on the Uploads & Sessions page.
         SessionsSection(store: library,
                         liveProgramId: m.broadcast.isLiveOrPaused ? m.selectedId : nil,
-                        nowPlaying: m.health?.nowPlaying)
+                        nowPlaying: m.health?.nowPlaying,
+                        compact: true)
 
         if let p = program {
             IngestPanel(program: p, onRotate: { m.rotateKey() }, busy: m.busy)
@@ -2420,7 +2420,7 @@ struct SessionsSection: View {
                                 tracks: store.tracks,
                                 nowPlaying: s.id == liveProgramId ? nowPlaying : nil,
                                 previewItemId: store.previewSessionId == s.id ? store.previewItemId : nil,
-                                previewLimit: MacDesign.isMac ? macLanePreviewCap : nil,
+                                previewLimit: macLanePreviewCap,
                                 onView: MacDesign.isMac ? { viewSession = SessionSheetTarget(id: s.id) } : nil,
                                 onSetLoop: { store.setLoop(s.id, $0) },
                                 onPlay: { store.playLive(s.id) },
@@ -2778,7 +2778,7 @@ private struct SessionConsoleSheet: View {
         }
         .preferredColorScheme(.dark)
         // Desktop-sized so Catalyst presents a big centered window-style modal.
-        .frame(minWidth: 760, idealWidth: 860, minHeight: 640)
+        .frame(minWidth: MacDesign.isMac ? 760 : nil, idealWidth: MacDesign.isMac ? 860 : nil, minHeight: MacDesign.isMac ? 640 : nil)
     }
 
     private var header: some View {
@@ -2862,7 +2862,7 @@ private struct AudioLibrarySheet: View {
         }
         .preferredColorScheme(.dark)
         // Desktop-sized so Catalyst presents a big centered window-style modal.
-        .frame(minWidth: 760, idealWidth: 860, minHeight: 640)
+        .frame(minWidth: MacDesign.isMac ? 760 : nil, idealWidth: MacDesign.isMac ? 860 : nil, minHeight: MacDesign.isMac ? 640 : nil)
     }
 }
 
