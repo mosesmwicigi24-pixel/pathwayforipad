@@ -1166,6 +1166,15 @@ final class MicUplink {
 
     private func encodeAndSend(_ buffer: AVAudioPCMBuffer) {
         guard streaming else { return }
+        // Never ship a backlog: while the connection is still dialing (or mid
+        // retry), skip encoding entirely — otherwise the batch accumulates for
+        // the whole handshake and BURSTS on connect, pegging the engine's mic
+        // buffer at max (constant "dropping content" + ~8s latency). Live radio
+        // wants the freshest audio, not the oldest.
+        guard connection != nil else {
+            if !batch.isEmpty { batch = Data(); batchPackets = 0 }
+            return
+        }
         if let existing = converter, existing.inputFormat != buffer.format { converter = nil }
         if converter == nil { prepareEncoder(from: buffer.format) }
         guard let converter, let aacFormat else { return }
