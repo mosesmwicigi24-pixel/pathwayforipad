@@ -1170,6 +1170,13 @@ final class MicUplink {
             failIfConnected("This input's audio format can't be encoded to AAC.")
             return
         }
+        // Multi-channel interfaces (Midas MR18, Behringer XR18/X32: 18+ USB
+        // channels) — take the FIRST stereo pair (the conventional main-mix
+        // send) via an explicit channel map. Without it the converter either
+        // refuses the format or downmixes 16 silent channels into the mix.
+        if input.channelCount > Self.outChannels {
+            conv.channelMap = (0..<Int(Self.outChannels)).map { NSNumber(value: $0) }
+        }
         conv.bitRate = Self.outBitrate
         aacFormat = out
         converter = conv

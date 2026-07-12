@@ -141,6 +141,33 @@ enum MicProfiles {
                 deviceClass: "XLR interface"),
         Profile(match: "focusrite",      display: "Focusrite Interface",       brand: "Focusrite", glyph: "slider.horizontal.3"),
 
+        // ── Midas / Behringer digital mixers — class-compliant multi-channel
+        //    USB (MR18/XR18: 18×18). The app captures USB channels 1–2 (the
+        //    conventional main-mix send); route the mix there in M-AIR / X AIR.
+        Profile(match: "mr18",           display: "Midas MR18",                brand: "Midas", glyph: "slider.vertical.3",
+                deviceClass: "18-channel digital mixer",
+                hint: "App takes USB ch 1–2 — route your main mix to USB 1–2 in M-AIR."),
+        Profile(match: "mr-18",          display: "Midas MR18",                brand: "Midas", glyph: "slider.vertical.3",
+                deviceClass: "18-channel digital mixer",
+                hint: "App takes USB ch 1–2 — route your main mix to USB 1–2 in M-AIR."),
+        Profile(match: "m32",            display: "Midas M32",                 brand: "Midas", glyph: "slider.vertical.3",
+                deviceClass: "Digital console",
+                hint: "App takes USB ch 1–2 — route the main LR to card outputs 1–2."),
+        Profile(match: "midas",          display: "Midas Mixer",               brand: "Midas", glyph: "slider.vertical.3",
+                deviceClass: "Digital mixer",
+                hint: "App takes USB ch 1–2 — route your mix there on the console."),
+        Profile(match: "xr18",           display: "Behringer XR18",            brand: "Behringer", glyph: "slider.vertical.3",
+                deviceClass: "18-channel digital mixer",
+                hint: "App takes USB ch 1–2 — route your main mix to USB 1–2 in X AIR."),
+        Profile(match: "x air",          display: "Behringer X AIR",           brand: "Behringer", glyph: "slider.vertical.3",
+                deviceClass: "Digital mixer",
+                hint: "App takes USB ch 1–2 — route your main mix to USB 1–2 in X AIR."),
+        Profile(match: "x32",            display: "Behringer X32",             brand: "Behringer", glyph: "slider.vertical.3",
+                deviceClass: "Digital console",
+                hint: "App takes USB ch 1–2 — route the main LR to card outputs 1–2."),
+        Profile(match: "wing",           display: "Behringer WING",            brand: "Behringer", glyph: "slider.vertical.3",
+                deviceClass: "Digital console",
+                hint: "App takes USB ch 1–2 — route the main LR there."),
         // ── Behringer — U-Phoria / UMC budget XLR interfaces ──
         Profile(match: "u-phoria",       display: "Behringer U-Phoria",        brand: "Behringer", glyph: "slider.horizontal.3",
                 deviceClass: "XLR interface", hint: "XLR interface — set gain on the hardware dial; engage +48V for condensers."),
