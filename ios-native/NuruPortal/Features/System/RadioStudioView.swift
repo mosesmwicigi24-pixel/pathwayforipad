@@ -1643,6 +1643,16 @@ private struct AudioSourcePanel: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            // Zero-signal watchdog: streaming digital silence (wrong macOS input
+            // device / unrouted mixer) — dead air with an explanation beats dead air.
+            if let warn = mic.silenceWarning {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "waveform.slash")
+                        .font(.system(size: 10)).foregroundStyle(Rs.gold)
+                    Text(warn).font(.inter(11, .semibold)).foregroundStyle(Rs.gold)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(Color.white.opacity(0.03))

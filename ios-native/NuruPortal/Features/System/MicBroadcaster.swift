@@ -114,6 +114,10 @@ final class MicBroadcaster: ObservableObject {
     /// passes anything unrecognised (including "No input detected") through as-is.
     var currentInputDisplayName: String { MicProfiles.friendlyName(for: currentInputName) }
     @Published private(set) var level: Double = 0          // 0…1 RMS meter
+    /// ON AIR but the input delivers digital silence for a sustained stretch —
+    /// almost always the WRONG macOS input device (or a mixer with nothing
+    /// routed to USB 1-2). Surfaced as an honest banner instead of dead air.
+    @Published private(set) var silenceWarning: String? = nil
     @Published private(set) var state: State = .idle
     @Published private(set) var monitoring = false
     @Published private(set) var permissionDenied = false
@@ -213,6 +217,9 @@ final class MicBroadcaster: ObservableObject {
             monitorMode = mode
         }
 
+        uplink.onSilence = { [weak self] warn in
+            DispatchQueue.main.async { self?.silenceWarning = warn }
+        }
         uplink.onLevel = { [weak self] lvl in
             DispatchQueue.main.async { self?.level = lvl }
         }
@@ -860,8 +867,17 @@ final class MicBroadcaster: ObservableObject {
         // can be refused — and AVAudioEngine captures macOS's system-default
         // input either way, so a session failure must never abort capture.
         // Best-effort only; the engine's own start() is where real errors throw.
-        try? session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers])
-        try? session.setActive(true)
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
+        } catch {
+            // Don't abort (AVAudioEngine can still capture via CoreAudio on the
+            // Mac) — but stop being silent about it: a failed record session is
+            // a prime cause of zero-signal capture.
+            DispatchQueue.main.async { [weak self] in
+                self?.silenceWarning = "Audio session refused (\(error.localizedDescription)) — if the meter stays flat, quit and reopen the app."
+            }
+        }
         // Re-sense with the record session (best-effort) live — the route often
         // names the actual device only once capture is active.
         rescanInputs(autoPrefer: true)
@@ -899,6 +915,12 @@ final class MicUplink {
 
     /// 0…1 RMS level, ~20 Hz, called on the audio tap thread.
     var onLevel: ((Double) -> Void)?
+    /// Zero-signal watchdog: fires a message after ~4s of digital silence while
+    /// streaming (wrong macOS input device / unrouted mixer); nil when signal
+    /// returns. Called on the tap thread — hop to main before publishing.
+    var onSilence: ((String?) -> Void)?
+    private var silentSince: CFAbsoluteTime? = nil
+    private var silenceWarningPending = true
     /// Uplink lifecycle events, called on the uplink queue.
     var onEvent: ((Event) -> Void)?
 
@@ -1014,6 +1036,21 @@ final class MicUplink {
                 let db = 20 * log10(max(rms, 0.000_01))  // floor at -100 dBFS
                 let norm = max(0, min(1, (db + 50) / 50)) // -50 dB → 0 … 0 dB → 1
                 onLevel?(Double(norm))
+                // Silence watchdog: true digital zeros for 4s while streaming =
+                // wrong input device / unrouted mixer — say so instead of dead air.
+                if rms < 0.000_02 {
+                    if silentSince == nil { silentSince = now }
+                    if let t0 = silentSince, now - t0 > 4, silenceWarningPending {
+                        silenceWarningPending = false
+                        onSilence?(MacDesign.isMac
+                            ? "Capturing silence — check System Settings ▸ Sound ▸ Input (right device, level up). On a mixer, route your mix to USB 1–2."
+                            : "Capturing silence — check the mic's connection and gain.")
+                    }
+                } else if silentSince != nil {
+                    silentSince = nil
+                    silenceWarningPending = true
+                    onSilence?(nil)
+                }
             }
         }
         net.async { [weak self] in self?.encodeAndSend(buffer) }
@@ -1134,8 +1171,13 @@ final class MicUplink {
         guard let converter, let aacFormat else { return }
 
         var fed = false
+        // Size the output for the WHOLE callback: Catalyst taps can deliver
+        // several times the iPad's frame count per callback — a fixed 8-packet
+        // capacity dropped the overflow (sub-realtime feed → the engine's
+        // harbor buffer starved and the broadcast stayed silent).
+        let neededPackets = AVAudioPacketCount(max(8, Int(buffer.frameLength) / 1024 + 4))
         while true {
-            let out = AVAudioCompressedBuffer(format: aacFormat, packetCapacity: 8,
+            let out = AVAudioCompressedBuffer(format: aacFormat, packetCapacity: neededPackets,
                                               maximumPacketSize: max(converter.maximumOutputPacketSize, 1))
             var convError: NSError?
             let status = converter.convert(to: out, error: &convError) { _, inputStatus in
