@@ -20,7 +20,6 @@ import {
   Clock,
   Download,
   Eye,
-  Filter,
   Image as ImageIcon,
   Mail,
   MapPin,
@@ -426,7 +425,10 @@ function Field({ label, children, hint }: { label: string; children: ReactNode; 
 
 function Card({ children, padded = true, className = "" }: { children: ReactNode; padded?: boolean; className?: string }): ReactElement {
   return (
-    <div className={`rounded-2xl ${className}`} style={{ background: "var(--card)", border: "1px solid var(--border)", padding: padded ? 20 : 0 }}>
+    <div
+      className={`rounded-2xl ${className}`}
+      style={{ background: "var(--card)", border: "1px solid var(--border)", padding: padded ? 20 : 0, boxShadow: "0 1px 3px rgba(11,31,51,0.05)" }}
+    >
       {children}
     </div>
   );
@@ -453,15 +455,47 @@ function Metric({ label, value, color }: { label: string; value: string; color: 
   );
 }
 
-function InsightCard({ label, value, hint, trend }: { label: string; value: string; hint: string; trend: "up" | "down" }): ReactElement {
-  return (
-    <div className="rounded-xl p-4" style={{ background: "var(--secondary)" }}>
-      <div className="flex items-center justify-between">
-        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
-        <TrendingUp size={12} style={{ color: trend === "up" ? "#15803D" : "#B91C1C", transform: trend === "down" ? "scaleY(-1)" : undefined }} />
+// One compact tinted tile, shared by the merged "Insights & follow-up" row.
+// Mirrors the iPad: a small tinted icon chip, a big value, an overline label,
+// and a tiny hint. Tappable when an onClick is supplied (follow-up cards).
+function MergedTile({
+  icon,
+  value,
+  label,
+  hint,
+  tintBg,
+  tintFg,
+  onClick,
+}: {
+  icon: ReactNode;
+  value: string;
+  label: string;
+  hint: string;
+  tintBg: string;
+  tintFg: string;
+  onClick?: () => void;
+}): ReactElement {
+  const inner = (
+    <>
+      <div className="rounded-xl flex items-center justify-center" style={{ width: 30, height: 30, background: tintBg, color: tintFg }}>
+        {icon}
       </div>
-      <div style={{ fontFamily: "var(--font-display)", fontSize: 26, color: "var(--foreground)", marginTop: 4, lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 4 }}>{hint}</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)", lineHeight: 1, marginTop: 8 }}>{value}</div>
+      <div style={{ fontSize: 9.5, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.4, marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
+      <div style={{ fontSize: 10.5, color: "var(--muted-foreground)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{hint}</div>
+    </>
+  );
+  const baseStyle = { background: "var(--secondary)", border: "1px solid var(--border)", padding: 12, minWidth: 0 } as const;
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className="rounded-xl text-left flex flex-col" style={{ ...baseStyle, cursor: "pointer" }}>
+        {inner}
+      </button>
+    );
+  }
+  return (
+    <div className="rounded-xl flex flex-col" style={baseStyle}>
+      {inner}
     </div>
   );
 }
@@ -1238,6 +1272,24 @@ export function Events(): ReactElement {
             </div>
           </div>
 
+          {/* Insights & follow-up — one row of compact tinted tiles (4 insights +
+              4 follow-up), matching the iPad. Percentages/counts are display-only
+              until the insights/follow-up endpoints land; tap a follow-up tile to
+              open the announcement composer. */}
+          <Card className="mb-5">
+            <SectionHeader title="Insights & follow-up" subtitle="Patterns across recent occurrences and who needs care" />
+            <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(8, minmax(0, 1fr))" }}>
+              <MergedTile icon={<CheckCircle2 size={15} />} value={String(checkedThisWeek)} label="Checked in" hint="Recent events" tintBg="var(--tint-green-bg)" tintFg="var(--tint-green-fg)" />
+              <MergedTile icon={<CalendarDays size={15} />} value={String(recent.length)} label="Recent events" hint="Last 8 weeks" tintBg="var(--tint-navy-bg)" tintFg="var(--tint-navy-fg)" />
+              <MergedTile icon={<TrendingUp size={15} />} value="74%" label="RSVP conversion" hint="RSVP → attended" tintBg="var(--tint-green-bg)" tintFg="var(--tint-green-fg)" />
+              <MergedTile icon={<TrendingUp size={15} style={{ transform: "scaleY(-1)" }} />} value="23" label="Follow-up needed" hint="RSVP'd, absent" tintBg="var(--tint-rose-bg)" tintFg="var(--tint-rose-fg)" />
+              <MergedTile icon={<AlertCircle size={15} />} value="23" label="RSVP'd absent" hint="members" tintBg="var(--tint-rose-bg)" tintFg="var(--tint-rose-fg)" onClick={() => setShowCreateAnnouncement(true)} />
+              <MergedTile icon={<UserPlus size={15} />} value="12" label="First-time guests" hint="members" tintBg="var(--tint-green-bg)" tintFg="var(--tint-green-fg)" onClick={() => setShowCreateAnnouncement(true)} />
+              <MergedTile icon={<ShieldCheck size={15} />} value="5" label="Manual check-ins" hint="members" tintBg="var(--tint-gold-bg)" tintFg="var(--tint-gold-fg)" onClick={() => setShowCreateAnnouncement(true)} />
+              <MergedTile icon={<Users size={15} />} value="48" label="No response" hint="members" tintBg="var(--secondary)" tintFg="var(--muted-foreground)" onClick={() => setShowCreateAnnouncement(true)} />
+            </div>
+          </Card>
+
           {/* Calendar + Today panel */}
           <div className="grid gap-5 mb-5" style={{ gridTemplateColumns: "1fr 360px" }}>
             <Card padded={false}>
@@ -1344,20 +1396,34 @@ export function Events(): ReactElement {
                 {todayOccurrences.length === 0 ? (
                   <EmptyState icon={<CalendarDays size={20} />} title="Nothing scheduled today" body="When events are scheduled for today they appear here as a timeline." cta="Create event" onCta={() => setShowCreateEvent(true)} />
                 ) : (
-                  todayOccurrences.map((o) => (
-                    <button key={o.id} onClick={() => setDrawerOccId(o.id)} className="rounded-xl text-left p-3 transition-colors" style={{ background: "var(--secondary)", border: "1px solid var(--border)" }}>
-                      <div className="flex items-start gap-3">
-                        <div className="rounded-md shrink-0" style={{ width: 4, height: 44, background: CATEGORY_META[o.category].color }} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--foreground)", fontFamily: "var(--font-mono)" }}>{o.time}</span>
+                  // Even, equal-height flow rows: a fixed tinted date/time chip on the
+                  // left, then title / location / inline action chips — matching the iPad.
+                  todayOccurrences.map((o) => {
+                    const d = new Date(o.startsAt);
+                    return (
+                      <button
+                        key={o.id}
+                        onClick={() => setDrawerOccId(o.id)}
+                        className="rounded-xl text-left flex items-stretch gap-3 p-3"
+                        style={{ background: "var(--secondary)", border: "1px solid var(--border)", minHeight: 96 }}
+                      >
+                        <div
+                          className="rounded-xl flex flex-col items-center justify-center shrink-0"
+                          style={{ width: 58, background: CATEGORY_META[o.category].soft, color: CATEGORY_META[o.category].color }}
+                        >
+                          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.4 }}>{d.toLocaleDateString("en-US", { month: "short" }).toUpperCase()}</span>
+                          <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--font-mono)", lineHeight: 1.1 }}>{d.getDate()}</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "var(--font-mono)" }}>{o.time.split(" ")[0]}</span>
+                        </div>
+                        <div className="flex-1 min-w-0 flex flex-col">
+                          <div className="flex items-center justify-between gap-2">
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.title}</span>
                             <StatusPill status="scheduled" />
                           </div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)", marginTop: 2 }}>{o.title}</div>
                           <div className="flex items-center gap-1.5 mt-1" style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
                             <MapPin size={10} /> {o.location}
                           </div>
-                          <div className="flex items-center gap-1.5 mt-2">
+                          <div className="flex items-center gap-1.5 mt-auto pt-2">
                             <span
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1378,11 +1444,21 @@ export function Events(): ReactElement {
                             >
                               <Users size={10} /> Attendance
                             </span>
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setManualCheckinFor(o.id);
+                              }}
+                              className="flex items-center gap-1 rounded-md px-2 py-1"
+                              style={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 10, fontWeight: 600, color: "var(--foreground)", cursor: "pointer" }}
+                            >
+                              <CheckCircle2 size={10} /> Check in
+                            </span>
                           </div>
                         </div>
-                      </div>
-                    </button>
-                  ))
+                      </button>
+                    );
+                  })
                 )}
               </div>
             </Card>
@@ -1391,15 +1467,7 @@ export function Events(): ReactElement {
           {/* Upcoming + Series */}
           <div className="grid gap-5 mb-5" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <Card>
-              <SectionHeader
-                title="Upcoming events"
-                subtitle="Next scheduled occurrences across all series"
-                action={
-                  <button className="flex items-center gap-1 rounded-md px-2 py-1" style={{ fontSize: 11, color: "var(--muted-foreground)", background: "var(--secondary)", border: "none" }}>
-                    <Filter size={11} /> Filter
-                  </button>
-                }
-              />
+              <SectionHeader title="Upcoming events" subtitle="Next scheduled occurrences across all series" />
               <div className="flex flex-col">
                 {upcoming.length === 0 ? (
                   <EmptyState icon={<CalendarDays size={20} />} title="No events scheduled yet" body="Create your first event to begin managing RSVP, reminders, and attendance." cta="Create event" onCta={() => setShowCreateEvent(true)} />
@@ -1458,7 +1526,7 @@ export function Events(): ReactElement {
                               <div className="flex items-center gap-2">
                                 <span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{s.title}</span>
                                 {paused ? (
-                                  <span className="rounded-full px-2 py-0.5" style={{ background: "#FEE2E2", color: "#B91C1C", fontSize: 9, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>Paused</span>
+                                  <span className="rounded-full px-2 py-0.5" style={{ background: "#FFE6D2", color: "#9A3412", fontSize: 9, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>Paused</span>
                                 ) : (
                                   <span className="rounded-full px-2 py-0.5" style={{ background: "#DCF7E4", color: "#15803D", fontSize: 9, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>Active</span>
                                 )}
@@ -1498,7 +1566,7 @@ export function Events(): ReactElement {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 <span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{s.title}</span>
-                                <span className="rounded-full px-2 py-0.5" style={{ background: "#FEE2E2", color: "#B91C1C", fontSize: 9, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>Paused</span>
+                                <span className="rounded-full px-2 py-0.5" style={{ background: "#FFE6D2", color: "#9A3412", fontSize: 9, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>Paused</span>
                               </div>
                               <div className="flex items-center gap-2 mt-0.5" style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
                                 <Pause size={10} /> Future occurrences hidden
@@ -1525,8 +1593,8 @@ export function Events(): ReactElement {
             </Card>
           </div>
 
-          {/* Announcements + QR panel */}
-          <div className="grid gap-5 mb-5" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
+          {/* Announcements (full width, matching the iPad) */}
+          <div className="mb-5">
             <Card>
               <SectionHeader
                 title="Announcements"
@@ -1540,7 +1608,7 @@ export function Events(): ReactElement {
               {announcements.length === 0 ? (
                 <EmptyState icon={<Bell size={20} />} title="No announcements yet" body="Send updates, reminders, and event notices to the right audience." cta="Create announcement" onCta={() => setShowCreateAnnouncement(true)} />
               ) : (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
                   {announcements.map((a) => (
                     <button key={a.announcement_id} onClick={() => setAnnouncementDrawerId(a.announcement_id)} className="text-left rounded-xl p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                       <div className="flex items-start justify-between mb-2">
@@ -1573,8 +1641,10 @@ export function Events(): ReactElement {
                 </div>
               )}
             </Card>
+          </div>
 
-            {/* Live QR panel — secret/counts are display-only until the QR endpoint lands */}
+          {/* Live QR panel — secret/counts are display-only until the QR endpoint lands */}
+          <div className="grid gap-5 mb-5" style={{ gridTemplateColumns: "minmax(0, 360px)" }}>
             <Card padded={false}>
               <div className="px-5 py-4" style={{ background: "var(--nuru-navy)", color: "#fff", borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
                 <div className="flex items-center justify-between mb-1">
@@ -1613,62 +1683,9 @@ export function Events(): ReactElement {
             </Card>
           </div>
 
-          {/* Moments — curated gallery for the mobile Events tab carousel */}
-          <div className="mb-5">
-            <MomentsCard />
-          </div>
-
-          {/* Insights + Follow-up */}
-          <div className="grid gap-5 mb-5" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <Card>
-              <SectionHeader title="Event insights" subtitle="Patterns across recent occurrences" />
-              {/* display-only percentages (no insights endpoint yet) — seeded from recent attendance where possible */}
-              <div className="grid grid-cols-2 gap-3">
-                <InsightCard label="Checked in" value={String(checkedThisWeek)} hint="Across recent events" trend="up" />
-                <InsightCard label="Recent events" value={String(recent.length)} hint="Last 8 weeks" trend="up" />
-                <InsightCard label="RSVP conversion" value="74%" hint="RSVP members checked in" trend="up" />
-                <InsightCard label="Follow-up needed" value="23" hint="RSVP'd but did not attend" trend="down" />
-              </div>
-            </Card>
-
-            <Card>
-              <SectionHeader
-                title="Follow-up queue"
-                subtitle="From recent events — connect attendance to discipleship care"
-                action={
-                  <button className="flex items-center gap-1 rounded-md px-2 py-1" style={{ fontSize: 11, color: "var(--muted-foreground)", background: "var(--secondary)", border: "none" }}>
-                    <Download size={11} /> Export
-                  </button>
-                }
-              />
-              {/* display-only counts (no follow-up endpoint yet) */}
-              <div className="flex flex-col">
-                {[
-                  { label: "RSVP'd but absent", count: 23, icon: <AlertCircle size={14} />, color: "#B91C1C" },
-                  { label: "First-time guests", count: 12, icon: <UserPlus size={14} />, color: "#15803D" },
-                  { label: "Manual check-ins", count: 5, icon: <ShieldCheck size={14} />, color: "#A87616" },
-                  { label: "No response", count: 48, icon: <Users size={14} />, color: "#6B7280" },
-                ].map((r, i) => (
-                  <div key={r.label} className="flex items-center gap-3 py-3" style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
-                    <div className="rounded-lg flex items-center justify-center" style={{ width: 32, height: 32, background: "var(--secondary)", color: r.color }}>{r.icon}</div>
-                    <div className="flex-1">
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{r.label}</div>
-                      <div style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
-                        <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--foreground)" }}>{r.count}</span> members
-                      </div>
-                    </div>
-                    <button onClick={() => setShowCreateAnnouncement(true)} className="flex items-center gap-1 rounded-md px-3 py-1.5" style={{ background: "var(--nuru-navy)", color: "#fff", fontSize: 11, fontWeight: 600, border: "none" }}>
-                      <Send size={11} /> Send follow-up
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-
           {/* Recent attendance (real) */}
           {recent.length > 0 && (
-            <Card padded={false}>
+            <Card padded={false} className="mb-5">
               <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
                 <span style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--foreground)" }}>Recent attendance</span>
                 <span style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}>last 8 weeks</span>
@@ -1696,6 +1713,11 @@ export function Events(): ReactElement {
               </div>
             </Card>
           )}
+
+          {/* Moments — curated gallery for the mobile Events tab carousel (final card) */}
+          <div className="mb-5">
+            <MomentsCard />
+          </div>
 
           <div className="text-center mt-6" style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
             Nuru Events Command Center · All times in East Africa Time (UTC+3)

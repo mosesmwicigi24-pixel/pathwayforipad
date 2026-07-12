@@ -6,9 +6,9 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Plus, Search, BookOpen, CheckCircle2, Clock, ChevronRight, MoreHorizontal,
+  Plus, Search, BookOpen, CheckCircle2, ChevronRight, MoreHorizontal,
   ExternalLink, Lock, Unlock, FileText, Video, HelpCircle, Sparkles,
-  Users, TrendingUp, Calendar, Download, Printer, Filter, Activity, Zap, PenLine,
+  Users, TrendingUp, Activity, Zap, PenLine,
   Eye, Send, Award, BarChart3, RotateCcw, Pencil, X, Check,
 } from "lucide-react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
@@ -50,7 +50,6 @@ export function CmsCurriculum(): ReactElement {
   const [search, setSearch] = useState("");
   const [selectedNo, setSelectedNo] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState<"All" | Status>("All");
-  const [reportTab, setReportTab] = useState<"Overview" | "Modules" | "Engagement">("Overview");
   const [modules, setModules] = useState<AdminModuleSummary[]>([]);
   const [activity, setActivity] = useState<AuditRow[]>([]);
   const [modalMode, setModalMode] = useState<{ type: "add" } | { type: "edit"; level: UiLevel } | null>(null);
@@ -142,17 +141,18 @@ export function CmsCurriculum(): ReactElement {
     { label: "Drafts", value: String(drafts), hint: "in progress" },
     { label: "Active learners", value: totalLearners.toLocaleString(), hint: "across pathway" },
   ];
+  // Brand triad, no decorative blue: bright green · gold · neutral ink for drafts (matches iPad).
   const donutData = [
-    { name: "Published", value: published, color: "#0F6B33" },
-    { name: "In Review", value: inReview, color: "#C89B3C" },
-    { name: "Drafts", value: drafts, color: "#1F3A6B" },
+    { name: "Published", value: published, color: "#22c55e" },
+    { name: "In Review", value: inReview, color: "#c89b3c" },
+    { name: "Drafts", value: drafts, color: "#94a3b8" },
   ];
   const totalLevels = donutData.reduce((s, d) => s + d.value, 0);
   const moduleData = useMemo(() => levels.map((l) => ({ name: `L${l.number}`, modules: l.modules, done: l.completedModules })), [levels]);
   const pipelineStages = [
     { label: "Drafts", value: drafts, hint: "in authoring", tint: "tint-amber", Icon: PenLine },
     { label: "In review", value: inReview, hint: "awaiting approval", tint: "tint-blue", Icon: Eye },
-    { label: "Locked", value: levels.filter((l) => l.locked).length, hint: "not yet open", tint: "tint-red", Icon: Send },
+    { label: "Locked", value: levels.filter((l) => l.locked).length, hint: "not yet open", tint: "tint-violet", Icon: Send },
     { label: "Live", value: published, hint: "across pathway", tint: "tint-green", Icon: Award },
   ];
 
@@ -222,41 +222,53 @@ export function CmsCurriculum(): ReactElement {
             </div>
           </div>
 
-          {/* Pathway report */}
+          {/* Quick actions — one compact row, moved up ahead of the report (matches iPad) */}
+          <div className="rounded-2xl mb-5" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "16px 18px" }}>
+            <div className="flex items-center gap-2 mb-3"><Zap size={14} style={{ color: "var(--nuru-gold)" }} /><span className="nuru-section-title">Quick actions</span></div>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {[
+                { label: "New Level", Icon: Plus, tint: "tint-green", fn: () => setModalMode({ type: "add" }) },
+                { label: "Editor", Icon: BookOpen, tint: "tint-blue", fn: () => navigate("/level-detail") },
+                { label: "Quiz", Icon: HelpCircle, tint: "tint-violet", fn: () => navigate("/quiz-builder") },
+                { label: "Video", Icon: Video, tint: "tint-amber", fn: () => navigate("/video-library") },
+                { label: "Reflect", Icon: FileText, tint: "tint-green", fn: () => navigate("/reflection-queue") },
+                { label: "Refresh", Icon: RotateCcw, tint: "tint-blue", fn: () => void loadLevels() },
+              ].map(({ label, Icon, tint, fn }) => (
+                <button key={label} onClick={fn} className="flex flex-col items-center gap-1.5 rounded-xl px-2 py-2.5 transition-colors hover:bg-[var(--secondary)]" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                  <div className={`flex items-center justify-center rounded-lg ${tint}`} style={{ width: 30, height: 30 }}><Icon size={14} /></div>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--nuru-navy)" }}>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Pathway report — Status mix · Breakdown · Modules per level · Engagement,
+              all shown together as small cards (no tab switcher), matching the iPad. */}
           <div className="rounded-2xl mb-5" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "18px 20px" }}>
-            <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
-              <div>
-                <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--nuru-navy)", lineHeight: 1.15 }}>Pathway report</h2>
-                <p style={{ fontSize: 12.5, color: "var(--muted-foreground)", marginTop: 2 }}>Authoring progress, status mix and modules across all levels.</p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button onClick={() => window.print()} className="flex items-center gap-1.5 rounded-lg px-3" style={{ height: 32, border: "1px solid var(--border)", background: "var(--card)", fontSize: 12, fontWeight: 600, color: "var(--nuru-navy)" }}><Download size={12} /> Export</button>
-                <button onClick={() => window.print()} className="flex items-center gap-1.5 rounded-lg px-3" style={{ height: 32, border: "1px solid var(--border)", background: "var(--card)", fontSize: 12, fontWeight: 600, color: "var(--nuru-navy)" }}><Printer size={12} /> Print</button>
-                <button className="flex items-center gap-1.5 rounded-lg px-3" style={{ height: 32, border: "1px solid var(--border)", background: "var(--card)", fontSize: 12, fontWeight: 600, color: "var(--nuru-navy)" }}><Filter size={12} /> Filters</button>
-                <span className="nuru-date-pill"><Calendar size={12} /> All time</span>
-              </div>
+            <div className="mb-4">
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--nuru-navy)", lineHeight: 1.15 }}>Pathway report</h2>
+              <p style={{ fontSize: 12.5, color: "var(--muted-foreground)", marginTop: 2 }}>Status mix, breakdown, modules and engagement — all in one view.</p>
             </div>
-            <div className="nuru-tabs mb-4">
-              {(["Overview", "Modules", "Engagement"] as const).map((t) => <button key={t} className="nuru-tab" data-active={reportTab === t} onClick={() => setReportTab(t)}>{t}</button>)}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              {/* Status mix */}
               <div className="rounded-xl" style={{ border: "1px solid var(--border)", padding: "14px 16px", background: "var(--secondary)" }}>
                 <div className="nuru-eyebrow mb-2">Status mix</div>
-                <div className="relative" style={{ height: 160 }}>
+                <div className="relative" style={{ height: 150 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={donutData} dataKey="value" innerRadius={48} outerRadius={70} paddingAngle={2} stroke="none">
+                      <Pie data={donutData} dataKey="value" innerRadius={44} outerRadius={66} paddingAngle={2} stroke="none">
                         {donutData.map((d) => <Cell key={d.name} fill={d.color} />)}
                       </Pie>
                       <Tooltip />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span style={{ fontFamily: "var(--font-display)", fontSize: 26, color: "var(--nuru-navy)", lineHeight: 1 }}>{totalLevels}</span>
-                    <span style={{ fontSize: 10.5, color: "var(--muted-foreground)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, marginTop: 2 }}>Levels</span>
+                    <span style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--nuru-navy)", lineHeight: 1 }}>{totalLevels}</span>
+                    <span style={{ fontSize: 10, color: "var(--muted-foreground)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, marginTop: 2 }}>Levels</span>
                   </div>
                 </div>
               </div>
+              {/* Breakdown */}
               <div className="rounded-xl" style={{ border: "1px solid var(--border)", padding: "14px 16px", background: "var(--secondary)" }}>
                 <div className="nuru-eyebrow mb-3">Breakdown</div>
                 <div className="flex flex-col gap-3">
@@ -274,18 +286,42 @@ export function CmsCurriculum(): ReactElement {
                   })}
                 </div>
               </div>
+              {/* Modules per level */}
               <div className="rounded-xl" style={{ border: "1px solid var(--border)", padding: "14px 16px", background: "var(--secondary)" }}>
                 <div className="flex items-center justify-between mb-2"><div className="nuru-eyebrow">Modules per level</div><BarChart3 size={12} style={{ color: "var(--muted-foreground)" }} /></div>
-                <div style={{ height: 160 }}>
+                <div style={{ height: 150 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={moduleData} barCategoryGap={8}>
                       <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10.5, fill: "var(--muted-foreground)" }} />
                       <YAxis hide />
                       <Tooltip cursor={{ fill: "rgba(11,31,51,0.04)" }} />
                       <Bar dataKey="modules" fill="#F4E4BD" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="done" fill="#C89B3C" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="done" fill="#22c55e" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
+                </div>
+              </div>
+              {/* Engagement — two summary stats + per-level learners list */}
+              <div className="rounded-xl" style={{ border: "1px solid var(--border)", padding: "14px 16px", background: "var(--secondary)" }}>
+                <div className="nuru-eyebrow mb-2">Engagement</div>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div className="rounded-lg flex items-center gap-2" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "8px 10px" }}>
+                    <div className="flex items-center justify-center rounded-md shrink-0" style={{ width: 26, height: 26, background: "rgba(34,197,94,0.14)", color: "#16a34a" }}><Users size={13} /></div>
+                    <div className="min-w-0"><div style={{ fontFamily: "var(--font-display)", fontSize: 15, color: "var(--nuru-navy)", lineHeight: 1 }}>{totalLearners.toLocaleString()}</div><div className="nuru-eyebrow" style={{ fontSize: 9 }}>Learners</div></div>
+                  </div>
+                  <div className="rounded-lg flex items-center gap-2" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "8px 10px" }}>
+                    <div className="flex items-center justify-center rounded-md shrink-0" style={{ width: 26, height: 26, background: "rgba(200,155,60,0.16)", color: "#c89b3c" }}><Award size={13} /></div>
+                    <div className="min-w-0"><div style={{ fontFamily: "var(--font-display)", fontSize: 15, color: "var(--nuru-navy)", lineHeight: 1 }}>{levels.reduce((s, l) => s + l.completedModules, 0)}</div><div className="nuru-eyebrow" style={{ fontSize: 9 }}>Live</div></div>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {levels.map((l) => (
+                    <div key={l.number} className="flex items-center gap-2">
+                      <span className="rounded-md text-center shrink-0" style={{ width: 24, fontSize: 9.5, fontWeight: 800, color: "#fff", background: l.color, padding: "2px 0" }}>L{l.number}</span>
+                      <span style={{ flex: 1, fontSize: 11.5, fontWeight: 500, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.title}</span>
+                      <span className="flex items-center gap-1 shrink-0" style={{ fontSize: 10.5, fontWeight: 600, color: "var(--muted-foreground)" }}><Users size={10} /> {l.learners.toLocaleString()}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -301,104 +337,67 @@ export function CmsCurriculum(): ReactElement {
             <button onClick={() => navigate("/curriculum-levels")} className="flex items-center gap-1" style={{ fontSize: 12, color: "var(--nuru-gold)", fontWeight: 600, background: "none", border: "none" }}>View all <ChevronRight size={12} /></button>
           </div>
 
-          {/* Pathway track */}
-          <div className="relative">
-            <div className="absolute" style={{ left: 27, top: 44, bottom: 44, width: 2, background: "linear-gradient(to bottom, var(--nuru-gold) 0%, rgba(200,155,60,0.2) 100%)", zIndex: 0 }} />
-            <div className="flex flex-col gap-4 relative">
-              {filtered.map((level) => {
-                const ss = statusStyle[level.status];
-                const progress = level.modules > 0 ? Math.round((level.completedModules / level.modules) * 100) : 0;
-                return (
-                  <div key={level.number} className="flex gap-5 items-start">
-                    <div className="flex items-center justify-center rounded-full shrink-0 relative z-10" style={{ width: 56, height: 56, background: level.locked ? "var(--muted)" : level.color, color: "#fff", fontFamily: "var(--font-display)", fontSize: 22, boxShadow: level.locked ? "none" : `0 0 0 4px ${level.color}22, 0 4px 14px ${level.color}44`, border: level.locked ? "2px dashed var(--border)" : "none" }}>
-                      {level.locked ? <Lock size={18} style={{ color: "var(--muted-foreground)" }} /> : level.number}
+          {/* Pathway — level list as compact cards in a 3-up grid (was a vertical timeline). */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
+            {filtered.map((level) => {
+              const ss = statusStyle[level.status];
+              const progress = level.modules > 0 ? Math.round((level.completedModules / level.modules) * 100) : 0;
+              return (
+                <div key={level.number} className="rounded-2xl cursor-pointer transition-all hover:-translate-y-0.5" style={{ background: "var(--card)", border: selectedNo === level.number ? `2px solid ${level.color}` : "1px solid var(--border)", boxShadow: selectedNo === level.number ? `0 8px 22px ${level.color}22` : "0 1px 2px rgba(11,31,51,0.03)", padding: 14 }} onClick={() => { setSelectedNo(level.number); setAddingModule(false); }}>
+                  {/* Header: monogram + eyebrow + status pill */}
+                  <div className="flex items-start gap-2.5">
+                    <div className="flex items-center justify-center rounded-full shrink-0" style={{ width: 36, height: 36, background: level.locked ? "var(--muted)" : level.color, color: "#fff", fontFamily: "var(--font-display)", fontSize: 16, boxShadow: level.locked ? "none" : `0 2px 8px ${level.color}44`, border: level.locked ? "2px dashed var(--border)" : "none" }}>
+                      {level.locked ? <Lock size={13} style={{ color: "var(--muted-foreground)" }} /> : level.number}
                     </div>
-                    <div className="flex-1 rounded-2xl overflow-hidden cursor-pointer" style={{ background: "var(--card)", border: selectedNo === level.number ? `2px solid ${level.color}` : "1px solid var(--border)", boxShadow: selectedNo === level.number ? `0 0 0 3px ${level.color}18` : "0 1px 2px rgba(11,31,51,0.03)" }} onClick={() => { setSelectedNo(level.number); setAddingModule(false); }}>
-                      <div style={{ height: 2, background: level.locked ? "var(--border)" : level.color }} />
-                      <div className="grid grid-cols-1 md:grid-cols-[1.05fr_1.4fr]">
-                        <div style={{ padding: "14px 16px", borderRight: "1px solid var(--border)" }}>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <div className="flex items-center gap-1.5"><span style={{ fontSize: 10, fontWeight: 700, color: level.color, letterSpacing: "0.1em", textTransform: "uppercase" }}>Level {level.number}</span>{level.locked ? <Lock size={9} style={{ color: "var(--muted-foreground)" }} /> : null}</div>
-                            <span className="rounded-full px-2 py-0.5" style={{ fontSize: 10, fontWeight: 700, background: ss.bg, color: ss.color, letterSpacing: "0.04em" }}>{level.status}</span>
-                          </div>
-                          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--nuru-navy)", lineHeight: 1.15, letterSpacing: "-0.01em" }}>{level.title}</h3>
-                          <p style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 3, lineHeight: 1.4 }}>{level.theme || "—"}</p>
-                          <div className="flex items-center gap-3 mt-3">
-                            <div className="flex items-center gap-1" style={{ fontSize: 11, color: "var(--muted-foreground)" }}><Clock size={11} /> {level.duration}</div>
-                            <div className="flex items-center gap-1" style={{ fontSize: 11, color: "var(--muted-foreground)" }}><Users size={11} /> {level.learners.toLocaleString()}</div>
-                          </div>
-                          <div className="flex items-center gap-2 mt-3 flex-wrap">
-                            <button onClick={(e) => { e.stopPropagation(); if (!level.locked) navigate(`/cms/level/${level.number}`); }} className="flex items-center gap-1 rounded-lg px-3" style={{ height: 30, background: level.locked ? "var(--muted)" : "var(--nuru-navy)", color: level.locked ? "var(--muted-foreground)" : "#fff", fontSize: 11.5, fontWeight: 600, border: "none", cursor: level.locked ? "not-allowed" : "pointer" }}><ExternalLink size={11} /> Open</button>
-                            {level.locked ? <button onClick={(e) => { e.stopPropagation(); void toggleLock(level); }} className="flex items-center gap-1 rounded-lg px-2.5" style={{ height: 30, border: "1px solid var(--border)", fontSize: 11.5, fontWeight: 600, color: "var(--muted-foreground)", background: "none" }}><Unlock size={11} /> Unlock</button> : null}
-                            {level.status === "Draft" && !level.locked ? <button onClick={(e) => { e.stopPropagation(); void setLevelStatus(level.number, "In Review"); }} className="flex items-center gap-1 rounded-lg px-2.5" style={{ height: 30, background: "var(--nuru-gold)", fontSize: 11.5, fontWeight: 600, color: "#fff", border: "none" }}><TrendingUp size={11} /> Review</button> : null}
-                            {level.status === "In Review" ? <button onClick={(e) => { e.stopPropagation(); void setLevelStatus(level.number, "Published"); }} className="flex items-center gap-1 rounded-lg px-2.5" style={{ height: 30, background: "#0F6B33", fontSize: 11.5, fontWeight: 600, color: "#fff", border: "none" }}><CheckCircle2 size={11} /> Publish</button> : null}
-                          </div>
-                        </div>
-                        <div style={{ padding: "14px 16px", background: "var(--secondary)" }}>
-                          <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-1.5"><span className="nuru-eyebrow">Published metrics</span><span className="nuru-eyebrow nuru-eyebrow-gold">live</span></div></div>
-                          <div className="grid grid-cols-2 gap-2">
-                            {[
-                              { label: "Pass mark", value: `${level.passMark}%`, icon: CheckCircle2, tint: "tint-green" },
-                              { label: "Modules", value: `${level.completedModules}/${level.modules}`, icon: BookOpen, tint: "tint-blue" },
-                              { label: "Duration", value: level.duration, icon: Clock, tint: "tint-amber" },
-                              { label: "Learners", value: level.learners.toLocaleString(), icon: Users, tint: "tint-violet" },
-                            ].map(({ label, value, icon: Icon, tint }) => (
-                              <div key={label} className="rounded-lg flex items-center gap-2" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "8px 10px" }}>
-                                <div className={`flex items-center justify-center rounded-md ${tint} shrink-0`} style={{ width: 26, height: 26 }}><Icon size={12} /></div>
-                                <div className="min-w-0"><div className="nuru-eyebrow" style={{ marginBottom: 1, fontSize: 9.5 }}>{label}</div><div style={{ fontFamily: "var(--font-display)", fontSize: 14, color: "var(--nuru-navy)", lineHeight: 1 }}>{value}</div></div>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="flex items-center gap-2 mt-3">
-                            <div className="flex-1 rounded-full overflow-hidden" style={{ height: 5, background: "var(--input-background)" }}><div className="h-full rounded-full" style={{ width: `${progress}%`, background: level.locked ? "var(--border)" : level.color }} /></div>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", fontFamily: "var(--font-display)" }}>{progress}%</span>
-                          </div>
-                        </div>
-                      </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5"><span style={{ fontSize: 9.5, fontWeight: 700, color: level.color, letterSpacing: "0.08em", textTransform: "uppercase" }}>Level {level.number}</span>{level.locked ? <Lock size={8} style={{ color: "var(--muted-foreground)" }} /> : null}</div>
+                      <h3 style={{ fontFamily: "var(--font-display)", fontSize: 15, color: "var(--nuru-navy)", lineHeight: 1.2, letterSpacing: "-0.01em" }}>{level.title}</h3>
                     </div>
+                    <span className="rounded-full px-2 py-0.5 shrink-0" style={{ fontSize: 9, fontWeight: 700, background: ss.bg, color: ss.color, letterSpacing: "0.04em" }}>{level.status}</span>
                   </div>
-                );
-              })}
-            </div>
+
+                  {level.theme ? <p style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 8, lineHeight: 1.4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{level.theme}</p> : null}
+
+                  {/* Compact stat row */}
+                  <div className="flex items-center gap-3 mt-2.5">
+                    <div className="flex items-center gap-1" style={{ fontSize: 10.5, color: "var(--muted-foreground)", fontWeight: 600 }}><BookOpen size={11} /> {level.completedModules}/{level.modules}</div>
+                    <div className="flex items-center gap-1" style={{ fontSize: 10.5, color: "var(--muted-foreground)", fontWeight: 600 }}><Users size={11} /> {level.learners.toLocaleString()}</div>
+                  </div>
+
+                  {/* Progress */}
+                  <div className="flex items-center gap-2 mt-2.5">
+                    <div className="flex-1 rounded-full overflow-hidden" style={{ height: 4, background: "var(--input-background)" }}><div className="h-full rounded-full" style={{ width: `${progress}%`, background: level.locked ? "var(--border)" : level.color }} /></div>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", fontFamily: "var(--font-display)" }}>{progress}%</span>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+                    <button onClick={(e) => { e.stopPropagation(); if (!level.locked) navigate(`/cms/level/${level.number}`); }} className="flex items-center gap-1 rounded-lg px-2.5" style={{ height: 28, background: level.locked ? "var(--muted)" : "var(--nuru-navy)", color: level.locked ? "var(--muted-foreground)" : "#fff", fontSize: 11, fontWeight: 600, border: "none", cursor: level.locked ? "not-allowed" : "pointer" }}><ExternalLink size={10} /> Open</button>
+                    {level.locked ? <button onClick={(e) => { e.stopPropagation(); void toggleLock(level); }} className="flex items-center gap-1 rounded-lg px-2.5" style={{ height: 28, border: "1px solid var(--border)", fontSize: 11, fontWeight: 600, color: "var(--muted-foreground)", background: "none" }}><Unlock size={10} /> Unlock</button> : null}
+                    {level.status === "Draft" && !level.locked ? <button onClick={(e) => { e.stopPropagation(); void setLevelStatus(level.number, "In Review"); }} className="flex items-center gap-1 rounded-lg px-2.5" style={{ height: 28, background: "var(--nuru-gold)", fontSize: 11, fontWeight: 600, color: "#fff", border: "none" }}><TrendingUp size={10} /> Review</button> : null}
+                    {level.status === "In Review" ? <button onClick={(e) => { e.stopPropagation(); void setLevelStatus(level.number, "Published"); }} className="flex items-center gap-1 rounded-lg px-2.5" style={{ height: 28, background: "#0F6B33", fontSize: 11, fontWeight: 600, color: "#fff", border: "none" }}><CheckCircle2 size={10} /> Publish</button> : null}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
-          {/* Activity + Quick actions */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-6">
-            <div className="lg:col-span-2 rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "18px 20px" }}>
-              <div className="flex items-center justify-between mb-3"><div className="flex items-center gap-2"><Activity size={14} style={{ color: "var(--nuru-navy)" }} /><span className="nuru-section-title">Recent CMS activity</span></div></div>
-              {activity.length === 0 ? <p style={{ fontSize: 12.5, color: "var(--muted-foreground)" }}>No recent activity.</p> : (
-                <div className="flex flex-col">
-                  {activity.map((row, i, arr) => (
-                    <div key={row.audit_id} className="flex items-start gap-3 py-3" style={{ borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none" }}>
-                      <div className="flex items-center justify-center rounded-lg tint-blue shrink-0" style={{ width: 32, height: 32 }}><PenLine size={14} /></div>
-                      <div className="flex-1 min-w-0">
-                        <p style={{ fontSize: 13, color: "var(--nuru-navy)", lineHeight: 1.4 }}>{row.actor_name ? <span style={{ fontWeight: 700 }}>{row.actor_name}</span> : null} <span style={{ color: "var(--muted-foreground)" }}>{humanize(row.action)}</span>{row.entity ? <> <span style={{ fontWeight: 600 }}>{row.entity}</span></> : null}</p>
-                        <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{relTime(row.created_at)}</span>
-                      </div>
+          {/* Recent CMS activity */}
+          <div className="rounded-2xl mt-6" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "18px 20px" }}>
+            <div className="flex items-center justify-between mb-3"><div className="flex items-center gap-2"><Activity size={14} style={{ color: "var(--nuru-navy)" }} /><span className="nuru-section-title">Recent CMS activity</span></div></div>
+            {activity.length === 0 ? <p style={{ fontSize: 12.5, color: "var(--muted-foreground)" }}>No recent activity.</p> : (
+              <div className="flex flex-col">
+                {activity.map((row, i, arr) => (
+                  <div key={row.audit_id} className="flex items-start gap-3 py-3" style={{ borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none" }}>
+                    <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 32, height: 32, background: "rgba(200,155,60,0.12)", color: "#c89b3c" }}><PenLine size={14} /></div>
+                    <div className="flex-1 min-w-0">
+                      <p style={{ fontSize: 13, color: "var(--nuru-navy)", lineHeight: 1.4 }}>{row.actor_name ? <span style={{ fontWeight: 700 }}>{row.actor_name}</span> : null} <span style={{ color: "var(--muted-foreground)" }}>{humanize(row.action)}</span>{row.entity ? <> <span style={{ fontWeight: 600 }}>{row.entity}</span></> : null}</p>
+                      <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{relTime(row.created_at)}</span>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "18px 20px" }}>
-              <div className="flex items-center gap-2 mb-3"><Zap size={14} style={{ color: "var(--nuru-gold)" }} /><span className="nuru-section-title">Quick actions</span></div>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { label: "New Level", Icon: Plus, tint: "tint-amber", fn: () => setModalMode({ type: "add" }) },
-                  { label: "Module Editor", Icon: BookOpen, tint: "tint-blue", fn: () => navigate("/level-detail") },
-                  { label: "Quiz Builder", Icon: HelpCircle, tint: "tint-violet", fn: () => navigate("/quiz-builder") },
-                  { label: "Video Library", Icon: Video, tint: "tint-rose", fn: () => navigate("/video-library") },
-                  { label: "Reflections", Icon: FileText, tint: "tint-green", fn: () => navigate("/reflection-queue") },
-                  { label: "Refresh", Icon: RotateCcw, tint: "tint-red", fn: () => void loadLevels() },
-                ].map(({ label, Icon, tint, fn }) => (
-                  <button key={label} onClick={fn} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-[var(--secondary)]" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
-                    <div className={`flex items-center justify-center rounded-md ${tint}`} style={{ width: 28, height: 28 }}><Icon size={13} /></div>
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)" }}>{label}</span>
-                  </button>
+                  </div>
                 ))}
               </div>
-              <div className="nuru-footnote">Tip: every authoring action is auto-saved and versioned.</div>
-            </div>
+            )}
           </div>
         </div>
       </div>

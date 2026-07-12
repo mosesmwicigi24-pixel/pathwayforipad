@@ -3,7 +3,7 @@
 // real CRUD (SystemApi.congregations / create / update / delete). List + search +
 // add/edit modal + delete (guarded server-side when cells/members exist).
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
-import { ChevronRight, Plus, Search, Pencil, X, Check, Trash2 } from "lucide-react";
+import { ChevronRight, Plus, Search, Pencil, X, Check, Trash2, Building2, Globe } from "lucide-react";
 import { SystemApi, type Congregation } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -54,18 +54,26 @@ export function Congregations(): ReactElement {
           <div className="flex items-center gap-2 rounded-lg flex-1" style={{ height: 38, background: "var(--input-background)", padding: "0 12px" }}><Search size={14} style={{ color: "var(--muted-foreground)" }} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search congregation…" className="flex-1 bg-transparent outline-none" style={{ fontSize: 13 }} /></div>
         </div>
 
-        <div className="overflow-hidden rounded-2xl" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+        <div className="overflow-hidden rounded-2xl" style={{ border: "1px solid var(--border)", background: "#fff", boxShadow: "0 1px 3px rgba(11,31,51,0.06)" }}>
           <div className="overflow-x-auto"><table className="w-full border-collapse">
-            <thead><tr style={{ borderBottom: "1px solid var(--border)", background: "var(--secondary)", textAlign: "left" }}>{["Congregation", "Country", "Timezone", "Cells", "Members", ""].map((h) => <th key={h} className="px-5 py-3.5" style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6 }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ background: "var(--secondary)", textAlign: "left" }}>{[{ h: "Congregation" }, { h: "Country" }, { h: "Timezone" }, { h: "Cells", align: "right" as const }, { h: "Members", align: "right" as const }, { h: "" }].map((col, i) => <th key={i} className="px-5 py-3" style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6, textAlign: col.align ?? "left" }}>{col.h}</th>)}</tr></thead>
             <tbody>
-              {filtered.map((c) => (
-                <tr key={c.congregation_id} style={{ borderTop: "1px solid var(--border)" }}>
-                  <td className="px-5 py-3.5"><div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{c.name}</div></td>
-                  <td className="px-5 py-3.5"><code style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--foreground)" }}>{c.country}</code></td>
-                  <td className="px-5 py-3.5" style={{ fontSize: 13, color: "var(--foreground)" }}>{c.timezone}</td>
-                  <td className="px-5 py-3.5" style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{c.cell_count}</td>
-                  <td className="px-5 py-3.5" style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{c.member_count}</td>
-                  <td className="px-5 py-3.5"><div className="flex items-center justify-end gap-1"><button onClick={() => setEditing(c)} title="Edit" className="rounded-lg p-1.5" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}><Pencil size={14} /></button><button onClick={() => void remove(c)} title="Remove" className="rounded-lg p-1.5" style={{ color: "#DC2626", background: "none", border: "none" }}><Trash2 size={14} /></button></div></td>
+              {filtered.map((c, i) => (
+                <tr key={c.congregation_id} style={{ borderTop: "1px solid var(--border)", background: i % 2 ? "rgba(11,31,51,0.015)" : "#fff" }}>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-center shrink-0" style={{ width: 38, height: 38, borderRadius: 10, background: "var(--tint-gold-bg)", border: "1px solid rgba(200,155,60,0.22)" }}><Building2 size={16} style={{ color: "var(--nuru-gold)" }} /></div>
+                      <div>
+                        <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)", lineHeight: 1.2 }}>{c.name}</div>
+                        <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.4, marginTop: 1 }}>Branch</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3"><div className="flex items-center gap-1.5"><Globe size={11} style={{ color: "var(--muted-foreground)" }} /><code style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--foreground)" }}>{c.country}</code></div></td>
+                  <td className="px-5 py-3" style={{ fontSize: 13, color: "var(--muted-foreground)" }}>{c.timezone}</td>
+                  <td className="px-5 py-3" style={{ textAlign: "right" }}><div style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)", lineHeight: 1.1 }}>{c.cell_count}</div><div style={{ fontSize: 9, fontWeight: 600, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.3 }}>cells</div></td>
+                  <td className="px-5 py-3" style={{ textAlign: "right" }}><div style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)", lineHeight: 1.1 }}>{c.member_count}</div><div style={{ fontSize: 9, fontWeight: 600, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.3 }}>people</div></td>
+                  <td className="px-5 py-3"><div className="flex items-center justify-end gap-1"><button onClick={() => setEditing(c)} title="Edit" className="rounded-lg p-1.5" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}><Pencil size={14} /></button><button onClick={() => void remove(c)} title="Remove" className="rounded-lg p-1.5" style={{ color: "#DC2626", background: "none", border: "none" }}><Trash2 size={14} /></button></div></td>
                 </tr>
               ))}
             </tbody>

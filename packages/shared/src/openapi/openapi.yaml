@@ -22,6 +22,8 @@ tags:
   - name: giving
   - name: certificates
   - name: announcements
+  - name: proximity
+  - name: radio
   - name: system
 
 security:
@@ -76,7 +78,7 @@ paths:
   /auth/login:
     post:
       tags: [auth]
-      summary: Email + password sign-in (argon2id verify). Generic error on bad credentials; 403 if suspended; 429 if locked after repeated failures.
+      summary: Email + password sign-in (argon2id verify). Generic error on bad credentials; 403 if suspended or (under scope=admin) a member signs into a staff console; 429 if locked after repeated failures.
       security: []
       requestBody:
         required: true
@@ -88,6 +90,10 @@ paths:
               properties:
                 email: { type: string, format: email }
                 password: { type: string }
+                scope:
+                  type: string
+                  enum: [admin]
+                  description: Sent by the admin consoles (web portal + iPad). Under this scope a self-registered member (Student role) is refused with 403; the member app omits it.
       responses:
         "200":
           description: A token pair, OR a 2FA challenge when the account has a second factor enabled.
@@ -330,6 +336,277 @@ paths:
       responses:
         "201": { description: Avatar set }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/media/audio:
+    post:
+      tags: [auth]
+      summary: Upload a member voice note (multipart audio, field 'file', 5 MB cap); returns { url }. Duration/waveform travel in the domain payload (prayer wall audio_waveform / chat attachment_meta), not here.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201": { description: Voice note stored }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/media/image:
+    post:
+      tags: [auth]
+      summary: Upload a member post image (multipart image, field 'file', 5 MB cap); returns { url }. Generic attachment used by composers as image_url (e.g. event wall "Hype the room"). Not stored on the user.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201": { description: "{ url }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/letters:
+    get:
+      tags: [progress]
+      summary: My Sunday Letters (AI-composed weekly pastoral letters), newest first.
+      responses:
+        "200": { description: "{ data: [{ letter_id, week_of, body, scripture_ref, created_at, read_at }] }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/letters/latest:
+    get:
+      tags: [progress]
+      summary: My most recent Sunday Letter (or letter:null before the first one).
+      responses:
+        "200": { description: "{ letter: {...} | null }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/letters/{id}/read:
+    post:
+      tags: [progress]
+      summary: Mark one of my Sunday Letters read (idempotent).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ letter_id, read_at }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Not my letter }
+  /me/ai:
+    get:
+      tags: [auth]
+      summary: My AI-personalization consent state.
+      responses:
+        "200": { description: "{ opt_out: boolean }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/ai/consent:
+    post:
+      tags: [auth]
+      summary: Set my AI-personalization consent. Opting out stops the model from ever reading my written content (reflections/posts), deletes my story, and pauses Sunday Letters.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [opt_out]
+              properties:
+                opt_out: { type: boolean }
+      responses:
+        "200": { description: "{ opt_out }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/intelligence/reindex:
+    post:
+      tags: [admin]
+      summary: Admin. Rebuild the AI content-grounding index over curriculum/plans/devotionals.
+      responses:
+        "200": { description: "{ sources, chunks }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/intelligence/stories/rebuild:
+    post:
+      tags: [admin]
+      summary: Admin. Rebuild Member Stories (all active members, or one user_id).
+      responses:
+        "200": { description: "{ rebuilt }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/intelligence/letters/run:
+    post:
+      tags: [admin]
+      summary: Admin. Run the Sunday Letter batch now (all eligible members, or one user_id). Idempotent per user+week.
+      responses:
+        "200": { description: "{ week_of, written, skipped }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/intelligence/signals:
+    get:
+      tags: [admin]
+      summary: Instructor+. Care signals for MY flock (cells I lead + my disciples; Admin+ sees all) — drift/emotion/crisis, newest first.
+      parameters:
+        - { name: since_days, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 60, default: 14 } }
+      responses:
+        "200": { description: "{ data: [{ signal_id, user_id, member_name, kind, severity, summary, source, created_at, acknowledged_at }] }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/intelligence/signals/{id}/ack:
+    post:
+      tags: [admin]
+      summary: Instructor+. Acknowledge a signal in my flock (idempotent; 404 outside my scope).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ signal_id, acknowledged_at }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Not in my flock }
+  /admin/intelligence/flock-brief:
+    get:
+      tags: [admin]
+      summary: Instructor+. My latest weekly Flock Brief (or brief:null before the first).
+      responses:
+        "200": { description: "{ brief: { brief_id, week_of, body, created_at } | null }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/intelligence/signals/scan:
+    post:
+      tags: [admin]
+      summary: Admin. Run the nightly Shepherd's Pulse scan now (drift rules + emotion/crisis reads). Idempotent per user+kind+day.
+      responses:
+        "200": { description: "{ drift, read, flagged, crises }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /modules/{id}/explain:
+    get:
+      tags: [progress]
+      summary: The lesson rendered differently (style = simple | swahili | story). Cached per module+style; §1.9 gated like the lesson itself.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: style, in: query, required: false, schema: { type: string, enum: [simple, swahili, story], default: simple } }
+      responses:
+        "200": { description: "{ style, body, cached }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: GATE_LOCKED }
+  /modules/{id}/quiz/remediation:
+    post:
+      tags: [progress]
+      summary: '"Review with Nuru" for my latest FAILED quiz attempt on this module — re-teaches missed concepts from the lesson (never the answer key). Cached per attempt.'
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ attempt_id, body, missed, cached }" }
+        "400": { description: No failed attempt to review }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /growth/memory-verses/due:
+    get:
+      tags: [growth]
+      summary: My memory verses due for spaced-repetition review (weakest + stalest first, max 5).
+      responses:
+        "200": { description: "{ data: [{ memory_verse_id, reference, verse_text, best_match_pct, status, days_since }] }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/intelligence/flock-brief/run:
+    post:
+      tags: [admin]
+      summary: Admin. Compose this week's Flock Briefs for every leader now. Idempotent per leader+week.
+      responses:
+        "200": { description: "{ week_of, written, skipped }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /modules/{id}/voice-note:
+    post:
+      tags: [curriculum]
+      summary: Instructor+. Leave (or re-record over) THIS congregation's voice note on a module — "a word from your discipler" members hear atop the lesson. Audio uploads first via POST /me/media/audio.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [audio_url, duration_sec]
+              properties:
+                audio_url: { type: string }
+                duration_sec: { type: integer, minimum: 1, maximum: 300 }
+                waveform: { type: array, items: { type: integer } }
+      responses:
+        "201": { description: "{ note_id }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      tags: [curriculum]
+      summary: Instructor+. Remove the congregation's voice note (author or Admin+).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ ok }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /community/presence:
+    get:
+      tags: [community]
+      summary: Studying together, apart — how many of my cell (or congregation when cell-less) opened a lesson in the last 7 days, with up to three first names.
+      responses:
+        "200": { description: "{ count, names, scope }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /modules/{id}/footprints:
+    get:
+      tags: [community]
+      summary: "Footprints on the trail — cell-mates (congregation when cell-less) who already completed this module: up to five faces, when they finished, and the total. The member is never the first to walk alone."
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ count, scope, footprints: [{ first_name, avatar_url, completed_at }] }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/walk:
+    get:
+      tags: [community]
+      summary: "Your Walk — the member's whole journey as one descending thread: began the pathway, modules finished, reflections written (140-char excerpts), levels passed, certificates, verses mastered, plans completed, badges. Real rows and timestamps, no AI, capped at 80."
+      responses:
+        "200": { description: "{ data: [{ kind, title, detail, quote, occurred_at }] }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /home/echo:
+    get:
+      tags: [growth]
+      summary: Today's companion echo — ONE per member per EAT day, stable across refetches, AI-free. Priorities — welcome_back (≥4 quiet days, 7-day cooldown), reflection_echo (the member's own words from 6–10 days ago, each echoes once ever), anniversary (a module finished exactly 30 days ago). Null when nothing true and specific exists ("specificity or silence").
+      responses:
+        "200": { description: "{ echo: { kind, body, quote, ref } | null }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /home/liturgy:
+    get:
+      tags: [growth]
+      summary: The liturgy line for RIGHT NOW (EAT clock) — part (morning|midday|evening|night), church season, Sunday flag. AI-composed once per congregation per day; deterministic fallback when the model is down.
+      responses:
+        "200": { description: "{ part, season, is_sunday, line, scripture_ref }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /community/moments:
+    get:
+      tags: [community]
+      summary: My congregation's recent celebrations (14 days) — server-detected milestones with blessing counts and my own blessing.
+      responses:
+        "200": { description: "{ data: [{ moment_id, user_id, full_name, avatar_url, kind, title, occurred_at, amen_count, heart_count, fire_count, my_blessing }] }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /community/moments/{id}/bless:
+    post:
+      tags: [community]
+      summary: One-tap blessing on a celebration (kind = amen | heart | fire). One per member per moment; repeat switches kind. Congregation-scoped (403 outside).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string, enum: [amen, heart, fire] }
+      responses:
+        "200": { description: "{ blessed, kind }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: FORBIDDEN_SCOPE — outside my congregation }
+  /admin/intelligence/liturgy/run:
+    post:
+      tags: [admin]
+      summary: Admin. Compose today's liturgy for every congregation now. Cached per congregation+day.
+      responses:
+        "200": { description: "{ composed }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/intelligence/moments/scan:
+    post:
+      tags: [admin]
+      summary: Admin. Detect fresh celebration moments now (module/level/verse/plan). Idempotent — replays insert nothing.
+      responses:
+        "200": { description: "{ inserted }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /me/onboarding:
     post:
       tags: [auth]
@@ -356,6 +633,149 @@ paths:
         "201": { description: Device registered }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  # --- Proximity / coarse-location pairing (parity gap #4, privacy-first) ---
+  # Coarse only: the server derives a 6-char geohash (~1.2 km) and DISCARDS the raw
+  # coordinates; no geohash/coords are ever returned to a client.
+  /me/location:
+    post:
+      tags: [proximity]
+      summary: >
+        Opt in / refresh coarse location. Accepts approximate lat/lng; the server
+        stores ONLY a 6-char geohash and discards the coordinates. Minors require an
+        active guardian location_sharing consent, else 403 CONSENT_REQUIRED.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lng]
+              properties:
+                lat: { type: number, minimum: -90, maximum: 90 }
+                lng: { type: number, minimum: -180, maximum: 180 }
+      responses:
+        "200":
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties: { ok: { type: boolean, enum: [true] } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    delete:
+      tags: [proximity]
+      summary: Opt out — erase the member's stored coarse location immediately.
+      responses:
+        "200":
+          description: Erased
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties: { ok: { type: boolean, enum: [true] } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/members/{id}/location-consent:
+    post:
+      tags: [proximity]
+      summary: >
+        Guardian grants location_sharing consent for a minor (audited). Distinct
+        from the onboarding consent; separately revocable. Gated by members:proximity.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [guardian_name, relationship, consent_text_version]
+              properties:
+                guardian_name: { type: string, minLength: 1, maxLength: 255 }
+                relationship: { type: string, minLength: 1, maxLength: 60 }
+                consent_text_version: { type: string, minLength: 1, maxLength: 20 }
+      responses:
+        "201":
+          description: Consent recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties: { ok: { type: boolean, enum: [true] } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    delete:
+      tags: [proximity]
+      summary: >
+        Guardian revokes a minor's location_sharing consent (audited). Also deletes
+        the minor's stored coarse location immediately. Gated by members:proximity.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Revoked + location erased
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties: { ok: { type: boolean, enum: [true] } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/members/proximity:
+    get:
+      tags: [proximity]
+      summary: >
+        Coarse pairing suggestions — eligible opted-in members clustered by approximate
+        distance. Gated by members:proximity. Adults visible to coach tier; minors
+        only to the coarse Admin role. NEVER returns geohash or coordinates.
+      parameters:
+        - name: radius_km
+          in: query
+          required: false
+          schema: { type: number, minimum: 1, maximum: 50, default: 10 }
+        - name: group_by
+          in: query
+          required: false
+          description: radius (default) clusters by distance; city snaps to the nearest gazetteer town (offline, coarse); country groups by the congregation's country.
+          schema: { type: string, enum: [radius, city, country], default: radius }
+      responses:
+        "200":
+          description: Clusters
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [clusters]
+                properties:
+                  clusters:
+                    type: array
+                    items:
+                      type: object
+                      required: [area, member_count, approx_radius_km, members]
+                      properties:
+                        area: { type: string, description: Coarse cluster label (no precise point) }
+                        member_count: { type: integer }
+                        approx_radius_km: { type: number }
+                        members:
+                          type: array
+                          items:
+                            type: object
+                            required: [user_id, full_name, is_minor, cell_group_id]
+                            properties:
+                              user_id: { type: string, format: uuid }
+                              full_name: { type: string }
+                              is_minor: { type: boolean }
+                              cell_group_id: { type: [string, "null"], format: uuid }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+
   # --- Curriculum & content (§3.3) ---
   /levels:
     get:
@@ -366,9 +786,13 @@ paths:
   /me/pathway:
     get:
       tags: [curriculum]
-      summary: Per-member pathway summary; each level with module counts and completion status.
+      summary: >-
+        Per-member pathway summary; each level with module counts and status
+        (completed | active | awaiting_review | locked). A level whose exam is passed
+        but the discipler has not yet ushered reports status 'awaiting_review' and
+        awaiting_review:true; the next level stays 'locked' until ushered.
       responses:
-        "200": { description: Pathway summary }
+        "200": { description: "Pathway summary — { current_level, levels: [{ level_number, title, theme, description, total_modules, completed_modules, minutes, status, awaiting_review }] }" }
         "401": { $ref: "#/components/responses/Unauthorized" }
   /levels/{n}/modules:
     get:
@@ -381,11 +805,54 @@ paths:
   /modules/{id}:
     get:
       tags: [curriculum]
-      summary: Full lesson content + signed media URL.
+      summary: Full lesson content + signed media URLs with real durations, content_pages, and the member's completion summary — completed, completed_at, best_score (highest passing quiz score, null when quizless/never passed) — so a finished module renders as a clean reading room.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
-        "200": { description: Module body }
+        "200":
+          description: Module body
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModuleBody" }
+        "409": { $ref: "#/components/responses/GateLocked" }
+  /modules/{id}/engagement:
+    get:
+      tags: [curriculum]
+      summary: The member's accumulated engagement for a module (zeros / page 1 when none). Gated like the module body (§1.9).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Engagement totals
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModuleEngagement" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/GateLocked" }
+    post:
+      tags: [curriculum]
+      summary: Engagement heartbeat — accumulate reading/audio/video second deltas (each server-capped at 600) and overwrite last_page when provided. Gated like the module body (§1.9).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reading_seconds: { type: integer, minimum: 0, maximum: 600 }
+                audio_seconds: { type: integer, minimum: 0, maximum: 600 }
+                video_seconds: { type: integer, minimum: 0, maximum: 600 }
+                last_page: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Updated totals
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModuleEngagement" }
+        "400": { description: Validation failed }
+        "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/GateLocked" }
   /scripture:
     get:
@@ -437,9 +904,23 @@ paths:
   /admin/levels/{n}/exam:
     put:
       tags: [curriculum]
-      summary: Admin. Configure the level exit exam (pass mark + served question count).
+      summary: Admin. Configure the level exit exam (pass mark, question count, reveal/shuffle flags, and the review→publish state).
       parameters:
         - { name: n, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [required_exam_pass_mark]
+              properties:
+                required_exam_pass_mark: { type: number, minimum: 0, maximum: 100 }
+                exam_question_count: { type: [integer, "null"], minimum: 1 }
+                exam_show_answers: { type: boolean }
+                exam_show_score: { type: boolean }
+                exam_shuffle: { type: boolean, description: Randomize answer-choice order at delivery (default true). }
+                exam_status: { type: string, enum: [review, published], description: "Publish gate — the exam is member-visible/takeable only when 'published'." }
       responses:
         "200": { description: Configured }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
@@ -464,7 +945,7 @@ paths:
   /admin/modules/{id}:
     get:
       tags: [curriculum]
-      summary: Admin. Full module record incl. content + current version.
+      summary: Admin. Full module record incl. content + current version + derived content_pages (page-break split, same as the member read).
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
@@ -473,9 +954,14 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     put:
       tags: [curriculum]
-      summary: Admin. Edit any field; content edits version the module (optimistic-concurrency).
+      summary: Admin. Edit any field (incl. media durations + admin audio); content edits version the module (optimistic-concurrency).
       parameters:
         - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModuleUpdate" }
       responses:
         "200": { description: Updated }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
@@ -743,6 +1229,46 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/Unprocessable" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/users/{id}/permissions:
+    get:
+      tags: [system]
+      summary: RBAC. A user's role-derived permissions, direct per-user grants, and their effective union (users:view, §5.4).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user_id, bridged, from_roles, direct, effective]
+                properties:
+                  user_id: { type: string, format: uuid }
+                  bridged: { type: boolean, description: True for a legacy SuperAdmin/Admin (full access via the bridge). }
+                  from_roles: { type: array, items: { $ref: "#/components/schemas/Permission" } }
+                  direct: { type: array, items: { $ref: "#/components/schemas/Permission" } }
+                  effective: { type: array, items: { $ref: "#/components/schemas/Permission" } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    put:
+      tags: [system]
+      summary: RBAC. Replace a user's direct per-user permission grants (layered on top of role grants; role grants untouched) (users:edit).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissions]
+              properties:
+                permissions: { type: array, items: { $ref: "#/components/schemas/Permission" } }
+      responses:
+        "200": { description: Direct grants set }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
 
   # --- Progress, assessment & reflections (§3.3) ---
   /modules/{id}/complete:
@@ -949,6 +1475,67 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /reviews/levels:
+    get:
+      tags: [portal]
+      summary: >-
+        Instructor+. Pending level advancements for members the discipler leads (cell-scoped,
+        §5.4). Passing a level exam records a pending advancement; ushering advances the level.
+      responses:
+        "200":
+          description: Pending advancements awaiting the discipler
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, user_id, member_name, level_number, exam_score, created_at]
+                      properties:
+                        id: { type: string, format: uuid }
+                        user_id: { type: string, format: uuid }
+                        member_name: { type: string }
+                        level_number: { type: integer }
+                        exam_score: { type: [number, "null"] }
+                        created_at: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /reviews/levels/{id}/usher:
+    post:
+      tags: [portal]
+      summary: >-
+        Instructor+. Usher a member into the next level — marks the advancement ushered,
+        advances current_level to N+1 (idempotent), and notifies the member. Cell-scoped (§5.4).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: { type: string, maxLength: 2000 }
+      responses:
+        "200":
+          description: Ushered
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status, advanced, new_level]
+                properties:
+                  id: { type: string, format: uuid }
+                  status: { type: string, enum: [ushered] }
+                  advanced: { type: boolean }
+                  new_level: { type: [integer, "null"] }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /relationships:
     post:
       tags: [portal]
@@ -1190,6 +1777,22 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
+  /media/certificates/{code}:
+    get:
+      tags: [certificates]
+      summary: Download a certificate PDF by verification code (owner or Instructor+ only).
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The rendered certificate PDF (attachment).
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # --- Video pipeline (Features v2 §V) ---
   /media/{id}/manifest:
     get:
@@ -1273,6 +1876,28 @@ paths:
       responses:
         "201": { description: Stored asset }
         "400": { description: Validation failed (not a video / too large) }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/media/audio/upload:
+    post:
+      tags: [system]
+      summary: Admin. Upload session audio (Radio) to our own storage (VPS disk); returns a bare { url, duration_sec } (no media_assets row).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                duration_sec: { type: integer }
+      responses:
+        "201":
+          description: Stored audio URL
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AudioUploadResult" }
+        "400": { description: Validation failed (not audio / too large / no file) }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
   /admin/media/videos/chunk:
     put:
@@ -1698,11 +2323,71 @@ paths:
   /modules/{id}/reflection:
     get:
       tags: [assessment]
-      summary: The member's own module reflection — state + reviewer feedback (never the pastoral note).
+      summary: The member's saved standalone reflection for a module (null when none). Unlock-gated like getModule.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
-        "200": { description: Reflection }
+        "200":
+          description: The saved reflection, or null
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    oneOf:
+                      - type: "null"
+                      - type: object
+                        required: [body, created_at]
+                        properties:
+                          body: { type: string }
+                          created_at: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/GateLocked" }
+    post:
+      tags: [assessment]
+      summary: >-
+        Write (or overwrite) the member's reflection on a module — one of the content
+        steps the quiz / mark-complete gate requires (read → watch → listen → reflect).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 4000 }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [body, created_at]
+                    properties:
+                      body: { type: string }
+                      created_at: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/GateLocked" }
+  /modules/{id}/reflection/review:
+    get:
+      tags: [assessment]
+      summary: The member's own module-reflection review state + reviewer feedback (never the pastoral note).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: Reflection review state }
         "404": { $ref: "#/components/responses/NotFound" }
   /admin/reflections:
     get:
@@ -1849,6 +2534,36 @@ paths:
       summary: Admin. Guardian consents needing annual renewal (§5.9).
       responses:
         "200": { description: Expiring consents }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/members/{id}/walk:
+    get:
+      tags: [adminops]
+      summary: "The member's whole journey (Wave 3 walk thread) for the portal Member Profile — began, modules, reflections, levels, certificates, verses, plans, badges. Same truth the member sees."
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "{ data: [{ kind, title, detail, quote, occurred_at }] }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/analytics/intelligence:
+    get:
+      tags: [portal]
+      summary: >-
+        SuperAdmin/Admin. Member Intelligence aggregate — giving behaviour (avg
+        per transaction, frequency, funds, methods, top givers), a devices block
+        (platforms, app_versions, models: top device models as {model, members}
+        with members = distinct members per model, top 8; model_capture: true only
+        once a model-aware client has registered a non-null model, else false),
+        engagement bands + activity by kind/hour plus area_dwell (top app areas
+        by total dwell time over the last 30 days as {screen, total_ms, sessions,
+        members}, top 10; screen_dwell_capture: true only once a dwell-aware
+        client has posted at least one screen event, else false), an activity block
+        (active_trend: distinct active users per ISO week for the last 12 weeks;
+        active_days: distribution of per-user distinct active-day counts over the
+        last 30 days, the login-frequency proxy, bucketed 1 | 2-3 | 4-7 | 8-15 |
+        16+), curriculum + Word growth, and coarse location. Prayer excluded
+        (§5.4); uncaptured metrics flagged.
+      responses:
+        "200": { description: Intelligence aggregate }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
   /admin/notifications:
     get:
@@ -2083,6 +2798,25 @@ paths:
         "200": { description: Member results }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /admin/members/{id}/password-reset:
+    post:
+      tags: [portal]
+      summary: Admin. Manual password reset — server mints a temporary password, revokes the member's sessions, and returns the plaintext ONCE. Rank-guarded (no peers/higher roles unless SuperAdmin).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Temporary password (returned once, never stored)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [temporary_password, full_name]
+                properties:
+                  temporary_password: { type: string, example: Nuru-Xk4m-Tr8w }
+                  full_name: { type: string }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /admin/members/{id}/enrollment:
     patch:
       tags: [portal]
@@ -2103,6 +2837,48 @@ paths:
       responses:
         "200": { description: Graduation flag updated }
         "400": { description: Validation failed }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/members/{id}/elevate:
+    post:
+      tags: [portal]
+      summary: Admin. Elevate a member (a Student) into a privileged portal user — sets users.is_staff so they gain admin-console access and appear on System ▸ Users, without a separate registration. Role/permission grants are assigned there. Member-app access unchanged. Idempotent. Audited. (users:create).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Member staff state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user_id, full_name, is_staff, role]
+                properties:
+                  user_id: { type: string, format: uuid }
+                  full_name: { type: string }
+                  is_staff: { type: boolean }
+                  role: { type: string }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/members/{id}/demote:
+    post:
+      tags: [portal]
+      summary: Admin. Demote a portal-elevated member — clears users.is_staff AND removes every RBAC role assignment + direct permission grant, so they fully lose portal access and drop off System ▸ Users. Membership + member-app access untouched. Idempotent. Audited. (users:create).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Member staff state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user_id, full_name, is_staff, role]
+                properties:
+                  user_id: { type: string, format: uuid }
+                  full_name: { type: string }
+                  is_staff: { type: boolean }
+                  role: { type: string }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
   /admin/audit:
@@ -2378,6 +3154,33 @@ paths:
       responses:
         "200": { description: Marked count }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/notification-preferences:
+    get:
+      tags: [progress]
+      summary: My notification channel toggles (defaults push+email on, sms off when never saved).
+      responses:
+        "200":
+          description: Preferences
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationPreferences" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [progress]
+      summary: Save my notification channel toggles (all three required; upsert).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotificationPreferences" }
+      responses:
+        "200":
+          description: The saved preferences
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationPreferences" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /me/password:
     post:
       tags: [auth]
@@ -2404,6 +3207,47 @@ paths:
       responses:
         "200": { description: Activity }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/activity/screens:
+    post:
+      tags: [auth]
+      summary: >-
+        Batch-submit app-area dwell events (parity gap #3). Best-effort usage
+        telemetry: the mobile/iPad client posts up to 200 per-screen dwell
+        durations for the authenticated member. Idempotent on client_event_id —
+        an offline replay of the same batch is a no-op. Malformed rows are
+        clamped/skipped server-side rather than rejected. Returns { accepted },
+        the number of newly-stored events. Feeds engagement.area_dwell.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [screen, duration_ms, occurred_at, client_event_id]
+                    properties:
+                      screen: { type: string, maxLength: 40 }
+                      duration_ms: { type: integer, minimum: 0, maximum: 86400000 }
+                      occurred_at: { type: string, format: date-time }
+                      client_event_id: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Accepted count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
 
   # --- Announcements (Contract Matrix B5) ---
   /admin/announcements:
@@ -2598,6 +3442,114 @@ paths:
         "200": { description: Progress }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /growth/plans/{planId}/days/{dayNumber}/reflection:
+    get:
+      tags: [progress]
+      summary: My reflection for a reading-plan day (null when I haven't written one).
+      parameters:
+        - { name: planId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: dayNumber, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: Reflection or null
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    oneOf:
+                      - { $ref: "#/components/schemas/PlanDayReflection" }
+                      - { type: "null" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [progress]
+      summary: Write my reflection for a reading-plan day. Upsert per (user, plan, day); idempotent per client_mutation_id (§2.1).
+      parameters:
+        - { name: planId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: dayNumber, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 4000 }
+                client_mutation_id: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        "201":
+          description: The saved reflection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanDayReflection" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /growth/plans/{planId}/days/{dayNumber}/talk:
+    get:
+      tags: [progress]
+      summary: The day's shared "Talk it Over" conversation (author, like count, my-like flag), oldest first.
+      parameters:
+        - { name: planId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: dayNumber, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: "{ data: TalkPost[] } - post_id, day_number, body, created_at, user_id, name, avatar_url, like_count, liked" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [progress]
+      summary: Add my response to the day's Talk it Over conversation.
+      parameters:
+        - { name: planId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: dayNumber, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        "201": { description: The saved response row (same shape as the list items) }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /growth/plans/{planId}/days/{dayNumber}/talk/assist:
+    post:
+      tags: [progress]
+      summary: AI compose help for my Talk it Over response — returns a SUGGESTION for the member to edit; nothing is posted or persisted.
+      parameters:
+        - { name: planId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: dayNumber, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                draft: { type: string, maxLength: 2000, description: "The member's own words — polished, never replaced. Omit to get a first-person starter from the day's questions." }
+      responses:
+        "200": { description: "{ suggestion }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { description: Assistant unavailable (no provider key / upstream down) }
+  /growth/talk/{id}/like:
+    post:
+      tags: [progress]
+      summary: Toggle my encouragement heart on a Talk it Over response.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200": { description: "{ liked, like_count }" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /growth/segments/{id}/complete:
     post:
       tags: [progress]
@@ -2669,9 +3621,23 @@ paths:
   /me/scores:
     get:
       tags: [progress]
-      summary: All my growth scores + a weighted overall (habits/curriculum/attendance/word/prayer).
+      summary: All my growth scores + a weighted overall (habits/curriculum/attendance/word/prayer), over a rolling 28-day window.
       responses:
-        "200": { description: Scores }
+        "200":
+          description: >-
+            { overall:{score,band}, habits, curriculum, attendance, word, prayer (each {score,band,components,detail}),
+            trend:{ window_days:28, previous, delta, direction:'up'|'down'|'flat', domains:{...per-domain delta} } }
+            where trend compares this 28-day window to the previous 28 days (rolling growth signal).
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /me/levels/{n}/score:
+    get:
+      tags: [progress]
+      summary: My mastery of a level, out of 100 — exam (50) + module quizzes (30) + app participation (20).
+      parameters:
+        - { name: n, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: "{ level_number, total, band, exam:{score,of:50,raw_pct,passed}, modules:{score,of:30,raw_pct}, participation:{score,of:20,raw_pct} }" }
+        "400": { description: Invalid level number }
         "401": { $ref: "#/components/responses/Unauthorized" }
   /me/scores/word:
     get:
@@ -2704,10 +3670,81 @@ paths:
   /me/scores/attendance:
     get:
       tags: [progress]
-      summary: My Attendance score (check-ins vs cell cadence, 30d), 0–100.
+      summary: My Attendance score (app-presence days over the rolling 28d), 0–100.
       responses:
         "200": { description: Attendance score }
         "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # --- Discipleship Hub (read-aggregation composition layer; no new tables) ---
+  /me/discipleship:
+    get:
+      tags: [progress]
+      summary: My Discipleship Hub — discipler, progression, scores, reflections (self).
+      description: >-
+        Single call powering the member Hub. Resolves the discipler (explicit
+        relationship_tree edge, else cell leader), progression at the current
+        level, growth scores, and the member's own reflections. Pure GET — never
+        creates a DM. can_message is false for minors.
+      responses:
+        "200":
+          description: My Discipleship Hub
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: "#/components/schemas/MyDiscipleship" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /disciples:
+    get:
+      tags: [portal]
+      summary: A discipler's roster + triage across all their cells + relationship edges.
+      description: >-
+        Instructor+; scoped to the caller's disciple set (union of relationship_tree
+        edges + members of cells in leader_assignments). Admin/SuperAdmin see all
+        students. Sorted with action-needed students first.
+      responses:
+        "200":
+          description: Roster + triage summary
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, summary]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/DiscipleRosterRow" } }
+                  summary:
+                    type: object
+                    required: [total_students, awaiting_action]
+                    properties:
+                      total_students: { type: integer }
+                      awaiting_action: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /disciples/{id}:
+    get:
+      tags: [portal]
+      summary: One student's full journey for their discipler (Instructor-scoped dossier).
+      description: >-
+        403 FORBIDDEN_SCOPE if the student is not in the caller's disciple set.
+        The discipler DOES see reflection bodies + feedback_notes (pastoral),
+        unlike the member's own Hub. Admin/SuperAdmin unrestricted.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Student dossier
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: "#/components/schemas/DiscipleDossier" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   # --- Growth-content authoring (Admin+) — every mobile growth element editable ---
   /admin/growth/devotionals:
@@ -2926,7 +3963,20 @@ paths:
       tags: [progress]
       summary: My chat inbox — DMs, cell groups, joined spaces (with unread + preview) plus discoverable spaces.
       responses:
-        "200": { description: Conversations }
+        "200":
+          description: Conversations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [conversations, discover_spaces]
+                properties:
+                  conversations:
+                    type: array
+                    items: { $ref: "#/components/schemas/ChatConversationSummary" }
+                  discover_spaces:
+                    type: array
+                    items: { type: object }
         "401": { $ref: "#/components/responses/Unauthorized" }
   /chat/conversations/{id}:
     get:
@@ -3001,14 +4051,48 @@ paths:
   /chat/people:
     get:
       tags: [progress]
-      summary: DM directory — members I may message (same congregation, minor-safe; excludes self). Optional ?q name search.
+      summary: DM directory — members I may message (same congregation, minor-safe; excludes self). Optional ?q name search. Each row carries public achievement flair — level + counts only, never private detail.
       parameters:
         - name: q
           in: query
           required: false
           schema: { type: string, maxLength: 120 }
       responses:
-        "200": { description: People }
+        "200":
+          description: People
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [people]
+                properties:
+                  people:
+                    type: array
+                    items:
+                      type: object
+                      required: [user_id, full_name, level, badge_count, badge_icons, cert_count]
+                      properties:
+                        user_id: { type: string, format: uuid }
+                        full_name: { type: string }
+                        role: { type: string }
+                        avatar_url: { type: ["string", "null"] }
+                        congregation:
+                          type: ["string", "null"]
+                          description: Present only for portal-staff (Admin/SuperAdmin) callers — global directory rows.
+                        level:
+                          type: integer
+                          description: Pathway level (enrollments.current_level; 1 when not yet enrolled).
+                        badge_count:
+                          type: integer
+                          description: Count of unrevoked badges. Public aggregate only.
+                        badge_icons:
+                          type: array
+                          maxItems: 3
+                          items: { type: string }
+                          description: Icon strings (badges.icon_key) of the up-to-3 most recently awarded badges; empty when none carry an icon.
+                        cert_count:
+                          type: integer
+                          description: Count of issued certificates. Public aggregate only.
         "401": { $ref: "#/components/responses/Unauthorized" }
   /chat/dms:
     post:
@@ -3019,6 +4103,35 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /chat/broadcast:
+    post:
+      tags: [progress]
+      summary: Staff broadcast (Instructor+) — deliver ONE message to every active member of the sender's congregation as an individual DM from the sender (no group room; replies return as normal 1:1 threads). Minors excluded (D-M6). Idempotent on client_mutation_id. May carry an image (msg_type=image + attachment_url uploaded via /chat/attachments/sign) — body is then the caption.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 20000, description: "The message text (the caption, for an image broadcast)." }
+                msg_type: { type: string, enum: [text, image], default: text }
+                attachment_url: { type: string, format: uri, maxLength: 2000, description: Cloudinary secure_url of the uploaded image (the caption travels in body). }
+                client_mutation_id: { type: string, format: uuid, description: Replays with the same id are no-ops. }
+      responses:
+        "201":
+          description: Delivery count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent: { type: integer, description: Number of members the message was delivered to. }
+                  duplicate: { type: boolean, description: True when a replayed client_mutation_id short-circuited. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
   /chat/cells/{id}/conversation:
     post:
       tags: [progress]
@@ -3208,6 +4321,645 @@ paths:
               schema: { $ref: "#/components/schemas/SyncPushResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  # --- Radio Broadcast Studio + Virtual Audio Mixer (docs/RADIO_STUDIO_CONTRACT.md) ---
+  # Admin surface (/admin/radio/*, RBAC radio:*) returns RadioProgram WITH ingest
+  # secrets; the member surface (/radio/*, auth) returns RadioProgramPublic, which
+  # OMITS stream_key/ingest_url/ingest_provider. Private programs are never member-visible.
+  /admin/radio/programs:
+    get:
+      tags: [radio]
+      summary: List all programs (admin). Includes ingest secrets. Gated by radio:view.
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string, enum: [draft, scheduled, live, ended] } }
+      responses:
+        "200":
+          description: Programs
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/RadioProgram" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [radio]
+      summary: Create a program; provisions ingest credentials. Gated by radio:create.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRadioProgramBody" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioProgram" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/radio/programs/{id}:
+    get:
+      tags: [radio]
+      summary: Get a program (admin, incl. secrets). Gated by radio:view.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: Program
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioProgram" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [radio]
+      summary: Update a program. Gated by radio:edit.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateRadioProgramBody" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioProgram" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [radio]
+      summary: Delete a program. Gated by radio:delete.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200": { description: Deleted, content: { application/json: { schema: { $ref: "#/components/schemas/Ok" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/radio/programs/{id}/reactions:
+    get:
+      tags: [radio]
+      summary: Aggregate reaction totals for a program (all members) — heart/amen/fire counts for the console's interactions panel. Gated by radio:view.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: Totals
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [heart, amen, fire]
+                properties:
+                  heart: { type: integer }
+                  amen: { type: integer }
+                  fire: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/radio/programs/{id}/go-live:
+    post:
+      tags: [radio]
+      summary: Go live — status=live, is_live=true; provider.start. Gated by radio:edit. Only ONE session can be on air — 409 (with live_program_id/title in details) while another is live; the auto-air sweep retries, so a scheduled session starts automatically when the current one ends.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: Now live
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioProgram" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: Another session is already live (details carry live_program_id + live_program_title) }
+  /admin/radio/mic-bridge:
+    get:
+      tags: [radio]
+      summary: "WebSocket upgrade (not plain HTTP): browser mic broadcasting. The console captures the mic (getUserMedia → MediaRecorder) and streams encoded chunks (binary frames) here; the server performs the Icecast SOURCE handshake against the liquidsoap harbor /mic input and pipes bytes through. Auth: ?token=<access JWT> (WS can't set headers) + radio:edit. ?ct= declares the encoding (audio/webm default; audio/mp4 for Safari). First server frame after the harbor accepts is {ok:true,mount}. Close codes: 4001 bad token · 4003 no permission · 4004 not configured · 4008 engine unreachable/no live session · 4409 mic input busy (someone already on mic)."
+      security: []
+      parameters:
+        - { name: token, in: query, required: true, schema: { type: string }, description: Access JWT (header auth is unavailable on WebSocket upgrades) }
+        - { name: ct, in: query, required: false, schema: { type: string, enum: [audio/webm, audio/mp4, audio/aac, audio/mpeg, audio/ogg] } }
+      responses:
+        "101": { description: Switching Protocols — WebSocket session established }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/radio/schedule/conflicts:
+    get:
+      tags: [radio]
+      summary: Pre-save overlap check for a proposed schedule slot — other scheduled sessions (and a live one's projected window) that intersect [scheduled_at, scheduled_at + duration_min). Sessions without a duration are assumed 60 min. Gated by radio:view.
+      parameters:
+        - { name: scheduled_at, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: duration_min, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 1440 } }
+        - { name: exclude_id, in: query, required: false, schema: { type: string, format: uuid }, description: The program being edited (excluded from its own check) }
+      responses:
+        "200":
+          description: Overlapping sessions (empty = the slot is clear)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [conflicts]
+                properties:
+                  conflicts:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, title, status, is_live]
+                      properties:
+                        id: { type: string, format: uuid }
+                        title: { type: string }
+                        scheduled_at: { type: [string, "null"], format: date-time }
+                        duration_min: { type: [integer, "null"] }
+                        status: { type: string, enum: [draft, scheduled, live, ended] }
+                        is_live: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/radio/programs/{id}/end:
+    post:
+      tags: [radio]
+      summary: End — status=ended, is_live=false; provider.stop. Gated by radio:edit.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: Ended
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioProgram" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/radio/programs/{id}/rotate-key:
+    post:
+      tags: [radio]
+      summary: Rotate the secret stream key. Gated by radio:edit.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: New stream key
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stream_key]
+                properties: { stream_key: { type: string } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/radio/programs/{id}/health:
+    get:
+      tags: [radio]
+      summary: Live stream health (live programs only). Gated by radio:view.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: Health
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StreamHealth" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /admin/radio/programs/{id}/comments:
+    get:
+      tags: [radio]
+      summary: All comments incl. hidden (moderation). Gated by radio:view.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/RadioComment" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/radio/comments/{cid}:
+    delete:
+      tags: [radio]
+      summary: Hide a comment (moderation). Gated by radio:edit.
+      parameters: [{ name: cid, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        "200": { description: Hidden, content: { application/json: { schema: { $ref: "#/components/schemas/Ok" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- Radio audio library (tracks) + session playlists ---
+  /admin/radio/tracks:
+    get:
+      tags: [radio]
+      summary: List audio-library tracks, newest first (optional kind filter). Gated by radio:view.
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema: { type: string, enum: [music, preaching, audio] }
+      responses:
+        "200":
+          description: Tracks
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/RadioTrack" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [radio]
+      summary: Create an audio-library track (audio_url from the audio upload). Gated by radio:create.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRadioTrackBody" }
+      responses:
+        "201":
+          description: Track
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioTrack" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/radio/tracks/{id}:
+    delete:
+      tags: [radio]
+      summary: Delete a track; cascades it out of all playlists. Gated by radio:delete.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200": { description: Deleted, content: { application/json: { schema: { $ref: "#/components/schemas/Ok" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/radio/programs/{id}/tracks:
+    get:
+      tags: [radio]
+      summary: Ordered session playlist (embedded tracks). Gated by radio:view.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: Playlist items
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/RadioPlaylistItem" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [radio]
+      summary: Append a track to the playlist at the next position. Gated by radio:edit.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddPlaylistItemBody" }
+      responses:
+        "201":
+          description: Playlist item
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioPlaylistItem" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/radio/programs/{id}/tracks/order:
+    put:
+      tags: [radio]
+      summary: Reorder the full playlist by item ids (must match the program's items). Gated by radio:edit.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReorderPlaylistBody" }
+      responses:
+        "200": { description: Reordered, content: { application/json: { schema: { $ref: "#/components/schemas/Ok" } } } }
+        "400": { description: Validation failed / item_ids mismatch }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/radio/programs/{id}/tracks/{itemId}:
+    delete:
+      tags: [radio]
+      summary: Remove a playlist item; remaining positions re-normalize to 1..n. Gated by radio:edit.
+      parameters:
+        - { $ref: "#/components/parameters/IdPath" }
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Removed, content: { application/json: { schema: { $ref: "#/components/schemas/Ok" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/radio/mixer/scenes:
+    get:
+      tags: [radio]
+      summary: List mixer scene presets. Gated by radio:view.
+      responses:
+        "200":
+          description: Scenes
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/MixerScene" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [radio]
+      summary: Create a mixer scene. Gated by radio:create.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MixerSceneBody" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MixerScene" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/radio/mixer/scenes/{id}:
+    patch:
+      tags: [radio]
+      summary: Update a mixer scene. Gated by radio:edit.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MixerSceneBody" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MixerScene" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [radio]
+      summary: Delete a mixer scene. Gated by radio:delete.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200": { description: Deleted, content: { application/json: { schema: { $ref: "#/components/schemas/Ok" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/radio/mixer/jingles:
+    get:
+      tags: [radio]
+      summary: List jingle soundboard entries. Gated by radio:view.
+      responses:
+        "200":
+          description: Jingles
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/MixerJingle" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+    post:
+      tags: [radio]
+      summary: Create a jingle. Gated by radio:create.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MixerJingleBody" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MixerJingle" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+  /admin/radio/mixer/jingles/{id}:
+    delete:
+      tags: [radio]
+      summary: Delete a jingle. Gated by radio:delete.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200": { description: Deleted, content: { application/json: { schema: { $ref: "#/components/schemas/Ok" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- LIVE MIX control (liquidsoap engine on the VPS; telnet control server) ---
+  /admin/radio/mixer/live/levels:
+    post:
+      tags: [radio]
+      summary: Set live-mix channel gains (mic/bed/jingle/master, ints 0..100). Gated by radio:edit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MixerLiveLevelsBody" }
+      responses:
+        "200": { description: Applied, content: { application/json: { schema: { $ref: "#/components/schemas/Ok" } } } }
+        "400": { description: Validation failed (at least one channel required) }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "503": { description: Live mix engine not configured or unreachable }
+  /admin/radio/mixer/live/eq:
+    post:
+      tags: [radio]
+      summary: Set live-mix 3-band EQ gains per bus (mic/bed/master × low/mid/high, dB −12..+12). Gated by radio:edit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MixerLiveEqBody" }
+      responses:
+        "200": { description: Applied, content: { application/json: { schema: { $ref: "#/components/schemas/Ok" } } } }
+        "400": { description: Validation failed (at least one band gain required; dB −12..+12) }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "503": { description: Live mix engine not configured or unreachable }
+  /admin/radio/mixer/live/jingle:
+    post:
+      tags: [radio]
+      summary: Fire a jingle on the live mix (server-hosted /media/ audio only). Gated by radio:edit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MixerLiveJingleBody" }
+      responses:
+        "200": { description: Queued, content: { application/json: { schema: { $ref: "#/components/schemas/Ok" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: Jingle has no server-hosted audio — re-upload it }
+        "503": { description: Live mix engine not configured or unreachable }
+  /admin/radio/mixer/live/scene:
+    post:
+      tags: [radio]
+      summary: Apply a saved mixer scene to the live mix (mic→mic, music→bed, jingle→jingle, master→master; other channels ignored). Gated by radio:edit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MixerLiveSceneBody" }
+      responses:
+        "200":
+          description: Applied
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MixerLiveSceneApplied" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { description: Live mix engine not configured or unreachable }
+  /admin/radio/mixer/live/status:
+    get:
+      tags: [radio]
+      summary: Live mix engine status — never 503s (a down engine reads connected=false). Gated by radio:view.
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MixerLiveStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenScope" }
+
+  # --- Radio member surface (auth only; public projection, no ingest secrets) ---
+  /radio/programs:
+    get:
+      tags: [radio]
+      summary: Visible programs (public always; members if authed; never private).
+      responses:
+        "200":
+          description: Programs
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/RadioProgramPublic" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /radio/now-playing:
+    get:
+      tags: [radio]
+      summary: Current live program, or the next scheduled one (null if none). No stream_key.
+      responses:
+        "200":
+          description: Now playing (or null)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: "#/components/schemas/RadioProgramPublic" }
+                  - { type: "null" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /radio/programs/{id}:
+    get:
+      tags: [radio]
+      summary: Program public view (hls_url yes, stream_key NO). 404 for private.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: Program (public projection)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioProgramPublic" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /radio/programs/{id}/listening:
+    post:
+      tags: [radio]
+      summary: >-
+        Listener presence heartbeat. The member player POSTs this ~every 20s
+        while it is actually playing this live program; idempotent upsert of the
+        caller's (program,user,last_seen=now). Stops when playback stops.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: Heartbeat recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties: { ok: { type: boolean, enum: [true] } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /radio/programs/{id}/listeners:
+    get:
+      tags: [radio]
+      summary: >-
+        Live listener roster — real members active within the last 45s (most
+        recent first, capped at 100) plus the real active count. Drives the
+        studio's Live listeners panel and count.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: Active listener roster
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioListenerRoster" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /radio/programs/{id}/react:
+    post:
+      tags: [radio]
+      summary: React (heart|amen|fire). Idempotent per client_event_id (§2.1/§3.6).
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RadioReactBody" }
+      responses:
+        "200":
+          description: Reaction counts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [counts]
+                properties: { counts: { $ref: "#/components/schemas/RadioReactionCounts" } }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /radio/programs/{id}/comments:
+    get:
+      tags: [radio]
+      summary: Non-hidden comments, newest first.
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/RadioComment" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [radio]
+      summary: Post a comment. Idempotent per client_event_id (§2.1/§3.6).
+      parameters: [{ $ref: "#/components/parameters/IdPath" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RadioCommentBody" }
+      responses:
+        "201":
+          description: Comment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RadioComment" }
+        "400": { description: Validation failed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -3265,6 +5017,155 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
+    Permission:
+      type: object
+      description: A single RBAC (module × capability) cell. 16 fixed modules × 6 capabilities.
+      required: [module_id, capability]
+      properties:
+        module_id:
+          type: string
+          enum: [dashboard, levels, cms, quiz, videos, cells, members, reflections, events, finance, certificates, badges, users, rolesAdmin, countries, languages, congregations]
+        capability:
+          type: string
+          enum: [view, create, edit, delete, approve, export]
+    HubScores:
+      type: object
+      description: Growth scores, 0–100 ints; null if not yet computed.
+      required: [overall, word, prayer, habits, curriculum, attendance]
+      properties:
+        overall: { type: [integer, "null"] }
+        word: { type: [integer, "null"] }
+        prayer: { type: [integer, "null"] }
+        habits: { type: [integer, "null"] }
+        curriculum: { type: [integer, "null"] }
+        attendance: { type: [integer, "null"] }
+    MyDiscipleship:
+      type: object
+      required: [discipler, dm_conversation_id, can_message, progression, scores, reflections, next_meeting_at, notes]
+      properties:
+        discipler:
+          type: [object, "null"]
+          required: [user_id, full_name, avatar_url, role_label, cell_name, established_at]
+          properties:
+            user_id: { type: string, format: uuid }
+            full_name: { type: string }
+            avatar_url: { type: [string, "null"] }
+            role_label: { type: string, enum: [Cell Leader, Discipler] }
+            cell_name: { type: [string, "null"] }
+            established_at: { type: [string, "null"], format: date-time }
+        dm_conversation_id:
+          type: [string, "null"]
+          format: uuid
+          description: Present only if a DM already exists; a GET never creates one.
+        can_message: { type: boolean, description: false for minors (chat blocks minors). }
+        progression:
+          type: object
+          required: [current_level, level_title, streak_days, modules_completed, modules_total, awaiting_review, awaiting_level]
+          properties:
+            current_level: { type: integer }
+            level_title: { type: string }
+            streak_days: { type: integer }
+            modules_completed: { type: integer }
+            modules_total: { type: integer }
+            awaiting_review: { type: boolean }
+            awaiting_level: { type: [integer, "null"] }
+        scores: { $ref: "#/components/schemas/HubScores" }
+        reflections:
+          type: array
+          description: The member's own reflections, most-recent first, cap 20. Never exposes pastoral_note.
+          items:
+            type: object
+            required: [module_id, module_title, level_number, state, submitted_at, feedback_notes]
+            properties:
+              module_id: { type: string, format: uuid }
+              module_title: { type: string }
+              level_number: { type: integer }
+              state: { type: string, enum: [approved, pending, returned, deferred] }
+              submitted_at: { type: string, format: date-time }
+              feedback_notes: { type: [string, "null"] }
+        next_meeting_at: { type: [string, "null"], format: date-time }
+        notes:
+          type: array
+          items:
+            type: object
+            required: [topic, body, met_at, next_meeting_at]
+            properties:
+              topic: { type: string }
+              body: { type: string }
+              met_at: { type: string, format: date-time }
+              next_meeting_at: { type: [string, "null"], format: date-time }
+    DiscipleRosterRow:
+      type: object
+      required: [user_id, full_name, avatar_url, cell_name, cell_group_id, current_level, band, streak_days, days_since_last_activity, pending_reflections, awaiting_level]
+      properties:
+        user_id: { type: string, format: uuid }
+        full_name: { type: string }
+        avatar_url: { type: [string, "null"] }
+        cell_name: { type: [string, "null"] }
+        cell_group_id: { type: [string, "null"], format: uuid }
+        current_level: { type: integer }
+        band: { type: [string, "null"], enum: [thriving, steady, watch, at_risk, null] }
+        streak_days: { type: integer }
+        days_since_last_activity: { type: [integer, "null"] }
+        pending_reflections: { type: integer }
+        awaiting_level: { type: [integer, "null"] }
+    DiscipleDossier:
+      type: object
+      required: [member, progression, scores, engagement, reflections, recent_activity, dm_conversation_id]
+      properties:
+        member:
+          type: object
+          required: [user_id, full_name, avatar_url, cell_name, established_at, joined_at]
+          properties:
+            user_id: { type: string, format: uuid }
+            full_name: { type: string }
+            avatar_url: { type: [string, "null"] }
+            cell_name: { type: [string, "null"] }
+            established_at: { type: [string, "null"], format: date-time }
+            joined_at: { type: [string, "null"], format: date-time }
+        progression:
+          type: object
+          required: [current_level, level_title, streak_days, modules_completed, modules_total, awaiting_level]
+          properties:
+            current_level: { type: integer }
+            level_title: { type: string }
+            streak_days: { type: integer }
+            modules_completed: { type: integer }
+            modules_total: { type: integer }
+            awaiting_level: { type: [integer, "null"] }
+        scores: { $ref: "#/components/schemas/HubScores" }
+        engagement:
+          type: object
+          required: [e_score, band, days_since_last_activity]
+          properties:
+            e_score: { type: [integer, "null"], description: 0–100 (engagement Eᵢ ×100). }
+            band: { type: [string, "null"], enum: [thriving, steady, watch, at_risk, null] }
+            days_since_last_activity: { type: [integer, "null"] }
+        reflections:
+          type: array
+          description: Discipler DOES see body + feedback_notes (pastoral). Most-recent first, cap 20.
+          items:
+            type: object
+            required: [reflection_id, module_id, module_title, level_number, state, submitted_at, body, feedback_notes]
+            properties:
+              reflection_id: { type: string, format: uuid }
+              module_id: { type: string, format: uuid }
+              module_title: { type: string }
+              level_number: { type: integer }
+              state: { type: string, enum: [approved, pending, returned, deferred] }
+              submitted_at: { type: string, format: date-time }
+              body: { type: string }
+              feedback_notes: { type: [string, "null"] }
+        recent_activity:
+          type: array
+          description: Last ~20 interaction_events.
+          items:
+            type: object
+            required: [kind, occurred_at]
+            properties:
+              kind: { type: string }
+              occurred_at: { type: string, format: date-time }
+        dm_conversation_id: { type: [string, "null"], format: uuid }
     Error:
       type: object
       required: [error]
@@ -3278,7 +5179,413 @@ components:
             request_id: { type: string }
             details: { type: object, additionalProperties: true }
 
+    Ok:
+      type: object
+      required: [ok]
+      properties: { ok: { type: boolean, enum: [true] } }
+
+    # --- Radio Broadcast Studio + Virtual Audio Mixer ---
+    RadioProgram:
+      type: object
+      required:
+        [id, title, category, tags, visibility, status, is_live, record_broadcast,
+         peak_listeners, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: [string, "null"] }
+        category: { type: string, enum: [Sermon, Worship, Prayer, "Bible Study", Conference] }
+        speaker: { type: [string, "null"] }
+        location: { type: [string, "null"] }
+        artwork_url: { type: [string, "null"] }
+        tags: { type: array, items: { type: string } }
+        visibility: { type: string, enum: [public, members, private] }
+        scheduled_at: { type: [string, "null"], format: date-time }
+        duration_min: { type: [integer, "null"] }
+        repeat: { type: [string, "null"] }
+        timezone: { type: [string, "null"] }
+        status: { type: string, enum: [draft, scheduled, live, ended] }
+        loop_mode: { type: string, enum: [none, loop_all, repeat_one] }
+        is_live: { type: boolean }
+        live_started_at: { type: [string, "null"], format: date-time }
+        live_ended_at: { type: [string, "null"], format: date-time }
+        audio_url: { type: [string, "null"] }
+        audio_duration_sec: { type: [integer, "null"] }
+        auto_go_live: { type: boolean }
+        record_broadcast: { type: boolean }
+        record_target: { type: [string, "null"], enum: [cloud, local, both, null] }
+        peak_listeners: { type: integer }
+        ingest_provider: { type: [string, "null"] }
+        ingest_url: { type: [string, "null"] }
+        stream_key: { type: [string, "null"], description: "SECRET — admin surface only, never returned to members" }
+        hls_url: { type: [string, "null"] }
+        created_by: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    RadioProgramPublic:
+      type: object
+      description: Member/public projection — OMITS stream_key, ingest_url, ingest_provider.
+      required:
+        [id, title, category, tags, visibility, status, is_live, record_broadcast,
+         peak_listeners, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: [string, "null"] }
+        category: { type: string, enum: [Sermon, Worship, Prayer, "Bible Study", Conference] }
+        speaker: { type: [string, "null"] }
+        location: { type: [string, "null"] }
+        artwork_url: { type: [string, "null"] }
+        tags: { type: array, items: { type: string } }
+        visibility: { type: string, enum: [public, members, private] }
+        scheduled_at: { type: [string, "null"], format: date-time }
+        duration_min: { type: [integer, "null"] }
+        repeat: { type: [string, "null"] }
+        timezone: { type: [string, "null"] }
+        status: { type: string, enum: [draft, scheduled, live, ended] }
+        loop_mode: { type: string, enum: [none, loop_all, repeat_one] }
+        is_live: { type: boolean }
+        live_started_at: { type: [string, "null"], format: date-time }
+        live_ended_at: { type: [string, "null"], format: date-time }
+        audio_url: { type: [string, "null"] }
+        audio_duration_sec: { type: [integer, "null"] }
+        auto_go_live: { type: boolean }
+        record_broadcast: { type: boolean }
+        record_target: { type: [string, "null"], enum: [cloud, local, both, null] }
+        peak_listeners: { type: integer }
+        hls_url: { type: [string, "null"] }
+        tracks:
+          type: array
+          description: Ordered session playlist (populated on detail/now-playing reads).
+          items: { $ref: "#/components/schemas/RadioPlaylistItem" }
+        created_by: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    RadioTrack:
+      type: object
+      description: A reusable audio-library asset. Members DO get audio_url.
+      required: [id, title, kind, audio_url, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        kind: { type: string, enum: [music, preaching, audio] }
+        audio_url: { type: string }
+        duration_sec: { type: [integer, "null"] }
+        size_bytes: { type: [integer, "null"] }
+        created_by: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time }
+    RadioPlaylistItem:
+      type: object
+      description: One ordered slot in a session playlist, embedding its track.
+      required: [id, position, track]
+      properties:
+        id: { type: string, format: uuid }
+        position: { type: integer }
+        track: { $ref: "#/components/schemas/RadioTrack" }
+    CreateRadioTrackBody:
+      type: object
+      required: [title, kind, audio_url]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 300 }
+        kind: { type: string, enum: [music, preaching, audio] }
+        audio_url: { type: string, minLength: 1, maxLength: 2000 }
+        duration_sec: { type: integer, minimum: 1 }
+        size_bytes: { type: integer, minimum: 0 }
+    AddPlaylistItemBody:
+      type: object
+      required: [track_id]
+      properties:
+        track_id: { type: string, format: uuid }
+    ReorderPlaylistBody:
+      type: object
+      required: [item_ids]
+      properties:
+        item_ids: { type: array, minItems: 1, items: { type: string, format: uuid } }
+    CreateRadioProgramBody:
+      type: object
+      required: [title, category]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 300 }
+        description: { type: string, maxLength: 4000 }
+        category: { type: string, enum: [Sermon, Worship, Prayer, "Bible Study", Conference] }
+        speaker: { type: string, maxLength: 200 }
+        location: { type: string, maxLength: 200 }
+        artwork_url: { type: string, maxLength: 2000 }
+        tags: { type: array, items: { type: string, maxLength: 60 }, maxItems: 30 }
+        visibility: { type: string, enum: [public, members, private] }
+        scheduled_at: { type: string, format: date-time }
+        duration_min: { type: integer, minimum: 1, maximum: 1440 }
+        repeat: { type: string, maxLength: 30 }
+        timezone: { type: string, maxLength: 60 }
+        loop_mode: { type: string, enum: [none, loop_all, repeat_one] }
+        audio_url: { type: string, maxLength: 2000 }
+        audio_duration_sec: { type: integer, minimum: 1 }
+        auto_go_live: { type: boolean }
+        record_broadcast: { type: boolean }
+        record_target: { type: string, enum: [cloud, local, both] }
+    UpdateRadioProgramBody:
+      allOf:
+        - { $ref: "#/components/schemas/CreateRadioProgramBody" }
+        - type: object
+          properties:
+            status: { type: string, enum: [draft, scheduled, live, ended] }
+    AudioUploadResult:
+      type: object
+      description: Bare result of POST /admin/media/audio/upload (no media_assets row).
+      required: [url, duration_sec]
+      properties:
+        url: { type: string }
+        duration_sec: { type: [integer, "null"] }
+    RadioReactionCounts:
+      type: object
+      required: [heart, amen, fire]
+      properties:
+        heart: { type: integer }
+        amen: { type: integer }
+        fire: { type: integer }
+    RadioReactBody:
+      type: object
+      required: [kind, client_event_id]
+      properties:
+        kind: { type: string, enum: [heart, amen, fire] }
+        client_event_id: { type: string, minLength: 1, maxLength: 200 }
+    RadioComment:
+      type: object
+      required: [id, program_id, member_id, body, hidden, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        program_id: { type: string, format: uuid }
+        member_id: { type: string, format: uuid }
+        body: { type: string }
+        hidden: { type: boolean }
+        client_event_id: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        author_name: { type: [string, "null"], description: "Comment author's display name (users join)" }
+        author_avatar_url: { type: [string, "null"] }
+    RadioCommentBody:
+      type: object
+      required: [body, client_event_id]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 2000 }
+        client_event_id: { type: string, minLength: 1, maxLength: 200 }
+    RadioListener:
+      type: object
+      required: [user_id, name, avatar_url]
+      properties:
+        user_id: { type: string, format: uuid }
+        name: { type: string, description: "Listener's display name (users join)" }
+        avatar_url: { type: [string, "null"] }
+    RadioListenerRoster:
+      type: object
+      required: [count, listeners]
+      properties:
+        count: { type: integer, description: "Real active listeners within the last 45s" }
+        listeners:
+          type: array
+          items: { $ref: "#/components/schemas/RadioListener" }
+    StreamHealth:
+      type: object
+      required: [cpu, memory, bitrate, latency, dropped, stability, listeners]
+      properties:
+        cpu: { type: number }
+        memory: { type: number }
+        bitrate: { type: number }
+        latency: { type: number }
+        dropped: { type: number }
+        stability: { type: number }
+        listeners: { type: number }
+    MixerChannel:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        sub: { type: string }
+        color: { type: string }
+        level: { type: number }
+        pan: { type: number }
+        muted: { type: boolean }
+        solo: { type: boolean }
+    MixerScene:
+      type: object
+      required: [id, name, channels, is_default, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        hint: { type: [string, "null"] }
+        channels: { type: array, items: { $ref: "#/components/schemas/MixerChannel" } }
+        is_default: { type: boolean }
+        created_by: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    MixerSceneBody:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        hint: { type: string, maxLength: 300 }
+        channels: { type: array, items: { $ref: "#/components/schemas/MixerChannel" }, maxItems: 64 }
+        is_default: { type: boolean }
+    MixerJingle:
+      type: object
+      required: [id, label, sort, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string }
+        color: { type: [string, "null"] }
+        audio_url: { type: [string, "null"] }
+        sort: { type: integer }
+        created_by: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time }
+    MixerJingleBody:
+      type: object
+      required: [label]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 120 }
+        color: { type: string, maxLength: 40 }
+        audio_url: { type: string, maxLength: 2000 }
+        sort: { type: integer }
+    MixerLiveLevelsBody:
+      type: object
+      required: [channels]
+      description: Live-mix gains as ints 0..100 (converted to 0..1 on the engine wire). At least one channel.
+      properties:
+        channels:
+          type: object
+          minProperties: 1
+          properties:
+            mic: { type: integer, minimum: 0, maximum: 100 }
+            bed: { type: integer, minimum: 0, maximum: 100 }
+            jingle: { type: integer, minimum: 0, maximum: 100 }
+            master: { type: integer, minimum: 0, maximum: 100 }
+    MixerEqBandGains:
+      type: object
+      description: One bus's 3-band peaking-EQ gains in dB (−12..+12, default 0).
+      properties:
+        low: { type: number, minimum: -12, maximum: 12 }
+        mid: { type: number, minimum: -12, maximum: 12 }
+        high: { type: number, minimum: -12, maximum: 12 }
+    MixerLiveEqBody:
+      type: object
+      required: [bands]
+      description: Per-bus 3-band EQ gains in dB. At least one band gain overall (engine keys eq_<bus>_<band>).
+      properties:
+        bands:
+          type: object
+          minProperties: 1
+          properties:
+            mic: { $ref: "#/components/schemas/MixerEqBandGains" }
+            bed: { $ref: "#/components/schemas/MixerEqBandGains" }
+            master: { $ref: "#/components/schemas/MixerEqBandGains" }
+    MixerLiveJingleBody:
+      type: object
+      required: [jingle_id]
+      properties:
+        jingle_id: { type: string, format: uuid }
+    MixerLiveSceneBody:
+      type: object
+      required: [scene_id]
+      properties:
+        scene_id: { type: string, format: uuid }
+    MixerLiveSceneApplied:
+      type: object
+      required: [ok, applied]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        applied:
+          type: object
+          description: The live gains that were set (scene channels mapped mic→mic, music→bed, jingle→jingle, master→master).
+          additionalProperties: { type: integer, minimum: 0, maximum: 100 }
+    MixerLiveStatus:
+      type: object
+      required: [connected]
+      properties:
+        connected: { type: boolean }
+        gains:
+          type: object
+          description: Present when connected — current gains per channel, ints 0..100.
+          additionalProperties: { type: number }
+
     # --- Auth & identity (§3.3, §5.3) ---
+    ModuleEngagement:
+      type: object
+      required: [reading_seconds, audio_seconds, video_seconds, last_page]
+      description: Accumulated per-(member, module) engagement totals from reader heartbeats.
+      properties:
+        reading_seconds: { type: integer, minimum: 0 }
+        audio_seconds: { type: integer, minimum: 0 }
+        video_seconds: { type: integer, minimum: 0 }
+        last_page: { type: integer, minimum: 1 }
+    ModuleBody:
+      type: object
+      description: >-
+        Member-facing full module read (§3.3). Lesson media is brokered to signed,
+        expiring URLs (raw storage refs never leak, §4.5); durations are whole
+        seconds for the reader's "watch X min / listen Y min" labels. content_pages
+        is derived (lesson_content split on <!-- page-break --> markers; one page
+        when none). FIXED wire contract consumed by the iOS build.
+      properties:
+        module_id: { type: string, format: uuid }
+        level_number: { type: integer, minimum: 1 }
+        module_sequence_number: { type: integer, minimum: 1 }
+        title: { type: string }
+        summary: { type: [string, "null"] }
+        lesson_content: { type: string }
+        content_pages:
+          type: array
+          items: { type: string }
+          description: Server-authored reader pages (page-break split; one page when no markers).
+        key_verses: { type: [array, "null"], items: { type: string } }
+        evaluation_kind: { type: string }
+        estimated_minutes: { type: [integer, "null"], minimum: 0 }
+        video_url:
+          type: [string, "null"]
+          description: Signed, expiring lesson video URL (brokered; null when unset).
+        video_duration_sec:
+          type: [integer, "null"]
+          minimum: 0
+          description: Lesson video length in whole seconds (null when unset).
+        audio_url:
+          type: [string, "null"]
+          description: Signed, expiring lesson audio URL (admin-controlled, brokered; null when unset).
+        audio_duration_sec:
+          type: [integer, "null"]
+          minimum: 0
+          description: Lesson audio length in whole seconds (null when unset).
+        quiz_pass_mark: { type: number }
+        current_version: { type: integer, minimum: 1 }
+        locked: { type: boolean, description: Always false on this read (gated 409 otherwise). }
+    ModuleUpdate:
+      type: object
+      description: >-
+        Admin module edit (§3.3). All fields optional; a lesson_content change
+        versions the module. Media durations are whole seconds; audio_url is the
+        admin-controlled lesson audio (brokered to members). Nullable fields accept
+        null to clear.
+      properties:
+        title: { type: string, minLength: 1, maxLength: 255 }
+        summary: { type: [string, "null"] }
+        lesson_content: { type: string, minLength: 1 }
+        evaluation_kind: { type: string }
+        quiz_pass_mark: { type: number, minimum: 0, maximum: 100 }
+        estimated_minutes: { type: [integer, "null"], minimum: 0 }
+        video_url: { type: [string, "null"], format: uri, maxLength: 512 }
+        video_duration_sec:
+          type: [integer, "null"]
+          minimum: 0
+          description: Lesson video length in whole seconds (null to clear).
+        audio_url:
+          type: [string, "null"]
+          format: uri
+          maxLength: 512
+          description: Admin-controlled lesson audio URL (null to clear).
+        audio_duration_sec:
+          type: [integer, "null"]
+          minimum: 0
+          description: Lesson audio length in whole seconds (null to clear).
+        media_asset_id: { type: [string, "null"], format: uuid }
+        key_verses: { type: [array, "null"], items: { type: string } }
+        expected_row_version: { type: integer, minimum: 1, description: Optimistic-concurrency guard (§5.8). }
     OAuthExchange:
       type: object
       required: [code]
@@ -3362,6 +5669,7 @@ components:
       properties:
         platform: { type: string, enum: [ios, android] }
         app_version: { type: string, maxLength: 20 }
+        model: { type: string, maxLength: 80, description: "Optional device model (e.g. \"iPhone 17 Pro Max\"); trimmed, omitted by older clients." }
         push_token: { type: string, maxLength: 512 }
     MfaEnroll:
       type: object
@@ -3449,6 +5757,7 @@ components:
         currency: { type: string }
         status: { type: string }
         fund: { type: [string, "null"] }
+        receipt_code: { type: [string, "null"], description: M-Pesa confirmation code from the customer's SMS (e.g. UG3J29U3OL); null for older or non-mobile-money gifts }
         created_at: { type: string, format: date-time }
         settled_at: { type: [string, "null"], format: date-time }
 
@@ -3463,6 +5772,7 @@ components:
         fund: { type: [string, "null"] }
         method: { type: string }
         provider_ref: { type: [string, "null"] }
+        receipt_code: { type: [string, "null"], description: M-Pesa confirmation code from the customer's SMS (e.g. UG3J29U3OL); null for older or non-mobile-money gifts }
         schedule_id: { type: [string, "null"], format: uuid }
         created_at: { type: string, format: date-time }
         settled_at: { type: [string, "null"], format: date-time }
@@ -3781,4 +6091,45 @@ components:
         issued_at: { type: string, format: date-time }
         verification_code: { type: string }
         content_hash: { type: string, description: "SHA-256 over the issuance facts" }
+    NotificationPreferences:
+      type: object
+      required: [push_enabled, email_enabled, sms_enabled]
+      properties:
+        push_enabled: { type: boolean }
+        email_enabled: { type: boolean }
+        sms_enabled: { type: boolean }
+    PlanDayReflection:
+      type: object
+      required: [id, plan_id, day_number, body, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        plan_id: { type: string, format: uuid }
+        day_number: { type: integer, minimum: 1 }
+        body: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ChatConversationSummary:
+      type: object
+      required: [conversation_id, kind, title]
+      properties:
+        conversation_id: { type: string, format: uuid }
+        kind: { type: string, enum: [dm, group, space] }
+        is_public: { type: boolean }
+        title: { type: [string, "null"], description: "For a DM, the peer's name" }
+        avatar_url: { type: [string, "null"] }
+        peer_user_id:
+          type: [string, "null"]
+          format: uuid
+          description: "The other member's user id when kind = dm; null otherwise"
+        topic: { type: [string, "null"] }
+        category: { type: [string, "null"] }
+        member_count: { type: integer }
+        last_body: { type: [string, "null"] }
+        last_type: { type: [string, "null"] }
+        last_at: { type: [string, "null"], format: date-time }
+        last_duration: { type: [integer, "null"] }
+        last_author: { type: [string, "null"] }
+        unread: { type: integer }
+        message_count: { type: integer }
+        reaction_count: { type: integer }
         signature: { type: string, description: "HMAC-SHA256 detached signature (§5.5 KMS stand-in)" }

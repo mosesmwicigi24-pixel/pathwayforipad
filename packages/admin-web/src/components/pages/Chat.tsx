@@ -8,7 +8,7 @@
 // routes; flagged counts and per-message state come from the server. Mute /
 // archive / attachment upload have no endpoint yet and stay local display-only.
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactElement, type ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -18,11 +18,13 @@ import {
   CheckCheck, Check, Circle, X, MessageSquare, Activity, Eye,
   WifiOff, Moon, LayoutGrid, Hash, Wand2, Loader2, Image as ImageIcon, Paperclip, FileText,
   Plus, Mic, Square, Globe, PenSquare, UserPlus,
+  HeartPulse, CheckCircle2, ListChecks, UserCircle, ArrowUpRight, Mail, CornerUpLeft,
 } from "lucide-react";
 import {
-  ChatApi, AssistantApi, uploadToCloudinary,
+  ChatApi, AssistantApi, OpsApi, uploadToCloudinary,
   type ChatConversationRow, type ChatMessageRow, type ChatKind, type ChatAiTag,
   type ChatMsgType, type AssistantTurn, type ChatDiscoverSpace, type ChatPerson, type ChatReaders,
+  type MemberDetail,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -137,6 +139,7 @@ function rowHealth(c: ChatConversationRow): ChatHealth {
 }
 
 export function Chat(): ReactElement {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const paramC = searchParams.get("c");
 
@@ -187,6 +190,11 @@ export function Chat(): ReactElement {
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryBusy, setSummaryBusy] = useState(false);
 
+  // Context column — the DM member's profile (real data via /admin/members/:id).
+  const [profile, setProfile] = useState<MemberDetail | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileMemberId, setProfileMemberId] = useState<string | null>(null);
+
   const typeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -231,6 +239,30 @@ export function Chat(): ReactElement {
 
   const active = filtered.find((c) => c.conversation_id === activeId) ?? filtered[0] ?? convos.find((c) => c.conversation_id === activeId);
   const list = filtered;
+
+  // DM member id — the author of the first inbound (not-mine) message in the open
+  // thread. We can't derive it from the list row alone (no member id there), so it
+  // resolves once the thread loads. Group/space conversations have no single member.
+  const dmMemberId = useMemo<string | null>(() => {
+    if (!active || active.kind !== "dm") return null;
+    const inbound = messages.find((m) => !m.mine && m.author_user_id);
+    return inbound?.author_user_id ?? null;
+  }, [active, messages]);
+
+  // Fetch the member profile for the context column when the DM member changes.
+  // Real data only (GET /admin/members/:id) — group/space clear it.
+  useEffect(() => {
+    if (!dmMemberId) { setProfile(null); setProfileMemberId(null); return; }
+    if (dmMemberId === profileMemberId) return;
+    let alive = true;
+    setProfileLoading(true);
+    setProfileMemberId(dmMemberId);
+    OpsApi.memberDetail(dmMemberId)
+      .then((d) => { if (alive) setProfile(d); })
+      .catch(() => { if (alive) setProfile(null); })
+      .finally(() => { if (alive) setProfileLoading(false); });
+    return () => { alive = false; };
+  }, [dmMemberId, profileMemberId]);
 
   // Fetch the open thread when the active conversation changes.
   useEffect(() => {
@@ -707,7 +739,7 @@ export function Chat(): ReactElement {
             </aside>
 
             {/* ── Thread detail ── */}
-            <section className="lg:col-span-8 xl:col-span-8 rounded-2xl overflow-hidden flex flex-col" style={{ background: "#fff", border: "1px solid var(--border)", maxHeight: 660 }}>
+            <section className="lg:col-span-8 xl:col-span-5 rounded-2xl overflow-hidden flex flex-col" style={{ background: "#fff", border: "1px solid var(--border)", maxHeight: 660 }}>
               {!active ? (
                 <div className="flex flex-1 flex-col items-center justify-center text-center" style={{ padding: 48, color: "var(--muted-foreground)" }}>
                   <MessagesSquare size={28} style={{ opacity: 0.4, marginBottom: 12 }} />
@@ -955,6 +987,19 @@ export function Chat(): ReactElement {
                 </>
               )}
             </section>
+
+            {/* ── Context column — iPad's three pastel cards (xl and up) ── */}
+            <aside className="hidden xl:flex xl:col-span-3 flex-col gap-3.5" style={{ maxHeight: 660, overflowY: "auto", scrollbarWidth: "thin", minWidth: 0 }}>
+              <PulseCard rows={rows} flaggedCount={totalFlagged} msgsToday={msgsToday} unreadTotal={unreadTotal} convos={convos} />
+              <NeedsReviewCard rows={rows} activeId={active?.conversation_id} onPick={(id) => setActiveId(id)} />
+              <ProfileCard
+                active={active}
+                profile={profile}
+                profileLoading={profileLoading}
+                memberId={dmMemberId}
+                onViewMember={(id) => navigate(`/member-profile?id=${id}`)}
+              />
+            </aside>
           </div>
         )}
       </div>
@@ -1167,6 +1212,268 @@ function CBtn({ children, onClick, title, disabled, active, accent }: { children
     <button onClick={onClick} disabled={disabled} title={title} className="flex items-center justify-center rounded-lg shrink-0 transition-colors hover:bg-[var(--secondary)]" style={{ width: 34, height: 40, border: "1px solid " + (active ? (accent ? accent + "66" : "var(--nuru-gold)") : "var(--border)"), background: active ? (accent ? accent + "14" : "var(--secondary)") : "#fff", color, opacity: disabled ? 0.45 : 1, cursor: disabled ? "not-allowed" : "pointer" }}>
       {children}
     </button>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Right-hand context column — the iPad app's three pastel dashboard cards
+   (ChatView.swift → ContextColumn). Soft tinted surfaces, dark readable ink,
+   one soft shadow each. Colours come from the --tint-* tokens in index.css:
+     · Today's pulse → rose      · Needs review → green     · Profile → navy/lavender
+   ══════════════════════════════════════════════════════════════════════════ */
+
+interface CardScheme { fill: string; stroke: string; tint: string; chip: string; title: string }
+const SCHEME: Record<"rose" | "green" | "navy", CardScheme> = {
+  // Soft ROSE — Today's pulse.
+  rose: { fill: "var(--tint-rose-bg)", stroke: "#f3d6d6", tint: "var(--tint-rose-fg)", chip: "#f7dada", title: "var(--tint-rose-fg)" },
+  // Soft GREEN — Needs review.
+  green: { fill: "var(--tint-green-bg)", stroke: "#bfe6cd", tint: "var(--tint-green-fg)", chip: "#c6f0d4", title: "var(--tint-green-fg)" },
+  // Soft BLUE/lavender — Profile.
+  navy: { fill: "var(--tint-navy-bg)", stroke: "#cdd9ec", tint: "var(--tint-navy-fg)", chip: "#d6e0ef", title: "var(--tint-navy-fg)" },
+};
+
+/** Shared pastel surface — soft tinted fill, hairline border, one soft shadow. */
+function TintCard({ scheme, children }: { scheme: CardScheme; children: ReactNode }): ReactElement {
+  return (
+    <div className="rounded-2xl flex flex-col gap-3" style={{ background: scheme.fill, border: `1px solid ${scheme.stroke}`, padding: 16, boxShadow: "0 4px 16px rgba(11,31,51,0.06)" }}>
+      {children}
+    </div>
+  );
+}
+
+/** Card eyebrow — tinted icon chip + dark uppercase title. */
+function CardEyebrow({ icon, text, scheme }: { icon: ReactNode; text: string; scheme: CardScheme }): ReactElement {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 26, height: 26, background: scheme.chip, color: scheme.tint }}>{icon}</span>
+      <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: scheme.title }}>{text}</span>
+    </div>
+  );
+}
+
+/* 1) Today's pulse — status line + four mini-stat tiles + a real 7-day activity
+      sparkline (active conversations/day, derived from rows' last_at). */
+function PulseCard({ rows, flaggedCount, msgsToday, unreadTotal, convos }: { rows: ChatConversationRow[]; flaggedCount: number; msgsToday: number; unreadTotal: number; convos: ConvoView[] }): ReactElement {
+  const scheme = SCHEME.rose;
+  const tiles = [
+    { icon: <MessageSquare size={13} />, tint: "#166534", value: String(rows.length), label: "Chats" },
+    { icon: <Activity size={13} />, tint: "#166534", value: String(msgsToday), label: "Active today" },
+    { icon: <Mail size={13} />, tint: "var(--nuru-gold)", value: String(unreadTotal), label: "Unread" },
+    { icon: <ShieldAlert size={13} />, tint: "#DC2626", value: String(flaggedCount), label: "Flagged" },
+  ];
+  // 7-day "active conversations / day" series from each row's last activity.
+  const series = useMemo(() => {
+    const start = (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - 6 * DAY; })();
+    const buckets = Array(7).fill(0) as number[];
+    convos.forEach((c) => {
+      const at = ms(c.last_at);
+      if (at >= start) { const i = Math.floor((at - start) / DAY); if (i >= 0 && i < 7) buckets[i]! += 1; }
+    });
+    return buckets;
+  }, [convos]);
+  const max = Math.max(1, ...series);
+  const pts = series.map((v, i) => `${(i / 6) * 100},${34 - (v / max) * 30}`).join(" ");
+  const area = `0,34 ${pts} 100,34`;
+
+  return (
+    <TintCard scheme={scheme}>
+      <CardEyebrow icon={<HeartPulse size={13} />} text="Today's pulse" scheme={scheme} />
+      <div className="flex items-center gap-1.5">
+        {flaggedCount > 0 ? <ShieldAlert size={13} style={{ color: "#DC2626" }} /> : <CheckCircle2 size={13} style={{ color: "#166534" }} />}
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)" }}>
+          {flaggedCount > 0 ? `${flaggedCount} flagged · needs review` : "0 flagged · All clear"}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {tiles.map((t) => (
+          <div key={t.label} className="flex items-center gap-2 rounded-xl" style={{ background: "#fff", border: `1px solid ${scheme.stroke}`, padding: "8px 9px" }}>
+            <span className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 28, height: 28, background: `color-mix(in srgb, ${t.tint} 14%, transparent)`, color: t.tint }}>{t.icon}</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "var(--nuru-navy)", lineHeight: 1.1 }}>{t.value}</div>
+              <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--muted-foreground)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div>
+        <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: "0.06em", color: "#6b7280", marginBottom: 4 }}>LAST 7 DAYS · ACTIVE CHATS</div>
+        <svg viewBox="0 0 100 34" preserveAspectRatio="none" style={{ width: "100%", height: 34, display: "block" }}>
+          <polygon points={area} fill="rgba(22,163,74,0.16)" />
+          <polyline points={pts} fill="none" stroke="#16A34A" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        </svg>
+      </div>
+    </TintCard>
+  );
+}
+
+/* 2) Needs review — prioritised, REAL chat-oversight items: flagged → unread →
+      awaiting an admin reply. Each row is clickable to open that thread. */
+type ReviewReason = { kind: "flagged"; n: number } | { kind: "unread"; n: number } | { kind: "awaiting" };
+function reviewReason(r: ChatConversationRow): ReviewReason | null {
+  if ((r.flagged ?? 0) > 0) return { kind: "flagged", n: r.flagged ?? 0 };
+  if ((r.unread ?? 0) > 0) return { kind: "unread", n: r.unread };
+  const author = (r.last_author ?? "").trim();
+  if (r.last_at && author && author.toLowerCase() !== "you") return { kind: "awaiting" };
+  return null;
+}
+const REVIEW_META = {
+  flagged: { Icon: AlertTriangle, tint: "#DC2626", rank: 0 },
+  unread: { Icon: Mail, tint: "var(--nuru-gold)", rank: 1 },
+  awaiting: { Icon: CornerUpLeft, tint: "#166534", rank: 2 },
+} as const;
+function reviewText(reason: ReviewReason): string {
+  if (reason.kind === "flagged") return reason.n === 1 ? "Flagged for review" : `${reason.n} flagged for review`;
+  if (reason.kind === "unread") return `${reason.n} unread`;
+  return "Awaiting reply";
+}
+function NeedsReviewCard({ rows, activeId, onPick }: { rows: ChatConversationRow[]; activeId: string | undefined; onPick: (id: string) => void }): ReactElement {
+  const scheme = SCHEME.green;
+  const items = useMemo(() => {
+    return rows
+      .map((r) => { const reason = reviewReason(r); return reason ? { r, reason } : null; })
+      .filter((x): x is { r: ChatConversationRow; reason: ReviewReason } => x !== null)
+      .sort((a, b) => {
+        const ra = REVIEW_META[a.reason.kind].rank, rb = REVIEW_META[b.reason.kind].rank;
+        if (ra !== rb) return ra - rb;
+        return ms(b.r.last_at) - ms(a.r.last_at);
+      });
+  }, [rows]);
+  const shown = items.slice(0, 5);
+
+  return (
+    <TintCard scheme={scheme}>
+      <CardEyebrow icon={<ListChecks size={13} />} text="Needs review" scheme={scheme} />
+      {items.length === 0 ? (
+        <div className="flex items-center gap-2">
+          <CheckCircle2 size={14} style={{ color: scheme.tint, flexShrink: 0 }} />
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)" }}>All clear — nothing needs review.</span>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-1.5">
+            <span className="inline-flex items-center justify-center rounded-full" style={{ minWidth: 22, height: 20, padding: "0 7px", fontSize: 11.5, fontWeight: 800, background: scheme.tint, color: "#fff" }}>{items.length}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: "#4b5563" }}>{items.length === 1 ? "conversation needs attention" : "conversations need attention"}</span>
+          </div>
+          <div className="flex flex-col">
+            {shown.map(({ r, reason }, i) => {
+              const meta = REVIEW_META[reason.kind];
+              const title = conversationTitle(r);
+              const isDm = r.kind === "dm";
+              const isActive = activeId === r.conversation_id;
+              return (
+                <button key={r.conversation_id} onClick={() => onPick(r.conversation_id)} className="w-full flex items-center gap-2.5 text-left rounded-lg transition-colors" style={{ padding: "9px 8px", background: isActive ? "rgba(255,255,255,0.6)" : "transparent", border: "none", cursor: "pointer", borderBottom: i < shown.length - 1 ? `1px solid ${scheme.stroke}` : "none" }}>
+                  <Avatar uri={isDm ? r.avatar_url : null} name={title} size={34} square={!isDm} icon={r.kind === "group" ? <Users size={15} /> : r.kind === "space" ? <Hash size={15} /> : undefined} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
+                    <div className="flex items-center gap-1.5" style={{ marginTop: 2 }}>
+                      <span className="flex items-center justify-center rounded-md shrink-0" style={{ width: 18, height: 18, background: `color-mix(in srgb, ${meta.tint} 14%, transparent)`, color: meta.tint }}><meta.Icon size={10} /></span>
+                      <span style={{ fontSize: 10.5, fontWeight: 600, color: "#4b5563", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reviewText(reason)}</span>
+                    </div>
+                  </div>
+                  {r.last_at && <span style={{ fontSize: 9.5, fontWeight: 600, color: "#6b7280", flexShrink: 0 }}>{chatTimeAgo(r.last_at)}</span>}
+                </button>
+              );
+            })}
+          </div>
+          {items.length > shown.length && (
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: "#6b7280" }}>+{items.length - shown.length} more</span>
+          )}
+        </>
+      )}
+    </TintCard>
+  );
+}
+
+/* 3) Profile / quick-stats — DM → member profile (real: congregation, joined,
+      pathway level + curriculum %); group/space → real conversation context. */
+function ProfileCard({ active, profile, profileLoading, memberId, onViewMember }: { active: ConvoView | undefined; profile: MemberDetail | null; profileLoading: boolean; memberId: string | null; onViewMember: (id: string) => void }): ReactElement {
+  const scheme = SCHEME.navy;
+  const badge = (text: string): ReactElement => (
+    <span className="inline-flex rounded-full" style={{ padding: "2px 8px", fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", background: scheme.chip, color: scheme.tint }}>{text}</span>
+  );
+  const statRow = (label: string, value: string): ReactElement => (
+    <div className="flex items-start justify-between gap-3" style={{ padding: "7px 0", borderBottom: `1px solid ${scheme.stroke}` }}>
+      <span style={{ fontSize: 11.5, fontWeight: 600, color: "#4b5563", flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", textAlign: "right" }}>{value}</span>
+    </div>
+  );
+
+  // No conversation open.
+  if (!active) {
+    return (
+      <TintCard scheme={scheme}>
+        <CardEyebrow icon={<UserCircle size={13} />} text="Profile" scheme={scheme} />
+        <span style={{ fontSize: 12, color: "#4b5563" }}>Pick a chat to see who you're talking with.</span>
+      </TintCard>
+    );
+  }
+
+  // Group / space — real conversation context.
+  if (active.kind !== "dm") {
+    const isSpace = active.kind === "space";
+    return (
+      <TintCard scheme={scheme}>
+        <CardEyebrow icon={isSpace ? <Hash size={13} /> : <Users size={13} />} text={isSpace ? "Space" : "Group"} scheme={scheme} />
+        <div className="flex items-center gap-3">
+          <Avatar name={conversationTitle(active)} size={46} square icon={isSpace ? <Hash size={19} /> : <Users size={19} />} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--nuru-navy)", lineHeight: 1.2 }}>{conversationTitle(active)}</div>
+            <div style={{ marginTop: 3 }}>{badge(typeMeta[active.type].label)}</div>
+          </div>
+        </div>
+        <div className="flex flex-col">
+          {active.topic && statRow("Topic", active.topic)}
+          {active.category && statRow("Category", active.category)}
+          {statRow("Members", String(active.member_count))}
+          {active.last_at && statRow("Last active", chatTimeAgo(active.last_at))}
+        </div>
+      </TintCard>
+    );
+  }
+
+  // DM — member profile (real).
+  const name = profile?.full_name || conversationTitle(active);
+  const level = profile?.enrollment?.current_level;
+  const pct = profile?.metrics?.curriculum_pct ?? 0;
+  return (
+    <TintCard scheme={scheme}>
+      <CardEyebrow icon={<UserCircle size={13} />} text="Profile" scheme={scheme} />
+      <div className="flex items-center gap-3">
+        <Avatar uri={active.avatar_url} name={name} size={46} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--nuru-navy)", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</div>
+          <div style={{ marginTop: 3 }}>{badge(profile?.programme ? profile.programme.charAt(0).toUpperCase() + profile.programme.slice(1) : "Disciple")}</div>
+        </div>
+      </div>
+      {profileLoading ? (
+        <div className="flex items-center gap-1.5"><Loader2 size={13} className="animate-spin" style={{ color: scheme.tint }} /><span style={{ fontSize: 11.5, color: "#4b5563" }}>Loading profile…</span></div>
+      ) : profile ? (
+        <>
+          <div className="flex flex-col">
+            {profile.cell_name && statRow("Congregation", profile.cell_name)}
+            {profile.created_at && statRow("Joined", new Date(ms(profile.created_at)).toLocaleDateString([], { month: "short", year: "numeric" }))}
+          </div>
+          {typeof level === "number" && (
+            <div style={{ padding: "8px 0 2px" }}>
+              <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: "#4b5563" }}>Pathway · Level {level}</span>
+                <span style={{ fontSize: 11.5, fontWeight: 800, color: scheme.tint }}>{Math.round(pct)}%</span>
+              </div>
+              <div className="rounded-full overflow-hidden" style={{ height: 7, background: "#fff", border: `1px solid ${scheme.stroke}` }}>
+                <div style={{ height: "100%", width: `${Math.min(100, Math.max(0, pct))}%`, background: scheme.tint, borderRadius: 999 }} />
+              </div>
+            </div>
+          )}
+          {memberId && (
+            <button onClick={() => onViewMember(memberId)} className="flex items-center justify-center gap-1.5 rounded-xl w-full" style={{ height: 38, background: scheme.tint, color: "#fff", fontSize: 12.5, fontWeight: 700, border: "none", cursor: "pointer" }}>
+              <ArrowUpRight size={14} /> View full profile
+            </button>
+          )}
+        </>
+      ) : (
+        <span style={{ fontSize: 11.5, color: "#4b5563" }}>Profile will appear once {conversationTitle(active)} has messaged here.</span>
+      )}
+    </TintCard>
   );
 }
 

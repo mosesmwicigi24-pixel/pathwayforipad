@@ -11,7 +11,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Search, Plus, ChevronDown, ArrowRight, Mail, UserCheck, UserPlus, Users as UsersIcon,
   ChevronRight, CheckCircle2, Flag, Download, Printer, X, GraduationCap, MoreVertical, Pencil, Check,
-  BarChart3, Award, Star, BookOpen,
+  BarChart3, Award, Star, BookOpen, KeyRound, Copy, ShieldPlus,
 } from "lucide-react";
 import {
   OpsApi, AdminApi, SystemApi, CurriculumApi,
@@ -19,6 +19,66 @@ import {
   type AdminLevel, type AdminModuleSummary, type MemberResults, type MemberResultLevel,
 } from "../../api/client";
 import { errorMessage } from "../../util/error";
+
+// Manual password reset: confirm → server mints a temporary password (revoking
+// the member's sessions) → show it ONCE with copy. It is never retrievable again.
+function ResetPasswordModal({ userId, name, onClose }: { userId: string; name: string; onClose: () => void }): ReactElement {
+  const [busy, setBusy] = useState(false);
+  const [temp, setTemp] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(): Promise<void> {
+    setBusy(true); setError(null);
+    try {
+      const r = await OpsApi.resetMemberPassword(userId);
+      setTemp(r.temporary_password);
+    } catch (e) { setError(errorMessage(e, "Could not reset the password.")); }
+    finally { setBusy(false); }
+  }
+  async function copy(): Promise<void> {
+    if (!temp) return;
+    try { await navigator.clipboard.writeText(temp); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* leave manual selection */ }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(11,31,51,0.55)" }} onClick={temp ? undefined : onClose}>
+      <div className="rounded-2xl overflow-hidden w-full" style={{ background: "var(--card)", maxWidth: 460, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 py-5 flex items-start justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div>
+            <div className="flex items-center gap-2" style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: "#0E7490" }}><KeyRound size={12} /> RESET PASSWORD</div>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)", marginTop: 2 }}>{name}</h2>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-2" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "none" }}><X size={16} /></button>
+        </div>
+        <div className="px-6 py-5">
+          {temp ? (
+            <>
+              <p style={{ fontSize: 13, color: "var(--muted-foreground)" }}>Hand this to {name.split(" ")[0]} — it works immediately and they can change it in their app under Profile. <strong>It will not be shown again.</strong></p>
+              <div className="flex items-center justify-between rounded-xl mt-4 px-4 py-3" style={{ background: "var(--input-background)", border: "1px dashed var(--nuru-gold)" }}>
+                <code style={{ fontSize: 18, fontWeight: 700, letterSpacing: 0.5, color: "var(--nuru-navy)" }}>{temp}</code>
+                <button onClick={() => void copy()} className="flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ background: copied ? "rgba(22,163,74,0.12)" : "var(--nuru-navy)", color: copied ? "#16A34A" : "#fff", border: "none", fontSize: 12, fontWeight: 700 }}>
+                  {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+              <p style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginTop: 10 }}>Their previous password no longer works and every signed-in device has been logged out.</p>
+              <button onClick={onClose} className="w-full rounded-xl mt-4 py-2.5" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "1px solid var(--border)", fontSize: 13, fontWeight: 700 }}>Done</button>
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: 13, color: "var(--muted-foreground)", lineHeight: 1.55 }}>This creates a new temporary password for <strong>{name}</strong>, signs them out of every device, and invalidates their old password. Use it when a member is locked out and can't reset by themselves.</p>
+              {error ? <p style={{ fontSize: 12.5, color: "#DC2626", marginTop: 10 }}>{error}</p> : null}
+              <div className="flex gap-2 mt-5">
+                <button onClick={onClose} className="flex-1 rounded-xl py-2.5" style={{ background: "var(--secondary)", color: "var(--foreground)", border: "1px solid var(--border)", fontSize: 13, fontWeight: 700 }}>Cancel</button>
+                <button onClick={() => void run()} disabled={busy} className="flex-1 rounded-xl py-2.5" style={{ background: "var(--nuru-navy)", color: "#fff", border: "none", fontSize: 13, fontWeight: 700, opacity: busy ? 0.6 : 1 }}>{busy ? "Resetting…" : "Reset & get password"}</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type StatusKey = MemberStatus;
 const statusMeta: Record<StatusKey, { label: string; bg: string; fg: string; ring: string }> = {
@@ -53,6 +113,7 @@ export function Members(): ReactElement {
   const [addOpen, setAddOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [resultsId, setResultsId] = useState<string | null>(null);
+  const [pwResetFor, setPwResetFor] = useState<{ userId: string; name: string } | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +167,19 @@ export function Members(): ReactElement {
     catch (e) { setError(errorMessage(e, "Could not update graduation.")); }
   }
 
+  // Elevate a member into a privileged portal user (no separate registration).
+  // They keep their Student membership + member-app access, but gain admin-console
+  // sign-in and appear on System ▸ Users, where roles/permissions are assigned.
+  async function elevate(userId: string, name: string): Promise<void> {
+    setMenuFor(null);
+    if (!window.confirm(`Make ${name} a portal user? They'll be able to sign in to the admin portal and will appear on System ▸ Users, where you can assign their roles and permissions. Their member access is unchanged.`)) return;
+    try {
+      await OpsApi.elevateMember(userId);
+      await load();
+      window.alert(`${name} is now a portal user. Assign their roles and permissions on System ▸ Users.`);
+    } catch (e) { setError(errorMessage(e, "Could not elevate this member.")); }
+  }
+
   return (
     <div className="min-h-full" style={{ background: "var(--background)" }} onClick={() => setMenuFor(null)}>
       <div style={{ background: "var(--nuru-dark)", padding: "22px clamp(16px,4vw,48px) 24px" }}>
@@ -117,16 +191,19 @@ export function Members(): ReactElement {
             <button onClick={() => setAddOpen(true)} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none" }}><Plus size={13} /> Add member</button>
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 mt-4 rounded-xl" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", overflow: "hidden" }}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
           {[
-            { label: "Total members", value: String(counts.total), tone: "#fff", band: false, bg: "" },
-            { label: "Thriving", value: String(counts.thriving), tone: "#16A34A", band: true, bg: "#E8F6EC" },
-            { label: "Watch", value: String(counts.watch), tone: "#A87616", band: true, bg: "#FFF6E0" },
-            { label: "At-risk", value: String(counts.atRisk), tone: "#DC2626", band: true, bg: "#FDECEC" },
-          ].map((item, idx) => (
-            <div key={item.label} style={{ padding: "14px 20px", borderRight: idx < 3 ? "1px solid rgba(255,255,255,0.07)" : "none", borderBottom: idx < 2 ? "1px solid rgba(255,255,255,0.07)" : "none" }}>
-              <div style={{ fontSize: 10.5, color: "rgba(232,239,245,0.5)", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 6 }}>{item.label}</div>
-              {item.band ? <span className="inline-flex items-center rounded-full px-2.5 py-1" style={{ background: item.bg, color: item.tone, fontSize: 13, fontWeight: 700 }}>● {item.value}</span> : <div style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "#fff", lineHeight: 1.1 }}>{item.value}</div>}
+            { label: "Total members", value: String(counts.total), fg: "var(--tint-navy-fg)", bg: "var(--tint-navy-bg)", border: "rgba(29,78,134,0.18)", dot: false },
+            { label: "Thriving", value: String(counts.thriving), fg: "var(--tint-green-fg)", bg: "var(--tint-green-bg)", border: "rgba(22,101,52,0.18)", dot: true },
+            { label: "Watch", value: String(counts.watch), fg: "var(--tint-gold-fg)", bg: "var(--tint-gold-bg)", border: "rgba(138,107,31,0.18)", dot: true },
+            { label: "At-risk", value: String(counts.atRisk), fg: "var(--tint-rose-fg)", bg: "var(--tint-rose-bg)", border: "rgba(168,40,31,0.18)", dot: true },
+          ].map((item) => (
+            <div key={item.label} className="rounded-2xl" style={{ padding: "14px 16px", background: item.bg, border: `1px solid ${item.border}` }}>
+              <div style={{ fontSize: 10.5, color: item.fg, opacity: 0.75, textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 8 }}>{item.label}</div>
+              <div className="flex items-center gap-1.5">
+                {item.dot ? <span style={{ width: 8, height: 8, borderRadius: 99, background: item.fg, display: "inline-block" }} /> : null}
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 26, color: item.fg, lineHeight: 1 }}>{item.value}</span>
+              </div>
             </div>
           ))}
         </div>
@@ -157,59 +234,107 @@ export function Members(): ReactElement {
           </div>
         </div>
 
-        <div className="flex flex-col gap-2">
-          {filtered.map((m, i) => {
-            const sk = (m.status ?? "steady") as StatusKey;
-            const sm = statusMeta[sk] ?? statusMeta.steady;
-            const isThriving = m.status === "thriving";
-            const isGraduated = m.status === "graduated";
-            const progress = pct(m.e_score);
-            const country = m.country_code ? countryByCode.get(m.country_code) ?? null : null;
-            return (
-              <div key={m.user_id} onClick={() => navigate(`/member-profile?id=${m.user_id}`)} className="group rounded-2xl flex items-center gap-4 transition-all hover:-translate-y-px cursor-pointer" style={{ background: "#fff", border: "1px solid var(--border)", padding: "14px 18px", boxShadow: "0 1px 2px rgba(11,31,51,0.03)" }}>
-                <div className="relative shrink-0">
-                  <div className="flex items-center justify-center rounded-xl" style={{ width: 44, height: 44, background: AVATARS[i % AVATARS.length], color: "#fff", fontSize: 14, fontWeight: 700 }}>{initials(m.full_name)}</div>
-                  {isThriving ? <span className="absolute rounded-full" style={{ width: 12, height: 12, right: -2, bottom: -2, background: "#16A34A", border: "2px solid #fff" }} /> : null}
-                </div>
-                <div className="min-w-0" style={{ width: 220 }}>
-                  <div className="flex items-center gap-2">
-                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.full_name}</span>
-                    <span style={{ fontSize: 9.5, fontWeight: 700, color: "var(--nuru-gold)", background: "rgba(200,155,60,0.10)", padding: "2px 6px", borderRadius: 4 }}>L{m.current_level ?? "—"}</span>
-                    {m.is_minor ? <span style={{ fontSize: 9, fontWeight: 700, color: "#A87616", background: "rgba(245,158,11,0.18)", padding: "2px 6px", borderRadius: 4 }}>MINOR</span> : null}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-0.5" style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}><Mail size={10} /><span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.email ?? m.phone_number}</span></div>
-                  {country || m.city ? <div className="flex items-center gap-1 mt-0.5" style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{country ? <span style={{ fontSize: 12 }}>{country.flag ?? "🏳️"}</span> : null}<span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[country?.name ?? m.country_code, m.city].filter(Boolean).join(" · ")}</span></div> : null}
-                </div>
-                <button onClick={(e) => { e.stopPropagation(); if (m.cell_group_id) navigate(`/cell-engagement/${m.cell_group_id}`); }} className="hidden md:flex flex-col text-left rounded-lg px-2 py-1 -mx-2" style={{ width: 160, background: "none", border: "none" }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.cell_name ?? "—"}</span>
-                  <span className="flex items-center gap-1 mt-0.5" style={{ fontSize: 11, color: "var(--muted-foreground)" }}><UserCheck size={10} style={{ color: "var(--nuru-gold)" }} /> cell</span>
-                </button>
-                <div className="hidden lg:flex flex-col" style={{ width: 92 }}>
-                  <span className="inline-flex items-center gap-1" style={{ fontSize: 12.5, fontWeight: 700, color: "var(--nuru-navy)" }}><Flag size={11} style={{ color: "#0EA5E9" }} /> L{m.start_level ?? 1}·M{m.start_module_sequence ?? 1}</span>
-                  <span style={{ fontSize: 10.5, color: "var(--muted-foreground)", marginTop: 2 }}>start point</span>
-                </div>
-                <div className="hidden md:flex flex-col flex-1 min-w-0" style={{ maxWidth: 200 }}>
-                  <div className="flex items-center justify-between mb-1"><span style={{ fontSize: 11, color: "var(--muted-foreground)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.programme ? PROGRAMME_LABELS[m.programme] : "Engagement"}</span><span style={{ fontSize: 12, color: "var(--nuru-navy)", fontWeight: 700 }}>{progress}%</span></div>
-                  <div style={{ height: 6, background: "var(--input-background)", borderRadius: 99, overflow: "hidden" }}><div style={{ height: "100%", width: `${progress}%`, background: sm.fg, borderRadius: 99 }} /></div>
-                </div>
-                <div className="hidden xl:flex flex-col items-end" style={{ width: 84 }}><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>Last active</span><span style={{ fontSize: 12.5, color: "var(--nuru-navy)", fontWeight: 600 }}>{relTime(m.last_activity)}</span></div>
-                <span className="rounded-full shrink-0 text-center" style={{ width: 84, padding: "5px 0", background: sm.bg, color: sm.fg, fontSize: 11, fontWeight: 700, border: `1px solid ${sm.ring}` }}>{sm.label}</span>
-                <button onClick={(e) => { e.stopPropagation(); setResultsId(m.user_id); }} title="View results" className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 36, height: 36, background: "var(--input-background)", color: "var(--nuru-gold)", border: "1px solid var(--border)" }}><BarChart3 size={15} /></button>
-                <button onClick={(e) => { e.stopPropagation(); navigate(`/member-profile?id=${m.user_id}`); }} className="flex items-center justify-center gap-1.5 rounded-xl shrink-0 transition-all group-hover:bg-[var(--nuru-navy)] group-hover:text-white" style={{ height: 36, padding: "0 14px", background: "var(--input-background)", color: "var(--nuru-navy)", fontSize: 12.5, fontWeight: 600, border: "1px solid var(--border)" }}>See <ArrowRight size={13} /></button>
-                <div className="relative shrink-0">
-                  <button onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === m.user_id ? null : m.user_id); }} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, background: "var(--input-background)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}><MoreVertical size={15} /></button>
-                  {menuFor === m.user_id ? (
-                    <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-1 rounded-xl z-20" style={{ background: "#fff", border: "1px solid var(--border)", boxShadow: "0 12px 32px rgba(11,31,51,0.18)", minWidth: 168, overflow: "hidden" }}>
-                      <button onClick={() => { setMenuFor(null); setEditId(m.user_id); }} className="flex items-center gap-2 w-full text-left px-3 py-2.5" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", background: "none", border: "none" }}><Pencil size={14} style={{ color: "var(--nuru-gold)" }} /> Edit member</button>
-                      <button onClick={() => void graduate(m.user_id, !isGraduated)} className="flex items-center gap-2 w-full text-left px-3 py-2.5" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", background: "none", border: "none", borderTop: "1px solid var(--border)" }}><GraduationCap size={14} style={{ color: "#7C3AED" }} /> {isGraduated ? "Un-graduate" : "Mark graduated"}</button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-          {filtered.length === 0 ? <div className="rounded-2xl text-center py-12" style={{ background: "#fff", border: "1px dashed var(--border)" }}><p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>No members match those filters.</p></div> : null}
-        </div>
+        {filtered.length === 0 ? (
+          <div className="rounded-2xl text-center py-12" style={{ background: "#fff", border: "1px dashed var(--border)" }}><p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>No members match those filters.</p></div>
+        ) : (
+          <div className="rounded-2xl overflow-hidden" style={{ background: "#fff", border: "1px solid var(--border)", boxShadow: "0 1px 2px rgba(11,31,51,0.03)" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+              <thead>
+                <tr style={{ background: "var(--input-background)", borderBottom: "1px solid var(--border)" }}>
+                  {[
+                    // Proportional widths (tableLayout: fixed) so the Member column
+                    // doesn't absorb all leftover space on wide screens and starve
+                    // the right-hand columns into congestion.
+                    { h: "Member", w: "25%", align: "left" as const },
+                    { h: "Cell", w: "14%", align: "left" as const },
+                    { h: "Start", w: "10%", align: "left" as const },
+                    { h: "Progress", w: "19%", align: "left" as const },
+                    { h: "Last active", w: "11%", align: "left" as const },
+                    { h: "Status", w: "9%", align: "center" as const },
+                    { h: "", w: "12%", align: "right" as const },
+                  ].map((c, idx) => (
+                    <th key={idx} style={{ width: c.w, padding: "11px 14px", textAlign: c.align, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted-foreground)", whiteSpace: "nowrap" }}>{c.h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((m, i) => {
+                  const sk = (m.status ?? "steady") as StatusKey;
+                  const sm = statusMeta[sk] ?? statusMeta.steady;
+                  const isThriving = m.status === "thriving";
+                  const isGraduated = m.status === "graduated";
+                  const progress = pct(m.e_score);
+                  const country = m.country_code ? countryByCode.get(m.country_code) ?? null : null;
+                  return (
+                    <tr key={m.user_id} onClick={() => navigate(`/member-profile?id=${m.user_id}`)} className="group cursor-pointer transition-colors hover:bg-[var(--input-background)]" style={{ background: i % 2 === 1 ? "rgba(11,31,51,0.015)" : "#fff", borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
+                      {/* Member */}
+                      <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="relative shrink-0">
+                            <div className="flex items-center justify-center rounded-xl" style={{ width: 40, height: 40, background: AVATARS[i % AVATARS.length], color: "#fff", fontSize: 13.5, fontWeight: 700 }}>{initials(m.full_name)}</div>
+                            {isThriving ? <span className="absolute rounded-full" style={{ width: 11, height: 11, right: -2, bottom: -2, background: "var(--lum-green)", border: "2px solid #fff" }} /> : null}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.full_name}</span>
+                              <span style={{ fontSize: 9.5, fontWeight: 700, color: "var(--nuru-gold)", background: "rgba(200,155,60,0.12)", padding: "2px 6px", borderRadius: 4 }}>L{m.current_level ?? "—"}</span>
+                              {m.is_minor ? <span style={{ fontSize: 9, fontWeight: 700, color: "#A87616", background: "rgba(245,158,11,0.18)", padding: "2px 6px", borderRadius: 4 }}>MINOR</span> : null}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5" style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}><Mail size={10} /><span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.email ?? m.phone_number}</span></div>
+                            {country || m.city ? <div className="flex items-center gap-1 mt-0.5" style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{country ? <span style={{ fontSize: 12 }}>{country.flag ?? "🏳️"}</span> : null}<span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[country?.name ?? m.country_code, m.city].filter(Boolean).join(" · ")}</span></div> : null}
+                          </div>
+                        </div>
+                      </td>
+                      {/* Cell */}
+                      <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                        <button onClick={(e) => { e.stopPropagation(); if (m.cell_group_id) navigate(`/cell-engagement/${m.cell_group_id}`); }} className="flex flex-col text-left min-w-0" style={{ background: "none", border: "none", maxWidth: "100%" }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--nuru-navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.cell_name ?? "—"}</span>
+                          <span className="flex items-center gap-1 mt-0.5" style={{ fontSize: 11, color: "var(--muted-foreground)" }}><UserCheck size={10} style={{ color: "var(--nuru-gold)" }} /> cell</span>
+                        </button>
+                      </td>
+                      {/* Start */}
+                      <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                        <span className="inline-flex items-center gap-1" style={{ fontSize: 12.5, fontWeight: 700, color: "var(--nuru-navy)" }}><Flag size={11} style={{ color: "var(--lum-navy)" }} /> L{m.start_level ?? 1}·M{m.start_module_sequence ?? 1}</span>
+                        <div style={{ fontSize: 10.5, color: "var(--muted-foreground)", marginTop: 2 }}>start point</div>
+                      </td>
+                      {/* Progress */}
+                      <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                        <div className="flex items-center justify-between mb-1 min-w-0"><span style={{ fontSize: 11, color: "var(--muted-foreground)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.programme ? PROGRAMME_LABELS[m.programme] : "Engagement"}</span><span style={{ fontSize: 12, color: "var(--nuru-navy)", fontWeight: 700, marginLeft: 6 }}>{progress}%</span></div>
+                        <div style={{ height: 6, background: "var(--input-background)", borderRadius: 99, overflow: "hidden" }}><div style={{ height: "100%", width: `${progress}%`, background: sm.fg, borderRadius: 99 }} /></div>
+                      </td>
+                      {/* Last active */}
+                      <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                        <span style={{ fontSize: 12.5, color: "var(--nuru-navy)", fontWeight: 600, whiteSpace: "nowrap" }}>{relTime(m.last_activity)}</span>
+                      </td>
+                      {/* Status */}
+                      <td style={{ padding: "12px 14px", verticalAlign: "middle", textAlign: "center" }}>
+                        <span className="inline-block rounded-full text-center" style={{ minWidth: 76, padding: "5px 10px", background: sm.bg, color: sm.fg, fontSize: 11, fontWeight: 700, border: `1px solid ${sm.ring}`, whiteSpace: "nowrap" }}>{sm.label}</span>
+                      </td>
+                      {/* Actions — right-aligned */}
+                      <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button onClick={(e) => { e.stopPropagation(); setResultsId(m.user_id); }} title="View results" className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 34, height: 34, background: "var(--input-background)", color: "var(--nuru-gold)", border: "1px solid var(--border)" }}><BarChart3 size={15} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/member-profile?id=${m.user_id}`); }} title="See profile" className="flex items-center justify-center rounded-lg shrink-0 transition-all group-hover:bg-[var(--nuru-navy)] group-hover:text-white" style={{ width: 34, height: 34, background: "var(--input-background)", color: "var(--nuru-navy)", border: "1px solid var(--border)" }}><ArrowRight size={15} /></button>
+                          <div className="relative shrink-0">
+                            <button onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === m.user_id ? null : m.user_id); }} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, background: "var(--input-background)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}><MoreVertical size={15} /></button>
+                            {menuFor === m.user_id ? (
+                              <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-1 rounded-xl z-20" style={{ background: "#fff", border: "1px solid var(--border)", boxShadow: "0 12px 32px rgba(11,31,51,0.18)", minWidth: 168, overflow: "hidden" }}>
+                                <button onClick={() => { setMenuFor(null); setEditId(m.user_id); }} className="flex items-center gap-2 w-full text-left px-3 py-2.5" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", background: "none", border: "none" }}><Pencil size={14} style={{ color: "var(--nuru-gold)" }} /> Edit member</button>
+                                <button onClick={() => { setMenuFor(null); setPwResetFor({ userId: m.user_id, name: m.full_name }); }} className="flex items-center gap-2 w-full text-left px-3 py-2.5" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", background: "none", border: "none", borderTop: "1px solid var(--border)" }}><KeyRound size={14} style={{ color: "#0E7490" }} /> Reset password</button>
+                                <button onClick={() => void elevate(m.user_id, m.full_name)} className="flex items-center gap-2 w-full text-left px-3 py-2.5" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", background: "none", border: "none", borderTop: "1px solid var(--border)" }}><ShieldPlus size={14} style={{ color: "var(--nuru-gold)" }} /> Make portal user</button>
+                                <button onClick={() => void graduate(m.user_id, !isGraduated)} className="flex items-center gap-2 w-full text-left px-3 py-2.5" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-navy)", background: "none", border: "none", borderTop: "1px solid var(--border)" }}><GraduationCap size={14} style={{ color: "#7C3AED" }} /> {isGraduated ? "Un-graduate" : "Mark graduated"}</button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <div className="flex items-center justify-between mt-6">
           <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>Showing {filtered.length} of {rows.length} loaded</span>
@@ -220,6 +345,7 @@ export function Members(): ReactElement {
       {addOpen ? <AddMemberModal cells={cells} countries={countries} onClose={() => setAddOpen(false)} onCreated={async () => { setAddOpen(false); await load(); }} /> : null}
       {editId ? <EditMemberModal userId={editId} row={rows.find((r) => r.user_id === editId)} cells={cells} countries={countries} onClose={() => setEditId(null)} onSaved={async () => { setEditId(null); await load(); }} /> : null}
       {resultsId ? <MemberResultsDrawer userId={resultsId} onClose={() => setResultsId(null)} /> : null}
+      {pwResetFor ? <ResetPasswordModal userId={pwResetFor.userId} name={pwResetFor.name} onClose={() => setPwResetFor(null)} /> : null}
       {exportOpen ? <ExportModal members={filtered} countryByCode={countryByCode} onClose={() => setExportOpen(false)} /> : null}
     </div>
   );

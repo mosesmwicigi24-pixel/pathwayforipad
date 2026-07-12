@@ -74,18 +74,31 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Rotate the access token once on a 401 and replay the request.
+// Rotate the access token once on a 401 and replay the request. If the session
+// is unrecoverable (no refresh handler, or the refresh itself fails), bounce to
+// the login screen instead of letting every poll spam 401s in a dead session.
 api.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
     const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
-    if (error.response?.status === 401 && refreshHandler && original && !original._retry) {
-      original._retry = true;
-      const token = await refreshHandler();
-      if (token) {
-        setAccessToken(token);
-        original.headers.Authorization = `Bearer ${token}`;
-        return api(original);
+    if (error.response?.status === 401 && original) {
+      if (!original._retry) {
+        original._retry = true;
+        if (refreshHandler) {
+          const token = await refreshHandler();
+          if (token) {
+            setAccessToken(token);
+            original.headers.Authorization = `Bearer ${token}`;
+            return api(original);
+          }
+        }
+      }
+      // Reaching here the session is dead: refresh missing, refresh failed, or
+      // the refreshed retry ALSO came back 401. Bounce to login (never for the
+      // auth calls themselves, and not when already there — would loop).
+      const url = original.url ?? "";
+      if (!url.includes("/auth/") && !window.location.pathname.startsWith("/login")) {
+        window.location.assign("/login");
       }
     }
     return Promise.reject(error);
@@ -134,7 +147,9 @@ export const PortalApi = {
   /** Email + password sign-in (argon2 verified server-side). Returns a session,
    *  OR a 2FA challenge when the account has a second factor on. */
   async login(email: string, password: string): Promise<LoginResult> {
-    const { data } = await api.post<LoginResult>("/auth/login", { email, password });
+    // scope:"admin" — this is a staff console. The backend refuses a member
+    // (Student) account here even with a correct password (§5.4).
+    const { data } = await api.post<LoginResult>("/auth/login", { email, password, scope: "admin" });
     return data;
   },
   /** Complete a 2FA login: exchange the challenge token + a TOTP/recovery code. */
@@ -269,7 +284,145 @@ export interface CreateCellBody {
   meeting_cadence?: number;
 }
 
+// Member Intelligence aggregate (SuperAdmin/Admin analytics cockpit).
+export interface MemberIntelligence {
+  generated_at: string;
+  kpis: {
+    total_members: number; active_7d: number; active_30d: number; avg_engagement: number;
+    members_at_risk: number; cohorts: number; givers: number; recurring_givers: number; certificates_this_month: number;
+  };
+  giving: {
+    total_minor: number; gift_count: number; avg_per_txn_minor: number; median_minor: number; givers: number; currency: string;
+    by_fund: { code: string; total_minor: number; count: number }[];
+    by_method: { method: string; schedules: number; givers: number }[];
+    top_givers: { user_id: string; name: string; total_minor: number; gifts: number; avg_minor: number; last_at: string | null }[];
+    frequency: { bucket: string; givers: number }[];
+    trend: { month: string; total_minor: number }[];
+  };
+  devices: {
+    platforms: { platform: string; members: number }[];
+    app_versions: { app_version: string; members: number }[];
+    models?: { model: string; members: number }[];
+    model_capture: boolean;
+  };
+  engagement: {
+    bands: { band: string; members: number }[];
+    by_kind: { kind: string; events: number; members: number }[];
+    by_hour: { hour: number; events: number }[];
+    // Additive (#3): time spent per app area, last 30 days. Older payloads omit
+    // `area_dwell`; render the "Time per app area" card only when
+    // `screen_dwell_capture === true` AND `area_dwell` is non-empty.
+    area_dwell?: { screen: string; total_ms: number; sessions: number; members: number }[];
+    screen_dwell_capture: boolean; login_capture: boolean;
+  };
+  growth: {
+    by_level: { level_number: number; learners: number; completed: number }[];
+    verse_learners: number; verses_mastered: number; plans_completed: number; plans_active: number;
+    quiz_attempts: number; quiz_passed: number;
+  };
+  location: {
+    by_city: { city: string; members: number }[];
+    by_country: { country_code: string; members: number }[];
+    geo_capture: boolean;
+  };
+  // Additive (older payloads omit it — treat as optional, default empty).
+  activity?: {
+    active_trend: { week: string; active: number }[];       // 12 weeks, oldest→newest
+    active_days: { bucket: string; members: number }[];     // 5 buckets, fixed order: "1"|"2-3"|"4-7"|"8-15"|"16+"
+  };
+  // Additive: formation & companion intelligence (waves 1-3 + spiritual growth).
+  formation?: {
+    totals: {
+      verses_mastered: number; verses_learning: number; plans_completed: number; plans_active: number;
+      badges_awarded: number; reading_hours_all_time: number; readers_7d: number;
+    };
+    weekly: { week: string; modules: number; reflections: number; verses: number; readers: number }[];
+    reflections: { total: number; last_7d: number; avg_length: number;
+      latest: { first_name: string; module_title: string; excerpt: string; submitted_at: string }[] };
+    companion: { echoes_7d: number; welcome_backs_7d: number; reflection_echoes_7d: number;
+      anniversaries_7d: number; moments_7d: number; blessings_7d: number };
+    voice_notes: { congregation: string; notes: number; voices: number; coverage_pct: number; latest_at: string }[];
+    cells_reading: { cell: string; members: number; reading_7d: number }[];
+    exams: { level_number: number; attempts: number; passes: number; avg_pass_score: number }[];
+  };
+}
+
+// One event on a member's walk (Wave 3) — the same thread the member sees.
+export interface WalkEvent {
+  kind: string; title: string; detail: string | null; quote: string | null; occurred_at: string;
+}
+
+// Proximity / suggested pairings (#4 Phase 3). Privacy-first: the endpoint
+// returns coarse cluster labels + approximate radii ONLY — never coordinates.
+export interface ProximityMember {
+  user_id: string;
+  full_name: string;
+  is_minor: boolean;
+  cell_group_id: string | null;
+}
+export interface ProximityCluster {
+  area: string;            // coarse label, e.g. "≈ -1.29, 36.82" (rounded centre)
+  member_count: number;
+  approx_radius_km: number;
+  members: ProximityMember[];
+}
+
+// ── Shepherd's Pulse (intelligence Phase 2) ─────────────────────────────────
+export interface PulseSignal {
+  signal_id: string;
+  user_id: string;
+  member_name: string;
+  kind: "drift_risk" | "emotion" | "crisis";
+  severity: "info" | "watch" | "urgent";
+  summary: string;
+  source: string | null;
+  created_at: string;
+  acknowledged_at: string | null;
+}
+export interface FlockBrief {
+  brief_id: string;
+  week_of: string;
+  body: string;
+  created_at: string;
+}
+
 export const AdminApi = {
+  async intelligence(): Promise<MemberIntelligence> {
+    const { data } = await api.get<MemberIntelligence>("/admin/analytics/intelligence");
+    return data;
+  },
+  async pulseSignals(sinceDays = 14): Promise<PulseSignal[]> {
+    const { data } = await api.get<{ data: PulseSignal[] }>(`/admin/intelligence/signals?since_days=${sinceDays}`);
+    return data.data;
+  },
+  async ackSignal(signalId: string): Promise<void> {
+    await api.post(`/admin/intelligence/signals/${signalId}/ack`, {});
+  },
+  async flockBrief(): Promise<FlockBrief | null> {
+    const { data } = await api.get<{ brief: FlockBrief | null }>("/admin/intelligence/flock-brief");
+    return data.brief;
+  },
+  async runPulseScan(): Promise<{ drift: number; read: number; flagged: number; crises: number }> {
+    const { data } = await api.post("/admin/intelligence/signals/scan", {});
+    return data as { drift: number; read: number; flagged: number; crises: number };
+  },
+  async runFlockBriefs(): Promise<{ week_of: string; written: number; skipped: number }> {
+    const { data } = await api.post("/admin/intelligence/flock-brief/run", {});
+    return data as { week_of: string; written: number; skipped: number };
+  },
+  // Coarse proximity suggestions for human-in-the-loop cell pairing. Adults are
+  // visible to coach-tier; minors only to Admin/SuperAdmin (gated server-side).
+  // 403 → caller surfaces a "no access" state. Never returns coordinates.
+  async proximity(radiusKm?: number, groupBy?: "radius" | "city" | "country"): Promise<{ clusters: ProximityCluster[] }> {
+    const params: Record<string, string | number> = {};
+    if (radiusKm != null) params.radius_km = radiusKm;
+    if (groupBy && groupBy !== "radius") params.group_by = groupBy;
+    const { data } = await api.get<{ clusters: ProximityCluster[] }>(
+      "/admin/members/proximity",
+      Object.keys(params).length ? { params } : undefined,
+    );
+    return data;
+  },
   async overview(): Promise<OverviewKpis> {
     const { data } = await api.get<OverviewKpis>("/admin/reports/overview");
     return data;
@@ -419,10 +572,25 @@ export interface SystemUser {
   locale: string | null;
   account_status: "active" | "invited" | "suspended";
   require_2fa: boolean;
+  is_staff: boolean; // true = a member elevated to portal access (kept role='Student')
   last_active: string | null;
   role_keys: string[];
   discipler_message: string | null;
   avatar_url: string | null;
+}
+
+// A single RBAC (module × capability) cell.
+export interface Permission {
+  module_id: string;
+  capability: string;
+}
+// Effective/derived permissions for one user (union of role grants + direct grants).
+export interface UserPermissions {
+  user_id: string;
+  bridged: boolean; // legacy SuperAdmin/Admin — full access via the bridge
+  from_roles: Permission[];
+  direct: Permission[];
+  effective: Permission[];
 }
 
 export const SystemApi = {
@@ -448,6 +616,10 @@ export const SystemApi = {
   createUser: (body: Record<string, unknown>) => api.post<SystemUser>("/admin/users", body).then((r) => r.data),
   updateUser: (id: string, body: Record<string, unknown>) => api.put<SystemUser>(`/admin/users/${id}`, body).then((r) => r.data),
   deleteUser: (id: string) => api.delete<{ deleted: boolean }>(`/admin/users/${id}`).then((r) => r.data),
+  // Per-user direct permission grants (layered on top of role grants).
+  userPermissions: (id: string) => api.get<UserPermissions>(`/admin/users/${id}/permissions`).then((r) => r.data),
+  setUserPermissions: (id: string, permissions: Permission[]) =>
+    api.put<{ user_id: string; count: number }>(`/admin/users/${id}/permissions`, { permissions }).then((r) => r.data),
 };
 
 // ---- Curriculum CMS (Admin/SuperAdmin) ----
@@ -472,6 +644,8 @@ export interface AdminLevel {
   exam_show_answers?: boolean;
   exam_show_score?: boolean;
   exam_shuffle?: boolean;
+  // Review → Publish gate for the exam: members see/take it only when 'published'.
+  exam_status?: "review" | "published";
 }
 
 export interface AdminModuleSummary {
@@ -487,10 +661,17 @@ export interface AdminModuleSummary {
 
 export interface AdminModule extends AdminModuleSummary {
   lesson_content: string;
+  /** Derived, GET-only: lesson_content split on <!-- page-break --> markers (mobile reader pagination). */
+  content_pages?: string[];
   key_verses: string[] | null;
   quiz_pass_mark: string;
   estimated_minutes: number | null;
   video_url: string | null;
+  /** Real lesson-media durations (whole seconds) → reader "watch X min / listen Y min" labels. */
+  video_duration_sec: number | null;
+  /** Admin-controlled lesson audio (brokered to a signed URL for members). */
+  audio_url: string | null;
+  audio_duration_sec: number | null;
   media_asset_id: string | null;
   time_limit_sec: number | null;
   max_attempts: number | null;
@@ -568,6 +749,17 @@ export interface ModuleVersion {
   created_at: string;
 }
 
+// A member who passed a level exam and is AWAITING their discipler to usher them
+// into the next level. Server-scoped to the signed-in leader's cells (§5.4).
+export interface LevelReviewRow {
+  id: string;
+  user_id: string;
+  member_name: string;
+  level_number: number;
+  exam_score: number | null;
+  created_at: string;
+}
+
 const unwrap = <T>(p: Promise<{ data: { data: T } }>): Promise<T> => p.then((r) => r.data.data);
 
 export const CurriculumApi = {
@@ -584,6 +776,7 @@ export const CurriculumApi = {
       exam_show_answers?: boolean;
       exam_show_score?: boolean;
       exam_shuffle?: boolean;
+      exam_status?: "review" | "published";
     },
   ) => api.put<AdminLevel>(`/admin/levels/${n}/exam`, body).then((r) => r.data),
 
@@ -608,6 +801,102 @@ export const CurriculumApi = {
   updateQuestion: (qid: string, body: Record<string, unknown>) =>
     api.put<AdminQuestion>(`/admin/questions/${qid}`, body).then((r) => r.data),
   deleteQuestion: (qid: string) => api.delete<{ deleted: boolean }>(`/admin/questions/${qid}`).then((r) => r.data),
+
+  // Level-review queue: members who passed a level exam and await their discipler
+  // ushering them into the next level (server-scoped to the leader's cells).
+  levelReviews: () => unwrap(api.get<{ data: LevelReviewRow[] }>("/reviews/levels")),
+  // Advance a member to the next level and notify them. Idempotent (§3.6).
+  usherLevel: (id: string, note?: string) =>
+    api
+      .post<{ user_id: string; level_number: number }>(
+        `/reviews/levels/${id}/usher`,
+        note && note.trim() ? { note: note.trim() } : {},
+      )
+      .then((r) => r.data),
+};
+
+// ---- Discipleship Hub (Instructor console, W over the discipleship aggregation module) ----
+// The Hub is a read-aggregation surface: roster + triage of the leader's disciples,
+// then a per-student dossier that composes progression, growth scores, engagement,
+// reflections, recent activity and an existing DM. All scoping is server-side
+// (relationship_tree + leader_assignments); Admin/SuperAdmin see everyone. Mutating
+// actions in the detail (message, usher, reflection decision) reuse ChatApi /
+// CurriculumApi / OpsApi — the Hub only adds the two read endpoints below.
+export type DiscipleBand = "thriving" | "steady" | "watch" | "at_risk";
+
+/** One row in the leader's roster (GET /disciples). */
+export interface DiscipleRow {
+  user_id: string;
+  full_name: string;
+  avatar_url: string | null;
+  cell_name: string | null;
+  cell_group_id: string | null;
+  current_level: number;
+  band: DiscipleBand | null;
+  streak_days: number;
+  days_since_last_activity: number;
+  pending_reflections: number;
+  awaiting_level: number | null;
+}
+export interface RosterSummary {
+  total_students: number;
+  awaiting_action: number;
+}
+
+/** A single reflection inside the dossier — the discipler DOES see the pastoral body. */
+export interface DiscipleReflection {
+  reflection_id: string;
+  module_id: string;
+  module_title: string;
+  level_number: number;
+  state: string;
+  submitted_at: string;
+  body: string;
+  feedback_notes: string | null;
+}
+
+/** The full per-student journey for their discipler (GET /disciples/:id). */
+export interface DiscipleDossier {
+  member: {
+    user_id: string;
+    full_name: string;
+    avatar_url: string | null;
+    cell_name: string | null;
+    established_at: string | null;
+    joined_at: string | null;
+  };
+  progression: {
+    current_level: number;
+    level_title: string;
+    streak_days: number;
+    modules_completed: number;
+    modules_total: number;
+    awaiting_level: number | null;
+  };
+  scores: {
+    overall: number | null;
+    word: number | null;
+    prayer: number | null;
+    habits: number | null;
+    curriculum: number | null;
+    attendance: number | null;
+  };
+  engagement: {
+    e_score: number | null;
+    band: DiscipleBand | null;
+    days_since_last_activity: number;
+  };
+  reflections: DiscipleReflection[];
+  recent_activity: Array<{ kind: string; occurred_at: string }>;
+  dm_conversation_id: string | null;
+}
+
+export const DisciplesApi = {
+  // The leader's roster + triage summary (server-scoped to their disciple set).
+  roster: () =>
+    api.get<{ data: DiscipleRow[]; summary: RosterSummary }>("/disciples").then((r) => r.data),
+  // One student's full journey. 403 FORBIDDEN_SCOPE if :id is out of the leader's set.
+  dossier: (id: string) => unwrap<DiscipleDossier>(api.get(`/disciples/${id}`)),
 };
 
 // ---- Growth content authoring (Admin+, WP5 over B9) ----
@@ -966,6 +1255,10 @@ export const OpsApi = {
   ) => api.get<{ data: MemberRow[]; next_cursor: string | null }>("/admin/members", { params: q }).then((r) => r.data),
   memberDetail: (userId: string) => api.get<MemberDetail>(`/admin/members/${userId}`).then((r) => r.data),
   memberResults: (userId: string) => api.get<MemberResults>(`/admin/members/${userId}/results`).then((r) => r.data),
+  memberWalk: (userId: string) => api.get<{ data: WalkEvent[] }>(`/admin/members/${userId}/walk`).then((r) => r.data.data),
+  // Manual reset: the server mints the temporary password and returns it ONCE.
+  resetMemberPassword: (userId: string) =>
+    api.post<{ temporary_password: string; full_name: string }>(`/admin/members/${userId}/password-reset`, {}).then((r) => r.data),
   addMember: (body: {
     full_name: string;
     phone_number: string;
@@ -1012,6 +1305,12 @@ export const OpsApi = {
         { graduated },
       )
       .then((r) => r.data),
+  // Elevate a member into a privileged portal user (sets is_staff; they appear on
+  // System ▸ Users). Demote clears is_staff + all role/permission grants.
+  elevateMember: (userId: string) =>
+    api.post<{ user_id: string; full_name: string; is_staff: boolean; role: string }>(`/admin/members/${userId}/elevate`, {}).then((r) => r.data),
+  demoteMember: (userId: string) =>
+    api.post<{ user_id: string; full_name: string; is_staff: boolean; role: string }>(`/admin/members/${userId}/demote`, {}).then((r) => r.data),
 
   reflections: (q: { state?: ReflectionState; overdue?: boolean } = {}) =>
     api.get<{ data: ReflectionRow[] }>("/admin/reflections", { params: q }).then((r) => r.data.data),
@@ -1645,6 +1944,245 @@ export interface AssistantTurn { role: "user" | "assistant"; text: string }
 export const AssistantApi = {
   chat: (body: { messages: AssistantTurn[]; conversation_id?: string }) =>
     api.post<{ reply: string }>("/assistant/chat", body).then((r) => r.data),
+};
+
+// ---- Radio Broadcast Studio + Virtual Audio Mixer (admin) ------------------
+// Wire contract: docs/RADIO_STUDIO_CONTRACT.md. Types come from @nuru/shared.
+// The admin projection (RadioProgram) carries the ingest secrets (stream_key /
+// ingest_url) — never surfaced to members. go-live/end/rotate-key and health are
+// server-authoritative; the client reflects status/is_live, never originates it.
+import type {
+  RadioProgram,
+  RadioComment,
+  RadioReactionCounts,
+  StreamHealth,
+  RadioListenerRoster,
+  CreateRadioProgramBody,
+  UpdateRadioProgramBody,
+  RadioProgramStatus,
+  AudioUploadResult,
+  MixerScene,
+  MixerSceneBody,
+  MixerSceneUpdateBody,
+  MixerJingle,
+  MixerJingleBody,
+  RadioTrack,
+  RadioTrackKind,
+  RadioPlaylistItem,
+  RadioLoopMode,
+  CreateRadioTrackBody,
+  MixerLiveChannels,
+  MixerLiveLevelsBody,
+  MixerLiveSceneBody,
+  MixerLiveJingleBody,
+  MixerLiveStatus,
+} from "@nuru/shared";
+
+export type {
+  RadioProgram,
+  RadioComment,
+  RadioReactionCounts,
+  StreamHealth,
+  RadioListener,
+  RadioListenerRoster,
+  CreateRadioProgramBody,
+  UpdateRadioProgramBody,
+  RadioProgramStatus,
+  AudioUploadResult,
+  MixerChannel,
+  MixerScene,
+  MixerSceneBody,
+  MixerJingle,
+  MixerJingleBody,
+  RadioTrack,
+  RadioTrackKind,
+  RadioPlaylistItem,
+  RadioLoopMode,
+  CreateRadioTrackBody,
+  MixerLiveChannels,
+  MixerLiveLevelsBody,
+  MixerLiveSceneBody,
+  MixerLiveJingleBody,
+  MixerLiveStatus,
+  MixerEqBus,
+  MixerEqBand,
+  MixerLiveEqBody,
+} from "@nuru/shared";
+
+// ── Live EQ (3-band peaking EQ per on-air bus) ──────────────────────────────
+// Wire types re-exported above from @nuru/shared; imported here for local use.
+import type { MixerEqBand as EqBand, MixerLiveEqBody as EqBody } from "@nuru/shared";
+export type MixerEqBusGains = Partial<Record<EqBand, number>>;
+
+// One overlapping session returned by GET /admin/radio/schedule/conflicts.
+// Windows are [start, start+duration); sessions without a duration are assumed
+// 60 min server-side; a LIVE session's window projects from live_started_at.
+export interface RadioScheduleConflict {
+  id: string;
+  title: string;
+  scheduled_at: string;
+  duration_min: number | null;
+  status: RadioProgramStatus;
+  is_live: boolean;
+}
+
+const R = "/admin/radio";
+export const RadioApi = {
+  // Programs ---------------------------------------------------------------
+  // NB: the radio routes return bare arrays (not the {data:[…]} envelope used
+  // elsewhere in this portal) — see backend src/modules/radio/index.ts.
+  programs: (status?: RadioProgramStatus) =>
+    api
+      .get<RadioProgram[]>(`${R}/programs`, { params: status ? { status } : {} })
+      .then((r) => r.data),
+  program: (id: string) => api.get<RadioProgram>(`${R}/programs/${id}`).then((r) => r.data),
+  createProgram: (body: CreateRadioProgramBody) =>
+    api.post<RadioProgram>(`${R}/programs`, body).then((r) => r.data),
+  updateProgram: (id: string, body: UpdateRadioProgramBody) =>
+    api.patch<RadioProgram>(`${R}/programs/${id}`, body).then((r) => r.data),
+  deleteProgram: (id: string) =>
+    api.delete<{ ok: true }>(`${R}/programs/${id}`).then((r) => r.data),
+  // Schedule-overlap check for the create/edit form. ADVISORY only — saving an
+  // overlapping slot is allowed; the auto-air worker airs sessions sequentially
+  // and defers overlapping ones until the frequency frees. Pass the program id
+  // as excludeId when editing so a session never conflicts with itself.
+  scheduleConflicts: (scheduledAt: string, durationMin?: number | null, excludeId?: string) =>
+    api
+      .get<{ conflicts: RadioScheduleConflict[] }>(`${R}/schedule/conflicts`, {
+        params: {
+          scheduled_at: scheduledAt,
+          ...(durationMin != null ? { duration_min: durationMin } : {}),
+          ...(excludeId ? { exclude_id: excludeId } : {}),
+        },
+      })
+      .then((r) => r.data),
+
+  // Uploaded session audio (self-hosted disk; mirrors the video upload) -----
+  // Bytes go to our own /media store; returns { url, duration_sec }. The axios
+  // instance injects the admin JWT and sets multipart from the FormData body.
+  uploadAudio: (file: File, durationSec?: number): Promise<AudioUploadResult> => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    if (durationSec != null && Number.isFinite(durationSec)) {
+      form.append("duration_sec", String(Math.round(durationSec)));
+    }
+    // timeout: 0 — audio files run up to 70 MB; the instance-wide 15s timeout
+    // would abort any real-world upload mid-flight.
+    return api.post<AudioUploadResult>("/admin/media/audio/upload", form, { timeout: 0 }).then((r) => r.data);
+  },
+
+  // Broadcast lifecycle (server-authoritative) -----------------------------
+  goLive: (id: string) => api.post<RadioProgram>(`${R}/programs/${id}/go-live`).then((r) => r.data),
+  end: (id: string) => api.post<RadioProgram>(`${R}/programs/${id}/end`).then((r) => r.data),
+  rotateKey: (id: string) =>
+    api.post<{ stream_key: string }>(`${R}/programs/${id}/rotate-key`).then((r) => r.data),
+  // 409 when the program is not live — callers stop polling on that.
+  health: (id: string) => api.get<StreamHealth>(`${R}/programs/${id}/health`).then((r) => r.data),
+  // Real live listener roster + count (auth-only /radio/* member endpoint; the
+  // admin JWT is accepted). Rows are members active within the last 45s.
+  listeners: (id: string) =>
+    api.get<RadioListenerRoster>(`/radio/programs/${id}/listeners`).then((r) => r.data),
+
+  // Listener interactions --------------------------------------------------
+  comments: (id: string) =>
+    api.get<RadioComment[]>(`${R}/programs/${id}/comments`).then((r) => r.data),
+  hideComment: (commentId: string) =>
+    api.delete<{ ok: true }>(`${R}/comments/${commentId}`).then((r) => r.data),
+  // TRUE aggregate reaction totals across ALL members (server-authoritative;
+  // polled with the comments cadence — the console never invents counts).
+  reactions: (id: string) =>
+    api.get<RadioReactionCounts>(`${R}/programs/${id}/reactions`).then((r) => r.data),
+  // The admin's own reaction — the member /radio/* endpoint (admin JWT accepted,
+  // like listeners). Idempotent per client_event_id; returns the fresh totals.
+  react: (id: string, kind: keyof RadioReactionCounts) =>
+    api
+      .post<{ counts: RadioReactionCounts }>(`/radio/programs/${id}/react`, {
+        kind,
+        client_event_id: crypto.randomUUID(),
+      })
+      .then((r) => r.data.counts),
+
+  // Mixer scenes -----------------------------------------------------------
+  scenes: () => api.get<MixerScene[]>(`${R}/mixer/scenes`).then((r) => r.data),
+  createScene: (body: MixerSceneBody) =>
+    api.post<MixerScene>(`${R}/mixer/scenes`, body).then((r) => r.data),
+  updateScene: (id: string, body: MixerSceneUpdateBody) =>
+    api.patch<MixerScene>(`${R}/mixer/scenes/${id}`, body).then((r) => r.data),
+  deleteScene: (id: string) =>
+    api.delete<{ ok: true }>(`${R}/mixer/scenes/${id}`).then((r) => r.data),
+
+  // Jingle soundboard ------------------------------------------------------
+  jingles: () => api.get<MixerJingle[]>(`${R}/mixer/jingles`).then((r) => r.data),
+  createJingle: (body: MixerJingleBody) =>
+    api.post<MixerJingle>(`${R}/mixer/jingles`, body).then((r) => r.data),
+  deleteJingle: (id: string) =>
+    api.delete<{ ok: true }>(`${R}/mixer/jingles/${id}`).then((r) => r.data),
+
+  // LIVE mix control (on-air liquidsoap engine on the VPS) ------------------
+  // 503 UPSTREAM_UNAVAILABLE when the engine isn't configured; status never
+  // errors and is the "is the engine reachable?" poll. Gains are ints 0..100.
+  liveLevels: (channels: MixerLiveLevelsBody["channels"]) =>
+    api
+      .post<{ ok: true }>(`${R}/mixer/live/levels`, { channels } satisfies MixerLiveLevelsBody)
+      .then((r) => r.data),
+  liveScene: (sceneId: string) =>
+    api
+      .post<{ ok: true; applied: Partial<Record<MixerLiveChannels, number>> }>(
+        `${R}/mixer/live/scene`,
+        { scene_id: sceneId } satisfies MixerLiveSceneBody,
+      )
+      .then((r) => r.data),
+  // 422 = the jingle has no server-hosted audio (placeholder URL) — re-upload it.
+  liveJingle: (jingleId: string) =>
+    api
+      .post<{ ok: true }>(`${R}/mixer/live/jingle`, { jingle_id: jingleId } satisfies MixerLiveJingleBody)
+      .then((r) => r.data),
+  // 3-band peaking EQ per bus (low 100 Hz / mid 1.2 kHz / high 8 kHz). Gains are
+  // dB numbers −12…+12, ≥1 value per request; 503 when the engine is offline.
+  liveEq: (bands: EqBody["bands"]) =>
+    api
+      .post<{ ok: true }>(`${R}/mixer/live/eq`, { bands } satisfies EqBody)
+      .then((r) => r.data),
+  liveStatus: () => api.get<MixerLiveStatus>(`${R}/mixer/live/status`).then((r) => r.data),
+
+  // Audio library (reusable tracks; bare arrays, no {data:[]} envelope) -----
+  tracks: (kind?: RadioTrackKind) =>
+    api
+      .get<RadioTrack[]>(`${R}/tracks`, { params: kind ? { kind } : {} })
+      .then((r) => r.data),
+  createTrack: (body: CreateRadioTrackBody) =>
+    api.post<RadioTrack>(`${R}/tracks`, body).then((r) => r.data),
+  deleteTrack: (id: string) =>
+    api.delete<{ ok: true }>(`${R}/tracks/${id}`).then((r) => r.data),
+
+  // Session playlist (programs) --------------------------------------------
+  playlist: (programId: string) =>
+    api.get<RadioPlaylistItem[]>(`${R}/programs/${programId}/tracks`).then((r) => r.data),
+  addToPlaylist: (programId: string, trackId: string) =>
+    api
+      .post<RadioPlaylistItem>(`${R}/programs/${programId}/tracks`, { track_id: trackId })
+      .then((r) => r.data),
+  removeFromPlaylist: (programId: string, itemId: string) =>
+    api.delete<{ ok: true }>(`${R}/programs/${programId}/tracks/${itemId}`).then((r) => r.data),
+  // NOTE: the reorder endpoint returns {ok:true} (see openapi.yaml), NOT the
+  // reordered playlist — callers must re-fetch the playlist to reconcile.
+  reorderPlaylist: (programId: string, itemIds: string[]) =>
+    api
+      .put<{ ok: true }>(`${R}/programs/${programId}/tracks/order`, { item_ids: itemIds })
+      .then((r) => r.data),
+
+  // Session loop mode (server-authoritative) -------------------------------
+  // Optional durationMin rides in the SAME PATCH when activating a loop:
+  // a number = the auto-air sweep auto-ends the broadcast after that many
+  // minutes on air; null = clear it (loop until ended manually); undefined =
+  // leave duration_min untouched (plain mode changes / deactivation).
+  setLoop: (programId: string, loopMode: RadioLoopMode, durationMin?: number | null) =>
+    api
+      .patch<RadioProgram>(`${R}/programs/${programId}`, {
+        loop_mode: loopMode,
+        ...(durationMin !== undefined ? { duration_min: durationMin } : {}),
+      })
+      .then((r) => r.data),
 };
 
 // --- Default single-flight token refresh -----------------------------------

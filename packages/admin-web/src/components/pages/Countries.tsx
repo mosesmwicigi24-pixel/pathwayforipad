@@ -9,6 +9,18 @@ import { errorMessage } from "../../util/error";
 
 const REGIONS = ["Africa", "Americas", "Asia", "Europe", "Oceania"];
 
+// Stable tinted accent per region, so each row carries a quiet colour cue (parity with iPad).
+function regionTint(region: string | null | undefined): string {
+  switch (region) {
+    case "Africa": return "var(--nuru-gold)";
+    case "Americas": return "var(--lum-navy)";
+    case "Asia": return "#7a4fb0";
+    case "Europe": return "var(--nuru-green)";
+    case "Oceania": return "#0e8c9b";
+    default: return "var(--muted-foreground)";
+  }
+}
+
 export function Countries(): ReactElement {
   const [list, setList] = useState<Country[]>([]);
   const [query, setQuery] = useState("");
@@ -53,20 +65,24 @@ export function Countries(): ReactElement {
           <button onClick={() => setRegion(regions[(regions.indexOf(region) + 1) % regions.length] ?? "All regions")} className="flex items-center gap-1.5 rounded-lg" style={{ height: 38, padding: "0 12px", background: "var(--input-background)", fontSize: 12, fontWeight: 600, color: "var(--nuru-navy)", border: "1px solid var(--border)" }}>{region} <ChevronDown size={12} /></button>
         </div>
 
-        <div className="overflow-hidden rounded-2xl" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+        <div className="overflow-hidden rounded-2xl" style={{ border: "1px solid var(--border)", background: "#fff", boxShadow: "0 1px 3px rgba(11,31,51,0.06)" }}>
           <div className="overflow-x-auto"><table className="w-full border-collapse">
-            <thead><tr style={{ borderBottom: "1px solid var(--border)", background: "var(--secondary)", textAlign: "left" }}>{["Country", "Region", "Currency", "Dial code", "Status", ""].map((h) => <th key={h} className="px-5 py-3.5" style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6 }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ background: "var(--secondary)", textAlign: "left" }}>{["Country", "Region", "Currency", "Dial code", "Status", ""].map((h) => <th key={h} className="px-5 py-3" style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6 }}>{h}</th>)}</tr></thead>
             <tbody>
-              {filtered.map((c) => (
-                <tr key={c.code} style={{ borderTop: "1px solid var(--border)" }}>
-                  <td className="px-5 py-3.5"><div className="flex items-center gap-3"><span style={{ fontSize: 22 }}>{c.flag ?? "🏳️"}</span><div><div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{c.name}</div><code style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted-foreground)" }}>{c.code}</code></div></div></td>
-                  <td className="px-5 py-3.5"><div style={{ fontSize: 13, color: "var(--foreground)" }}>{c.region ?? "—"}</div><div style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}>{c.subregion ?? ""}</div></td>
-                  <td className="px-5 py-3.5" style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{c.currency ?? "—"}</td>
-                  <td className="px-5 py-3.5" style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--foreground)" }}>{c.dial_code ?? "—"}</td>
-                  <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5" style={{ background: c.status === "active" ? "#E8F6EE" : "#F3F4F6", color: c.status === "active" ? "#0F6B33" : "#6B7280", fontSize: 11, fontWeight: 700, textTransform: "capitalize" }}>● {c.status}</span></td>
-                  <td className="px-5 py-3.5"><div className="flex items-center justify-end gap-1"><button onClick={() => setEditing(c)} title="Edit" className="rounded-lg p-1.5" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}><Pencil size={14} /></button><button onClick={() => void toggle(c)} className="rounded-lg px-2.5 py-1.5" style={{ fontSize: 12, fontWeight: 700, color: c.status === "active" ? "#DC2626" : "#16A34A", background: "none", border: "none" }}>{c.status === "active" ? "Disable" : "Enable"}</button></div></td>
+              {filtered.map((c, i) => {
+                const active = c.status === "active";
+                const tint = regionTint(c.region);
+                return (
+                <tr key={c.code} style={{ borderTop: "1px solid var(--border)", background: !active ? "rgba(11,31,51,0.025)" : (i % 2 ? "rgba(11,31,51,0.015)" : "#fff") }}>
+                  <td className="px-5 py-3"><div className="flex items-center gap-3"><span className="flex items-center justify-center shrink-0" style={{ width: 36, height: 36, fontSize: 18, borderRadius: 9, background: `color-mix(in srgb, ${tint} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${tint} 22%, transparent)` }}>{c.flag ?? "🏳️"}</span><div><div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)", lineHeight: 1.2 }}>{c.name}</div><code style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted-foreground)" }}>{c.code}</code></div></div></td>
+                  <td className="px-5 py-3"><div className="flex items-center gap-2"><span className="shrink-0" style={{ width: 6, height: 6, borderRadius: 99, background: tint }} /><div><div style={{ fontSize: 13, color: "var(--foreground)" }}>{c.region ?? "—"}</div>{c.subregion ? <div style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}>{c.subregion}</div> : null}</div></div></td>
+                  <td className="px-5 py-3" style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{c.currency ?? "—"}</td>
+                  <td className="px-5 py-3" style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--muted-foreground)" }}>{c.dial_code ?? "—"}</td>
+                  <td className="px-5 py-3"><span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1" style={{ background: active ? "var(--tint-green-bg)" : "var(--secondary)", color: active ? "var(--tint-green-fg)" : "var(--muted-foreground)", fontSize: 11, fontWeight: 700, textTransform: "capitalize" }}><span style={{ width: 5, height: 5, borderRadius: 99, background: active ? "var(--nuru-green)" : "var(--muted-foreground)" }} />{c.status}</span></td>
+                  <td className="px-5 py-3"><div className="flex items-center justify-end gap-1"><button onClick={() => setEditing(c)} title="Edit" className="rounded-lg p-1.5" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}><Pencil size={14} /></button><button onClick={() => void toggle(c)} className="rounded-lg px-2.5 py-1.5" style={{ fontSize: 12, fontWeight: 700, color: active ? "#DC2626" : "#16A34A", background: "none", border: "none" }}>{active ? "Disable" : "Enable"}</button></div></td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table></div>
           {filtered.length === 0 ? <div className="text-center py-12" style={{ fontSize: 14, color: "var(--muted-foreground)" }}>No countries match.</div> : null}

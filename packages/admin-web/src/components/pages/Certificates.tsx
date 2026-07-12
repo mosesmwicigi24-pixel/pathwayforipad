@@ -10,7 +10,12 @@ import { ConfigApi, OpsApi, CurriculumApi, type CertificateRow, type Certificate
 import { errorMessage } from "../../util/error";
 
 const statusOf = (c: CertificateRow): "Valid" | "Revoked" => (c.revoked_at ? "Revoked" : "Valid");
-const statusChip: Record<string, { bg: string; color: string }> = { Valid: { bg: "#E8F6EC", color: "#16A34A" }, Revoked: { bg: "#FDECEC", color: "#DC2626" } };
+// Visible status pills (iPad parity): brand-green Valid, red Revoked, each on a
+// soft tint with a hairline border so they read clearly in the dense table.
+const statusChip: Record<string, { bg: string; color: string; border: string }> = {
+  Valid: { bg: "#E8F6EC", color: "#15803D", border: "#A8E0B8" },
+  Revoked: { bg: "#FDECEC", color: "#B91C1C", border: "#FCA5A5" },
+};
 const fmtDate = (iso: string): string => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 const initials = (n: string): string => n.split(/\s+/).map((p) => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
 const shortHash = (h: string): string => (h && h.length > 14 ? `${h.slice(0, 10)}…${h.slice(-4)}` : h || "—");
@@ -131,7 +136,7 @@ export function Certificates(): ReactElement {
                     <td style={{ padding: "12px 16px", fontSize: 12, color: "var(--foreground)" }}>{c.level_number ? `L${c.level_number}` : "Program"}</td>
                     <td style={{ padding: "12px 16px", fontSize: 12, color: "var(--muted-foreground)" }}>{fmtDate(c.issued_at)}</td>
                     <td style={{ padding: "12px 16px" }}><code style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--foreground)", letterSpacing: 0.5 }}>{c.verification_code}</code></td>
-                    <td style={{ padding: "12px 16px" }}><span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5" style={{ background: sc.bg, color: sc.color, fontSize: 11, fontWeight: 700 }}>● {st}</span></td>
+                    <td style={{ padding: "12px 16px" }}><span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5" style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, fontSize: 11, fontWeight: 700 }}>● {st}</span></td>
                     <td style={{ padding: "12px 16px" }}>{st === "Valid" ? <button onClick={(e) => { e.stopPropagation(); void revoke(c); }} className="rounded-lg px-2.5 py-1.5" style={{ background: "#FEF2F2", color: "#DC2626", border: "1px solid #FCA5A5", fontSize: 11, fontWeight: 600 }}><RotateCcw size={11} /></button> : null}</td>
                   </tr>
                 ); })}

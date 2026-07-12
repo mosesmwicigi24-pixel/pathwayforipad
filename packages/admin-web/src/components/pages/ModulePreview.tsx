@@ -8,6 +8,7 @@ import { useParams } from "react-router-dom";
 import { BookOpen, Clock, Target, GraduationCap, PlayCircle, X, Eye, HelpCircle, Award, Hash } from "lucide-react";
 import { CurriculumApi, type AdminModule, type AdminQuestion, type AdminLevel } from "../../api/client";
 import { MarkdownPreview } from "../MarkdownPreview";
+import { PAGE_BREAK_RE, pageTitleAndBody, sectionLabel } from "../../lib/sections";
 
 const diffStyle: Record<string, { bg: string; color: string }> = {
   beginner: { bg: "#E8F6EE", color: "#0F6B33" },
@@ -15,6 +16,18 @@ const diffStyle: Record<string, { bg: string; color: string }> = {
   advanced: { bg: "#FDECEC", color: "#A8281F" },
 };
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Labeled divider shown at a section boundary — e.g. "— Section 2 · Our Response —". */
+function SectionDivider({ index0, title, accent }: { index0: number; title: string | null; accent: string }): ReactElement {
+  const label = title ? `Section ${index0 + 1} · ${title}` : sectionLabel(title, index0);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "30px 0" }}>
+      <span style={{ flex: 1, height: 1, background: "var(--border)" }} />
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, whiteSpace: "nowrap" }}>— {label} —</span>
+      <span style={{ flex: 1, height: 1, background: "var(--border)" }} />
+    </div>
+  );
+}
 
 /** Learner-side option labels for any choice question (legacy string[] or Figma choices). */
 function previewOptions(q: AdminQuestion): string[] {
@@ -119,6 +132,9 @@ export function ModulePreview(): ReactElement {
     );
   }
 
+  // Prefer the server-authored split; fall back to splitting locally so a stale
+  // response (without content_pages) still previews the breaks.
+  const pages = mod.content_pages ?? (mod.lesson_content ?? "").split(PAGE_BREAK_RE).map((p) => p.trim()).filter(Boolean);
   const words = (mod.lesson_content ?? "").trim().split(/\s+/).filter(Boolean).length;
   const readMins = Math.max(1, Math.ceil(words / 200));
   const objectives = (mod.objectives ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
@@ -165,7 +181,19 @@ export function ModulePreview(): ReactElement {
           </div>
         ) : null}
 
-        {(mod.lesson_content ?? "").trim() ? <MarkdownPreview content={mod.lesson_content} /> : <p style={{ fontSize: 14, color: "var(--muted-foreground)", fontStyle: "italic" }}>No lesson content yet.</p>}
+        {(mod.lesson_content ?? "").trim() ? (
+          pages.map((page, i) => {
+            // Same title rule as the authoring outline: a leading markdown heading
+            // becomes the section title and is stripped so it isn't shown twice.
+            const { title, body } = pageTitleAndBody(page);
+            return (
+              <div key={i}>
+                <SectionDivider index0={i} title={title} accent={accent} />
+                <MarkdownPreview content={body} />
+              </div>
+            );
+          })
+        ) : <p style={{ fontSize: 14, color: "var(--muted-foreground)", fontStyle: "italic" }}>No lesson content yet.</p>}
 
         {scriptures.length > 0 ? (
           <div style={{ background: "linear-gradient(180deg, #FFFBEB 0%, #FDF5DA 100%)", border: "1px solid #F5E0A8", borderRadius: 16, padding: "18px 20px", marginTop: 24 }}>

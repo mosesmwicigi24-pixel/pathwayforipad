@@ -1,16 +1,18 @@
 // Sign-in — rebuilt to the "Final Pathway Portal" Figma make (light panel, white
-// card; sign-in / register / forgot-password modes). "Sign in" dispatches the real
-// password login (POST /v1/auth/login); "Forgot password?" sends a reset link via
-// POST /v1/auth/password/forgot and shows the "Check your inbox" confirmation.
-// In production the gateway issues the session; register falls back to dev-login.
+// card). The portal is a STAFF console: there is no self-registration. Accounts are
+// provisioned by an admin (System ▸ Users) or a member is elevated (Members ▸
+// Elevate). The page offers only Sign in + "Forgot password" recovery.
+// "Sign in" dispatches the real password login (POST /v1/auth/login); "Forgot
+// password?" sends a reset link via POST /v1/auth/password/forgot and shows the
+// "Check your inbox" confirmation. In production the gateway issues the session.
 import { useEffect, useState, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Sparkles, Loader2 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
-import { devLogin, login, completeMfa, cancelMfa } from "../../store/authSlice";
+import { login, completeMfa, cancelMfa } from "../../store/authSlice";
 import { PortalApi } from "../../api/client";
 
-type Mode = "signin" | "register" | "forgot";
+type Mode = "signin" | "forgot";
 
 const labelStyle = { display: "block", fontSize: 10.5, fontWeight: 700, color: "var(--foreground)", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" } as const;
 
@@ -22,12 +24,9 @@ export function Login(): ReactElement {
   const [mode, setMode] = useState<Mode>("signin");
   const [code, setCode] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("admin@dev.local");
   const [password, setPassword] = useState("devpassword");
-  const [confirmPw, setConfirmPw] = useState("");
   const [remember, setRemember] = useState(true);
-  const [agree, setAgree] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [pwFocused, setPwFocused] = useState(false);
   const [localError, setLocalError] = useState("");
@@ -41,9 +40,8 @@ export function Login(): ReactElement {
   const submitting = status === "loading";
   const isValidEmail = email.includes("@") && email.includes(".");
   const canSignIn = isValidEmail && password.length >= 4;
-  const canRegister = fullName.trim().length >= 2 && isValidEmail && password.length >= 6 && password === confirmPw && agree;
   const canSend = isValidEmail;
-  const ready = mode === "signin" ? canSignIn : mode === "register" ? canRegister : canSend;
+  const ready = mode === "signin" ? canSignIn : canSend;
   const busy = submitting || sending;
   const formHidden = mode === "forgot" && resetSent;
 
@@ -59,23 +57,20 @@ export function Login(): ReactElement {
   const handleSubmit = (): void => {
     setLocalError("");
     if (mode === "forgot") { void handleForgot(); return; }
-    if (mode === "signin" && !canSignIn) { setLocalError("Enter a valid email and password to continue."); return; }
-    if (mode === "register" && !canRegister) { setLocalError("Please complete every field and accept the terms."); return; }
-    // Register has no self-serve backend yet; fall back to the dev email session.
-    if (mode === "register") { void dispatch(devLogin(email.trim())); return; }
+    if (!canSignIn) { setLocalError("Enter a valid email and password to continue."); return; }
     void dispatch(login({ email: email.trim(), password }));
   };
 
   const shownError = localError || (mode !== "forgot" ? error : "") || "";
-  const heading = mfaToken ? "Two-factor code" : mode === "signin" ? "Welcome back" : mode === "register" ? "Create your account" : "Reset your password";
-  const subtitle = mfaToken ? "Enter the 6-digit code from your authenticator app (or a recovery code)" : mode === "signin" ? "Sign in to the admin dashboard" : mode === "register" ? "Request access to the Nuru Pathway portal" : "Enter your email and we'll send a reset link";
+  const heading = mfaToken ? "Two-factor code" : mode === "signin" ? "Welcome back" : "Reset your password";
+  const subtitle = mfaToken ? "Enter the 6-digit code from your authenticator app (or a recovery code)" : mode === "signin" ? "Sign in to the admin dashboard" : "Enter your email and we'll send a reset link";
 
   const submitMfa = (): void => {
     setLocalError("");
     if (!code.trim()) { setLocalError("Enter your verification code."); return; }
     if (mfaToken) void dispatch(completeMfa({ mfaToken, email: email.trim(), code: code.trim() }));
   };
-  const submitLabel = mode === "signin" ? (busy ? "Signing in…" : "Sign in") : mode === "register" ? (busy ? "Creating account…" : "Create account") : (busy ? "Sending link…" : "Send reset link");
+  const submitLabel = mode === "signin" ? (busy ? "Signing in…" : "Sign in") : (busy ? "Sending link…" : "Send reset link");
 
   return (
     <div className="min-h-full" style={{ fontFamily: "var(--font-sans)", background: "var(--background)" }}>
@@ -121,16 +116,6 @@ export function Login(): ReactElement {
               </>
             )}
 
-            {!mfaToken && mode !== "forgot" && (
-              <div className="grid grid-cols-2 rounded-lg p-1 mb-4" style={{ background: "var(--input-background)", border: "1px solid var(--border)" }}>
-                {(["signin", "register"] as Mode[]).map((m) => (
-                  <button key={m} type="button" onClick={() => switchMode(m)} className="rounded-md transition-all" style={{ height: 32, fontSize: 12, fontWeight: 700, letterSpacing: "0.02em", background: mode === m ? "#fff" : "transparent", color: mode === m ? "var(--nuru-navy)" : "var(--muted-foreground)", boxShadow: mode === m ? "0 1px 3px rgba(11,31,51,0.08)" : "none", border: "none" }}>
-                    {m === "signin" ? "Sign in" : "Register"}
-                  </button>
-                ))}
-              </div>
-            )}
-
             {/* Success: "Check your inbox" (forgot + sent) */}
             {!mfaToken && formHidden && (
               <>
@@ -149,13 +134,6 @@ export function Login(): ReactElement {
 
             {!mfaToken && !formHidden && (
               <>
-                {mode === "register" && (
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={labelStyle}>Full name</label>
-                    <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Amara Osei" className="w-full rounded-lg outline-none" style={{ height: 40, padding: "0 12px", background: "var(--input-background)", border: "1.5px solid var(--border)", fontSize: 13.5, color: "var(--foreground)" }} />
-                  </div>
-                )}
-
                 <div style={{ marginBottom: 12 }}>
                   <label style={labelStyle}>Email address</label>
                   <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} onFocus={() => setEmailFocused(true)} onBlur={() => setEmailFocused(false)} onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }} className="w-full rounded-lg outline-none" style={{ height: 40, padding: "0 12px", background: emailFocused ? "#fff" : "var(--input-background)", border: emailFocused ? "1.5px solid var(--nuru-gold)" : "1.5px solid var(--border)", boxShadow: emailFocused ? "0 0 0 3px rgba(200,155,60,0.14)" : "none", fontSize: 13.5, color: "var(--foreground)" }} />
@@ -173,14 +151,6 @@ export function Login(): ReactElement {
                   </div>
                 )}
 
-                {mode === "register" && (
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={labelStyle}>Confirm password</label>
-                    <input type={showPw ? "text" : "password"} value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} placeholder="Repeat password" className="w-full rounded-lg outline-none" style={{ height: 40, padding: "0 12px", background: "var(--input-background)", border: "1.5px solid var(--border)", fontSize: 13.5, color: "var(--foreground)" }} />
-                    {confirmPw.length > 0 && confirmPw !== password && <div style={{ fontSize: 11, color: "#DC2626", marginTop: 4 }}>Passwords don’t match.</div>}
-                  </div>
-                )}
-
                 {mode === "signin" && (
                   <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -191,15 +161,6 @@ export function Login(): ReactElement {
                   </div>
                 )}
 
-                {mode === "register" && (
-                  <label className="flex items-start gap-2 cursor-pointer" style={{ marginBottom: 14 }}>
-                    <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} style={{ accentColor: "var(--nuru-gold)", marginTop: 3 }} />
-                    <span style={{ fontSize: 11.5, color: "var(--foreground)", lineHeight: 1.5 }}>
-                      I agree to the <a href="#" style={{ color: "var(--nuru-gold)", fontWeight: 600 }}>Terms</a> and <a href="#" style={{ color: "var(--nuru-gold)", fontWeight: 600 }}>Privacy Policy</a>.
-                    </span>
-                  </label>
-                )}
-
                 {shownError && <div className="rounded-md mb-3" style={{ background: "#FDECEC", color: "#A8281F", fontSize: 12, padding: "8px 10px", border: "1px solid #F5C6C2" }}>{shownError}</div>}
 
                 <button onClick={handleSubmit} disabled={busy || !ready} className="w-full flex items-center justify-center gap-2 rounded-lg transition-all hover:brightness-105" style={{ height: 42, background: ready && !busy ? "var(--nuru-gold)" : "rgba(200,155,60,0.45)", color: "#fff", fontSize: 13.5, fontWeight: 700, letterSpacing: "0.01em", boxShadow: "0 8px 22px rgba(200,155,60,0.32)", cursor: busy ? "not-allowed" : "pointer", border: "none" }}>
@@ -207,15 +168,15 @@ export function Login(): ReactElement {
                   {submitLabel}
                 </button>
 
-                <p style={{ fontSize: 12, color: "var(--muted-foreground)", textAlign: "center", marginTop: 12 }}>
-                  {mode === "signin" && <>New to Nuru Pathway? <button type="button" onClick={() => switchMode("register")} style={{ color: "var(--nuru-gold)", fontWeight: 700, background: "none", border: "none", cursor: "pointer" }}>Create an account</button></>}
-                  {mode === "register" && <>Already have an account? <button type="button" onClick={() => switchMode("signin")} style={{ color: "var(--nuru-gold)", fontWeight: 700, background: "none", border: "none", cursor: "pointer" }}>Sign in</button></>}
-                  {mode === "forgot" && <>Remembered your password? <button type="button" onClick={() => switchMode("signin")} style={{ color: "var(--nuru-gold)", fontWeight: 700, background: "none", border: "none", cursor: "pointer" }}>Back to sign in</button></>}
-                </p>
+                {mode === "forgot" && (
+                  <p style={{ fontSize: 12, color: "var(--muted-foreground)", textAlign: "center", marginTop: 12 }}>
+                    Remembered your password? <button type="button" onClick={() => switchMode("signin")} style={{ color: "var(--nuru-gold)", fontWeight: 700, background: "none", border: "none", cursor: "pointer" }}>Back to sign in</button>
+                  </p>
+                )}
 
                 {mode === "signin" && (
                   <p style={{ fontSize: 11, color: "var(--muted-foreground)", textAlign: "center", marginTop: 16, lineHeight: 1.5 }}>
-                    Dev login (local). Seeded: <span style={{ color: "var(--nuru-gold)", fontWeight: 600 }}>admin@dev.local</span> · leader@dev.local · student1@dev.local
+                    Access is provisioned by an administrator. No account? Ask an admin to add or elevate you.
                   </p>
                 )}
               </>

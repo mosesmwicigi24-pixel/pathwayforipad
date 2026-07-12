@@ -15,6 +15,8 @@ import { errorMessage } from "../../util/error";
 
 type Category = BadgeRow["category"];
 const CATS: Category[] = ["journey", "consistency", "community", "service"];
+// Visible navy hairline on white controls (iPad: rgba(10,37,64,0.22)).
+const CONTROL_BORDER = "rgba(10,37,64,0.22)";
 const catMeta: Record<Category, { label: string; color: string; bg: string; icon: LucideIcon }> = {
   journey: { label: "Journey", color: "#A87616", bg: "#FFF6E0", icon: BookOpen },
   consistency: { label: "Consistency", color: "#C2410C", bg: "#FDF0E6", icon: Flame },
@@ -114,25 +116,36 @@ export function Badges(): ReactElement {
         ); })}
       </div>
 
-      <div className="rounded-2xl p-3 mb-6 flex items-center gap-3 flex-wrap" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-        <div className="flex items-center gap-2 rounded-xl px-3 py-2 flex-1" style={{ background: "var(--input-background)", border: "1px solid var(--border)", minWidth: 260 }}><Search size={14} style={{ color: "var(--muted-foreground)" }} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search badges by name or description" className="flex-1 bg-transparent outline-none" style={{ fontSize: 13 }} /></div>
+      {/* Filter bar — controls read as obvious interactive fields on the paper
+          page (iPad parity): each on a solid WHITE surface with a clearly visible
+          1pt navy border, ~38px tall. No card wrapper (a pale field inside a
+          near-white card blends out). */}
+      <div className="mb-6 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 rounded-xl px-3 flex-1" style={{ height: 38, background: "#fff", border: `1px solid ${CONTROL_BORDER}`, minWidth: 260 }}><Search size={14} style={{ color: "var(--muted-foreground)" }} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search badges by name or description" className="flex-1 bg-transparent outline-none" style={{ fontSize: 13, color: "var(--foreground)" }} />{query && <button onClick={() => setQuery("")} aria-label="Clear" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}><X size={14} /></button>}</div>
         <Select value={category === "All" ? "All categories" : catMeta[category].label} onChange={(v) => setCategory(v === "All categories" ? "All" : (CATS.find((c) => catMeta[c].label === v) ?? "All"))} options={["All categories", ...CATS.map((c) => catMeta[c].label)]} label="Category" />
         <Select value={statusFilter} onChange={(v) => setStatusFilter(v as "All" | "Active" | "Inactive")} options={["All", "Active", "Inactive"]} label="Status" />
         <Select value={sort} onChange={(v) => setSort(v as typeof sort)} options={["Most earned", "Least earned", "Name"]} label="Sort" leadingIcon={<Filter size={12} />} />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 grid grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+        {/* Denser, compact 4–5-up medallion grid (iPad GridItem.adaptive(min:184)). */}
+        <div className="xl:col-span-3 grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(184px, 1fr))" }}>
           {filtered.map((b) => { const cc = catMeta[b.category]; const active = isActive(b); return (
-            <div key={b.code} onClick={() => setDetail(b)} className="group rounded-2xl p-4 flex flex-col items-center text-center cursor-pointer transition-all hover:-translate-y-0.5" style={{ background: "var(--card)", border: "1px solid var(--border)", opacity: active ? 1 : 0.72 }}>
-              <div className="w-full flex items-center justify-between mb-2"><Pill bg={cc.bg} color={cc.color}>{cc.label}</Pill><span title={active ? "Active" : "Inactive"} className="shrink-0" style={{ width: 9, height: 9, borderRadius: 999, background: active ? "#16A34A" : "#9CA3AF" }} /></div>
-              <div style={{ filter: active ? "none" : "grayscale(0.5)" }}><Medallion icon={cc.icon} size={76} color={cc.color} /></div>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 16.5, color: "var(--foreground)", lineHeight: 1.2, marginTop: 12 }}>{b.name}</div>
-              <p style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginTop: 4, lineHeight: 1.4, minHeight: 32 }}>{b.description.length > 64 ? `${b.description.slice(0, 64)}…` : b.description}</p>
-              <div className="flex items-center gap-2 mt-3"><span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1" style={{ background: "var(--secondary)", fontSize: 11.5, fontWeight: 700, color: "var(--nuru-navy)" }}><Users size={12} style={{ color: "var(--nuru-gold)" }} /> {b.earned_count}</span></div>
-              <div className="flex items-center justify-center gap-1.5 mt-4 pt-3 w-full" style={{ borderTop: "1px solid var(--border)" }}>
-                <button onClick={(e) => { e.stopPropagation(); setDetail(b); }} title="View" className="rounded-lg p-2" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}><Eye size={15} /></button>
-                <button onClick={(e) => { e.stopPropagation(); void (active ? retire(b) : reactivate(b)); }} title={active ? "Deactivate" : "Reactivate"} className="rounded-lg p-2" style={{ color: active ? "#DC2626" : "#16A34A", background: "none", border: "none" }}><Power size={15} /></button>
+            <div key={b.code} onClick={() => setDetail(b)} className="group rounded-2xl p-3.5 flex flex-col items-center text-center cursor-pointer transition-all hover:-translate-y-0.5" style={{ background: "var(--card)", border: "1px solid var(--border)", opacity: active ? 1 : 0.72 }}>
+              <div className="w-full flex items-center justify-between mb-1.5">
+                <Pill bg={cc.bg} color={cc.color}>{cc.label}</Pill>
+                <span className="inline-flex items-center gap-1 shrink-0" style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3, color: active ? "#16A34A" : "var(--muted-foreground)" }}><span style={{ width: 7, height: 7, borderRadius: 999, background: active ? "#16A34A" : "#9CA3AF" }} />{active ? "Active" : "Inactive"}</span>
+              </div>
+              <div style={{ filter: active ? "none" : "grayscale(0.5)" }}><Medallion icon={cc.icon} size={60} color={cc.color} /></div>
+              <div style={{ fontFamily: "var(--font-display)", fontSize: 15, color: "var(--foreground)", lineHeight: 1.2, marginTop: 10 }}>{b.name}</div>
+              <p style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 3, lineHeight: 1.4, minHeight: 30 }}>{b.description.length > 64 ? `${b.description.slice(0, 64)}…` : b.description}</p>
+              {/* Awarding criteria — the stable rule code */}
+              <code className="mt-2 inline-block rounded-md px-2 py-0.5" style={{ background: "var(--secondary)", fontFamily: "var(--font-mono)", fontSize: 9.5, letterSpacing: 0.2, color: "var(--muted-foreground)", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.code}</code>
+              {/* Earned-by sentence (pluralized) */}
+              <div className="flex items-center gap-1.5 mt-1.5"><span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5" style={{ background: "var(--secondary)", fontSize: 10, fontWeight: 700, color: "var(--nuru-navy)" }}><Users size={11} style={{ color: "var(--nuru-gold)" }} /> {b.earned_count === 1 ? "Earned by 1 member" : `Earned by ${b.earned_count.toLocaleString()} members`}</span></div>
+              <div className="flex items-center justify-center gap-1.5 mt-3 pt-2.5 w-full" style={{ borderTop: "1px solid var(--border)" }}>
+                <button onClick={(e) => { e.stopPropagation(); setDetail(b); }} title="View" className="rounded-lg p-1.5" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}><Eye size={14} /></button>
+                <button onClick={(e) => { e.stopPropagation(); void (active ? retire(b) : reactivate(b)); }} title={active ? "Deactivate" : "Reactivate"} className="rounded-lg p-1.5" style={{ color: active ? "#DC2626" : "#16A34A", background: "none", border: "none" }}><Power size={14} /></button>
               </div>
             </div>
           ); })}
@@ -244,11 +257,17 @@ function CreateModal({ onClose, onDone, onError }: { onClose: () => void; onDone
 }
 
 function Select({ value, onChange, options, label, leadingIcon }: { value: string; onChange: (v: string) => void; options: readonly string[]; label: string; leadingIcon?: ReactNode }): ReactElement {
+  // Solid white control with a visible navy hairline + stacked label/value
+  // (iPad selectLabel). The native <select> overlays invisibly for behavior.
   return (
-    <label className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "var(--input-background)", border: "1px solid var(--border)" }}>
-      {leadingIcon}<span style={{ fontSize: 11, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="bg-transparent outline-none" style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{options.map((o) => <option key={o}>{o}</option>)}</select>
-      <ChevronDown size={12} style={{ color: "var(--muted-foreground)" }} />
+    <label className="relative flex items-center gap-2 rounded-xl px-3.5" style={{ height: 38, background: "#fff", border: `1px solid ${CONTROL_BORDER}` }}>
+      {leadingIcon}
+      <span className="flex flex-col" style={{ lineHeight: 1.1 }}>
+        <span style={{ fontSize: 9.5, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--foreground)" }}>{value}</span>
+      </span>
+      <ChevronDown size={12} style={{ color: "var(--muted-foreground)", marginLeft: 2 }} />
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" style={{ width: "100%", height: "100%" }} aria-label={label}>{options.map((o) => <option key={o}>{o}</option>)}</select>
     </label>
   );
 }

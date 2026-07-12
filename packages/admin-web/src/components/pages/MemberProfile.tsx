@@ -7,9 +7,9 @@ import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Award, BookOpen, CalendarDays, CheckCircle2, ChevronRight, Droplets, Flag,
-  Heart, Mail, MessageSquare, ShieldAlert, Sparkles, Sunrise, Flame, X, GraduationCap,
+  Heart, Mail, MessageSquare, ShieldAlert, Sparkles, Sunrise, Flame, X, GraduationCap, Activity,
 } from "lucide-react";
-import { OpsApi, SystemApi, type MemberDetail, type Country, type Programme } from "../../api/client";
+import { OpsApi, SystemApi, type MemberDetail, type Country, type Programme, type WalkEvent } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
 const PROGRAMME_LABELS: Record<Programme, string> = {
@@ -20,12 +20,17 @@ const PROGRAMME_LABELS: Record<Programme, string> = {
 };
 
 const STEADY = { bg: "#FFF6E0", color: "#A87616" };
+// Keyed by the RAW wire band (engagement_scores.band) — the old Title-Case
+// keys never matched, so at-risk members silently rendered with the neutral
+// style. bandLabel prettifies for display ("At risk", matching mobile).
 const bandStyle: Record<string, { bg: string; color: string }> = {
-  Thriving: { bg: "#E8F6EC", color: "#16A34A" },
-  Steady: STEADY,
-  Watch: { bg: "#FDF0E6", color: "#E07B28" },
-  "At-risk": { bg: "#FDECEC", color: "#DC2626" },
+  thriving: { bg: "#E8F6EC", color: "#16A34A" },
+  steady: STEADY,
+  watch: { bg: "#FDF0E6", color: "#E07B28" },
+  at_risk: { bg: "#FDECEC", color: "#DC2626" },
 };
+const bandLabel = (b: string): string =>
+  b === "at_risk" ? "At risk" : b.charAt(0).toUpperCase() + b.slice(1);
 
 function fmtDate(s: string | null | undefined): string {
   if (!s) return "—";
@@ -44,7 +49,7 @@ function initials(name: string): string {
 }
 
 function Ring({ value, color, size = 88 }: { value: number; color: string; size?: number }): ReactElement {
-  const stroke = 8;
+  const stroke = size > 64 ? 8 : 6;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const offset = c - (value / 100) * c;
@@ -68,10 +73,12 @@ export function MemberProfile(): ReactElement {
   const [consentOpen, setConsentOpen] = useState(false);
   const [countries, setCountries] = useState<Country[]>([]);
   const [gradBusy, setGradBusy] = useState(false);
+  const [walk, setWalk] = useState<WalkEvent[] | null>(null);
 
   useEffect(() => {
     if (!id) { setError("No member selected."); return; }
     OpsApi.memberDetail(id).then(setM).catch((e) => setError(errorMessage(e, "Could not load member.")));
+    OpsApi.memberWalk(id).then(setWalk).catch(() => setWalk([]));
   }, [id]);
   useEffect(() => { void SystemApi.countries().then(setCountries).catch(() => {}); }, []);
 
@@ -95,7 +102,7 @@ export function MemberProfile(): ReactElement {
   const heroItems = [
     { label: "Cell", value: m.cell_name ?? "Unassigned" },
     { label: "Current level", value: `L${lvl.current_level}${lvl.level_title ? ` · ${lvl.level_title}` : ""}` },
-    { label: "Engagement band", value: m.engagement.band ?? "—", isBand: !!m.engagement.band },
+    { label: "Engagement band", value: m.engagement.band ? bandLabel(m.engagement.band) : "—", isBand: !!m.engagement.band },
     { label: "Programme", value: m.programme ? PROGRAMME_LABELS[m.programme] : "—" },
     { label: "Location", value: locationValue },
     { label: "Age · Gender", value: [m.age != null ? `${m.age}` : null, genderLabel].filter(Boolean).join(" · ") || "—" },
@@ -104,11 +111,13 @@ export function MemberProfile(): ReactElement {
     { label: "Last activity", value: fmtWhen(m.last_activity) },
   ];
 
+  const engScore = m.engagement.e_score != null ? `${Math.round(m.engagement.e_score)}` : "—";
   const kpis = [
-    { label: "Habits", value: `${m.metrics.habits_pct}%`, Icon: Sunrise, tint: "tint-green", cardBg: "#F3FAF5", border: "#D6ECDF", sub: `${m.metrics.active_days_30} / 30 active days` },
-    { label: "Curriculum", value: `${m.metrics.curriculum_pct}%`, Icon: BookOpen, tint: "tint-amber", cardBg: "#FDF9EF", border: "#F0E2BD", sub: `Level ${lvl.current_level}` },
-    { label: "Attendance", value: `${m.metrics.attendance_pct}%`, Icon: CalendarDays, tint: "tint-blue", cardBg: "#F4F6FB", border: "#DBE2EF", sub: `${m.metrics.attended} present days · 90d` },
-    { label: "Badges", value: String(m.badges.length), Icon: Award, tint: "tint-violet", cardBg: "#F7F3FC", border: "#E2D7F2", sub: `${m.certificates.length} certificates` },
+    { label: "Habits", value: `${m.metrics.habits_pct}%`, Icon: Sunrise, iconFg: "#16A34A", iconBg: "rgba(22,163,74,0.12)", cardBg: "#F3FAF5", border: "#D6ECDF", sub: `${m.metrics.active_days_30} / 30 days` },
+    { label: "Curriculum", value: `${m.metrics.curriculum_pct}%`, Icon: BookOpen, iconFg: "#C89B3C", iconBg: "rgba(200,155,60,0.14)", cardBg: "#FDF9EF", border: "#F0E2BD", sub: `Level ${lvl.current_level}` },
+    { label: "Attendance", value: `${m.metrics.attendance_pct}%`, Icon: CalendarDays, iconFg: "#1D4E86", iconBg: "rgba(29,78,134,0.12)", cardBg: "#F4F6FB", border: "#DBE2EF", sub: `${m.metrics.attended} · 90d` },
+    { label: "Badges", value: String(m.badges.length), Icon: Award, iconFg: "#5B2BB8", iconBg: "rgba(91,43,184,0.12)", cardBg: "#F7F3FC", border: "#E2D7F2", sub: `${m.certificates.length} certs` },
+    { label: "Engagement", value: engScore, Icon: Activity, iconFg: "#A87616", iconBg: "rgba(168,118,22,0.14)", cardBg: "#FFF6E0", border: "#F5E0A8", sub: m.engagement.band ? bandLabel(m.engagement.band) : "—" },
   ];
 
   const progressCards = [
@@ -170,75 +179,85 @@ export function MemberProfile(): ReactElement {
 
       {/* Body */}
       <div style={{ padding: "28px clamp(16px, 4vw, 48px) 48px" }}>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-          {kpis.map(({ label, value, Icon, tint, cardBg, border, sub }) => (
+        {/* ONE row of 5 compact KPI tiles (Habits · Curriculum · Attendance · Badges · Engagement) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-5">
+          {kpis.map(({ label, value, Icon, iconFg, iconBg, cardBg, border, sub }) => (
             <div key={label} className="rounded-2xl" style={{ background: cardBg, border: `1px solid ${border}`, padding: "14px 16px" }}>
-              <div className="flex items-start justify-between mb-2"><div className={`flex items-center justify-center rounded-lg ${tint}`} style={{ width: 34, height: 34 }}><Icon size={15} /></div></div>
-              <div className="nuru-eyebrow" style={{ marginBottom: 4 }}>{label}</div>
-              <div style={{ fontFamily: "var(--font-display)", color: "var(--nuru-navy)", fontSize: 26, lineHeight: 1 }}>{value}</div>
-              <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 6 }}>{sub}</div>
+              <div className="flex items-center justify-center rounded-lg mb-2" style={{ width: 32, height: 32, background: iconBg, color: iconFg }}><Icon size={15} /></div>
+              <div style={{ fontFamily: "var(--font-display)", color: "var(--nuru-navy)", fontSize: 24, lineHeight: 1 }}>{value}</div>
+              <div className="nuru-eyebrow" style={{ marginTop: 6 }}>{label}</div>
+              <div style={{ fontSize: 10.5, color: "var(--muted-foreground)", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
-          {progressCards.map(({ key, title, icon: Icon, value, summary, detail, accent, bg, border }) => (
-            <div key={key} className="rounded-2xl p-5 flex items-center gap-5" style={{ background: bg, border: `1px solid ${border}` }}>
-              <div className="relative shrink-0" style={{ width: 88, height: 88 }}>
-                <Ring value={value} color={accent} />
-                <div className="absolute inset-0 flex items-center justify-center" style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--foreground)" }}>{value}%</div>
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2"><Icon size={14} style={{ color: accent }} /><span style={{ fontSize: 12, fontWeight: 700, color: "var(--foreground)", textTransform: "uppercase", letterSpacing: 0.5 }}>{title}</span></div>
-                <div style={{ fontSize: 13, color: "var(--foreground)", marginTop: 6 }}>{summary}</div>
-                <div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 2, marginBottom: 8 }}>{detail}</div>
-                <ThinBar value={value} color={accent} />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* Activity */}
-          <div className="rounded-2xl p-6" style={{ background: "#FDF9EF", border: "1px solid #F0E2BD" }}>
-            <div className="flex items-center justify-between mb-5"><div className="flex items-center gap-2"><MessageSquare size={16} style={{ color: "var(--nuru-gold)" }} /><span style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Recent activity</span></div></div>
-            {m.timeline.length === 0 ? <p style={{ fontSize: 13, color: "var(--muted-foreground)" }}>No recorded activity yet.</p> : (
-              <div className="relative" style={{ paddingLeft: 22 }}>
-                <div className="absolute top-1 bottom-1" style={{ left: 6, width: 2, background: "var(--border)", borderRadius: 1 }} />
-                {m.timeline.map((t, i) => {
-                  const dot = t.kind.includes("quiz") || t.kind.includes("completed") ? "#16A34A" : t.kind.includes("badge") ? "#C89B3C" : "#9CA3AF";
-                  return (
-                    <div key={i} className="relative" style={{ marginBottom: i === m.timeline.length - 1 ? 0 : 16 }}>
-                      <div className="absolute rounded-full" style={{ left: -22, top: 4, width: 12, height: 12, background: dot, border: "3px solid var(--card)", boxShadow: "0 0 0 1px var(--border)" }} />
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)", lineHeight: 1.4 }}>{t.label}</div>
-                      <div style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginTop: 2 }}>{t.module_title ? `${t.module_title} · ` : ""}{fmtWhen(t.occurred_at)}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Milestones */}
-          <div className="rounded-2xl p-6" style={{ background: "#F4F6FB", border: "1px solid #DBE2EF" }}>
-            <div className="flex items-center justify-between mb-5"><div className="flex items-center gap-2"><Flag size={15} style={{ color: "var(--nuru-gold)" }} /><span style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Milestones</span></div><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{milestones.filter((mm) => mm.complete).length} of {milestones.length}</span></div>
-            {milestones.map((mm, i) => {
-              const Icon = mm.icon;
-              return (
-                <div key={mm.title} className="flex items-start gap-3 py-3" style={{ borderBottom: i < milestones.length - 1 ? "1px dashed var(--border)" : "none" }}>
-                  <div className="rounded-lg flex items-center justify-center shrink-0" style={{ width: 38, height: 38, background: mm.complete ? "#E8F6EC" : "#F3F4F6", color: mm.complete ? "#16A34A" : mm.color }}>{mm.complete ? <CheckCircle2 size={18} /> : <Icon size={18} />}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap"><span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{mm.title}</span>{mm.complete && <span className="rounded-full px-2 py-0.5" style={{ background: "#E8F6EC", color: "#16A34A", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em" }}>COMPLETE</span>}</div>
-                    <div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 2 }}>{mm.date}</div>
-                    <div style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}>{mm.note}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Certificates + Badges */}
+        {/* Two-column body: left = progress + activity, right = milestones / certs / badges */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+          {/* Left column */}
           <div className="flex flex-col gap-5">
+            {/* Progress (rings) */}
+            <div className="rounded-2xl p-5" style={{ background: "#fff", border: "1px solid var(--border)", boxShadow: "0 1px 2px rgba(11,31,51,0.03)" }}>
+              <div className="flex items-center gap-2 mb-4"><Activity size={16} style={{ color: "var(--nuru-gold)" }} /><span style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Progress</span></div>
+              <div className="flex flex-col">
+                {progressCards.map(({ key, title, icon: Icon, value, summary, detail, accent }, i) => (
+                  <div key={key} className="flex items-center gap-4 py-3" style={{ borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
+                    <div className="relative shrink-0" style={{ width: 60, height: 60 }}>
+                      <Ring value={value} color={accent} size={60} />
+                      <div className="absolute inset-0 flex items-center justify-center" style={{ fontFamily: "var(--font-display)", fontSize: 15, color: "var(--foreground)" }}>{value}%</div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2"><Icon size={13} style={{ color: accent }} /><span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--foreground)", textTransform: "uppercase", letterSpacing: 0.5 }}>{title}</span></div>
+                      <div style={{ fontSize: 12, color: "var(--foreground)", marginTop: 4 }}>{summary}</div>
+                      <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 1, marginBottom: 6 }}>{detail}</div>
+                      <ThinBar value={value} color={accent} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Activity */}
+            <div className="rounded-2xl p-6" style={{ background: "#FDF9EF", border: "1px solid #F0E2BD" }}>
+              <div className="flex items-center justify-between mb-5"><div className="flex items-center gap-2"><MessageSquare size={16} style={{ color: "var(--nuru-gold)" }} /><span style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Recent activity</span></div></div>
+              {m.timeline.length === 0 ? <p style={{ fontSize: 13, color: "var(--muted-foreground)" }}>No recorded activity yet.</p> : (
+                <div className="relative" style={{ paddingLeft: 22 }}>
+                  <div className="absolute top-1 bottom-1" style={{ left: 6, width: 2, background: "var(--border)", borderRadius: 1 }} />
+                  {m.timeline.map((t, i) => {
+                    const dot = t.kind.includes("quiz") || t.kind.includes("completed") ? "#16A34A" : t.kind.includes("badge") ? "#C89B3C" : "#9CA3AF";
+                    return (
+                      <div key={i} className="relative" style={{ marginBottom: i === m.timeline.length - 1 ? 0 : 16 }}>
+                        <div className="absolute rounded-full" style={{ left: -22, top: 4, width: 12, height: 12, background: dot, border: "3px solid var(--card)", boxShadow: "0 0 0 1px var(--border)" }} />
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)", lineHeight: 1.4 }}>{t.label}</div>
+                        <div style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginTop: 2 }}>{t.module_title ? `${t.module_title} · ` : ""}{fmtWhen(t.occurred_at)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right column: Milestones, Certificates, Badges */}
+          <div className="flex flex-col gap-5">
+            {/* Milestones */}
+            <div className="rounded-2xl p-6" style={{ background: "#F4F6FB", border: "1px solid #DBE2EF" }}>
+              <div className="flex items-center justify-between mb-5"><div className="flex items-center gap-2"><Flag size={15} style={{ color: "var(--nuru-gold)" }} /><span style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Milestones</span></div><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{milestones.filter((mm) => mm.complete).length} of {milestones.length}</span></div>
+              {milestones.map((mm, i) => {
+                const Icon = mm.icon;
+                return (
+                  <div key={mm.title} className="flex items-start gap-3 py-3" style={{ borderBottom: i < milestones.length - 1 ? "1px dashed var(--border)" : "none" }}>
+                    <div className="rounded-lg flex items-center justify-center shrink-0" style={{ width: 38, height: 38, background: mm.complete ? "#E8F6EC" : "#F3F4F6", color: mm.complete ? "#16A34A" : mm.color }}>{mm.complete ? <CheckCircle2 size={18} /> : <Icon size={18} />}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap"><span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{mm.title}</span>{mm.complete && <span className="rounded-full px-2 py-0.5" style={{ background: "#E8F6EC", color: "#16A34A", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em" }}>COMPLETE</span>}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 2 }}>{mm.date}</div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}>{mm.note}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Certificates */}
             <div className="rounded-2xl p-6" style={{ background: "#F3FAF5", border: "1px solid #D6ECDF" }}>
               <div className="flex items-center justify-between mb-4"><div className="flex items-center gap-2"><Award size={15} style={{ color: "var(--nuru-gold)" }} /><span style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Certificates</span></div><span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{m.certificates.length} earned</span></div>
               {m.certificates.length === 0 ? <p style={{ fontSize: 12.5, color: "var(--muted-foreground)" }}>None issued yet.</p> : m.certificates.map((c, i) => (
@@ -258,6 +277,37 @@ export function MemberProfile(): ReactElement {
                     <div key={b.code} className="flex items-center gap-3 rounded-xl p-2.5" style={{ background: "var(--secondary, var(--input-background))" }}>
                       <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: "#fff", color: "#A87616" }}><Flame size={18} /></div>
                       <div><div style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{b.name}</div><div style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{b.description}</div></div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Their Walk — the same gold-thread journey the member sees in the
+                app (Wave 3). Reflection text is not shown here (§5.4 page
+                stance) — only that a reflection happened. */}
+            <div className="rounded-2xl p-6" style={{ background: "#fff", border: "1px solid var(--border)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2"><Flag size={15} style={{ color: "var(--nuru-gold)" }} /><span style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Their walk</span></div>
+                <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{walk ? `${walk.length} moments` : "…"}</span>
+              </div>
+              {!walk ? <p style={{ fontSize: 12.5, color: "var(--muted-foreground)" }}>Loading…</p>
+                : walk.length === 0 ? <p style={{ fontSize: 12.5, color: "var(--muted-foreground)" }}>Their walk begins with the first lesson they open.</p>
+                : (
+                <div className="flex flex-col" style={{ maxHeight: 420, overflowY: "auto" }}>
+                  {walk.map((e, i) => (
+                    <div key={i} className="flex gap-3" style={{ position: "relative", paddingBottom: i === walk.length - 1 ? 0 : 16 }}>
+                      <div className="flex flex-col items-center" style={{ width: 22 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: 99, marginTop: 4, flexShrink: 0,
+                          background: ["level", "certificate", "began"].includes(e.kind) ? "var(--nuru-gold)" : "#fff",
+                          border: "2px solid var(--nuru-gold)" }} />
+                        {i < walk.length - 1 && <span style={{ width: 2, flex: 1, background: "rgba(200,155,60,0.3)", marginTop: 2 }} />}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted-foreground)", letterSpacing: "0.06em" }}>{fmtDate(e.occurred_at)}</div>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--foreground)", lineHeight: 1.35 }}>{e.title}</div>
+                        {e.detail && <div style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}>{e.detail}</div>}
+                      </div>
                     </div>
                   ))}
                 </div>
