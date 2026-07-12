@@ -109,6 +109,11 @@ private enum Broadcast: Equatable {
     var isLiveOrPaused: Bool { self == .live || self == .paused }
 }
 
+/// INSTANT MIC BROADCAST phases — "click the mic, it goes live". `starting` is
+/// the find-or-create + go-live API leg; `waitingForTransmitter` is the retrying
+/// harbor connect while the playout engine boots liquidsoap (~10–20 s).
+private enum InstantMic: Equatable { case idle, starting, waitingForTransmitter }
+
 // MARK: - ===================== View model (lifecycle + polling) =====================
 
 @MainActor
@@ -144,6 +149,21 @@ private final class RadioModel: ObservableObject {
     private func applyReactions(_ c: RadioReactionCounts) {
         hearts = c.heart; amens = c.amen; fires = c.fire
     }
+
+    // INSTANT MIC BROADCAST — GO ON MIC with no live session finds-or-creates
+    // the standing "Live Microphone" session, takes it live, waits for the
+    // playout engine to boot the harbor, then connects the mic.
+    @Published var instantMic: InstantMic = .idle
+    /// The session the instant flow took live (nil when the mic merely joined an
+    /// already-live one). Going OFF MIC then also offers to end this broadcast.
+    @Published var micStartedSessionId: String?
+    var micStartedBroadcast: Bool { micStartedSessionId != nil }
+    private var instantTask: Task<Void, Never>?
+    static let instantMicTitle = "Live Microphone"
+
+    /// Server truth: is ANY session live right now? (Not just the selected one —
+    /// the instant flow only arms when the whole station is off air.)
+    var anyLive: Bool { programs.contains { $0.isLive } }
 
     private var pollTask: Task<Void, Never>?
     private var countdownTask: Task<Void, Never>?
@@ -229,10 +249,130 @@ private final class RadioModel: ObservableObject {
                 merge(updated)
                 broadcast = .idle
                 health = nil
+                if id == micStartedSessionId { micStartedSessionId = nil }
             } catch {
                 actionError = (error as? APIError)?.errorDescription ?? "Could not end broadcast."
             }
             busy = false
+        }
+    }
+
+    // MARK: Instant mic broadcast ("click the mic, it goes live")
+
+    /// GO ON MIC with the station off air: find-or-create the standing
+    /// "Live Microphone" session, take it live, then hand off to the retrying
+    /// mic connect while the transmitter boots. The whole flow runs in ONE task
+    /// so cancelling (tapping the in-progress pill) unwinds it cleanly.
+    func instantMicGoLive() {
+        guard instantMic == .idle, !busy else { return }
+        instantMic = .starting
+        actionError = nil
+        instantTask = Task { [weak self] in
+            guard let self else { return }
+            await self.runInstantMic()
+            self.instantTask = nil
+        }
+    }
+
+    func cancelInstantMic() { instantTask?.cancel() }
+
+    private func runInstantMic() async {
+        var startedByUs = false
+        var target: RadioProgram?
+        busy = true
+        do {
+            // 1 — find-or-create the standing mic session (fresh list = fewest races).
+            let list = (try? await PortalAPI.radioPrograms()) ?? programs
+            programs = list
+            if let live = list.first(where: { $0.isLive }) {
+                target = live                      // someone beat us to it — the mic just joins
+            } else if let standing = list.first(where: { $0.title == Self.instantMicTitle }) {
+                target = standing                  // reuse the standing session
+            } else {
+                target = try await PortalAPI.createRadioProgram([
+                    "title": .string(Self.instantMicTitle),
+                    "category": .string("Sermon"),
+                    "visibility": .string("public"),
+                    "description": .string("Live microphone broadcast"),
+                ])
+            }
+            // 2 — go live. The single-live guard can only 409 on a race; whoever
+            // won is live, so adopt that session and let the mic join it.
+            if let t = target, !t.isLive {
+                do {
+                    target = try await PortalAPI.radioGoLive(t.id)
+                    startedByUs = true
+                } catch {
+                    if case APIError.http(let status, _) = error, status == 409,
+                       let live = (try? await PortalAPI.radioPrograms())?.first(where: { $0.isLive }) {
+                        target = live
+                    } else { throw error }
+                }
+            }
+        } catch {
+            if !Task.isCancelled {
+                actionError = (error as? APIError)?.errorDescription ?? "Could not start the broadcast."
+            }
+            instantMic = .idle
+            busy = false
+            return
+        }
+        guard let program = target, let key = program.streamKey, !key.isEmpty else {
+            // Admin payloads always carry stream_key — but never strand a session.
+            if startedByUs, let id = target?.id { endSession(id, silent: true) }
+            actionError = "The session has no stream key — rotate one in Ingest & stream key."
+            instantMic = .idle
+            busy = false
+            return
+        }
+
+        // 3 — surface server truth: select the now-live session so the ON AIR
+        // pill, health, listeners and monitor all light up on it.
+        merge(program)
+        broadcast = .live
+        startLiveWork(program.id)
+        busy = false
+
+        // 4 — wait for the transmitter: the engine boots liquidsoap + the mic
+        // harbor ~10–20 s after is_live flips, so retry the connect (3 s cadence,
+        // ~45 s budget). MicBroadcaster owns the visible connecting state.
+        instantMic = .waitingForTransmitter
+        let host = program.ingestUrl.flatMap { URL(string: $0)?.host } ?? "pathway.nuruplace.org"
+        let onAir = await MicBroadcaster.shared.startWithRetry(
+            host: host, port: 8005, mount: "/mic", password: key)
+        instantMic = .idle
+        if onAir {
+            micStartedSessionId = startedByUs ? program.id : nil
+        } else if startedByUs {
+            // Timed out or cancelled — don't leave a headless live session.
+            // (endSession runs in a fresh task, so it survives our cancellation.)
+            endSession(program.id, silent: true)
+        }
+    }
+
+    /// End a specific session by id — OFF MIC "End broadcast" + instant-mic
+    /// cleanup. Unlike endBroadcast() it doesn't depend on the current selection
+    /// (and never yanks it): the row updates in place. `silent` skips the busy
+    /// spinner and swallows errors (best-effort cleanup).
+    func endSession(_ id: String, silent: Bool = false) {
+        micStartedSessionId = nil
+        Task { [weak self] in
+            guard let self else { return }
+            if !silent { self.busy = true; self.actionError = nil }
+            do {
+                let updated = try await PortalAPI.radioEnd(id)
+                if let i = self.programs.firstIndex(where: { $0.id == id }) { self.programs[i] = updated }
+            } catch {
+                if !silent {
+                    self.actionError = (error as? APIError)?.errorDescription ?? "Could not end broadcast."
+                }
+            }
+            if self.selectedId == id, self.selected?.isLive != true {
+                self.broadcast = .idle
+                self.stopPolling()
+                self.health = nil
+            }
+            if !silent { self.busy = false }
         }
     }
 
@@ -316,6 +456,10 @@ private final class RadioModel: ObservableObject {
             broadcast = .idle
             stopPolling()
             health = nil
+        }
+        // The mic-started session ended (any path) — OFF MIC is plain again.
+        if let id = micStartedSessionId, !programs.contains(where: { $0.id == id && $0.isLive }) {
+            micStartedSessionId = nil
         }
     }
 
@@ -610,7 +754,7 @@ struct RadioStudioView: View {
                 onEnd: { m.endBroadcast() }
             )
 
-            AudioSourcePanel(mic: mic, program: p)
+            AudioSourcePanel(mic: mic, m: m, program: p)
         }
 
         // — everything below here is the scroll-down zone —
@@ -691,7 +835,7 @@ struct RadioStudioView: View {
                         onPause: { m.togglePause() },
                         onEnd: { m.endBroadcast() }
                     )
-                    AudioSourcePanel(mic: mic, program: p)
+                    AudioSourcePanel(mic: mic, m: m, program: p)
                 }
                 .frame(minWidth: 300, maxWidth: .infinity)
 
@@ -1198,6 +1342,9 @@ private struct LiveListenersPanel: View {
 
 private struct AudioSourcePanel: View {
     @ObservedObject var mic: MicBroadcaster
+    /// The studio model — the instant-mic flow (find-or-create → go-live → wait
+    /// for the transmitter) is server orchestration, so it lives on the model.
+    @ObservedObject var m: RadioModel
     let program: RadioProgram?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1205,6 +1352,10 @@ private struct AudioSourcePanel: View {
     /// Transient plug/unplug banner ("RØDE PodMic connected") — auto-dismisses.
     @State private var banner: MicBroadcaster.DeviceEvent?
     @State private var bannerDismiss: Task<Void, Never>?
+    /// Instant-broadcast confirm ("Go live now?") — GO ON MIC with no live session.
+    @State private var confirmInstant = false
+    /// OFF MIC confirm when the mic started the broadcast — end it or keep it on air.
+    @State private var confirmOffMic = false
 
     var body: some View {
         StudioPanel {
@@ -1298,6 +1449,27 @@ private struct AudioSourcePanel: View {
 
                 statusCaptions
             }
+        }
+        // INSTANT MIC BROADCAST confirms — the same native .alert pattern as the
+        // EmergencyPanel's kill confirm (works on Catalyst and iPad alike).
+        .alert("Go live now?", isPresented: $confirmInstant) {
+            Button("Cancel", role: .cancel) {}
+            Button("Go live") { m.instantMicGoLive() }
+        } message: {
+            Text("Mic-only broadcast — listeners hear you immediately.")
+        }
+        .alert("End the live broadcast?", isPresented: $confirmOffMic) {
+            Button("End broadcast", role: .destructive) {
+                mic.stop()
+                if let id = m.micStartedSessionId { m.endSession(id) }
+            }
+            Button("Keep broadcasting") {
+                // Off mic, session stays on air — it's a normal broadcast now.
+                mic.stop()
+                m.micStartedSessionId = nil
+            }
+        } message: {
+            Text("Going off mic will end the live broadcast. Keep broadcasting leaves the session on air without your mic.")
         }
         // Catalyst: sense immediately (metadata needs no permission), then
         // request the mic grant capture needs. No-op on iPhone/iPad.
@@ -1517,18 +1689,49 @@ private struct AudioSourcePanel: View {
         guard let key = program?.streamKey, !key.isEmpty else { return nil }
         return key
     }
+    /// Station fully off air → GO ON MIC arms the INSTANT flow (auto-starts the
+    /// standing "Live Microphone" session) instead of joining a live one.
+    private var instantMode: Bool { !m.anyLive }
     /// Honesty: if we can't broadcast, the button is disabled and this says why.
+    /// The instant flow provisions its own session + key, so off air only the
+    /// mic permission can block it.
     private var blockedReason: String? {
         if mic.permissionDenied { return "Microphone access denied — enable it in Settings." }
+        if instantMode { return nil }
         if program == nil { return "Select a program above to go on mic." }
         if streamKey == nil { return "This program has no stream key — rotate one in Ingest & stream key." }
         return nil
     }
 
     @ViewBuilder private var goOnMicButton: some View {
+        if m.instantMic != .idle {
+            // Instant flow in progress — go-live posted, transmitter booting
+            // (~10–20 s). Tap to abort; the model unwinds what it started.
+            Button { m.cancelInstantMic() } label: {
+                HStack(spacing: 9) {
+                    ProgressView().tint(Color(hex: 0x0A1120))
+                    Text(m.instantMic == .starting ? "GOING LIVE…" : "STARTING THE TRANSMITTER…")
+                        .font(.inter(14, .bold)).tracking(0.6)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                .foregroundStyle(Color(hex: 0x0A1120))
+                .frame(maxWidth: .infinity).frame(height: 48)
+                .background(Rs.goldFill)
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }.pressable()
+        } else {
+            micStateButton
+        }
+    }
+
+    @ViewBuilder private var micStateButton: some View {
         switch mic.state {
         case .onAir:
-            Button { mic.stop() } label: {
+            Button {
+                // The mic started this broadcast — going off mic asks whether
+                // the session should end with it. A joined session is untouched.
+                if m.micStartedBroadcast { confirmOffMic = true } else { mic.stop() }
+            } label: {
                 HStack(spacing: 9) {
                     Circle().fill(.white).frame(width: 8, height: 8)
                         .opacity(!reduceMotion && pulse ? 0.25 : 1)
@@ -1554,7 +1757,9 @@ private struct AudioSourcePanel: View {
                 .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             }.pressable()
         case .idle, .error:
-            Button { goOnMic() } label: {
+            Button {
+                if instantMode { confirmInstant = true } else { goOnMic() }
+            } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "mic.fill").font(.system(size: 14, weight: .bold))
                     Text("GO ON MIC").font(.inter(14, .bold)).tracking(0.6)
@@ -1570,15 +1775,25 @@ private struct AudioSourcePanel: View {
     }
 
     @ViewBuilder private var statusCaptions: some View {
-        if case .error(let message) = mic.state {
+        // Refused connects are EXPECTED while the transmitter boots — the retry
+        // loop cycles through .error between attempts, so hide it mid-flow.
+        if case .error(let message) = mic.state, m.instantMic == .idle {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(Rs.red)
                 Text(message).font(.inter(11, .medium)).foregroundStyle(Rs.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        if let reason = blockedReason, !mic.isBroadcasting {
+        if m.instantMic != .idle {
+            Text("Hang tight — the station transmitter takes a few seconds to boot.")
+                .font(.inter(11)).foregroundStyle(Rs.dim)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if let reason = blockedReason, !mic.isBroadcasting {
             Text(reason).font(.inter(11)).foregroundStyle(Rs.dim)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if instantMode, !mic.isBroadcasting {
+            Text("Goes live instantly — mic-only broadcast")
+                .font(.inter(11, .medium)).foregroundStyle(Rs.gold.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
         }
         Text("Your mic mixes over the music bed — control levels in Audio Mixer.")

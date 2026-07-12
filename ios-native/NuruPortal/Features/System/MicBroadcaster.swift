@@ -764,6 +764,36 @@ final class MicBroadcaster: ObservableObject {
         #endif
     }
 
+    /// INSTANT MIC BROADCAST: connect to a harbor that may not exist yet.
+    /// After POST go-live the playout engine polls every ~10 s and boots
+    /// liquidsoap (+ the /mic harbor) ~10–20 s later, so the first connects are
+    /// refused. Keep re-running `start()` until one lands or the deadline
+    /// passes. Returns true once on air. Cancellation-aware: cancelling the
+    /// surrounding task winds the mic down cleanly and returns false without
+    /// surfacing an error.
+    func startWithRetry(host: String, port: UInt16 = 8005, mount: String = "/mic",
+                        password: String,
+                        retryEvery: TimeInterval = 3,
+                        timeout: TimeInterval = 45) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !Task.isCancelled {
+            start(host: host, port: port, mount: mount, password: password)
+            // Wait for this attempt to resolve (connecting → onAir | error).
+            while state == .connecting, !Task.isCancelled, Date() < deadline {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            if state == .onAir { return true }
+            // Permission denial won't heal inside the deadline — keep its error.
+            if permissionDenied || Task.isCancelled || Date() >= deadline { break }
+            // Refused — the transmitter isn't up yet. Breathe, then knock again.
+            try? await Task.sleep(nanoseconds: UInt64(retryEvery * 1_000_000_000))
+        }
+        stop()   // never leave a half-open connect behind
+        if Task.isCancelled { state = .idle }
+        else if !permissionDenied { state = .error("The transmitter didn't start — try again.") }
+        return false
+    }
+
     private func handle(_ event: MicUplink.Event) {
         switch event {
         case .connected:
