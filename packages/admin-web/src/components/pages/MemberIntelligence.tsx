@@ -14,7 +14,8 @@ import {
   Brain, Wallet, Users, Smartphone, Activity, BookOpen, MapPin, TrendingUp,
   Sparkles, Clock, Lock, Trophy, Gift, Repeat, PieChart as PieIcon, Grid2x2,
   Building2, Globe, BarChart3, CalendarCheck, CalendarDays, BadgeCheck,
-  CheckCircle2, HelpCircle, Hourglass, Radio, type LucideIcon,
+  CheckCircle2, HelpCircle, Hourglass, Radio, Bell, HeartHandshake, LogIn,
+  type LucideIcon,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -43,6 +44,14 @@ const BANDS: { key: string; name: string; color: string }[] = [
   { key: "watch", name: "Watch", color: GOLD },
   { key: "at_risk", name: "At-risk", color: RED },
 ];
+
+// Device capacity tiers (economics block) — an AGGREGATE capacity proxy only,
+// never a member label. Unclassified stays a neutral grey outside the brand set.
+const TIER_COLORS: Record<string, string> = { premium: NAVY, mid: GOLD, entry: TEAL };
+const tierColor = (t: string): string => TIER_COLORS[(t ?? "").toLowerCase()] ?? "#94a3b8";
+const tierLabel = (t: string): string => ((t ?? "").toLowerCase() === "unclassified" ? "Unclassified" : pretty(t));
+// Day-of-month giving windows, fixed order (missing buckets render as 0).
+const PAYDAY_BUCKETS = ["1-5", "6-10", "11-15", "16-20", "21-25", "26-31"];
 
 const money = (minor: number, ccy: string): string =>
   `${ccy} ${Math.round((minor ?? 0) / 100).toLocaleString()}`;
@@ -236,6 +245,35 @@ export function MemberIntelligence(): ReactElement {
   if (!showDeviceModels) deviceComing.push("Exact device model & OS version — coming with capture-on-login.");
   if (!en.screen_dwell_capture) deviceComing.push("Per-screen time (which areas they linger in) — coming once screen telemetry ships.");
   if (!en.login_capture) deviceComing.push("Exact sign-in timestamps aren't captured yet — but active-users trend and active-days frequency below are real.");
+
+  // Congregational economics (additive block — older payloads omit it).
+  const eco = d.economics;
+  const tierData = (eco?.tiers ?? []).filter((t) => t.members > 0)
+    .map((t) => ({ name: tierLabel(t.tier), value: t.members, color: tierColor(t.tier) }));
+  const tierTotal = tierData.reduce((s, t) => s + t.value, 0);
+  const classifiedMembers = (eco?.tiers ?? [])
+    .filter((t) => t.tier.toLowerCase() !== "unclassified")
+    .reduce((s, t) => s + t.members, 0);
+  const paydayBy = new Map((eco?.payday_cycle ?? []).map((p) => [p.bucket, p]));
+  const paydayData = PAYDAY_BUCKETS.map((b) => ({
+    bucket: b,
+    gifts: paydayBy.get(b)?.gifts ?? 0,
+    total_minor: paydayBy.get(b)?.total_minor ?? 0,
+  }));
+  const paydayTotal = paydayData.reduce((s, p) => s + p.gifts, 0);
+  // Gifts-per-giver per tier — so small, consistent givers read honorably
+  // beside larger totals (the widow's mite, kept visible).
+  const giftsPerGiver = (eco?.giving_by_tier ?? []).filter((t) => t.givers > 0)
+    .map((t) => `${tierLabel(t.tier)} ${(t.gifts / t.givers).toFixed(1)}`).join(" · ");
+
+  // Retention & reachout (additive blocks — older payloads omit them).
+  const ret = d.retention;
+  const ro = d.reachout;
+  const loginsFresh = !!ret && ret.login_capture_live &&
+    ret.logins.logins_7d === 0 && ret.logins.members_7d === 0 && ret.logins.logins_30d === 0;
+  const notifSent = ro?.notifications.sent ?? 0;
+  const notifRead = ro?.notifications.read ?? 0;
+  const readRate = notifSent > 0 ? Math.round((notifRead / notifSent) * 100) : 0;
 
   return (
     <div className="flex flex-col gap-6" style={{ padding: 4 }}>
@@ -953,6 +991,216 @@ export function MemberIntelligence(): ReactElement {
         </Section>
       )}
 
+      {/* ── Congregational economics — capacity as an aggregate proxy, giving beside it ── */}
+      {eco && (
+        <Section icon={Wallet} title="Congregational economics"
+                 hint="Device tier is an aggregate capacity proxy — distributions and care signals only, never a member label. Giving honors the widow's mite: consistency beside capacity.">
+          <Grid>
+            {/* Capacity tiers donut — Third. */}
+            <GridCell span={4}>
+              <SubCard icon={PieIcon} title="Capacity tiers" hint={`${tierTotal} members with devices`}>
+                {tierTotal === 0 ? <Empty text="No devices classified yet." /> : (
+                  <div className="flex items-center gap-4" style={{ flexWrap: "wrap" }}>
+                    <Donut data={tierData} centerLabel="Classified" centerValue={classifiedMembers} />
+                    <ul className="flex flex-col gap-2" style={{ flex: 1, minWidth: 140 }}>
+                      {tierData.map((t) => (
+                        <li key={t.name} className="flex items-center gap-2">
+                          <span style={{ width: 9, height: 9, borderRadius: 99, background: t.color }} />
+                          <span style={{ fontSize: 12.5, fontWeight: 600, color: NAVY_INK }}>{t.name}</span>
+                          <span style={{ marginLeft: "auto", fontSize: 12.5, fontWeight: 600, color: NAVY_INK }}>{t.value}</span>
+                          <span style={{ fontSize: 11, color: "var(--muted-foreground)", width: 36, textAlign: "right" }}>
+                            {Math.round((t.value / tierTotal) * 100)}%
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </SubCard>
+            </GridCell>
+
+            {/* Giving by capacity tier — full-bleed table, 2/3. */}
+            <GridCell span={8}>
+              <div style={{ ...cardStyle(0), overflow: "hidden", height: "100%" }}>
+                <CardHeader icon={Gift} title="Giving by capacity tier" hint="aggregate only" />
+                {eco.giving_by_tier.length === 0 ? <div style={{ padding: "0 20px 16px" }}><Empty text="No giving recorded yet." /></div> : (
+                  <>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ background: "var(--secondary)" }}>
+                          <th style={thL}>TIER</th>
+                          <th style={thR}>MEMBERS</th>
+                          <th style={thR}>GIVERS</th>
+                          <th style={thR}>GIFTS</th>
+                          <th style={thR}>TOTAL</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {eco.giving_by_tier.map((t, i) => (
+                          <tr key={t.tier} style={{ borderTop: "1px solid var(--border)", background: i % 2 === 1 ? "rgba(238,240,243,0.45)" : "transparent" }}>
+                            <td style={tdL}>
+                              <span className="flex items-center gap-2">
+                                <span style={{ width: 9, height: 9, borderRadius: 99, background: tierColor(t.tier), flexShrink: 0 }} />
+                                <span style={{ fontWeight: 600, color: NAVY_INK }}>{tierLabel(t.tier)}</span>
+                              </span>
+                            </td>
+                            <td style={tdR}>{t.members}</td>
+                            <td style={tdR}>{t.givers}</td>
+                            <td style={tdR}>{t.gifts}</td>
+                            <td style={{ ...tdR, fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 14.5, color: NAVY_INK }}>{money(t.total_minor, ccy)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div style={{ padding: "12px 20px 16px", borderTop: "1px solid var(--border)" }}>
+                      {giftsPerGiver ? (
+                        <div style={{ fontSize: 12, color: NAVY_INK, fontWeight: 600 }}>
+                          Gifts per giver — {giftsPerGiver} — small, consistent givers read honorably here.
+                        </div>
+                      ) : null}
+                      <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: giftsPerGiver ? 4 : 0, lineHeight: 1.5 }}>
+                        Totals are congregation-level aggregates — no per-member wealth label exists anywhere in the system.
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </GridCell>
+
+            {/* The payday cycle — Half. */}
+            <GridCell span={6}>
+              <SubCard icon={CalendarDays} title="The payday cycle" hint="gifts by day-of-month window">
+                {paydayTotal === 0 ? <Empty text="No giving recorded yet." /> : (
+                  <>
+                    <div style={{ height: 188 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={paydayData} margin={{ top: 18, right: 6, left: -16, bottom: 0 }}>
+                          <CartesianGrid vertical={false} stroke="var(--border)" />
+                          <XAxis dataKey="bucket" tickLine={false} axisLine={{ stroke: "var(--border)" }} tick={{ fontSize: 11, fill: "#6b7280" }} interval={0} />
+                          <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#6b7280" }} allowDecimals={false} width={34} />
+                          <Tooltip cursor={{ fill: "rgba(11,31,51,0.05)" }} contentStyle={tip}
+                            formatter={(v, _n, item) => [
+                              `${v} gifts · ${money((item.payload as { total_minor?: number } | undefined)?.total_minor ?? 0, ccy)}`,
+                              "Gifts",
+                            ]} />
+                          <Bar dataKey="gifts" fill={NAVY} radius={[5, 5, 0, 0]} maxBarSize={40}>
+                            <LabelList dataKey="gifts" position="top" style={{ fontSize: 10, fontWeight: 700, fill: NAVY_INK }} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <p style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 10, lineHeight: 1.5 }}>
+                      Insight: time asks to when members CAN respond.
+                    </p>
+                  </>
+                )}
+              </SubCard>
+            </GridCell>
+
+            {/* How gifts travel — Half. */}
+            <GridCell span={6}>
+              <SubCard icon={Repeat} title="How gifts travel" hint="by provider">
+                <BarList
+                  rows={eco.providers.map((p, i) => ({
+                    label: pretty(p.provider),
+                    value: p.gifts,
+                    display: `${p.gifts} gifts · ${money(p.total_minor, ccy)}`,
+                    color: BRAND_TINTS[i % BRAND_TINTS.length],
+                  }))}
+                  emptyText="No gifts recorded yet."
+                />
+              </SubCard>
+            </GridCell>
+          </Grid>
+        </Section>
+      )}
+
+      {/* ── Retention & reachout — the front door, cohorts & the untouched care list ── */}
+      {ret && ro && (
+        <Section icon={Activity} title="Retention & reachout"
+                 hint="Who keeps coming back, whether our messages land, and who nobody has touched — the shepherding loop, all real rows.">
+          <Strip cols={6}>
+            <Kpi icon={LogIn} tint="navy" label="Logins (7d)" value={ret.logins.logins_7d} small />
+            <Kpi icon={Users} tint="green" label="Through the door (7d)" value={ret.logins.members_7d} small />
+            <Kpi icon={CalendarDays} tint="teal" label="Logins (30d)" value={ret.logins.logins_30d} small />
+            <Kpi icon={Bell} tint="gold" label="Notifications sent" value={notifSent} small />
+            <Kpi icon={CheckCircle2} tint="violet" label="Read rate" value={notifSent > 0 ? `${readRate}%` : "—"} small />
+            <Kpi icon={Clock} tint="amber" label="Median mins to read" value={notifRead > 0 ? ro.notifications.median_minutes_to_read : "—"} small />
+          </Strip>
+          {loginsFresh && (
+            <p style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 8 }}>
+              Login capture is live — capturing from today, so the zeros above are honest, not missing.
+            </p>
+          )}
+
+          <Grid>
+            {/* Join-month cohorts — Half. */}
+            <GridCell span={6}>
+              <SubCard icon={CalendarCheck} title="Join-month cohorts" hint="still active = in the app within 30 days">
+                {ret.cohorts.length === 0 ? <Empty text="No cohorts yet." /> : (
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr style={{ textAlign: "left" }}>
+                      <th style={{ ...thBase, padding: "6px 0" }}>Cohort</th>
+                      <th style={{ ...thBase, padding: "6px 0", textAlign: "right" }}>Joined</th>
+                      <th style={{ ...thBase, padding: "6px 0", textAlign: "right" }}>Active (30d)</th>
+                      <th style={{ ...thBase, padding: "6px 0 6px 14px", textAlign: "right" }}>%</th>
+                    </tr></thead>
+                    <tbody>
+                      {ret.cohorts.map((c) => {
+                        const p = c.joined > 0 ? Math.round((100 * c.active_30d) / c.joined) : 0;
+                        const barColor = p >= 60 ? GREEN : p >= 30 ? GOLD : RED;
+                        return (
+                          <tr key={c.cohort} style={{ borderTop: "1px solid var(--border)" }}>
+                            <td style={{ ...tdBase, padding: "9px 0", fontWeight: 600, color: NAVY_INK }}>{c.cohort}</td>
+                            <td style={{ ...tdR, padding: "9px 0" }}>{c.joined}</td>
+                            <td style={{ ...tdR, padding: "9px 0" }}>{c.active_30d}</td>
+                            <td style={{ ...tdR, padding: "9px 0 9px 14px" }}>
+                              <span className="flex items-center justify-end gap-2">
+                                <span style={{ width: 52, height: 5, borderRadius: 99, background: "var(--secondary)", overflow: "hidden", display: "inline-block" }}>
+                                  <span style={{ display: "block", width: `${p}%`, height: "100%", borderRadius: 99, background: barColor }} />
+                                </span>
+                                <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 34, textAlign: "right" }}>{p}%</span>
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </SubCard>
+            </GridCell>
+
+            {/* Nobody has touched them — the care list. Half. */}
+            <GridCell span={6}>
+              <SubCard icon={HeartHandshake} title="Nobody has touched them"
+                       hint="zero blessings or prayers received in 30 days — a visit list, not a shame list">
+                {ro.untouched.length === 0 ? <Empty text="Everyone has been touched this month. 🎉" /> : (
+                  <div className="flex flex-col gap-2">
+                    {ro.untouched.map((u, i) => (
+                      <div key={`${u.first_name}-${i}`} className="flex items-center gap-2.5"
+                           style={{ padding: "9px 12px", background: "var(--tint-amber-bg)", borderRadius: 10, border: "1px solid var(--tint-amber-fg)2e" }}>
+                        <span style={{ width: 28, height: 28, borderRadius: 99, display: "grid", placeItems: "center", flexShrink: 0, fontSize: 11, fontWeight: 700, color: "var(--tint-amber-fg)", background: "rgba(255,255,255,0.65)" }}>
+                          {initials(u.first_name)}
+                        </span>
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: NAVY_INK }}>{u.first_name}</span>
+                        <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--muted-foreground)" }}>{u.congregation ?? "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-2" style={{ marginTop: "auto", paddingTop: 12 }}>
+                  <Radio size={13} style={{ color: "var(--muted-foreground)", flexShrink: 0 }} />
+                  <span style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}>
+                    Radio — {ro.radio.listeners_all_time} listeners all-time · {ro.radio.listeners_7d} this week · {ro.radio.reactions} reactions
+                  </span>
+                </div>
+              </SubCard>
+            </GridCell>
+          </Grid>
+        </Section>
+      )}
+
       {/* Footer */}
       <p style={{ fontSize: 11, color: "var(--muted-foreground)", textAlign: "center", padding: "4px 0 12px" }}>
         <Lock size={11} style={{ display: "inline", verticalAlign: "-1px", marginRight: 4 }} />
@@ -999,9 +1247,9 @@ const tintFg = (t: Tint): string => (t === "teal" ? TEAL : `var(--tint-${t}-fg)`
 // the media queries (inline styles can't express them); the brand palette, fonts
 // and card shadows are untouched — this is pure layout.
 //
-// Span vocabulary (out of 12): 12 = full · 6 = half · 4 = third (row of 3) ·
-// 3 = quarter (row of 4) · 2 = sixth (row of 6).
-type Span = 2 | 3 | 4 | 6 | 12;
+// Span vocabulary (out of 12): 12 = full · 8 = two-thirds (pairs with a third) ·
+// 6 = half · 4 = third (row of 3) · 3 = quarter (row of 4) · 2 = sixth (row of 6).
+type Span = 2 | 3 | 4 | 6 | 8 | 12;
 const GRID_CSS = `
 .mi-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
 .mi-grid > .mi-cell { min-width: 0; }
@@ -1010,6 +1258,7 @@ const GRID_CSS = `
 .mi-cell.mi-span-3 { grid-column: span 3; }
 .mi-cell.mi-span-4 { grid-column: span 4; }
 .mi-cell.mi-span-6 { grid-column: span 6; }
+.mi-cell.mi-span-8 { grid-column: span 8; }
 .mi-cell.mi-span-12 { grid-column: span 12; }
 @media (max-width: 1100px) {
   /* 6-column mid layout: quarters→halves, thirds→halves, sixths→thirds */
@@ -1018,12 +1267,13 @@ const GRID_CSS = `
   .mi-cell.mi-span-3 { grid-column: span 3; }   /* quarter → half of 6 */
   .mi-cell.mi-span-4 { grid-column: span 3; }   /* third → half of 6 */
   .mi-cell.mi-span-6 { grid-column: span 6; }   /* half → full */
+  .mi-cell.mi-span-8 { grid-column: span 6; }   /* two-thirds → full */
   .mi-cell.mi-span-12 { grid-column: span 6; }  /* full → full */
 }
 @media (max-width: 640px) {
   .mi-grid { grid-template-columns: minmax(0, 1fr); }
   .mi-cell.mi-span-2, .mi-cell.mi-span-3, .mi-cell.mi-span-4,
-  .mi-cell.mi-span-6, .mi-cell.mi-span-12 { grid-column: span 1; }
+  .mi-cell.mi-span-6, .mi-cell.mi-span-8, .mi-cell.mi-span-12 { grid-column: span 1; }
 }
 `;
 function Grid({ children }: { children: ReactNode }): ReactElement {

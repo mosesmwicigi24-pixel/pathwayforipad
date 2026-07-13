@@ -345,6 +345,29 @@ export interface MemberIntelligence {
     cells_reading: { cell: string; members: number; reading_7d: number }[];
     exams: { level_number: number; attempts: number; passes: number; avg_pass_score: number }[];
   };
+  // Additive: congregational economics (leadership brief A). Device tier is an
+  // AGGREGATE capacity proxy — distributions & care signals only, never a
+  // per-member label (ethics contract §4 of the brief).
+  economics?: {
+    tiers: { tier: string; members: number }[];
+    giving_by_tier: { tier: string; members: number; givers: number; gifts: number; total_minor: number }[];
+    payday_cycle: { bucket: string; gifts: number; total_minor: number }[];
+    providers: { provider: string; gifts: number; total_minor: number }[];
+  };
+  // Additive: retention (leadership brief B). login_capture_live=true means
+  // auth_events ships with this release — counts fill from deploy day.
+  retention?: {
+    cohorts: { cohort: string; joined: number; active_30d: number }[];
+    logins: { logins_7d: number; members_7d: number; logins_30d: number };
+    login_capture_live: boolean;
+  };
+  // Additive: reachout (leadership brief C) — notification effectiveness, the
+  // untouched care list (a visit list, not a shame list) and radio reach.
+  reachout?: {
+    notifications: { sent: number; read: number; median_minutes_to_read: number };
+    untouched: { first_name: string; congregation: string | null }[];
+    radio: { listeners_all_time: number; listeners_7d: number; reactions: number };
+  };
 }
 
 // One event on a member's walk (Wave 3) — the same thread the member sees.
