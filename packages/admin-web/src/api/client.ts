@@ -1937,6 +1937,15 @@ export const ChatApi = {
     api
       .post<{ message_id: string; emoji: string; on: boolean }>(`/chat/messages/${messageId}/reactions`, { emoji })
       .then((r) => r.data),
+  // Author-only (the server enforces it): edit/soft-delete MY own messages.
+  // A moderator never rewrites someone else's words — for others' messages the
+  // moderation calls below are the honest tools.
+  editMessage: (id: string, body: string) =>
+    api
+      .patch<{ message_id: string; body: string; is_edited: boolean }>(`/chat/messages/${id}`, { body })
+      .then((r) => r.data),
+  deleteMessage: (id: string) =>
+    api.delete<{ message_id: string; deleted: boolean }>(`/chat/messages/${id}`).then((r) => r.data),
   // Moderation (Admin/SuperAdmin). Server-authoritative — these mutate the message row.
   flagMessage: (id: string, reason?: string) =>
     api
