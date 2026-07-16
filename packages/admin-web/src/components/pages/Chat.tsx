@@ -19,6 +19,7 @@ import {
   WifiOff, Moon, LayoutGrid, Hash, Wand2, Loader2, Image as ImageIcon, Paperclip, FileText,
   Plus, Mic, Square, Globe, PenSquare, UserPlus,
   HeartPulse, CheckCircle2, ListChecks, UserCircle, ArrowUpRight, Mail, CornerUpLeft,
+  MoreVertical, Pencil, RotateCcw,
 } from "lucide-react";
 import {
   ChatApi, AssistantApi, OpsApi, uploadToCloudinary,
@@ -178,6 +179,13 @@ export function Chat(): ReactElement {
 
   // Server-authoritative moderation: track in-flight message actions to disable buttons.
   const [moderatingIds, setModeratingIds] = useState<Set<string>>(new Set());
+  // Per-message ⋮ menu + inline editor (own messages only).
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  // The thread scrolls with overflow hidden, so a menu opening upward off a
+  // message near the top would be clipped: flip it downward when it won't fit.
+  const [menuUp, setMenuUp] = useState<boolean>(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<string>("");
   // Mute / archive have no endpoint yet — local display-only.
   const [mutedIds, setMutedIds] = useState<Set<string>>(new Set());
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
@@ -397,9 +405,111 @@ export function Chat(): ReactElement {
       setModeratingIds((s) => { const n = new Set(s); n.delete(m.message_id); return n; });
     }
   };
-  const handleRemove = (m: ChatMessageRow): void => void moderate(m, () => ChatApi.removeMessage(m.message_id));
-  const handleFlag = (m: ChatMessageRow): void => void moderate(m, () => ChatApi.flagMessage(m.message_id));
-  const handleUnflag = (m: ChatMessageRow): void => void moderate(m, () => ChatApi.unflagMessage(m.message_id));
+  const handleRemove = (m: ChatMessageRow): void => { setMenuFor(null); void moderate(m, () => ChatApi.removeMessage(m.message_id)); };
+  const handleFlag = (m: ChatMessageRow): void => { setMenuFor(null); void moderate(m, () => ChatApi.flagMessage(m.message_id)); };
+  const handleUnflag = (m: ChatMessageRow): void => { setMenuFor(null); void moderate(m, () => ChatApi.unflagMessage(m.message_id)); };
+  const handleRestore = (m: ChatMessageRow): void => { setMenuFor(null); void moderate(m, () => ChatApi.restoreMessage(m.message_id)); };
+
+  /* ── My own messages: edit / delete (the server enforces author-only) ── */
+  const startEdit = (m: ChatMessageRow): void => { setMenuFor(null); setEditingId(m.message_id); setEditDraft(m.body); };
+  const cancelEdit = (): void => { setEditingId(null); setEditDraft(""); };
+  const saveEdit = async (m: ChatMessageRow): Promise<void> => {
+    const body = editDraft.trim();
+    if (!body || body === m.body) { cancelEdit(); return; }
+    await moderate(m, () => ChatApi.editMessage(m.message_id, body));
+    cancelEdit();
+  };
+  const handleDelete = (m: ChatMessageRow): void => {
+    setMenuFor(null);
+    // Deleting is irreversible for everyone in the thread — always confirm.
+    if (!window.confirm("Delete this message? It disappears for everyone in the conversation.")) return;
+    void moderate(m, () => ChatApi.deleteMessage(m.message_id));
+  };
+
+  /* ── The ⋮ menu on every message ──────────────────────────────────────────
+   * What it offers follows what the SERVER allows, so nothing here can dead-end:
+   *   • my message      → Edit, Delete        (author-only PATCH/DELETE)
+   *   • someone else's  → Flag/Dismiss, Remove (Admin moderation routes)
+   *   • already removed → Restore
+   * A moderator never rewrites another person's words — only hides/restores them.
+   */
+  const messageMenu = (m: ChatMessageRow): ReactElement => {
+    const st = statusOf(m);
+    const removed = st === "removed";
+    const flagged = st === "flagged";
+    const busy = moderatingIds.has(m.message_id);
+    const open = menuFor === m.message_id;
+    const item = (label: string, icon: ReactNode, onClick: () => void, danger = false): ReactElement => (
+      <button
+        onClick={onClick}
+        disabled={busy}
+        className="flex w-full items-center gap-2"
+        style={{
+          border: "none", background: "none", textAlign: "left", padding: "7px 10px",
+          fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
+          color: danger ? "#DC2626" : "var(--nuru-navy)",
+          cursor: busy ? "wait" : "pointer", opacity: busy ? 0.5 : 1,
+        }}
+      >
+        {icon} {label}
+      </button>
+    );
+    return (
+      <div className="relative" style={{ flex: "0 0 auto" }}>
+        <button
+          onClick={(e) => {
+            if (!open) {
+              // Room above inside the scroller? Open up; otherwise drop down.
+              const top = e.currentTarget.getBoundingClientRect().top;
+              const bound = scrollRef.current?.getBoundingClientRect().top ?? 0;
+              setMenuUp(top - bound > 96);
+            }
+            setMenuFor(open ? null : m.message_id);
+          }}
+          aria-label="Message actions"
+          title="Message actions"
+          className={`opacity-0 group-hover/msg:opacity-100 focus:opacity-100 ${open ? "opacity-100" : ""}`}
+          style={{
+            border: "none", background: "none", padding: 2, cursor: "pointer",
+            color: "var(--muted-foreground)", lineHeight: 0, transition: "opacity .12s",
+          }}
+        >
+          <MoreVertical size={15} />
+        </button>
+        {open && (
+          <>
+            {/* click-away catcher */}
+            <div onClick={() => setMenuFor(null)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+            <div
+              className="rounded-xl"
+              style={{
+                position: "absolute", zIndex: 50, [menuUp ? "bottom" : "top"]: 22,
+                [m.mine ? "right" : "left"]: 0,
+                minWidth: 148, padding: 4, background: "#fff",
+                border: "1px solid #E6E8EB", boxShadow: "0 10px 28px rgba(10,22,40,0.16)",
+              }}
+            >
+              {removed ? (
+                item("Restore", <RotateCcw size={12} />, () => handleRestore(m))
+              ) : m.mine ? (
+                <>
+                  {item("Edit", <Pencil size={12} />, () => startEdit(m))}
+                  {item("Delete", <Trash2 size={12} />, () => handleDelete(m), true)}
+                </>
+              ) : (
+                <>
+                  {flagged
+                    ? item("Dismiss flag", <Circle size={12} />, () => handleUnflag(m))
+                    : item("Flag", <Flag size={12} />, () => handleFlag(m))}
+                  {item("Remove", <Trash2 size={12} />, () => handleRemove(m), true)}
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
   const toggleId = (id: string, set: typeof setMutedIds): void =>
     set((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const handleMute = (): void => { if (active) toggleId(active.conversation_id, setMutedIds); };
@@ -835,8 +945,9 @@ export function Chat(): ReactElement {
                           const txt = navy ? "#fff" : removed ? "var(--muted-foreground)" : "#1F2937";
                           const subTxt = navy ? "rgba(255,255,255,0.72)" : "var(--muted-foreground)";
                           return (
-                            <div key={m.message_id} className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
+                            <div key={m.message_id} className={`group/msg flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
                               {!mine && <Avatar uri={m.author_avatar} name={m.author_name} size={28} />}
+                              {mine && messageMenu(m)}
                               <div style={{ maxWidth: "78%" }}>
                                 {!mine && (
                                   <div className="flex items-center gap-1.5" style={{ marginBottom: 3, marginLeft: 2 }}>
@@ -859,8 +970,46 @@ export function Chat(): ReactElement {
                                     </div>
                                   )}
                                   {!removed && m.attachment_url && <MessageAttachment m={m} />}
-                                  {!removed && m.body && (
-                                    <p style={{ fontSize: 13, lineHeight: 1.5, color: txt, whiteSpace: "pre-wrap", marginTop: m.attachment_url ? 6 : 0 }}>{m.body}</p>
+                                  {!removed && editingId === m.message_id ? (
+                                    // Inline editor — Enter saves, Shift+Enter newlines, Esc cancels.
+                                    <div style={{ marginTop: m.attachment_url ? 6 : 0, minWidth: 220 }}>
+                                      <textarea
+                                        value={editDraft}
+                                        autoFocus
+                                        onChange={(e) => setEditDraft(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void saveEdit(m); }
+                                          if (e.key === "Escape") cancelEdit();
+                                        }}
+                                        rows={Math.min(6, Math.max(2, editDraft.split("\n").length))}
+                                        style={{
+                                          width: "100%", fontSize: 13, lineHeight: 1.5, color: txt,
+                                          background: navy ? "rgba(255,255,255,0.12)" : "#fff",
+                                          border: `1px solid ${navy ? "rgba(255,255,255,0.35)" : "#E6E8EB"}`,
+                                          borderRadius: 8, padding: "6px 8px", resize: "vertical", outline: "none",
+                                        }}
+                                      />
+                                      <div className="flex items-center justify-end gap-2" style={{ marginTop: 6 }}>
+                                        <button onClick={cancelEdit} style={{ border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 11, fontWeight: 600, color: subTxt }}>Cancel</button>
+                                        <button
+                                          onClick={() => void saveEdit(m)}
+                                          disabled={moderatingIds.has(m.message_id) || !editDraft.trim()}
+                                          className="rounded-full"
+                                          style={{
+                                            border: "none", padding: "3px 10px", fontSize: 11, fontWeight: 700,
+                                            background: "var(--nuru-gold)", color: "var(--nuru-navy)",
+                                            cursor: editDraft.trim() ? "pointer" : "not-allowed",
+                                            opacity: moderatingIds.has(m.message_id) || !editDraft.trim() ? 0.55 : 1,
+                                          }}
+                                        >
+                                          Save
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    !removed && m.body && (
+                                      <p style={{ fontSize: 13, lineHeight: 1.5, color: txt, whiteSpace: "pre-wrap", marginTop: m.attachment_url ? 6 : 0 }}>{m.body}</p>
+                                    )
                                   )}
                                   {removed && (
                                     <p style={{ fontSize: 13, lineHeight: 1.5, fontStyle: "italic", color: "var(--muted-foreground)" }}>This message was removed by a moderator.</p>
@@ -876,6 +1025,7 @@ export function Chat(): ReactElement {
                                     </div>
                                   )}
                                   <div className="flex items-center justify-end gap-1" style={{ marginTop: 4, fontSize: 9.5, color: subTxt }}>
+                                    {m.is_edited && !removed && <span style={{ fontStyle: "italic" }}>edited ·</span>}
                                     <span>{chatClock(m.created_at)}</span>
                                     {mine && !removed && (
                                       <button onClick={() => void showReaders(m)} title={allRead ? "Read" : someRead ? `${reads} read` : "Sent"} style={{ border: "none", background: "none", padding: 0, cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
@@ -885,28 +1035,8 @@ export function Chat(): ReactElement {
                                   </div>
                                 </div>
 
-                                {/* Moderation actions — server-authoritative (chat module) */}
-                                {!removed && !mine && (() => {
-                                  const busy = moderatingIds.has(m.message_id);
-                                  const btn = (extra: object): object => ({ border: "none", background: "none", padding: 0, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.5 : 1, ...extra });
-                                  return (
-                                    <div className="flex items-center gap-2" style={{ marginTop: 4, marginLeft: 2 }}>
-                                      {flagged ? (
-                                        <button onClick={() => handleUnflag(m)} disabled={busy} className="flex items-center gap-1" style={btn({ fontSize: 10.5, color: "#0F6B33", fontWeight: 700 })}>
-                                          <Circle size={9} /> Dismiss flag
-                                        </button>
-                                      ) : (
-                                        <button onClick={() => handleFlag(m)} disabled={busy} className="flex items-center gap-1" style={btn({ fontSize: 10.5, color: "var(--muted-foreground)", fontWeight: 600 })}>
-                                          <Flag size={10} /> Flag
-                                        </button>
-                                      )}
-                                      <button onClick={() => handleRemove(m)} disabled={busy} className="flex items-center gap-1" style={btn({ fontSize: 10.5, color: "#DC2626", fontWeight: 700 })}>
-                                        <Trash2 size={10} /> Remove
-                                      </button>
-                                    </div>
-                                  );
-                                })()}
                               </div>
+                              {!mine && messageMenu(m)}
                             </div>
                           );
                         })}
