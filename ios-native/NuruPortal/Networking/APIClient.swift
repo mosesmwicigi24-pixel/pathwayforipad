@@ -8,6 +8,10 @@ enum APIError: LocalizedError {
     case decoding(String)
     case transport(String)
     case unauthorized
+    /// 403 + details.password_required (§5.3): the route wants a FRESH password
+    /// confirmation. Not a scope refusal — the cue to raise the password gate,
+    /// POST /auth/confirm-password, and retry with the re-minted token.
+    case passwordRequired
 
     var errorDescription: String? {
         switch self {
@@ -15,16 +19,19 @@ enum APIError: LocalizedError {
         case .decoding(let m): return "Couldn't read the server response. \(m)"
         case .transport(let m): return m
         case .unauthorized: return "Your session has expired. Please sign in again."
+        case .passwordRequired: return "Confirm your password to open this."
         }
     }
 }
 
 /// Backend error envelope: { "error": { "code": "...", "message": "..." } } or { "message": "..." }.
 private struct ErrorEnvelope: Decodable {
-    struct Inner: Decodable { let code: String?; let message: String? }
+    struct Details: Decodable { let passwordRequired: Bool? }
+    struct Inner: Decodable { let code: String?; let message: String?; let details: Details? }
     let error: Inner?
     let message: String?
     var text: String? { error?.message ?? message }
+    var passwordRequired: Bool { error?.details?.passwordRequired == true }
 }
 
 actor APIClient {
@@ -72,6 +79,12 @@ actor APIClient {
     }
 
     func clearSession() { setSession(access: nil, refresh: nil) }
+
+    /// Swap ONLY the access token (step-up re-mint) — the refresh token stays.
+    func setAccessTokenOnly(_ token: String) {
+        accessToken = token
+        Keychain.set(token, for: atKey)
+    }
 
     // MARK: Requests
 
@@ -275,7 +288,11 @@ actor APIClient {
         }
 
         guard (200..<300).contains(http.statusCode) else {
-            let msg = (try? decoder.decode(ErrorEnvelope.self, from: data))?.text
+            let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
+            if http.statusCode == 403, envelope?.passwordRequired == true {
+                throw APIError.passwordRequired
+            }
+            let msg = envelope?.text
                 ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
             throw APIError.http(status: http.statusCode, message: msg)
         }

@@ -9,7 +9,7 @@ enum Section: String, CaseIterable, Identifiable {
     // Curriculum
     case curriculumLevels, cms, levelDetail, quizBuilder, videoLibrary, contentStudio
     // Operations
-    case cellEngagement, disciples, members, reflectionQueue, chat, events, finance, certificates, badges, radio, mixer
+    case cellEngagement, disciples, members, reflectionQueue, chat, broadcast, events, finance, certificates, badges, radio, mixer
     // Media (Mac-only sidebar entry — the iPad Radio Studio keeps this inline)
     case uploadsSessions
     // System
@@ -33,6 +33,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .members: "Members"
         case .reflectionQueue: "Reflection Queue"
         case .chat: "Chat"
+        case .broadcast: "Broadcast"
         case .events: "Events"
         case .finance: "Finance"
         case .certificates: "Certificates"
@@ -66,6 +67,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .members: "person.2"
         case .reflectionQueue: "text.bubble"
         case .chat: "bubble.left.and.bubble.right"
+        case .broadcast: "megaphone"
         case .events: "calendar"
         case .finance: "creditcard"
         case .certificates: "rosette"
@@ -99,7 +101,7 @@ private let navGroups: [NavGroup] = [
     // keeps those sections inline, so its sidebar is unchanged.
     .init(label: "Media", items: [.videoLibrary, .radio, .mixer, .uploadsSessions]),
     .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .events, .finance, .certificates, .badges]),
-    .init(label: "Communication", items: [.chat]),
+    .init(label: "Communication", items: [.chat, .broadcast]),
     .init(label: "System", items: [.peopleIntelligence, .proximity]),
     .init(label: "Settings", items: [.users, .roles, .congregations, .countries, .languages]),
 ]
@@ -285,7 +287,10 @@ struct RootView: View {
                             } else {
                                 Rectangle().fill(.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 14).padding(.vertical, 4)
                             }
-                            ForEach(group.items) { item in
+                            // Broadcast is between the shepherd and the individual —
+                            // the row itself only exists for SuperAdmin (the server
+                            // enforces the role + password step-up regardless).
+                            ForEach(group.items.filter { $0 != .broadcast || auth.profile?.role == "SuperAdmin" }) { item in
                                 NavRow(item: item, selected: router.section == item, collapsed: collapsed) {
                                     router.go(item)
                                 }
@@ -382,6 +387,7 @@ struct RootView: View {
         case .members:          MembersView()
         case .reflectionQueue:  ReflectionQueueView()
         case .chat:             ChatView()
+        case .broadcast:        BroadcastConsoleView()
         case .events:           EventsView()
         case .finance:          FinanceView()
         case .certificates:     CertificatesView()
