@@ -9,11 +9,11 @@ enum Section: String, CaseIterable, Identifiable {
     // Curriculum
     case curriculumLevels, cms, levelDetail, quizBuilder, videoLibrary, contentStudio
     // Operations
-    case cellEngagement, disciples, members, reflectionQueue, chat, broadcast, events, finance, certificates, badges, radio, mixer
+    case cellEngagement, disciples, members, reflectionQueue, levelReviews, chat, broadcast, events, finance, certificates, badges, radio, mixer
     // Media (Mac-only sidebar entry — the iPad Radio Studio keeps this inline)
     case uploadsSessions
     // System
-    case users, roles, congregations, countries, languages, peopleIntelligence, proximity
+    case users, roles, congregations, countries, languages, peopleIntelligence, flockBrief, proximity
     // Reachable from the profile menu (not listed in the sidebar)
     case profile
     var id: String { rawValue }
@@ -32,6 +32,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .disciples: "Discipleship Hub"
         case .members: "Members"
         case .reflectionQueue: "Reflection Queue"
+        case .levelReviews: "Level Reviews"
         case .chat: "Chat"
         case .broadcast: "Broadcast"
         case .events: "Events"
@@ -47,6 +48,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .countries: "Countries"
         case .languages: "Languages"
         case .peopleIntelligence: "People Intelligence"
+        case .flockBrief: "Flock Brief"
         case .proximity: "Nearby & pairing"
         case .profile: "My Profile"
         }
@@ -66,6 +68,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .disciples: "figure.2.arms.open"
         case .members: "person.2"
         case .reflectionQueue: "text.bubble"
+        case .levelReviews: "checkmark.seal"
         case .chat: "bubble.left.and.bubble.right"
         case .broadcast: "megaphone"
         case .events: "calendar"
@@ -81,6 +84,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .countries: "globe"
         case .languages: "character.bubble"
         case .peopleIntelligence: "brain.head.profile"
+        case .flockBrief: "heart.text.square"
         case .proximity: "person.2.wave.2"
         case .profile: "person.crop.circle"
         }
@@ -100,9 +104,9 @@ private let navGroups: [NavGroup] = [
     // radio desk moved library/session management there; the iPad Radio Studio
     // keeps those sections inline, so its sidebar is unchanged.
     .init(label: "Media", items: [.videoLibrary, .radio, .mixer, .uploadsSessions]),
-    .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .events, .finance, .certificates, .badges]),
+    .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .levelReviews, .events, .finance, .certificates, .badges]),
     .init(label: "Communication", items: [.chat, .broadcast]),
-    .init(label: "System", items: [.peopleIntelligence, .proximity]),
+    .init(label: "System", items: [.peopleIntelligence, .flockBrief, .proximity]),
     .init(label: "Settings", items: [.users, .roles, .congregations, .countries, .languages]),
 ]
 
@@ -386,6 +390,7 @@ struct RootView: View {
         case .disciples:        DisciplesView()
         case .members:          MembersView()
         case .reflectionQueue:  ReflectionQueueView()
+        case .levelReviews:     LevelReviewsView()
         case .chat:             ChatView()
         case .broadcast:        BroadcastConsoleView()
         case .events:           EventsView()
@@ -407,6 +412,7 @@ struct RootView: View {
         case .countries:        CountriesView()
         case .languages:        LanguagesView()
         case .peopleIntelligence: PeopleIntelligenceView()
+        case .flockBrief:       FlockBriefView()
         case .proximity:        ProximityView()
         case .profile:          ProfileView()
         }

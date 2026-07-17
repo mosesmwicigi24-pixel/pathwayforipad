@@ -427,4 +427,38 @@ enum PortalAPI {
         if !fb.isEmpty { body["feedback_notes"] = fb }
         _ = try await api.post("/admin/reflections/\(reflectionId)/decision", body: body, as: Ack.self)
     }
+
+    // MARK: Flock Brief (Shepherd's Pulse — web FlockBrief.tsx / AdminApi)
+    // Instructor+ read THEIR flock (cells they lead + direct disciples, §5.4);
+    // Admin/SuperAdmin see all signals and may run the scan / brief batch now.
+    // Writes POST an empty JSON object `{}` — the exact body the web client sends.
+
+    /// Tolerant ack for the intelligence action responses (shape ignored).
+    private struct PulseOk: Decodable { init(from decoder: Decoder) throws {} }
+
+    /// GET /admin/intelligence/flock-brief → { brief: {...} | null }.
+    static func flockBrief() async throws -> FlockBrief? {
+        try await api.get("/admin/intelligence/flock-brief", as: FlockBriefEnvelope.self).brief
+    }
+    /// GET /admin/intelligence/signals?since_days=N → { data: [...] }.
+    static func pulseSignals(sinceDays: Int = 14) async throws -> [PulseSignal] {
+        try await api.get("/admin/intelligence/signals",
+                          query: ["since_days": "\(sinceDays)"],
+                          as: DataList<PulseSignal>.self).data
+    }
+    /// POST /admin/intelligence/signals/{id}/ack — marks one signal acknowledged.
+    static func ackPulseSignal(_ signalId: String) async throws {
+        _ = try await api.post("/admin/intelligence/signals/\(signalId)/ack",
+                               body: [String: String](), as: PulseOk.self)
+    }
+    /// POST /admin/intelligence/signals/scan (Admin) → counts of what it found.
+    static func runPulseScan() async throws -> PulseScanResult {
+        try await api.post("/admin/intelligence/signals/scan",
+                           body: [String: String](), as: PulseScanResult.self)
+    }
+    /// POST /admin/intelligence/flock-brief/run (Admin) → { week_of, written, skipped }.
+    static func runFlockBriefs() async throws -> FlockBriefRunResult {
+        try await api.post("/admin/intelligence/flock-brief/run",
+                           body: [String: String](), as: FlockBriefRunResult.self)
+    }
 }

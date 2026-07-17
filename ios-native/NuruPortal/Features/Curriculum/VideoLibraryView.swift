@@ -14,6 +14,7 @@
 // attached_module_id, which several of these actions need, so this file decodes a
 // page-local richer model (MediaAssetFull) instead — Models.swift is not edited.
 import SwiftUI
+import PhotosUI
 import UniformTypeIdentifiers
 
 // MARK: - Page-local rich media model (superset of the shared MediaAssetRow)
@@ -124,6 +125,33 @@ final class VideoLibraryVM: ObservableObject {
                                                  as: WriteAck.self)
             await load()
             notice = "Saved."; error = nil
+        } catch { self.error = Self.message(error) }
+    }
+
+    /// POST /admin/media/:id/thumbnail (multipart, field "file") — upload a poster
+    /// image (web MediaApi.uploadThumbnail). Backend caps thumbnails at 10 MB and
+    /// accepts images only, so both are pre-checked here for a friendlier error.
+    func uploadThumbnail(_ a: MediaAssetFull, data: Data, filename: String, mime: String) async {
+        guard data.count <= 10 * 1024 * 1024 else {
+            error = "Thumbnail is larger than 10 MB — choose a smaller image."; return
+        }
+        working = true; defer { working = false }
+        do {
+            _ = try await APIClient.shared.uploadFile(
+                "/admin/media/\(a.mediaAssetId)/thumbnail",
+                fileData: data, filename: filename, mimeType: mime, as: WriteAck.self)
+            await load()
+            notice = "Thumbnail saved."; error = nil
+        } catch { self.error = Self.message(error) }
+    }
+
+    /// DELETE /admin/media/:id/thumbnail — remove the poster (web MediaApi.clearThumbnail).
+    func clearThumbnail(_ a: MediaAssetFull) async {
+        working = true; defer { working = false }
+        do {
+            _ = try await APIClient.shared.delete("/admin/media/\(a.mediaAssetId)/thumbnail", as: WriteAck.self)
+            await load()
+            notice = "Thumbnail removed."; error = nil
         } catch { self.error = Self.message(error) }
     }
 
@@ -242,6 +270,13 @@ struct VideoLibraryView: View {
     @State private var showFileImporter = false
     @StateObject private var uploader = ChunkUploader()
 
+    // Thumbnail (poster) picking — a row/grid menu action sets the target asset,
+    // the photos picker returns an image, and the VM POSTs it to the thumbnail
+    // endpoint (web PreviewDrawer's Upload image / Remove flow).
+    @State private var thumbTarget: MediaAssetFull?
+    @State private var showThumbPicker = false
+    @State private var thumbItem: PhotosPickerItem?
+
     private enum ViewMode { case table, grid }
 
     // Mac: roomier media tiles (≥300pt) across the workspace row; iPad keeps
@@ -281,9 +316,26 @@ struct VideoLibraryView: View {
                 working: vm.working,
                 onToggleHomepage: { Task { await vm.toggleHomepage(a); selected = nil } },
                 onDelete: { selected = nil; deleteFor = a },
-                onSaveMeta: { caption, level in Task { await vm.patch(a, caption: caption, levelNumber: level) } }
+                onSaveMeta: { caption, level in Task { await vm.patch(a, caption: caption, levelNumber: level) } },
+                onThumbPicked: { data, name, mime in
+                    Task { await vm.uploadThumbnail(a, data: data, filename: name, mime: mime); refreshSelected(a.id) }
+                },
+                onClearThumb: { Task { await vm.clearThumbnail(a); refreshSelected(a.id) } }
             )
             .presentationDetents([.large])
+        }
+        // Thumbnail image picker (menu-triggered; the sheet embeds its own picker).
+        .photosPicker(isPresented: $showThumbPicker, selection: $thumbItem, matching: .images)
+        .onChange(of: thumbItem) { _, item in
+            guard let item, let target = thumbTarget else { return }
+            thumbItem = nil; thumbTarget = nil
+            Task {
+                guard let picked = await loadPickedImage(item) else {
+                    vm.error = "Could not read the selected image."; return
+                }
+                await vm.uploadThumbnail(target, data: picked.data, filename: picked.filename, mime: picked.mime)
+                refreshSelected(target.id)
+            }
         }
         // Register-external sheet (POST /admin/media/external).
         .sheet(isPresented: $showRegister) {
@@ -642,6 +694,8 @@ struct VideoLibraryView: View {
                                  onView: { selected = a },
                                  onToggleHomepage: { Task { await vm.toggleHomepage(a) } },
                                  onCopyURL: { copyURL(a) },
+                                 onUploadThumb: { thumbTarget = a; showThumbPicker = true },
+                                 onClearThumb: { Task { await vm.clearThumbnail(a) } },
                                  onDelete: { deleteFor = a })
                     }
                 } else {
@@ -651,6 +705,8 @@ struct VideoLibraryView: View {
                                           onView: { selected = a },
                                           onToggleHomepage: { Task { await vm.toggleHomepage(a) } },
                                           onCopyURL: { copyURL(a) },
+                                          onUploadThumb: { thumbTarget = a; showThumbPicker = true },
+                                          onClearThumb: { Task { await vm.clearThumbnail(a) } },
                                           onDelete: { deleteFor = a })
                         }
                     }
@@ -705,6 +761,11 @@ struct VideoLibraryView: View {
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(isOn ? AnyShapeStyle(Nuru.navy) : AnyShapeStyle(Color.clear))
         }.buttonStyle(.plain)
+    }
+
+    /// Keep the open preview sheet in step with a freshly reloaded asset row.
+    private func refreshSelected(_ id: String) {
+        if selected?.id == id { selected = vm.assets.first { $0.id == id } ?? selected }
     }
 
     /// Copy a video's shareable delivery URL to the pasteboard (web's copyUrl).
@@ -826,6 +887,8 @@ private struct AssetRow: View {
     let onView: () -> Void
     let onToggleHomepage: () -> Void
     let onCopyURL: () -> Void
+    let onUploadThumb: () -> Void
+    let onClearThumb: () -> Void
     let onDelete: () -> Void
     var body: some View {
         HStack(spacing: 12) {
@@ -856,7 +919,9 @@ private struct AssetRow: View {
             // Per-asset actions (web's row buttons: View · URL · Attach▾/homepage · trash).
             AssetActionMenu(asset: asset, working: working,
                             onView: onView, onToggleHomepage: onToggleHomepage,
-                            onCopyURL: onCopyURL, onDelete: onDelete)
+                            onCopyURL: onCopyURL,
+                            onUploadThumb: onUploadThumb, onClearThumb: onClearThumb,
+                            onDelete: onDelete)
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
         .contentShape(Rectangle())
@@ -878,13 +943,16 @@ private struct HomepageBadge: View {
 }
 
 /// View + an overflow menu with the per-asset writes that have live endpoints:
-/// set/clear homepage, copy URL, delete (archive). Attach-to-module is preview-only.
+/// set/clear homepage, copy URL, thumbnail upload/remove, delete (archive).
+/// Attach-to-module is preview-only.
 private struct AssetActionMenu: View {
     let asset: MediaAssetFull
     let working: Bool
     let onView: () -> Void
     let onToggleHomepage: () -> Void
     let onCopyURL: () -> Void
+    let onUploadThumb: () -> Void
+    let onClearThumb: () -> Void
     let onDelete: () -> Void
     var body: some View {
         HStack(spacing: 6) {
@@ -902,6 +970,13 @@ private struct AssetActionMenu: View {
                         Label(asset.isHomepage ? "Remove from homepage" : "Set as homepage video",
                               systemImage: asset.isHomepage ? "house.slash" : "house")
                     }
+                }
+                // Thumbnail (poster) — same endpoints the web drawer hits.
+                Button { onUploadThumb() } label: {
+                    Label(asset.thumbnailUrl != nil ? "Replace thumbnail…" : "Upload thumbnail…", systemImage: "photo")
+                }
+                if asset.thumbnailUrl != nil {
+                    Button { onClearThumb() } label: { Label("Remove thumbnail", systemImage: "photo.on.rectangle") }
                 }
                 Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
             } label: {
@@ -923,6 +998,8 @@ private struct AssetGridCard: View {
     let onView: () -> Void
     let onToggleHomepage: () -> Void
     let onCopyURL: () -> Void
+    let onUploadThumb: () -> Void
+    let onClearThumb: () -> Void
     let onDelete: () -> Void
     var body: some View {
         let status = uiStatus(asset)
@@ -978,6 +1055,12 @@ private struct AssetGridCard: View {
                                           systemImage: asset.isHomepage ? "house.slash" : "house")
                                 }
                             }
+                            Button { onUploadThumb() } label: {
+                                Label(asset.thumbnailUrl != nil ? "Replace thumbnail…" : "Upload thumbnail…", systemImage: "photo")
+                            }
+                            if asset.thumbnailUrl != nil {
+                                Button { onClearThumb() } label: { Label("Remove thumbnail", systemImage: "photo.on.rectangle") }
+                            }
                             Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
                         } label: {
                             Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold)).foregroundStyle(Nuru.ink600)
@@ -1024,10 +1107,14 @@ private struct PreviewSheet: View {
     let onToggleHomepage: () -> Void
     let onDelete: () -> Void
     let onSaveMeta: (_ caption: String?, _ levelNumber: Int?) -> Void
+    let onThumbPicked: (_ data: Data, _ filename: String, _ mime: String) -> Void
+    let onClearThumb: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     @State private var caption: String = ""
     @State private var level: String = ""   // "" = none
+    @State private var thumbPickerItem: PhotosPickerItem?
+    @State private var thumbReadError: String?
 
     private var captionDirty: Bool { caption.trimmingCharacters(in: .whitespaces) != (asset.caption ?? "") }
     private var levelDirty: Bool { (level.isEmpty ? nil : Int(level)) != asset.levelNumber }
@@ -1091,6 +1178,10 @@ private struct PreviewSheet: View {
 
                     // Edit metadata (PATCH /admin/media/:id — caption + level)
                     editMetadata
+
+                    // Thumbnail (poster) — upload / replace / remove (web drawer's
+                    // Thumbnail block; the same multipart + DELETE endpoints).
+                    thumbnailTile
 
                     // Member engagement
                     SurfaceTile {
@@ -1185,6 +1276,66 @@ private struct PreviewSheet: View {
         }
     }
 
+    // ── Thumbnail (poster) upload / remove ──
+    @ViewBuilder private var thumbnailTile: some View {
+        SurfaceTile {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("THUMBNAIL (POSTER)").font(.inter(12, .bold)).tracking(0.8).foregroundStyle(Nuru.navy)
+                    Spacer()
+                    Text(asset.thumbnailUrl != nil ? "Custom image set" : "No thumbnail")
+                        .font(.nMicro).foregroundStyle(Nuru.ink600)
+                }
+                Text("Shown wherever this video is listed — rows, cards, and the member app.")
+                    .font(.nMicro).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    PhotosPicker(selection: $thumbPickerItem, matching: .images) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "photo").font(.system(size: 12, weight: .semibold))
+                            Text(asset.thumbnailUrl != nil ? "Replace image" : "Upload image")
+                                .font(.inter(12.5, .bold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .background(Nuru.navy)
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(working)
+                    if asset.thumbnailUrl != nil {
+                        Button { onClearThumb() } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "trash").font(.system(size: 11, weight: .semibold))
+                                Text("Remove").font(.inter(12.5, .semibold))
+                            }
+                            .foregroundStyle(Nuru.danger)
+                            .padding(.horizontal, 12).padding(.vertical, 9)
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(working)
+                    }
+                    Spacer(minLength: 0)
+                }
+                Text("PNG or JPG, up to 10 MB.").font(.nMicro).foregroundStyle(Nuru.ink400)
+                if let thumbReadError {
+                    Text(thumbReadError).font(.nMicro).foregroundStyle(Nuru.danger)
+                }
+            }
+        }
+        .onChange(of: thumbPickerItem) { _, item in
+            guard let item else { return }
+            thumbPickerItem = nil
+            Task {
+                guard let picked = await loadPickedImage(item) else {
+                    thumbReadError = "Could not read the selected image."; return
+                }
+                thumbReadError = nil
+                onThumbPicked(picked.data, picked.filename, picked.mime)
+            }
+        }
+    }
+
     // ── Homepage welcome video toggle ──
     @ViewBuilder private func homepageToggle(_ us: UiStatus) -> some View {
         HStack(spacing: 12) {
@@ -1244,6 +1395,20 @@ private struct PreviewSheet: View {
             .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Color(hex: 0xBBE5C9), lineWidth: 1))
         }
     }
+}
+
+// MARK: - Picked-image loader (thumbnail uploads)
+
+/// Raw bytes + a filename/mime derived from the picker item's content type, so the
+/// backend's image-only filter and extension mapping both behave as they do for web.
+private struct PickedImage { let data: Data; let filename: String; let mime: String }
+
+private func loadPickedImage(_ item: PhotosPickerItem) async -> PickedImage? {
+    guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
+    let type = item.supportedContentTypes.first(where: { $0.conforms(to: .image) })
+    let mime = type?.preferredMIMEType ?? "image/jpeg"
+    let ext = type?.preferredFilenameExtension ?? "jpg"
+    return PickedImage(data: data, filename: "thumbnail.\(ext)", mime: mime)
 }
 
 // MARK: - Byte formatter (web fmtBytes)

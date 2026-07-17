@@ -3,9 +3,11 @@
 // disciple / group / space threads from the mobile-app chat, moderates flagged
 // messages (server-authoritative via the chat module), replies as admin, sees
 // read receipts, follows / creates spaces and starts DMs from the people
-// directory. Moderation (flag / dismiss flag / remove) hits the chat module's
-// routes; flagged counts and per-message state come from the server. Mute /
-// archive have no endpoint yet and stay local display-only (mobile parity).
+// directory. Moderation (flag / dismiss flag / remove / restore) hits the chat
+// module's routes; flagged counts and per-message state come from the server.
+// My own messages can be edited (PATCH) or hard-deleted (DELETE) — author-only,
+// server-enforced. Attachments upload via sign → Cloudinary → send, like web.
+// Mute / archive have no endpoint yet and stay local display-only (mobile parity).
 //
 // Layout: regular width (iPad landscape) → two-pane (inbox | thread) via HStack;
 // compact width → inbox with a NavigationLink push into the thread.
@@ -16,6 +18,8 @@
 import SwiftUI
 import UIKit
 import Charts
+import PhotosUI
+import UniformTypeIdentifiers
 
 // MARK: - Page-local rich models (mirror api/client.ts ChatApi)
 
@@ -98,6 +102,7 @@ private struct PMessageRow: Codable, Identifiable {
     @DefaultFalse var isFlagged: Bool
     let flagReason: String?
     @DefaultFalse var isHidden: Bool
+    @DefaultFalse var isEdited: Bool
     var id: String { messageId }
 
     var status: MsgStatus { isHidden ? .removed : isFlagged ? .flagged : .sent }
@@ -257,6 +262,8 @@ struct ChatView: View {
         .sheet(isPresented: $model.createOpen) { CreateSpaceSheet(model: model) }
         .sheet(isPresented: $model.newMsgOpen) { NewMessageSheet(model: model) }
         .sheet(item: $model.readersForId) { box in SeenBySheet(messageId: box.id) }
+        // Edit my own message — author-only PATCH; the server enforces it (web ⋮ → Edit).
+        .sheet(item: $model.editingFor) { box in EditMessageSheet(model: model, box: box) }
         // Portrait: the context column (pulse · needs-review · profile) rides in a sheet
         // so the thread keeps full width. Never shown in the inline three-pane layout.
         .sheet(isPresented: $showContext) {
@@ -682,6 +689,10 @@ private struct ThreadBody: View {
     @ObservedObject var model: ChatModel
     let conv: PConversationRow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Attachment pickers (web: image input + file input beside the composer).
+    @State private var showPhotoPicker = false
+    @State private var photoItem: PhotosPickerItem? = nil
+    @State private var showFilePicker = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -902,7 +913,13 @@ private struct ThreadBody: View {
 
     // Composer
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        let attachDisabled = model.isArchived || model.uploading || model.sending
+        return HStack(alignment: .bottom, spacing: 8) {
+            // Attach image (web: ImageIcon input accept="image/*") — PhotosPicker.
+            composerBtn("photo", disabled: attachDisabled) { showPhotoPicker = true }
+            // Attach any file (web: Paperclip input) — fileImporter.
+            composerBtn("paperclip", disabled: attachDisabled) { showFilePicker = true }
+
             Button { model.assistOpen.toggle() } label: {
                 Image(systemName: "sparkles").font(.system(size: 16))
                     .foregroundStyle(model.assistOpen ? purple : Nuru.navy)
@@ -919,7 +936,7 @@ private struct ThreadBody: View {
                 .background(Nuru.inputBg)
                 .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Nuru.border, lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
-                .disabled(model.isArchived || model.sending)
+                .disabled(model.isArchived || model.sending || model.uploading)
 
             Button { Task { await model.sendAdminMessage() } } label: {
                 Group {
@@ -931,11 +948,55 @@ private struct ThreadBody: View {
             }
             .pressable()
             .keyboardShortcut(.return, modifiers: .command)   // ⌘↩ sends from a hardware keyboard
-            .disabled(model.draft.trimmed.isEmpty || model.isArchived || model.sending)
-            .opacity(model.draft.trimmed.isEmpty || model.isArchived || model.sending ? 0.5 : 1)
+            .disabled(model.draft.trimmed.isEmpty || model.isArchived || model.sending || model.uploading)
+            .opacity(model.draft.trimmed.isEmpty || model.isArchived || model.sending || model.uploading ? 0.5 : 1)
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
         .background(Nuru.white)
+        // Image → same signing flow as web (sign → Cloudinary → send as msg_type image).
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            photoItem = nil
+            Task {
+                guard let data = try? await item.loadTransferable(type: Data.self) else {
+                    model.threadError = "Could not read that photo."
+                    return
+                }
+                let type = item.supportedContentTypes.first
+                let ext = type?.preferredFilenameExtension ?? "jpg"
+                let mime = type?.preferredMIMEType ?? "image/jpeg"
+                await model.sendAttachment(
+                    data: data,
+                    filename: "photo-\(Int(Date().timeIntervalSince1970)).\(ext)",
+                    contentType: mime, kind: "image")
+            }
+        }
+        // Any file → kind "file"; the wire msg_type follows the MIME (voice/video/file), like web.
+        .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.item]) { result in
+            guard case .success(let url) = result else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else {
+                model.threadError = "Could not read that file."
+                return
+            }
+            let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+            let name = url.lastPathComponent
+            Task { await model.sendAttachment(data: data, filename: name, contentType: mime, kind: "file") }
+        }
+    }
+
+    private func composerBtn(_ icon: String, disabled: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 15))
+                .foregroundStyle(Nuru.navy)
+                .frame(width: 34, height: 40)
+                .background(Nuru.white)
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Nuru.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+        }
+        .buttonStyle(.plain).disabled(disabled).opacity(disabled ? 0.5 : 1)
     }
 }
 
@@ -944,6 +1005,8 @@ private struct ThreadBody: View {
 private struct MessageRowView: View {
     let m: PMessageRow
     @ObservedObject var model: ChatModel
+    // Deleting is irreversible for everyone in the thread — always confirm (web parity).
+    @State private var confirmDelete = false
 
     var body: some View {
         let mine = m.mine
@@ -961,10 +1024,48 @@ private struct MessageRowView: View {
                     Text(m.authorName).font(.inter(11, .bold)).foregroundStyle(Nuru.navy)
                 }
                 bubble(navy: navy, removed: removed, flagged: flagged)
+                    .contextMenu { menuItems(mine: mine, removed: removed, flagged: flagged) }
                 if !removed && !mine { moderationActions(flagged: flagged) }
+                if removed { restoreAction }
             }
             if !mine { Spacer(minLength: 40) }
         }
+        .confirmationDialog("Delete this message? It disappears for everyone in the conversation.",
+                            isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete for everyone", role: .destructive) { model.hardDelete(m.messageId) }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    /// Long-press menu — mirrors the web ⋮ menu: my message → Edit / Delete
+    /// (author-only PATCH/DELETE), someone else's → Flag/Dismiss + Remove,
+    /// already removed → Restore. The server enforces every branch.
+    @ViewBuilder
+    private func menuItems(mine: Bool, removed: Bool, flagged: Bool) -> some View {
+        if removed {
+            Button { model.restore(m.messageId) } label: { Label("Restore", systemImage: "arrow.uturn.backward") }
+        } else if mine {
+            Button { model.startEdit(m) } label: { Label("Edit", systemImage: "pencil") }
+            Button(role: .destructive) { confirmDelete = true } label: { Label("Delete", systemImage: "trash") }
+        } else {
+            if flagged {
+                Button { model.unflag(m.messageId) } label: { Label("Dismiss flag", systemImage: "circle") }
+            } else {
+                Button { model.flag(m.messageId) } label: { Label("Flag", systemImage: "flag") }
+            }
+            Button(role: .destructive) { model.remove(m.messageId) } label: { Label("Remove", systemImage: "trash") }
+        }
+    }
+
+    /// "Restore" on a removed placeholder — the web ⋮ menu's restore action.
+    private var restoreAction: some View {
+        let busy = model.moderatingIds.contains(m.messageId)
+        return Button { model.restore(m.messageId) } label: {
+            Label("Restore", systemImage: "arrow.uturn.backward")
+                .font(.inter(10.5, .bold)).foregroundStyle(Color(hex: 0x0F6B33))
+        }
+        .buttonStyle(.plain).disabled(busy).opacity(busy ? 0.5 : 1)
+        .padding(.leading, 2)
     }
 
     @ViewBuilder
@@ -1030,6 +1131,9 @@ private struct MessageRowView: View {
             }
             HStack(spacing: 4) {
                 Spacer(minLength: 0)
+                if m.isEdited && !removed {
+                    Text("edited ·").font(.inter(9.5)).italic().foregroundStyle(sub)
+                }
                 Text(Fmt.relative(m.createdAt)).font(.inter(9.5)).foregroundStyle(sub)
                 if m.mine && !removed { receipt(sub: sub) }
             }
@@ -1701,6 +1805,70 @@ private struct SeenBySheet: View {
     }
 }
 
+/// Edit one of MY OWN messages — inline sheet with the text, Save → PATCH
+/// /chat/messages/{id} { body } (author-only; the server enforces it). Mirrors
+/// the web's inline editor: empty or unchanged text can't be saved.
+private struct EditMessageSheet: View {
+    @ObservedObject var model: ChatModel
+    let box: EditBox
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String
+    @State private var busy = false
+    @State private var errorText: String? = nil
+
+    init(model: ChatModel, box: EditBox) {
+        self.model = model
+        self.box = box
+        _text = State(initialValue: box.body)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Rewrite your message — everyone in the conversation sees the edited version, marked “edited”.")
+                        .font(.inter(12.5)).foregroundStyle(Nuru.ink600)
+                        .fixedSize(horizontal: false, vertical: true)
+                    TextEditor(text: $text)
+                        .font(.inter(15)).foregroundStyle(Nuru.ink)
+                        .frame(minHeight: 140)
+                        .padding(10)
+                        .scrollContentBackground(.hidden)
+                        .background(Nuru.white)
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                    if let errorText {
+                        Text(errorText).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.danger)
+                    }
+                }
+                .padding(24)
+                .frame(maxWidth: 760, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
+            .background(Nuru.paper)
+            .navigationTitle("Edit message").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .font(.inter(14, .bold)).tint(Nuru.gold)
+                        .disabled(busy || text.trimmed.isEmpty || text.trimmed == box.body)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func save() {
+        busy = true; errorText = nil
+        Task {
+            let ok = await model.saveEdit(box.id, text)
+            busy = false
+            if ok { dismiss() } else { errorText = "Could not save your edit. Please try again." }
+        }
+    }
+}
+
 // MARK: - Nuru intents / tones
 
 private enum NuruIntent: String, CaseIterable, Identifiable {
@@ -1748,6 +1916,7 @@ private final class ChatModel: ObservableObject {
     @Published var createOpen = false
     @Published var newMsgOpen = false
     @Published var readersForId: IdBox? = nil
+    @Published var editingFor: EditBox? = nil
     @Published var joiningId: String? = nil
 
     // Thread
@@ -1915,6 +2084,69 @@ private final class ChatModel: ObservableObject {
     func flag(_ id: String)   { moderate(id) { _ = try await self.api.post("/chat/messages/\(id)/flag", body: EmptyBody(), as: ModAck.self) } }
     func unflag(_ id: String) { moderate(id) { _ = try await self.api.post("/chat/messages/\(id)/unflag", body: EmptyBody(), as: ModAck.self) } }
     func remove(_ id: String) { moderate(id) { _ = try await self.api.post("/chat/messages/\(id)/remove", body: EmptyBody(), as: ModAck.self) } }
+    /// Bring a removed message back (POST /chat/messages/{id}/restore — web ⋮ → Restore).
+    func restore(_ id: String) { moderate(id) { _ = try await self.api.post("/chat/messages/\(id)/restore", body: EmptyBody(), as: ModAck.self) } }
+    /// Permanently delete MY OWN message (DELETE /chat/messages/{id}, author-only
+    /// server-side). The caller confirms first — this is irreversible for everyone.
+    func hardDelete(_ id: String) { moderate(id) { _ = try await self.api.delete("/chat/messages/\(id)", as: DeleteAck.self) } }
+
+    // MARK: my own messages — edit (author-only PATCH; server-enforced)
+    func startEdit(_ m: PMessageRow) { editingFor = EditBox(id: m.messageId, body: m.body) }
+    func saveEdit(_ id: String, _ body: String) async -> Bool {
+        let text = body.trimmed
+        guard !text.isEmpty, !moderatingIds.contains(id) else { return false }
+        let convId = activeId
+        moderatingIds.insert(id)
+        defer { moderatingIds.remove(id) }
+        do {
+            _ = try await api.patch("/chat/messages/\(id)", body: EditBody(body: text), as: EditAck.self)
+            await refetchThread(convId); await loadList()
+            return true
+        } catch {
+            threadError = (error as? APIError)?.errorDescription ?? "Could not save your edit."
+            return false
+        }
+    }
+
+    // MARK: attachments — sign → Cloudinary multipart POST → send message (web parity)
+    func sendAttachment(data: Data, filename: String, contentType: String, kind: String) async {
+        guard let active, !uploading, !sending, !isArchived else { return }
+        let id = active.conversationId
+        let caption = draft.trimmed
+        // web: image button → "image"; anything else follows the MIME type.
+        let msgType = kind == "image" ? "image"
+            : contentType.hasPrefix("audio/") ? "voice"
+            : contentType.hasPrefix("video/") ? "video"
+            : "file"
+        if kind == "image", data.count > 10 * 1024 * 1024 {
+            threadError = "Image is larger than 10 MB. Please choose a smaller image."
+            return
+        }
+        uploading = true; threadError = nil
+        do {
+            let mime = contentType.isEmpty ? "application/octet-stream" : contentType
+            let sign: PSignResult = try await api.post("/chat/attachments/sign",
+                body: SignBody(contentType: mime, kind: kind), as: PSignResult.self)
+            let up = try await uploadToCloudinary(sign: sign, data: data, filename: filename, contentType: mime)
+            _ = try await api.post("/chat/conversations/\(id)/messages",
+                body: SendAttachmentBody(
+                    messageId: UUID().uuidString,
+                    msgType: msgType,
+                    attachmentUrl: up.secureUrl,
+                    attachmentMeta: AttachmentMetaBody(publicId: up.publicId, bytes: up.bytes, name: filename),
+                    body: caption.isEmpty ? nil : caption),
+                as: SendAck.self)
+            draft = ""
+            await refetchThread(id)
+            if let idx = rows.firstIndex(where: { $0.conversationId == id }) {
+                rows[idx].lastBody = caption.isEmpty ? filename : caption
+                rows[idx].lastAt = isoNow; rows[idx].lastAuthor = "You"
+            }
+        } catch {
+            threadError = (error as? APIError)?.errorDescription ?? "Could not upload the attachment."
+        }
+        uploading = false
+    }
 
     /// Toggle an emoji reaction on a message (POST /chat/messages/{id}/reactions {emoji}).
     func react(_ messageId: String, _ emoji: String) {
@@ -2054,3 +2286,67 @@ private struct DmAck: Decodable { @DefaultEmpty var conversationId: String }
 private struct AssistTurn: Codable { let role: String; let text: String }
 private struct AssistChatBody: Encodable { let messages: [AssistTurn]; let conversationId: String }
 private struct AssistReply: Decodable { @DefaultEmpty var reply: String }
+
+// Edit / hard-delete my own message (author-only; PATCH & DELETE /chat/messages/{id}).
+private struct EditBox: Identifiable { let id: String; let body: String }
+private struct EditBody: Encodable { let body: String }
+private struct EditAck: Decodable {}     // { message_id, body, is_edited }
+private struct DeleteAck: Decodable {}   // { message_id, deleted }
+
+// Attachment signing + Cloudinary upload (mirrors client.ts signAttachment /
+// uploadToCloudinary — identical wire shapes and multipart fields).
+private struct SignBody: Encodable { let contentType: String; let kind: String }
+private struct PSignResult: Decodable {
+    @DefaultEmpty var apiKey: String      // api_key
+    @DefaultZero var timestamp: Int
+    @DefaultEmpty var folder: String
+    @DefaultEmpty var signature: String
+    @DefaultEmpty var uploadUrl: String   // upload_url
+}
+private struct PCloudinaryUpload: Decodable {
+    @DefaultEmpty var secureUrl: String   // secure_url
+    @DefaultEmpty var publicId: String    // public_id
+    @DefaultZero var bytes: Int
+}
+private struct AttachmentMetaBody: Encodable { let publicId: String; let bytes: Int; let name: String }
+private struct SendAttachmentBody: Encodable {
+    let messageId: String
+    let msgType: String
+    let attachmentUrl: String
+    let attachmentMeta: AttachmentMetaBody
+    let body: String?                     // caption — omitted when nil (synthesised encodeIfPresent)
+}
+
+/// Multipart POST the file straight to Cloudinary using the server-signed params —
+/// the exact fields (file, api_key, timestamp, folder, signature) and order the web
+/// client sends. The file bytes never touch our server, only the signed params do.
+private func uploadToCloudinary(sign: PSignResult, data: Data, filename: String, contentType: String) async throws -> PCloudinaryUpload {
+    guard let url = URL(string: sign.uploadUrl) else { throw URLError(.badURL) }
+    let boundary = "nuru-\(UUID().uuidString)"
+    var req = URLRequest(url: url)
+    req.httpMethod = "POST"
+    req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+    var body = Data()
+    func append(_ s: String) { body.append(Data(s.utf8)) }
+    append("--\(boundary)\r\n")
+    append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
+    append("Content-Type: \(contentType)\r\n\r\n")
+    body.append(data)
+    append("\r\n")
+    for (name, value) in [("api_key", sign.apiKey),
+                          ("timestamp", String(sign.timestamp)),
+                          ("folder", sign.folder),
+                          ("signature", sign.signature)] {
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n")
+    }
+    append("--\(boundary)--\r\n")
+    req.httpBody = body
+    let (respData, resp) = try await URLSession.shared.data(for: req)
+    guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        throw URLError(.badServerResponse)
+    }
+    let d = JSONDecoder()
+    d.keyDecodingStrategy = .convertFromSnakeCase
+    return try d.decode(PCloudinaryUpload.self, from: respData)
+}

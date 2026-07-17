@@ -537,3 +537,47 @@ struct LevelReviewItem: Codable, Identifiable {
     let examScore: Double?
     @DefaultEmpty var createdAt: String
 }
+
+// MARK: - Shepherd's Pulse (Flock Brief — web FlockBrief.tsx / AdminApi)
+// Wire shapes mirror api/client.ts PulseSignal / FlockBrief. Signals carry a
+// one-line summary + coarse tone only — never the member's full words (§5.4).
+
+/// One live care signal (GET /admin/intelligence/signals?since_days=N).
+struct PulseSignal: Codable, Identifiable {
+    @DefaultEmpty var signalId: String
+    @DefaultEmpty var userId: String
+    @DefaultEmpty var memberName: String
+    @DefaultEmpty var kind: String          // drift_risk | emotion | crisis
+    @DefaultEmpty var severity: String      // info | watch | urgent
+    @DefaultEmpty var summary: String
+    let source: String?
+    @DefaultEmpty var createdAt: String
+    /// Mutable so the view can mark a signal acked in place after POST …/ack.
+    var acknowledgedAt: String?
+    var id: String { signalId }
+}
+
+/// The leader's composed weekly brief (GET /admin/intelligence/flock-brief).
+struct FlockBrief: Codable, Identifiable {
+    @DefaultEmpty var briefId: String
+    @DefaultEmpty var weekOf: String
+    @DefaultEmpty var body: String
+    @DefaultEmpty var createdAt: String
+    var id: String { briefId }
+}
+/// `{ "brief": {...} | null }` envelope on the flock-brief read.
+struct FlockBriefEnvelope: Codable { let brief: FlockBrief? }
+
+/// POST /admin/intelligence/signals/scan → what the scan found right now.
+struct PulseScanResult: Codable {
+    @DefaultZero var drift: Int
+    @DefaultZero var read: Int
+    @DefaultZero var flagged: Int
+    @DefaultZero var crises: Int
+}
+/// POST /admin/intelligence/flock-brief/run → this week's compose batch.
+struct FlockBriefRunResult: Codable {
+    @DefaultEmpty var weekOf: String
+    @DefaultZero var written: Int
+    @DefaultZero var skipped: Int
+}

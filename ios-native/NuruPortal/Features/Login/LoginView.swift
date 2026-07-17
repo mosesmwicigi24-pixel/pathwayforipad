@@ -11,6 +11,7 @@ struct LoginView: View {
     @State private var code = ""
     @State private var loading = false
     @State private var error: String?
+    @State private var forgotOpen = false
     @FocusState private var focus: Field?
     private enum Field { case email, password, code }
 
@@ -108,6 +109,12 @@ struct LoginView: View {
                     .focused($focus, equals: .password).submitLabel(.go)
                     .onSubmit { if canSubmit { submit() } }
             }
+            // Email-a-reset-link flow (POST /auth/password/forgot — never enumerates accounts).
+            Button("Forgot password?") { forgotOpen = true }
+                .font(.inter(12.5, .semibold)).foregroundStyle(Nuru.gold)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.top, -4)
+                .sheet(isPresented: $forgotOpen) { ForgotPasswordSheet(email: email) }
         }
     }
 
@@ -139,6 +146,88 @@ struct LoginView: View {
                 self.error = (error as? APIError)?.errorDescription ?? error.localizedDescription
             }
             loading = false
+        }
+    }
+}
+
+/// "Forgot password?" — email field → POST /auth/password/forgot. Fire-and-forget:
+/// the server always answers "sent" (no account enumeration, web client.ts
+/// forgotPassword parity), so we show the same confirmation copy regardless.
+private struct ForgotPasswordSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State var email: String
+    @State private var sent = false
+    @State private var busy = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if sent {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Image(systemName: "envelope.badge.fill")
+                                .font(.system(size: 28)).foregroundStyle(Nuru.gold)
+                            Text("Check your inbox").font(.nuruDisplay(22)).foregroundStyle(Nuru.navy)
+                            Text("If that email exists, a reset link is on its way.")
+                                .font(.nBody).foregroundStyle(Nuru.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Button("Done") { dismiss() }
+                                .font(.inter(14, .bold)).foregroundStyle(.white)
+                                .frame(maxWidth: .infinity).padding(.vertical, 13)
+                                .background(Nuru.goldGradient)
+                                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                        }
+                    } else {
+                        Text("Reset your password").font(.nuruDisplay(22)).foregroundStyle(Nuru.navy)
+                        Text("Enter the email on your account and we'll send a reset link.")
+                            .font(.nBody).foregroundStyle(Nuru.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        LoginField(title: "Email", icon: "envelope") {
+                            TextField("you@nuruplace.org", text: $email)
+                                .textContentType(.username).keyboardType(.emailAddress)
+                                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                                .focused($focused).submitLabel(.send)
+                                .onSubmit { if canSend { send() } }
+                        }
+                        Button(action: send) {
+                            HStack(spacing: 8) {
+                                if busy { ProgressView().tint(.white) }
+                                Text("Send reset link").fontWeight(.semibold)
+                                if !busy { Image(systemName: "paperplane.fill") }
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 13)
+                            .background(Nuru.goldGradient)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                        }
+                        .disabled(busy || !canSend)
+                        .opacity(canSend ? 1 : 0.55)
+                    }
+                }
+                .padding(28)
+                .frame(maxWidth: 480, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
+            .background(Nuru.surface)
+            .navigationTitle("Forgot password").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var canSend: Bool { email.contains("@") && !email.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    private func send() {
+        struct Body: Encodable { let email: String }
+        struct Ack: Decodable {}   // { sent: true } — always
+        busy = true
+        let addr = email.trimmingCharacters(in: .whitespaces)
+        Task {
+            // Fire-and-forget: same confirmation whether or not the account exists.
+            _ = try? await APIClient.shared.post("/auth/password/forgot", body: Body(email: addr), as: Ack.self)
+            busy = false
+            withAnimation { sent = true }
         }
     }
 }
