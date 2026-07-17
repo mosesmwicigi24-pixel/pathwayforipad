@@ -240,6 +240,14 @@ struct ChatView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Nuru.paper.ignoresSafeArea())
         .task { if case .idle = model.listState { await model.loadList() } }
+        // Broadcast console → "Open thread" while this stack is alive (keep-alive):
+        // select the conversation directly; the sheetless three-pane shows it.
+        .onReceive(NotificationCenter.default.publisher(for: .nuruOpenChatConversation)) { note in
+            if let id = note.userInfo?["conversationId"] as? String {
+                _ = ChatLink.consume() // consumed here — don't replay on a later mount
+                model.select(id)
+            }
+        }
         // Use the inline title mode (like Finance / Events) — `.portalPage` requests a
         // `.large` title which, under the hidden root nav bar, paints a stray black
         // strip just under the page hero. Inline removes it; the global PortalTopBar
@@ -278,12 +286,16 @@ struct ChatView: View {
                 .padding(.vertical, 18)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 // Measure the content width so we can pick the pane layout (portrait vs
-                // landscape) — the size class can't tell those apart on iPad.
+                // landscape) — the size class can't tell those apart on iPad. (Applied
+                // before macContentColumn so the measurement is the capped width.)
                 .background(GeometryReader { g in
                     Color.clear
                         .onAppear { paneWidth = g.size.width }
                         .onChange(of: g.size.width) { _, w in paneWidth = w }
                 })
+                // Mac: the messenger is a workspace console — fill the window up
+                // to the ultra-wide cap, with page margins. iPhone/iPad unchanged.
+                .macContentColumn(MacDesign.workspaceMaxWidth)
             }
             // Fill the detail area top-aligned (hero flush at the very top) and paint
             // paper behind everything so it's warm, never black, edge to edge.
@@ -297,10 +309,12 @@ struct ChatView: View {
     @ViewBuilder private var paneArea: some View {
         switch paneLayout {
         case .three:
+            // Mac: desktop split-view proportions — a slightly wider fixed thread
+            // list and context rail; the conversation takes everything between.
             HStack(alignment: .top, spacing: 16) {
-                InboxPane(model: model).frame(width: 340).frame(maxHeight: .infinity)
+                InboxPane(model: model).frame(width: MacDesign.isMac ? 360 : 340).frame(maxHeight: .infinity)
                 ThreadPane(model: model).frame(maxWidth: .infinity, maxHeight: .infinity)
-                ContextColumn(model: model).frame(width: 320).frame(maxHeight: .infinity)
+                ContextColumn(model: model).frame(width: MacDesign.isMac ? 340 : 320).frame(maxHeight: .infinity)
             }
             .frame(minHeight: 760, maxHeight: .infinity)
         case .two:
@@ -966,7 +980,7 @@ private struct MessageRowView: View {
                     Text(rb).font(.inter(11)).foregroundStyle(sub).lineLimit(1)
                 }
                 .padding(.horizontal, 8).padding(.vertical, 5)
-                .frame(maxWidth: 240, alignment: .leading)
+                .frame(maxWidth: MacDesign.isMac ? 420 : 240, alignment: .leading)
                 .background(navy ? Color.white.opacity(0.12) : Color.black.opacity(0.04))
                 .overlay(alignment: .leading) { Rectangle().fill(Nuru.gold).frame(width: 2) }
                 .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xs, style: .continuous))
@@ -1021,7 +1035,9 @@ private struct MessageRowView: View {
             }
         }
         .padding(.horizontal, 13).padding(.vertical, 9)
-        .frame(maxWidth: 360, alignment: .leading)
+        // Mac: the thread pane is much wider, so bubbles cap at a readable ~760
+        // instead of stretching (or looking like postage stamps at 360).
+        .frame(maxWidth: MacDesign.isMac ? 760 : 360, alignment: .leading)
         .background(bg)
         .overlay(
             RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous)
@@ -1084,7 +1100,7 @@ private struct AttachmentView: View {
             if m.msgType == "image", let u = m.attachmentUrl, let url = URL(string: u) {
                 CachedAsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fit) }
                 placeholder: { Rectangle().fill(Nuru.mutedBg).frame(height: 120) }
-                .frame(maxWidth: 240, maxHeight: 240)
+                .frame(maxWidth: MacDesign.isMac ? 400 : 240, maxHeight: MacDesign.isMac ? 400 : 240)
                 .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             } else if let u = m.attachmentUrl, let url = URL(string: u) {
                 Link(destination: url) {
@@ -1095,7 +1111,7 @@ private struct AttachmentView: View {
                             .font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
                     }
                     .padding(.horizontal, 10).padding(.vertical, 7)
-                    .frame(maxWidth: 240, alignment: .leading)
+                    .frame(maxWidth: MacDesign.isMac ? 360 : 240, alignment: .leading)
                     .background(Color.black.opacity(0.04))
                     .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip).stroke(Nuru.border, lineWidth: 1))
                     .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
@@ -1824,7 +1840,12 @@ private final class ChatModel: ObservableObject {
             discover = r.discoverSpaces
             listError = nil
             listState = .loaded(())
-            if activeId.isEmpty, let first = r.conversations.first { select(first.conversationId) }
+            // A pending Broadcast deep link wins over the default first-row
+            // selection (covers the cold mount where the notification fired
+            // before this stack existed).
+            if let pending = ChatLink.consume() {
+                select(pending)
+            } else if activeId.isEmpty, let first = r.conversations.first { select(first.conversationId) }
         } catch {
             let m = (error as? APIError)?.errorDescription ?? "Could not load conversations."
             if rows.isEmpty { listState = .failed(m) } else { listError = m }

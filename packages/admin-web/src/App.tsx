@@ -19,6 +19,8 @@ import { CellEngagement } from "./components/pages/CellEngagement";
 import { CellDetail } from "./components/pages/CellDetail";
 import { Members } from "./components/pages/Members";
 import { ReflectionQueue } from "./components/pages/ReflectionQueue";
+import { LevelReviews } from "./components/pages/LevelReviews";
+import { DiscipleshipHub } from "./components/pages/DiscipleshipHub";
 import { Chat } from "./components/pages/Chat";
 import { Events } from "./components/pages/Events";
 import { Finance } from "./components/pages/Finance";
@@ -27,6 +29,12 @@ import { Badges } from "./components/pages/Badges";
 import { MemberProfile } from "./components/pages/MemberProfile";
 import { Profile } from "./components/pages/Profile";
 import { Notifications } from "./components/pages/Notifications";
+import { MemberIntelligence } from "./components/pages/MemberIntelligence";
+import { FlockBrief } from "./components/pages/FlockBrief";
+import { Proximity } from "./components/pages/Proximity";
+import { RadioStudio } from "./components/pages/RadioStudio";
+import { MixerStudio } from "./components/pages/MixerStudio";
+import { UploadsSessions } from "./components/pages/UploadsSessions";
 import { Users } from "./components/pages/Users";
 import { Roles } from "./components/pages/Roles";
 import { Congregations } from "./components/pages/Congregations";
@@ -57,11 +65,19 @@ const router = createBrowserRouter([
       { path: "profile", element: <Profile /> },
       { path: "notifications", element: <Notifications /> },
       { path: "reflection-queue", element: <ReflectionQueue /> },
+      { path: "level-reviews", element: <LevelReviews /> },
+      { path: "discipleship-hub", element: <DiscipleshipHub /> },
       { path: "chat", element: <Chat /> },
       { path: "events", element: <Events /> },
       { path: "finance", element: <Finance /> },
       { path: "certificates", element: <Certificates /> },
       { path: "badges", element: <Badges /> },
+      { path: "radio", element: <RadioStudio /> },
+      { path: "mixer", element: <MixerStudio /> },
+      { path: "uploads-sessions", element: <UploadsSessions /> },
+      { path: "intelligence", element: <MemberIntelligence /> },
+      { path: "flock-brief", element: <FlockBrief /> },
+      { path: "proximity", element: <Proximity /> },
       { path: "users", element: <Users /> },
       { path: "roles", element: <Roles /> },
       { path: "congregations", element: <Congregations /> },

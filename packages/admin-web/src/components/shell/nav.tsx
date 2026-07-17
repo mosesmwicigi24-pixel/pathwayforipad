@@ -3,7 +3,8 @@
 import {
   BookOpen, LayoutDashboard, Users, CalendarDays, Wallet, Award, Layers,
   TrendingUp, MessageSquare, MessagesSquare, Video, Star, HelpCircle, AlignLeft, Bell,
-  Shield, Globe, Languages as LanguagesIcon, UserCog, Church, Sparkles, type LucideIcon,
+  Shield, Globe, Languages as LanguagesIcon, UserCog, Church, Sparkles, Brain, MapPin,
+  Radio, SlidersVertical, ListMusic, UserCheck, HeartHandshake, HeartPulse, type LucideIcon,
 } from "lucide-react";
 
 export interface NavItem { path: string; label: string; icon: LucideIcon }
@@ -24,17 +25,26 @@ export const navGroups: NavGroup[] = [
       { path: "/cms", label: "CMS — Curriculum", icon: BookOpen },
       { path: "/level-detail", label: "Level Detail", icon: Layers },
       { path: "/quiz-builder", label: "Level Quiz Builder", icon: HelpCircle },
-      { path: "/video-library", label: "Video Library", icon: Video },
       { path: "/content-studio", label: "Content Studio", icon: Sparkles },
+    ],
+  },
+  {
+    label: "Media",
+    items: [
+      { path: "/video-library", label: "Video Library", icon: Video },
+      { path: "/radio", label: "Radio Studio", icon: Radio },
+      { path: "/mixer", label: "Audio Mixer", icon: SlidersVertical },
+      { path: "/uploads-sessions", label: "Uploads & Sessions", icon: ListMusic },
     ],
   },
   {
     label: "Operations",
     items: [
       { path: "/cell-engagement", label: "Cell Engagement", icon: TrendingUp },
+      { path: "/discipleship-hub", label: "Discipleship Hub", icon: HeartHandshake },
       { path: "/members", label: "Members", icon: Users },
       { path: "/reflection-queue", label: "Reflection Queue", icon: MessageSquare },
-      { path: "/chat", label: "Chat", icon: MessagesSquare },
+      { path: "/level-reviews", label: "Level reviews", icon: UserCheck },
       { path: "/events", label: "Events", icon: CalendarDays },
       { path: "/finance", label: "Finance", icon: Wallet },
       { path: "/certificates", label: "Certificates", icon: Award },
@@ -42,7 +52,21 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: "Communication",
+    items: [
+      { path: "/chat", label: "Chat", icon: MessagesSquare },
+    ],
+  },
+  {
     label: "System",
+    items: [
+      { path: "/intelligence", label: "Member Intelligence", icon: Brain },
+      { path: "/flock-brief", label: "Flock Brief", icon: HeartPulse },
+      { path: "/proximity", label: "Suggested Pairings", icon: MapPin },
+    ],
+  },
+  {
+    label: "Settings",
     items: [
       { path: "/users", label: "Users", icon: UserCog },
       { path: "/roles", label: "Roles & Permissions", icon: Shield },
@@ -69,11 +93,19 @@ export const pageTitles: Record<string, string> = {
   "/profile": "My Profile",
   "/notifications": "Notifications",
   "/reflection-queue": "Reflection Queue",
+  "/level-reviews": "Level Reviews",
+  "/discipleship-hub": "Discipleship Hub",
   "/chat": "Chat",
   "/events": "Events & Attendance",
   "/finance": "Finance",
   "/certificates": "Certificates & Badges",
   "/badges": "Badges Catalog",
+  "/radio": "Radio Studio",
+  "/mixer": "Audio Mixer",
+  "/uploads-sessions": "Uploads & Sessions",
+  "/intelligence": "Member Intelligence",
+  "/flock-brief": "Flock Brief",
+  "/proximity": "Suggested Pairings",
   "/users": "System Users",
   "/roles": "Roles & Permissions",
   "/congregations": "Congregations",

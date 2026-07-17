@@ -153,6 +153,9 @@ struct DisciplesView: View {
                     content
                 }
                 .padding(.horizontal, 20)
+                // Mac: master–detail console — takes the workspace width (with
+                // margins); the fixed roster rail leaves the rest to the dossier.
+                .macContentColumn(MacDesign.workspaceMaxWidth)
             }
             .padding(.bottom, 40)
         }
@@ -188,7 +191,13 @@ struct DisciplesView: View {
             ("On watch", "\(vm.bandCount("watch"))", "clock.fill", Color(hex: 0xB45309)),
             ("At risk", "\(vm.bandCount("at_risk"))", "exclamationmark.circle.fill", Color(hex: 0xB91C1C)),
         ]
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+        // Mac: exactly four flexible columns so the strip fills the workspace row
+        // (an adaptive grid would bunch four small cards on the left); iPad keeps
+        // the adaptive wrap.
+        let columns = MacDesign.isMac
+            ? Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
+            : [GridItem(.adaptive(minimum: 200), spacing: 12)]
+        return LazyVGrid(columns: columns, spacing: 12) {
             ForEach(cards, id: \.0) { c in
                 Card(padding: 14) {
                     HStack(spacing: 12) {
@@ -506,18 +515,14 @@ private struct DossierPanel: View {
         return Card(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
                 sectionLabel("Growth scores", icon: "waveform.path.ecg")
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
-                    ForEach(rows, id: \.0) { row in
-                        let t = scoreTone(row.1)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(row.0).font(.inter(11, .semibold)).foregroundStyle(t.fg.opacity(0.85))
-                            Text(row.1.map { "\(Int($0.rounded()))" } ?? "—")
-                                .font(.fraunces(23, .medium)).foregroundStyle(t.fg)
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(t.bg)
-                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                // Mac: score tiles flow to as many ≥170pt columns as fit — all six in
+                // one row on the wide workspace dossier, never fewer than two even at
+                // the minimum window. Elsewhere the fixed 3-up grid the iPad ships with.
+                if MacDesign.isMac {
+                    MacGrid(minWidth: 170, spacing: 10) { scoreTiles(rows) }
+                } else {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                        scoreTiles(rows)
                     }
                 }
                 HStack(spacing: 16) {
@@ -533,6 +538,22 @@ private struct DossierPanel: View {
                 }
                 .font(.nMicro).foregroundStyle(Nuru.ink600)
             }
+        }
+    }
+
+    /// The six tone-scaled score tiles (shared by the Mac flow grid and the iPad 3-up grid).
+    private func scoreTiles(_ rows: [(String, Double?)]) -> some View {
+        ForEach(rows, id: \.0) { row in
+            let t = scoreTone(row.1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.0).font(.inter(11, .semibold)).foregroundStyle(t.fg.opacity(0.85))
+                Text(row.1.map { "\(Int($0.rounded()))" } ?? "—")
+                    .font(.fraunces(23, .medium)).foregroundStyle(t.fg)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(t.bg)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
         }
     }
 

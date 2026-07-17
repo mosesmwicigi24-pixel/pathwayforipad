@@ -561,6 +561,7 @@ private struct CmsCurriculumContent: View {
                 }
                 .padding(.horizontal, Nuru.S.screen)
                 .padding(.vertical, Nuru.S.lg)
+                .macContentColumn(MacDesign.workspaceMaxWidth)   // Mac: workspace width — report panels + level grid flow wider
             }
         }
         .frame(maxWidth: .infinity)
@@ -847,7 +848,8 @@ private struct CmsCurriculumContent: View {
             }
 
             // Level list as small cards in a 3-up grid (≈3 columns at portrait width).
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12, alignment: .top)], spacing: 12) {
+            // Mac: roomier level cards (≥340pt) in the desktop column.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: MacDesign.isMac ? 340 : 220), spacing: 12, alignment: .top)], spacing: 12) {
                 ForEach(filtered) { level in
                     PathwayLevelCard(
                         level: level,
@@ -1343,6 +1345,7 @@ struct LevelDetailView: View {
                 }
             }
             .padding(Nuru.S.screen)
+            .macContentColumn(980)   // Mac: module list reads best in a narrower column
         }
         .background(Nuru.paper)
         .navigationTitle(levelTitle.isEmpty ? "Level Detail" : levelTitle)
@@ -1803,6 +1806,7 @@ struct ModuleQuizView: View {
                         }
                     }
                     .padding(20)
+                    .macContentColumn(900)   // Mac: question cards in a readable column
                 }
             }
         }

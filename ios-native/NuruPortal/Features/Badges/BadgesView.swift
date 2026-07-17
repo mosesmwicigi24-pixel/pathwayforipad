@@ -60,7 +60,9 @@ struct BadgesView: View {
     private enum StatusFilter: String, CaseIterable { case all = "All", active = "Active", inactive = "Inactive" }
     private enum SortMode: String, CaseIterable { case mostEarned = "Most earned", leastEarned = "Least earned", name = "Name" }
 
-    private let grid = [GridItem(.adaptive(minimum: 184), spacing: 14)]
+    // Mac: roomier medallion cards (≥300pt) so the collection reads as a
+    // gallery, not a wall of thumbnails; iPad keeps the denser 184pt flow.
+    private let grid = [GridItem(.adaptive(minimum: MacDesign.isMac ? 300 : 184), spacing: 14)]
 
     private func isActive(_ b: BadgeRow) -> Bool { b.isActive != false }
 
@@ -106,6 +108,7 @@ struct BadgesView: View {
                     }
                 }
                 .padding(24)
+                .macContentColumn(MacDesign.workspaceMaxWidth)   // Mac: medallion grid + sidebar use the width
             }
         }
         .background(Nuru.paper)
@@ -148,7 +151,9 @@ struct BadgesView: View {
     // MARK: KPI strip
 
     private var statStrip: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+        // Mac: the four KPI tiles spread across the workspace row (≥380pt each)
+        // instead of huddling at 200pt with dead space trailing.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: MacDesign.isMac ? 380 : 200), spacing: 12)], spacing: 12) {
             statTile("Active badges", "\(activeCount)", "rosette", Color(hex: 0x16A34A), Color(hex: 0xE8F6EC))
             statTile("Inactive badges", "\(inactiveCount)", "clock", Color(hex: 0x6B7280), Color(hex: 0xF3F4F6))
             statTile("Total badge awards", totalAwards.formatted(), "star", Color(hex: 0xA87616), Color(hex: 0xFFF6E0))

@@ -493,6 +493,20 @@ struct EventsView: View {
                 //    follow-up cards), replacing the old separate insights / queue cards.
                 insightsFollowUpCard
 
+                if MacDesign.isMac {
+                    // Desktop: three top-aligned lanes ordered by workflow —
+                    // run today (calendar + today's flow) · plan ahead (upcoming +
+                    // series) · communicate (announcements + moments). iPad keeps
+                    // the stacked ViewThatFits composition below, byte-identical.
+                    HStack(alignment: .top, spacing: MacDesign.gutter) {
+                        VStack(spacing: 20) { calendarCard; todayPanel }
+                            .frame(maxWidth: .infinity, alignment: .top)
+                        VStack(spacing: 20) { upcomingCard; seriesCard }
+                            .frame(maxWidth: .infinity, alignment: .top)
+                        VStack(spacing: 20) { announcementsCard; momentsCard }
+                            .frame(maxWidth: .infinity, alignment: .top)
+                    }
+                } else {
                 // 3. Calendar + Today panel
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 20) {
@@ -516,6 +530,7 @@ struct EventsView: View {
 
                 // 6. Moments — the final card.
                 momentsCard
+                }
 
                 // Recent attendance now lives in the header "Recent attendance"
                 // sheet (RecentAttendanceSheet); the front-page table + bar chart
@@ -527,6 +542,7 @@ struct EventsView: View {
                     .frame(maxWidth: .infinity).padding(.top, 6)
                 }
                 .padding(24)
+                .macContentColumn(MacDesign.workspaceMaxWidth)   // Mac: full workspace — the console composes in lanes
             }
         }
         .background(Nuru.paper)
@@ -1104,7 +1120,9 @@ struct EventsView: View {
                     emptyState(icon: "bell", title: "No announcements yet",
                                body: "Send updates, reminders, and event notices to the right audience.")
                 } else {
-                    let cols = [GridItem(.adaptive(minimum: 240), spacing: 12)]
+                    // Mac: roomier announcement cards (≥320pt) in the desktop column;
+                    // iPad keeps the denser 240pt flow.
+                    let cols = [GridItem(.adaptive(minimum: MacDesign.isMac ? 320 : 240), spacing: 12)]
                     LazyVGrid(columns: cols, alignment: .leading, spacing: 12) {
                         ForEach(announcements) { a in announcementTile(a) }
                     }

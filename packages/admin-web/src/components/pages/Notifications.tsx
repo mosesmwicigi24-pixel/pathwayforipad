@@ -11,6 +11,23 @@ import {
 type FilterTab = "all" | "unread";
 type CatFilter = "all" | NotifCategory;
 
+// Luminous, color-coded type metadata (ported from the iPad NotificationsView
+// catMeta — keyed to the LUMINOUS palette tokens, no off-brand blue):
+//   Success → green · Alerts → amber · Security → red · Updates → navy.
+// `tint` is a soft per-type row/chip background; `solid` fills the selected chip.
+const LUM_META: Record<NotifCategory, { color: string; tint: string }> = {
+  success: { color: "var(--lum-green)", tint: "rgba(34,197,94,0.10)" },
+  warning: { color: "var(--lum-amber)", tint: "rgba(224,138,30,0.10)" },
+  security: { color: "var(--lum-red)", tint: "rgba(240,64,95,0.10)" },
+  info: { color: "var(--lum-navy)", tint: "rgba(29,78,134,0.10)" },
+};
+// Labels mirror CATEGORY_META; colors come from LUM_META (overrides the dull
+// CATEGORY_META.bg/.color, which we can't edit in the shared provider).
+const catLum = (c: NotifCategory): { color: string; tint: string; label: string } => ({
+  ...LUM_META[c],
+  label: CATEGORY_META[c].label,
+});
+
 const CAT_FILTERS: { key: CatFilter; label: string }[] = [
   { key: "all", label: "All types" },
   { key: "info", label: "Updates" },
@@ -18,6 +35,9 @@ const CAT_FILTERS: { key: CatFilter; label: string }[] = [
   { key: "warning", label: "Alerts" },
   { key: "security", label: "Security" },
 ];
+// Filter-chip color key. "All" uses brand gold; the rest use the luminous set.
+const filterColor = (k: CatFilter): string => (k === "all" ? "var(--lum-gold)" : LUM_META[k].color);
+const filterTint = (k: CatFilter): string => (k === "all" ? "rgba(224,184,94,0.12)" : LUM_META[k].tint);
 
 const PAGE_SIZE = 50;
 const WEEK = 7 * 24 * 60 * 60 * 1000;
@@ -104,7 +124,16 @@ export function Notifications(): ReactElement {
           <div className="flex items-center gap-1.5 flex-wrap">
             {CAT_FILTERS.map((c) => {
               const active = catFilter === c.key;
-              return <button key={c.key} onClick={() => setCatFilter(c.key)} className="rounded-full" style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, border: "1px solid " + (active ? "var(--nuru-gold)" : "var(--border)"), background: active ? "rgba(200,155,60,0.12)" : "#fff", color: active ? "var(--nuru-gold)" : "var(--muted-foreground)" }}>{c.label}</button>;
+              const color = filterColor(c.key);
+              const Icon = c.key === "all" ? null : CATEGORY_META[c.key].icon;
+              const n = c.key === "all" ? null : notifications.filter((x) => x.category === c.key).length;
+              return (
+                <button key={c.key} onClick={() => setCatFilter(c.key)} className="inline-flex items-center gap-1.5 rounded-full" style={{ padding: "6px 12px", fontSize: 12, fontWeight: 700, border: "1px solid " + (active ? "transparent" : color), background: active ? color : filterTint(c.key), color: active ? "#fff" : color, boxShadow: active ? `0 4px 10px ${filterTint(c.key)}` : "none" }}>
+                  {Icon && <Icon size={12} />}
+                  {c.label}
+                  {n ? <span className="rounded-full" style={{ padding: "0 6px", fontSize: 10.5, fontWeight: 700, background: active ? "rgba(255,255,255,0.22)" : filterTint(c.key), color: active ? "#fff" : color }}>{n}</span> : null}
+                </button>
+              );
             })}
           </div>
         </div>
@@ -123,15 +152,18 @@ export function Notifications(): ReactElement {
               <div key={label}>
                 <div className="sticky top-0" style={{ padding: "9px 18px", background: "var(--input-background)", borderBottom: "1px solid var(--border)", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted-foreground)", zIndex: 1 }}>{label}</div>
                 {items.map((n) => {
-                  const cat = CATEGORY_META[n.category];
-                  const CatIcon = cat.icon;
+                  const cat = catLum(n.category);
+                  const CatIcon = CATEGORY_META[n.category].icon;
                   return (
-                    <div key={n.id} onClick={() => openNotif(n)} className="group flex gap-3.5 px-4 py-3.5 transition-colors hover:bg-gray-50" style={{ borderBottom: "1px solid var(--border)", cursor: "pointer", background: n.read ? "#fff" : "rgba(200,155,60,0.045)" }}>
-                      <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: cat.bg, color: cat.color, marginTop: 1 }}><CatIcon size={18} /></div>
+                    <div key={n.id} onClick={() => openNotif(n)} className="group flex gap-3 pr-4 py-3.5 transition-colors" style={{ borderBottom: "1px solid var(--border)", cursor: "pointer", background: n.read ? "#fff" : cat.tint }}>
+                      {/* Type-keyed left accent rail */}
+                      <span className="shrink-0 self-stretch rounded-full" style={{ width: 3, marginLeft: 12, background: cat.color, opacity: n.read ? 0.35 : 0.9 }} />
+                      {/* Luminous icon chip (soft tint + luminous icon + hairline ring) */}
+                      <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: cat.tint, color: cat.color, border: `1px solid ${cat.color}`, borderColor: cat.color, marginTop: 1, boxShadow: `inset 0 0 0 1px ${cat.tint}` }}><CatIcon size={18} /></div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div className="flex items-center gap-2 flex-wrap">
                           <span style={{ fontSize: 13.5, color: "var(--nuru-navy)", fontWeight: n.read ? 600 : 700 }}>{n.title}</span>
-                          <span className="rounded-full" style={{ padding: "1px 8px", fontSize: 9.5, fontWeight: 700, color: cat.color, background: cat.bg, letterSpacing: "0.03em", textTransform: "uppercase" }}>{cat.label}</span>
+                          <span className="rounded-full" style={{ padding: "1px 8px", fontSize: 9.5, fontWeight: 700, color: cat.color, background: cat.tint, letterSpacing: "0.03em", textTransform: "uppercase" }}>{cat.label}</span>
                         </div>
                         {n.message && <p style={{ fontSize: 12.5, color: "var(--muted-foreground)", lineHeight: 1.45, marginTop: 3 }}>{n.message}</p>}
                         <div className="flex items-center gap-1 mt-1.5" style={{ fontSize: 11.5, fontWeight: 600, color: n.href ? "var(--nuru-gold)" : "var(--muted-foreground)" }}>
@@ -143,7 +175,7 @@ export function Notifications(): ReactElement {
                         <div className="flex items-center gap-1">
                           <button onClick={(e) => { e.stopPropagation(); if (n.read) markUnread(n.id); else markRead(n.id); }} title={n.read ? "Mark as unread" : "Mark as read"} className="rounded-md p-1 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-gray-200" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}>{n.read ? <Dot size={16} /> : <Check size={14} />}</button>
                           <button onClick={(e) => { e.stopPropagation(); remove(n.id); }} title="Dismiss" className="rounded-md p-1 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-gray-200" style={{ color: "var(--muted-foreground)", background: "none", border: "none" }}><X size={14} /></button>
-                          {!n.read && <span className="rounded-full shrink-0" style={{ width: 8, height: 8, background: "var(--nuru-gold)" }} />}
+                          {!n.read && <span className="rounded-full shrink-0" style={{ width: 8, height: 8, background: cat.color }} />}
                         </div>
                       </div>
                     </div>

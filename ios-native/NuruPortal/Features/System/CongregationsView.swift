@@ -146,6 +146,7 @@ struct CongregationsView: View {
                     }
                 }
                 .padding(Nuru.S.screen)
+                .macContentColumn(1500)   // Mac: admin table breathes at ~1500; form stays in a sheet
             }
         }
     }

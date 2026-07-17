@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The Catalyst binary is signed with the HARDENED RUNTIME (flags=runtime),
+	     which silently denies microphone capture unless this entitlement is
+	     present — no TCC prompt, app absent from Privacy ▸ Microphone. This is
+	     the broadcast console's core capability. audio-input is NOT a
+	     provisioning-restricted entitlement (plain dev signing suffices —
+	     unlike keychain-access-groups, still parked in NuruPortal.entitlements
+	     until the Xcode account is signed in again). -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

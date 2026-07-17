@@ -494,12 +494,26 @@ struct QuizBuilderView: View {
                 hero
                 statStrip
                 if wide {
-                    HStack(spacing: 0) {
+                    // The builder is form-like: on the Mac it must NOT stretch to
+                    // the full window. The rail + editor pair becomes a centered
+                    // card at the readable column width; iPad keeps the full-bleed
+                    // split, byte-identical.
+                    let builder = HStack(spacing: 0) {
                         levelRail
                             .frame(width: 300)
                         Divider().background(Nuru.border)
                         editorPane
                             .frame(maxWidth: .infinity)
+                    }
+                    if MacDesign.isMac {
+                        builder
+                            .background(Nuru.white)
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                            .padding(.vertical, MacDesign.gutter)
+                            .macContentColumn()
+                    } else {
+                        builder
                     }
                 } else {
                     ScrollView {

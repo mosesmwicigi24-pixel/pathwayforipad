@@ -71,6 +71,35 @@
   --nuru-teal: #16a34a;
   --nuru-amber: #c89b3c;
 
+  /* ── iPad-evolved brand accents (ADMIN-ONLY — ported from the iPad app's
+     NuruTheme.swift, the design reference of record). The legacy tokens above
+     are kept available; these add the iPad's brighter, "shiny" accent language. */
+
+  /* Bright LED/lime green — the iPad's thriving/positive accent. Keep --nuru-teal
+     as the old positive green for existing call sites. */
+  --nuru-green: #22c55e;
+
+  /* Luminous accent set (vivid "shiny" chips & status color-coding, no off-brand blue) */
+  --lum-green: #22c55e;
+  --lum-green-hi: #3be066;
+  --lum-gold: #e0b85e;
+  --lum-amber: #e08a1e;
+  --lum-red: #f0405f;
+  --lum-navy: #1d4e86;
+
+  /* Soft pastel tint backgrounds for KPI / pipeline tiles (match the iPad Dashboard
+     tiles) with matching foreground / icon colors. */
+  --tint-green-bg: #dcfce7;   --tint-green-fg: #166534;
+  --tint-gold-bg: #fbf1dc;    --tint-gold-fg: #8a6b1f;
+  --tint-navy-bg: #e3eaf3;    --tint-navy-fg: #1d4e86;
+  --tint-amber-bg: #fcefd9;   --tint-amber-fg: #b45309;
+  --tint-rose-bg: #fcefef;    --tint-rose-fg: #a8281f;
+  --tint-violet-bg: #f1ebfb;  --tint-violet-fg: #5b2bb8;
+
+  /* Deeper navy sidebar/hero gradient (iPad sidebarGradient) */
+  --nuru-navy-gradient: linear-gradient(160deg, #143559 0%, #0b1f33 55%, #07203a 100%);
+  --nuru-sidebar-gradient: linear-gradient(180deg, #081c36 0%, #00132f 55%, #00091a 100%);
+
   /* Semantic aliases */
   --color-success: #16a34a;
   --color-success-bg: #f0fdf4;

@@ -531,6 +531,8 @@ struct MixerStudioView: View {
                 header
                 if let error = m.error, m.scenes.isEmpty, !m.loaded {
                     DarkError(message: error) { Task { await m.load() } }
+                } else if MacDesign.isMac {
+                    macDesk
                 } else {
                     scenePresets
                     channelStrips
@@ -539,7 +541,12 @@ struct MixerStudioView: View {
                     jingleBoard
                 }
             }
-            .padding(18).padding(.bottom, 48)
+            // iPad keeps its exact 18pt frame; the Mac desk is a WORKSPACE page —
+            // it fills the window (page margins only, ultra-wide cap at 1900pt).
+            .padding(.horizontal, MacDesign.isMac ? 0 : 18)
+            .padding(.vertical, 18)
+            .padding(.bottom, MacDesign.isMac ? 30 : 48)
+            .macContentColumn(MacDesign.workspaceMaxWidth)
         }
         .background(Rs.bg.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
@@ -587,6 +594,37 @@ struct MixerStudioView: View {
                     }.pressable()
                 }
             }
+        }
+    }
+
+    // MARK: Mac desk (Catalyst only — iPad/iPhone never reach this branch)
+    //
+    // Composed like a hardware console across the FULL workspace width, three
+    // top-aligned lanes ordered by mid-show frequency of use:
+    //   FADERS  (flexible)  channel strips + master — at the full desk all 8
+    //                       strips fit without scrolling — with the music-bed
+    //                       transport beneath them.
+    //   PROCESSING (mid)    EQ & Sound: tone presets + the three bus groups
+    //                       (caps at 540pt — all three busses side by side).
+    //   RACK    (right)     jingle soundboard (fired between segments) above
+    //                       the scene recalls (set once per show).
+    // Same components as the iPad stack, just recomposed.
+    @ViewBuilder private var macDesk: some View {
+        HStack(alignment: .top, spacing: MacDesign.gutter) {
+            VStack(alignment: .leading, spacing: 16) {
+                channelStrips
+                musicBed
+            }
+            .frame(minWidth: 310, maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 16) {
+                eqAndSound
+            }
+            .frame(minWidth: 340, maxWidth: 540)
+            VStack(alignment: .leading, spacing: 16) {
+                jingleBoard
+                scenePresets
+            }
+            .frame(minWidth: 270, maxWidth: 420)
         }
     }
 

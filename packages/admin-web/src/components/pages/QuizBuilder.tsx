@@ -13,9 +13,12 @@ import {
 import { errorMessage } from "../../util/error";
 import { ModuleQuizBuilder, type QuizSettings } from "../curriculum/ModuleQuizBuilder";
 
+// Status pill palette — semantic, navy+gold brand (no off-brand blue). Draft/
+// archived read as a warm neutral ink pair (matches the iPad QuizBuilder, which
+// dropped the blue draft pill that read as off-brand to the owner).
 const statusStyle: Record<string, { bg: string; color: string }> = {
   published: { bg: "#E8F6EE", color: "#0F6B33" },
-  draft: { bg: "#EEF1F8", color: "#1F3A6B" },
+  draft: { bg: "#F1EEE7", color: "#6B5E45" },
   in_review: { bg: "#FDF5E5", color: "#8A6B1F" },
 };
 const statusLabel: Record<string, string> = { published: "Published", draft: "Draft", in_review: "In Review", archived: "Archived" };
@@ -68,7 +71,7 @@ export function QuizBuilder(): ReactElement {
     try {
       await CurriculumApi.createModule({
         level_number: selNo,
-        title: `Level ${selNo} — Final Assessment`,
+        title: `Level ${selNo} Review`,
         lesson_content: "Level exit exam.",
         evaluation_kind: "exit_exam",
       });
@@ -91,6 +94,25 @@ export function QuizBuilder(): ReactElement {
         ? { ...l, required_exam_pass_mark: String(s.passMark), exam_shuffle: s.shuffleQuestions, exam_show_answers: s.showAnswersAfterSubmit, exam_show_score: s.showScoreAfterSubmit }
         : l));
   }, [selNo]);
+
+  // Flip the exam's review → publish gate. Members only see/take the exam once
+  // it's published; carries the current pass mark (the endpoint requires it).
+  const [togglingPublish, setTogglingPublish] = useState(false);
+  const setExamStatus = useCallback(async (next: "review" | "published"): Promise<void> => {
+    if (selNo == null || !selLevel) return;
+    setError(null); setTogglingPublish(true);
+    try {
+      await CurriculumApi.updateExam(selNo, {
+        required_exam_pass_mark: Math.round(Number(selLevel.required_exam_pass_mark) || 80),
+        exam_status: next,
+      });
+      setLevels((prev) => prev.map((l) => (l.level_number === selNo ? { ...l, exam_status: next } : l)));
+    } catch (e) {
+      setError(errorMessage(e, "Could not update the exam's publish state."));
+    } finally {
+      setTogglingPublish(false);
+    }
+  }, [selNo, selLevel]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "var(--background)" }}>
@@ -162,9 +184,39 @@ export function QuizBuilder(): ReactElement {
               <div style={{ padding: "10px 24px", background: `${selLevel.color}10`, borderBottom: `2px solid ${selLevel.color}30`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
                 <div style={{ width: 32, height: 32, borderRadius: 9, flexShrink: 0, background: selLevel.color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 15, color: "#fff" }}>{selLevel.level_number}</div>
                 <div><span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--nuru-navy)" }}>Level {selLevel.level_number} — {selLevel.title}</span><span style={{ fontSize: 11, color: "var(--muted-foreground)", marginLeft: 8 }}>{selLevel.theme ?? ""}</span></div>
-                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-                  <Award size={13} style={{ color: selLevel.color }} />
-                  <span style={{ fontSize: 11, fontWeight: 600, color: selLevel.color }}>Final assessment</span>
+                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <Award size={13} style={{ color: selLevel.color }} />
+                    <span style={{ fontSize: 11, fontWeight: 600, color: selLevel.color }}>Final assessment</span>
+                  </div>
+                  {/* Review → Publish gate. Members see the exam only when published. */}
+                  {(() => {
+                    const published = (selLevel.exam_status ?? "review") === "published";
+                    const ps = published ? statusStyle.published! : statusStyle.in_review!;
+                    return (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: ps.bg, color: ps.color }}>
+                          {published ? <Check size={11} strokeWidth={3} /> : <Clock size={11} />}
+                          {published ? "Published" : "In Review"}
+                        </span>
+                        <button
+                          onClick={() => void setExamStatus(published ? "review" : "published")}
+                          disabled={togglingPublish || !examModuleId}
+                          title={examModuleId ? undefined : "Create the exam first"}
+                          style={{
+                            height: 30, padding: "0 14px", borderRadius: 8, border: "none",
+                            cursor: togglingPublish || !examModuleId ? "not-allowed" : "pointer",
+                            opacity: togglingPublish || !examModuleId ? 0.55 : 1,
+                            fontSize: 11.5, fontWeight: 700,
+                            background: published ? "#F1EEE7" : "var(--nuru-gold)",
+                            color: published ? "#6B5E45" : "#fff",
+                          }}
+                        >
+                          {togglingPublish ? "Saving…" : published ? "Move to review" : "Publish exam"}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 

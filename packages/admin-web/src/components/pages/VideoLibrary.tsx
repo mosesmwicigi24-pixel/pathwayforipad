@@ -324,19 +324,21 @@ export function VideoLibrary(): ReactElement {
           </div>
         </div>
 
-        {/* 4 KPI tiles */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5 nuru-card-rotate">
+        {/* 4 KPI tiles — compact 4-up strip of clean white cards, each led by a
+            tinted icon chip (iPad Video Library). icon · value · label · sub
+            hierarchy; on-brand tint tokens (no rainbow rotation, no off-brand blue). */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
           {[
-            { label: "Total video assets", value: total, Icon: Film, sub: "in the library", spin: false },
-            { label: "Ready for members", value: ready, Icon: CheckCircle2, sub: total ? `${Math.round((ready / total) * 100)}% of library` : "—", spin: false },
-            { label: "Processing", value: processing, Icon: Loader2, sub: "uploading / transcoding", spin: true },
-            { label: "Failed", value: failed + stuck, Icon: AlertTriangle, sub: "review and retry", spin: false },
-          ].map(({ label, value, Icon, sub, spin }) => (
-            <div key={label} className="rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "14px 16px" }}>
-              <div className="flex items-start justify-between mb-2"><div className="flex items-center justify-center rounded-lg tint-blue" style={{ width: 34, height: 34 }}><Icon size={15} className={spin && value > 0 ? "animate-spin" : ""} /></div></div>
-              <div className="nuru-eyebrow" style={{ marginBottom: 4 }}>{label}</div>
+            { label: "Total assets", value: total, Icon: Film, sub: "in the library", spin: false, bg: "var(--tint-navy-bg)", fg: "var(--tint-navy-fg)" },
+            { label: "Ready for members", value: ready, Icon: CheckCircle2, sub: total ? `${Math.round((ready / total) * 100)}% of library` : "—", spin: false, bg: "var(--tint-green-bg)", fg: "var(--tint-green-fg)" },
+            { label: "Processing", value: processing, Icon: Loader2, sub: "uploading / transcoding", spin: true, bg: "var(--tint-gold-bg)", fg: "var(--tint-gold-fg)" },
+            { label: "Failed", value: failed + stuck, Icon: AlertTriangle, sub: "review and retry", spin: false, bg: "var(--tint-amber-bg)", fg: "var(--tint-amber-fg)" },
+          ].map(({ label, value, Icon, sub, spin, bg, fg }) => (
+            <div key={label} className="rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "14px 16px", boxShadow: "0 1px 3px rgba(11,31,51,0.05)" }}>
+              <div className="flex items-center justify-center rounded-xl mb-2.5" style={{ width: 34, height: 34, background: bg, color: fg }}><Icon size={16} className={spin && value > 0 ? "animate-spin" : ""} /></div>
               <div style={{ fontFamily: "var(--font-display)", color: "var(--nuru-navy)", fontSize: 26, lineHeight: 1 }}>{value}</div>
-              <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 6 }}>{sub}</div>
+              <div className="nuru-eyebrow" style={{ marginTop: 5 }}>{label}</div>
+              <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 4 }}>{sub}</div>
             </div>
           ))}
         </div>
@@ -458,9 +460,9 @@ export function VideoLibrary(): ReactElement {
               </tbody>
             </table></div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 p-5">
+            <div className="grid gap-4 p-5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(224px, 1fr))" }}>
               {filtered.map((a) => { const us = uiStatus(a); return (
-                <div key={a.media_asset_id} className="rounded-2xl overflow-hidden flex flex-col" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                <div key={a.media_asset_id} className="rounded-2xl overflow-hidden flex flex-col transition-shadow hover:shadow-md" style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(11,31,51,0.05)" }}>
                   <div className="relative">
                     <Thumb hue={hueOf(a.media_asset_id)} status={us} duration={dur(a.duration_sec)} size="lg" poster={posterOf(a)} />
                     <div className="absolute top-2 left-2"><Pill status={us} /></div>

@@ -5,7 +5,7 @@
 // deleted; Super Admin is always full and cannot be restricted.
 import { useCallback, useEffect, useMemo, useState, Fragment, type ReactElement, type CSSProperties } from "react";
 import {
-  ChevronRight, Plus, Shield, ShieldCheck, ShieldAlert, Trash2, Search,
+  ChevronRight, Plus, Shield, ShieldCheck, ShieldAlert, ShieldHalf, Trash2, Search,
   Globe, UsersRound, BookOpenCheck, HeartHandshake, X, Check, Lock, RotateCcw, Save,
 } from "lucide-react";
 import { SystemApi, type SystemRole, type RolePermission, type Capability } from "../../api/client";
@@ -77,7 +77,12 @@ export function Roles(): ReactElement {
   useEffect(() => { void load(); }, [load]);
 
   const filtered = useMemo(() => list.filter((r) => !query || `${r.name} ${r.role_key}`.toLowerCase().includes(query.toLowerCase())), [list, query]);
-  const keyRoles = useMemo(() => list.filter((r) => r.role_key in KEY_ICONS).slice(0, 6), [list]);
+  const KEY_ORDER = ["super_admin", "national_director", "regional_coach", "curriculum_editor", "pastoral_reviewer", "discipler"];
+  const keyRoles = useMemo(
+    () => filtered.filter((r) => r.role_key in KEY_ICONS).sort((a, b) => (KEY_ORDER.indexOf(a.role_key) + 1 || 99) - (KEY_ORDER.indexOf(b.role_key) + 1 || 99)),
+    [filtered],
+  );
+  const otherRoles = useMemo(() => filtered.filter((r) => !(r.role_key in KEY_ICONS)), [filtered]);
 
   async function deleteRole(role: SystemRole): Promise<void> {
     if (role.is_system) return;
@@ -101,54 +106,30 @@ export function Roles(): ReactElement {
 
       <div style={{ padding: "24px clamp(16px, 4vw, 48px) 48px" }}>
         {error ? <p style={{ color: "#A8281F", marginBottom: 12 }}>{error}</p> : null}
-        {keyRoles.length > 0 && (
-          <>
-            <div className="nuru-eyebrow nuru-eyebrow-gold" style={{ marginBottom: 4 }}>Access tiers</div>
-            <h2 className="type-section" style={{ marginBottom: 14 }}>Key roles in the pathway</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mb-8">
-              {keyRoles.map((r) => {
-                const ic = KEY_ICONS[r.role_key] ?? typeIcon[r.role_type];
-                const Icon = ic.Icon;
-                return (
-                  <div key={r.role_key} className="rounded-2xl flex items-start gap-3" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "14px 16px" }}>
-                    <span className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 36, height: 36, background: ic.bg, color: ic.tone }}><Icon size={16} /></span>
-                    <div><div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{r.name}</div><div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 2, lineHeight: 1.45 }}>{r.description}</div></div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
 
         <div className="flex items-center justify-between gap-4 mb-3 flex-wrap">
-          <div><div className="nuru-eyebrow nuru-eyebrow-gold" style={{ marginBottom: 4 }}>All roles</div><h2 className="type-section">Configured roles</h2></div>
+          <div><div className="nuru-eyebrow nuru-eyebrow-gold" style={{ marginBottom: 4 }}>Access control</div><h2 className="type-section">Roles &amp; permissions</h2></div>
           <div className="flex items-center gap-2 rounded-lg" style={{ height: 38, background: "#fff", border: "1px solid var(--border)", padding: "0 12px", width: 240 }}><Search size={14} style={{ color: "var(--muted-foreground)" }} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search roles…" className="flex-1 bg-transparent outline-none" style={{ fontSize: 13 }} /></div>
         </div>
 
-        <div className="overflow-hidden rounded-2xl" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
-          <div className="overflow-x-auto"><table className="w-full border-collapse">
-            <thead><tr style={{ borderBottom: "1px solid var(--border)", background: "var(--secondary)", textAlign: "left" }}>{["Role", "Type", "Permissions", "Users", "Status", ""].map((h) => <th key={h} className="px-5 py-3.5" style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6 }}>{h}</th>)}</tr></thead>
-            <tbody>
-              {filtered.map((r) => {
-                const rc = roleChip[r.role_type];
-                return (
-                  <tr key={r.role_key} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td className="px-5 py-3.5"><div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{r.name}</div><code style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted-foreground)" }}>{r.role_key}</code></td>
-                    <td className="px-5 py-3.5"><span className="inline-flex rounded-full px-2.5 py-0.5" style={{ background: rc.bg, color: rc.color, fontSize: 11, fontWeight: 700, textTransform: "capitalize" }}>{r.role_type}</span></td>
-                    <td className="px-5 py-3.5"><button onClick={() => setOpenRole(r)} className="hover:underline" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--nuru-gold)", background: "none", border: "none", cursor: "pointer" }}>{r.permissions.length} permissions</button></td>
-                    <td className="px-5 py-3.5" style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{r.user_count}</td>
-                    <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5" style={{ background: r.status === "active" ? "#E8F6EE" : "#F3F4F6", color: r.status === "active" ? "#0F6B33" : "#6B7280", fontSize: 11, fontWeight: 700, textTransform: "capitalize" }}>● {r.status}</span></td>
-                    <td className="px-5 py-3.5"><div className="flex items-center justify-end gap-1">
-                      <button onClick={() => setOpenRole(r)} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5" style={{ background: "var(--secondary)", color: "var(--nuru-navy)", fontSize: 12, fontWeight: 600, border: "none" }}><Shield size={12} /> Permissions</button>
-                      <button onClick={() => deleteRole(r)} title={r.is_system ? "Built-in roles can't be deleted" : "Delete role"} disabled={r.is_system} className="rounded-lg p-1.5" style={{ color: r.is_system ? "var(--border)" : "#DC2626", cursor: r.is_system ? "not-allowed" : "pointer", background: "none", border: "none" }}><Trash2 size={14} /></button>
-                    </div></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table></div>
-          {filtered.length === 0 ? <div className="text-center py-12" style={{ fontSize: 14, color: "var(--muted-foreground)" }}>No roles match.</div> : null}
-        </div>
+        {filtered.length === 0 ? (
+          <div className="rounded-2xl text-center py-12" style={{ border: "1px solid var(--border)", background: "var(--card)", fontSize: 14, color: "var(--muted-foreground)" }}>No roles match.</div>
+        ) : (
+          <div className="overflow-hidden rounded-2xl" style={{ border: "1px solid var(--border)", background: "var(--card)", boxShadow: "0 1px 3px rgba(11,31,51,0.05)" }}>
+            {keyRoles.length > 0 && (
+              <>
+                <RoleGroupHeader title="Key roles" caption="Built-in access tiers" />
+                {keyRoles.map((r, i) => <RoleRow key={r.role_key} role={r} divided={i > 0} onOpen={() => setOpenRole(r)} onDelete={() => deleteRole(r)} />)}
+              </>
+            )}
+            {otherRoles.length > 0 && (
+              <>
+                <RoleGroupHeader title="Configured roles" caption={`${otherRoles.length} custom ${otherRoles.length === 1 ? "role" : "roles"}`} />
+                {otherRoles.map((r, i) => <RoleRow key={r.role_key} role={r} divided={i > 0} onOpen={() => setOpenRole(r)} onDelete={() => deleteRole(r)} />)}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {createOpen && <CreateRoleModal roles={list} onClose={() => setCreateOpen(false)} onCreated={async (key) => { setCreateOpen(false); await load(); const created = (await SystemApi.roles()).find((x) => x.role_key === key); if (created) setOpenRole(created); }} onError={setError} />}
@@ -159,6 +140,56 @@ export function Roles(): ReactElement {
 
 const lbl: CSSProperties = { fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 };
 const inp: CSSProperties = { width: "100%", height: 42, borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--input-background)", fontSize: 13, padding: "0 14px", color: "var(--foreground)", outline: "none" };
+
+// Quiet section band that groups the one cohesive role list (iPad RoleGroupHeader).
+function RoleGroupHeader({ title, caption }: { title: string; caption: string }): ReactElement {
+  return (
+    <div className="flex items-baseline gap-2" style={{ padding: "13px 16px 8px", background: "var(--secondary)", borderBottom: "1px solid var(--border)" }}>
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: "var(--nuru-gold)" }}>{title}</span>
+      <span style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>{caption}</span>
+    </div>
+  );
+}
+
+// Members-style informative role row (iPad RoleRichRow): icon tile · name + mono key +
+// type pill + description · perms / members metrics · status pill · right-aligned actions.
+function RoleRow({ role, divided, onOpen, onDelete }: { role: SystemRole; divided: boolean; onOpen: () => void; onDelete: () => void }): ReactElement {
+  const ic = KEY_ICONS[role.role_key] ?? typeIcon[role.role_type];
+  const Icon = ic.Icon;
+  const rc = roleChip[role.role_type];
+  const active = role.status === "active";
+  return (
+    <div className="flex items-center gap-3" style={{ padding: "12px 16px", borderTop: divided ? "1px solid var(--border)" : "none" }}>
+      <span className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: ic.bg, color: ic.tone }}><Icon size={17} /></span>
+      <div className="flex-1" style={{ minWidth: 0 }}>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{role.name}</span>
+          <span className="inline-flex rounded-full px-2 py-0.5" style={{ background: rc.bg, color: rc.color, fontSize: 9.5, fontWeight: 700, textTransform: "capitalize" }}>{role.role_type}</span>
+          {role.is_system && <span className="inline-flex rounded px-1.5 py-0.5" style={{ background: "rgba(200,155,60,0.12)", color: "var(--nuru-gold)", fontSize: 8.5, fontWeight: 700, letterSpacing: 0.4 }}>BUILT-IN</span>}
+        </div>
+        <code style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--muted-foreground)" }}>{role.role_key}</code>
+        <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{role.description || "Scoped access tier."}</div>
+        <div className="flex items-center gap-3" style={{ marginTop: 3 }}>
+          <button onClick={onOpen} className="flex items-center gap-1" style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+            <ShieldHalf size={11} style={{ color: "var(--nuru-gold)" }} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--nuru-navy)" }}>{role.permissions.length}</span>
+            <span style={{ fontSize: 10, color: "var(--muted-foreground)" }}>perms</span>
+          </button>
+          <span className="flex items-center gap-1">
+            <UsersRound size={11} style={{ color: "var(--muted-foreground)" }} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--nuru-navy)" }}>{role.user_count}</span>
+            <span style={{ fontSize: 10, color: "var(--muted-foreground)" }}>{role.user_count === 1 ? "member" : "members"}</span>
+          </span>
+        </div>
+      </div>
+      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 shrink-0" style={{ background: active ? "#E8F6EE" : "#F3F4F6", color: active ? "#0F6B33" : "#6B7280", fontSize: 11, fontWeight: 700, textTransform: "capitalize" }}><span style={{ width: 6, height: 6, borderRadius: 999, background: active ? "#0F6B33" : "#6B7280" }} /> {role.status}</span>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button onClick={onOpen} title="Permissions" className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, color: "var(--nuru-navy)", background: "rgba(11,31,51,0.06)", border: "none", cursor: "pointer" }}><Shield size={13} /></button>
+        <button onClick={onDelete} title={role.is_system ? "Built-in roles can't be deleted" : "Delete role"} disabled={role.is_system} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, color: role.is_system ? "var(--muted-foreground)" : "#DC2626", background: role.is_system ? "rgba(107,114,128,0.10)" : "rgba(220,38,38,0.10)", border: "none", cursor: role.is_system ? "not-allowed" : "pointer", opacity: role.is_system ? 0.6 : 1 }}><Trash2 size={13} /></button>
+      </div>
+    </div>
+  );
+}
 
 function CreateRoleModal({ roles, onClose, onCreated, onError }: { roles: SystemRole[]; onClose: () => void; onCreated: (key: string) => void; onError: (m: string) => void }): ReactElement {
   const [name, setName] = useState("");

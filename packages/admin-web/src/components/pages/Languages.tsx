@@ -49,31 +49,44 @@ export function Languages(): ReactElement {
         </div>
 
         <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
-          {filtered.map((l) => (
-            <div key={l.code} className="rounded-2xl p-5 flex flex-col gap-3" style={{ background: "var(--card)", border: l.is_default ? "1.5px solid var(--nuru-gold)" : "1px solid var(--border)" }}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-2"><span style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--foreground)" }}>{l.name}</span>{l.is_default ? <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5" style={{ background: "rgba(200,155,60,0.14)", color: "var(--nuru-gold)", fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 }}><Star size={9} /> Default</span> : null}</div>
-                  <div style={{ fontSize: 13, color: "var(--muted-foreground)", marginTop: 2 }}>{l.native_name}</div>
+          {filtered.map((l) => {
+            const active = l.status === "active";
+            return (
+            <div key={l.code} className="rounded-2xl p-5 flex flex-col" style={{ background: "#fff", border: l.is_default ? "1.5px solid var(--nuru-gold)" : "1px solid var(--border)", boxShadow: "0 1px 3px rgba(11,31,51,0.06)" }}>
+              {/* Header — name + native name, with the code as a quiet chip */}
+              <div className="flex items-start justify-between gap-2">
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--foreground)", lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.name}</div>
+                  <div style={{ fontSize: 13, color: "var(--muted-foreground)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.native_name}</div>
                 </div>
-                <code style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted-foreground)", textTransform: "uppercase" }}>{l.code}</code>
+                <code className="shrink-0 rounded-md px-1.5 py-1" style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600, color: "var(--muted-foreground)", textTransform: "uppercase", background: "var(--secondary)" }}>{l.code}</code>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="rounded-full px-2 py-0.5" style={{ background: "var(--secondary)", fontSize: 10.5, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase" }}>{l.direction}</span>
-                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5" style={{ background: l.status === "active" ? "#E8F6EE" : "#F3F4F6", color: l.status === "active" ? "#0F6B33" : "#6B7280", fontSize: 10.5, fontWeight: 700, textTransform: "capitalize" }}>● {l.status}</span>
+
+              {/* Status row — Default / Active pills, direction on the right */}
+              <div className="flex items-center gap-1.5" style={{ marginTop: 12 }}>
+                {l.is_default ? <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5" style={{ background: "var(--tint-gold-bg)", color: "var(--nuru-gold)", fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4 }}><Star size={8} /> Default</span> : null}
+                <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5" style={{ background: active ? "var(--tint-green-bg)" : "var(--secondary)", color: active ? "var(--tint-green-fg)" : "var(--muted-foreground)", fontSize: 10.5, fontWeight: 700, textTransform: "capitalize" }}><span style={{ width: 5, height: 5, borderRadius: 99, background: active ? "var(--nuru-green)" : "var(--muted-foreground)" }} />{l.status}</span>
+                <span className="ml-auto" style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 0.4, color: "var(--muted-foreground)", textTransform: "uppercase" }}>{l.direction}</span>
               </div>
-              <div>
-                <div className="flex items-center justify-between" style={{ fontSize: 11, color: "var(--muted-foreground)", marginBottom: 4 }}><span>Coverage</span><span style={{ fontWeight: 700, color: "var(--foreground)" }}>{l.coverage ?? 0}%</span></div>
+
+              {/* Coverage — a clean labelled fill */}
+              <div style={{ marginTop: 14 }}>
+                <div className="flex items-center justify-between" style={{ marginBottom: 5 }}><span style={{ fontSize: 10.5, fontWeight: 500, letterSpacing: 0.3, color: "var(--muted-foreground)", textTransform: "uppercase" }}>Coverage</span><span style={{ fontSize: 12, fontWeight: 600, color: "var(--nuru-navy)" }}>{l.coverage ?? 0}%</span></div>
                 <div style={{ height: 6, borderRadius: 99, background: "var(--secondary)", overflow: "hidden" }}><div style={{ width: `${l.coverage ?? 0}%`, height: "100%", background: "var(--nuru-gold)" }} /></div>
               </div>
-              <div className="flex items-center gap-1 pt-1" style={{ borderTop: "1px solid var(--border)", marginTop: 2 }}>
-                {!l.is_default ? <button onClick={() => void setDefault(l)} className="flex items-center gap-1 rounded-lg px-2 py-1.5" style={{ fontSize: 12, fontWeight: 600, color: "var(--nuru-navy)", background: "none", border: "none" }}><Star size={13} /> Default</button> : null}
-                <button onClick={() => setEditing(l)} className="flex items-center gap-1 rounded-lg px-2 py-1.5" style={{ fontSize: 12, fontWeight: 600, color: "var(--muted-foreground)", background: "none", border: "none" }}><Pencil size={13} /> Edit</button>
-                <button onClick={() => void toggle(l)} className="rounded-lg px-2 py-1.5" style={{ fontSize: 12, fontWeight: 600, color: l.status === "active" ? "#DC2626" : "#16A34A", background: "none", border: "none" }}>{l.status === "active" ? "Disable" : "Enable"}</button>
-                {!l.is_default ? <button onClick={() => void remove(l)} title="Remove" className="rounded-lg p-1.5 ml-auto" style={{ color: "#DC2626", background: "none", border: "none" }}><Trash2 size={14} /></button> : null}
+
+              <div style={{ borderTop: "1px solid var(--border)", marginTop: 14 }} />
+
+              {/* Action row — calm, evenly spaced */}
+              <div className="flex items-center gap-3" style={{ marginTop: 12 }}>
+                {!l.is_default ? <button onClick={() => void setDefault(l)} className="flex items-center gap-1" style={{ fontSize: 11, fontWeight: 500, color: "var(--nuru-navy)", background: "none", border: "none", padding: 0 }}><Star size={11} /> Default</button> : null}
+                <button onClick={() => setEditing(l)} className="flex items-center gap-1" style={{ fontSize: 11, fontWeight: 500, color: "var(--muted-foreground)", background: "none", border: "none", padding: 0 }}><Pencil size={11} /> Edit</button>
+                <button onClick={() => void toggle(l)} style={{ fontSize: 11, fontWeight: 500, color: active ? "#DC2626" : "#16A34A", background: "none", border: "none", padding: 0 }}>{active ? "Disable" : "Enable"}</button>
+                {!l.is_default ? <button onClick={() => void remove(l)} title="Remove" className="ml-auto" style={{ color: "#DC2626", background: "none", border: "none", padding: 0 }}><Trash2 size={14} /></button> : null}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
         {filtered.length === 0 ? <div className="text-center py-12" style={{ fontSize: 14, color: "var(--muted-foreground)" }}>No languages match.</div> : null}
       </div>

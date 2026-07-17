@@ -10,6 +10,7 @@ import {
   ClipboardList, AlertTriangle, Target, Tag, Hash, Video,
   Bold, Italic, Strikethrough, Heading1, Heading2, Heading3, List, ListOrdered,
   Quote, Code2, Link as LinkIcon, Image as ImageIcon, Table as TableIcon, Minus,
+  SeparatorHorizontal, Trash2,
 } from "lucide-react";
 import {
   CurriculumApi, type AdminLevel, type AdminModuleSummary, type AdminModule, type EvaluationKind,
@@ -18,6 +19,7 @@ import { errorMessage } from "../../util/error";
 import { MarkdownPreview } from "../MarkdownPreview";
 import { LevelModal, type LevelFormData, type LevelStatus } from "../curriculum/LevelModal";
 import { ModuleQuizBuilder, type QuizSettings } from "../curriculum/ModuleQuizBuilder";
+import { splitSections, sectionLabel, addSection, renameSection, deleteSection } from "../../lib/sections";
 
 const statusPill: Record<string, { bg: string; color: string }> = {
   published: { bg: "#E8F6EE", color: "#0F6B33" },
@@ -32,6 +34,12 @@ const EVAL_OPTS: { v: EvaluationKind; l: string }[] = [
 const fieldLabel: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.08em", display: "block", marginBottom: 6 };
 const fieldInput: CSSProperties = { width: "100%", height: 42, borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--input-background)", fontSize: 13, padding: "0 14px", color: "var(--foreground)", outline: "none" };
 const areaInput: CSSProperties = { width: "100%", borderRadius: 10, border: "1.5px solid var(--border)", background: "var(--input-background)", fontSize: 13, padding: "10px 14px", color: "var(--foreground)", outline: "none", resize: "vertical", lineHeight: 1.6, fontFamily: "var(--font-sans)" };
+// Media durations are stored as whole seconds; the editor shows/edits minutes.
+const secToMin = (sec: number | null): number => (sec == null ? 0 : Math.round(sec / 60));
+const minToSec = (min: string): number | null => {
+  const n = Math.max(0, Math.round(Number(min)));
+  return Number.isFinite(n) && n > 0 ? n * 60 : null;
+};
 
 export function LevelDetail(): ReactElement {
   const navigate = useNavigate();
@@ -119,6 +127,8 @@ export function LevelDetail(): ReactElement {
         title: draft.title, summary: draft.summary, lesson_content: draft.lesson_content,
         evaluation_kind: draft.evaluation_kind, quiz_pass_mark: Number(draft.quiz_pass_mark),
         estimated_minutes: draft.estimated_minutes, video_url: draft.video_url || null,
+        video_duration_sec: draft.video_duration_sec, audio_url: draft.audio_url || null,
+        audio_duration_sec: draft.audio_duration_sec,
         key_verses: verses.length ? verses : null, max_attempts: draft.max_attempts,
         difficulty: draft.difficulty, objectives: draft.objectives || null, tags: draft.tags || null,
         visibility: draft.visibility, required: draft.required,
@@ -206,7 +216,11 @@ export function LevelDetail(): ReactElement {
     { Icon: ImageIcon, title: "Image", act: () => insert("![alt](https://)") },
     { Icon: TableIcon, title: "Table", act: () => insert("\n| A | B |\n| --- | --- |\n| 1 | 2 |\n") },
     { Icon: Minus, title: "Divider", act: () => insert("\n---\n") },
+    { Icon: SeparatorHorizontal, title: "Add section", act: () => draft && setField("lesson_content", addSection(draft.lesson_content)), group: true },
   ];
+  // Live titled-sections model — same page-break split the mobile reader applies.
+  const sections = draft ? splitSections(draft.lesson_content) : [];
+  const pageCount = Math.max(1, sections.length);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "var(--background)" }}>
@@ -220,10 +234,18 @@ export function LevelDetail(): ReactElement {
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: 26, color: "#fff", lineHeight: 1.1, letterSpacing: "-0.01em" }}>Levels &amp; Modules</h1>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          {[{ label: "Levels", val: levels.length }, { label: "Modules", val: allModulesCount }, { label: "Published", val: publishedCount }].map((s) => (
-            <div key={s.label} style={{ textAlign: "center", padding: "4px 16px", borderRadius: 10, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.09)" }}>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "#fff", lineHeight: 1.1 }}>{s.val}</div>
-              <div style={{ fontSize: 10, color: "rgba(232,239,245,0.45)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginTop: 1 }}>{s.label}</div>
+          {/* Compact stat tiles with brand-coloured accents (gold · green · green). */}
+          {[
+            { label: "Levels", val: levels.length, accent: "#c89b3c" },
+            { label: "Modules", val: allModulesCount, accent: "#22c55e" },
+            { label: "Published", val: publishedCount, accent: "#22c55e" },
+          ].map((s) => (
+            <div key={s.label} style={{ minWidth: 84, padding: "6px 16px", borderRadius: 10, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.09)", borderTop: `2px solid ${s.accent}` }}>
+              <div className="flex items-center gap-1.5 justify-center">
+                <span style={{ width: 6, height: 6, borderRadius: 99, background: s.accent }} />
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "#fff", lineHeight: 1.1 }}>{s.val}</span>
+              </div>
+              <div style={{ textAlign: "center", fontSize: 10, color: "rgba(232,239,245,0.45)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginTop: 1 }}>{s.label}</div>
             </div>
           ))}
           <button onClick={() => setLevelModal({ mode: "add" })} className="flex items-center gap-2 rounded-xl px-4" style={{ height: 40, background: "var(--nuru-gold)", color: "#fff", fontSize: 13, fontWeight: 700, boxShadow: "0 6px 18px rgba(200,155,60,0.30)", border: "none", flexShrink: 0 }}><Plus size={14} /> New level</button>
@@ -423,9 +445,23 @@ export function LevelDetail(): ReactElement {
 
                     <div style={{ height: 1, background: "var(--border)", marginBottom: 22 }} />
                     <SectionHead icon={<Video size={14} />} label="Lesson media" />
-                    <div style={{ marginBottom: 22 }}>
+                    <div style={{ marginBottom: 18 }}>
                       <label style={fieldLabel}>Lesson video URL <span style={{ fontWeight: 400, textTransform: "none", fontSize: 10 }}>(or manage in the <button onClick={() => navigate("/video-library")} style={{ color: "var(--nuru-gold)", background: "none", border: "none", cursor: "pointer", fontSize: 10, fontWeight: 600, padding: 0 }}>Video Library</button>)</span></label>
                       <input value={draft.video_url ?? ""} onChange={(e) => setField("video_url", e.target.value || null)} placeholder="https://…" style={fieldInput} />
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 18 }}>
+                      <div>
+                        <label style={fieldLabel}>Video length (minutes) <span style={{ fontWeight: 400, textTransform: "none", fontSize: 10 }}>(reader "watch" label)</span></label>
+                        <input type="number" min={0} value={secToMin(draft.video_duration_sec)} onChange={(e) => setField("video_duration_sec", minToSec(e.target.value))} placeholder="0" style={fieldInput} />
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Audio length (minutes) <span style={{ fontWeight: 400, textTransform: "none", fontSize: 10 }}>(reader "listen" label)</span></label>
+                        <input type="number" min={0} value={secToMin(draft.audio_duration_sec)} onChange={(e) => setField("audio_duration_sec", minToSec(e.target.value))} placeholder="0" style={fieldInput} />
+                      </div>
+                    </div>
+                    <div style={{ marginBottom: 22 }}>
+                      <label style={fieldLabel}>Lesson audio URL <span style={{ fontWeight: 400, textTransform: "none", fontSize: 10 }}>(admin-controlled; served to members)</span></label>
+                      <input value={draft.audio_url ?? ""} onChange={(e) => setField("audio_url", e.target.value || null)} placeholder="https://…" style={fieldInput} />
                     </div>
 
                     <div style={{ height: 1, background: "var(--border)", marginBottom: 22 }} />
@@ -438,7 +474,8 @@ export function LevelDetail(): ReactElement {
                         </span>
                       ))}
                       <div style={{ flex: 1, minWidth: 8 }} />
-                      <span style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>{draft.lesson_content.length} chars</span>
+                      <span title="How the reader splits this lesson into sections" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: "rgba(200,155,60,0.12)", color: "var(--nuru-gold)", border: "1px solid rgba(200,155,60,0.3)" }}><SeparatorHorizontal size={10} /> {pageCount} section{pageCount === 1 ? "" : "s"}</span>
+                      <span style={{ fontSize: 10.5, color: "var(--muted-foreground)", marginLeft: 6 }}>{draft.lesson_content.length} chars</span>
                     </div>
                     {mdView === "write" ? (
                       <textarea ref={contentRef} value={draft.lesson_content} onChange={(e) => setField("lesson_content", e.target.value)} rows={16} placeholder={"## Section heading\n\nWrite the lesson here…"} style={{ width: "100%", borderRadius: "0 0 10px 10px", border: "1.5px solid var(--border)", borderTop: "none", background: "var(--input-background)", fontSize: 13, padding: "12px 14px", color: "var(--foreground)", outline: "none", resize: "vertical", lineHeight: 1.7, fontFamily: "var(--font-mono), monospace" }} />
@@ -447,6 +484,42 @@ export function LevelDetail(): ReactElement {
                         {draft.lesson_content.trim() ? <MarkdownPreview content={draft.lesson_content} /> : <p style={{ color: "var(--muted-foreground)" }}>Nothing to preview yet.</p>}
                       </div>
                     )}
+
+                    {/* Sections outline — titled teaching sections over the page-break markers.
+                        Each row renames the section's leading heading; delete removes the piece. */}
+                    <div style={{ marginTop: 18, borderRadius: 12, border: "1.5px solid var(--border)", background: "var(--card)", overflow: "hidden" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", borderBottom: "1px solid var(--border)", background: "var(--secondary)" }}>
+                        <SeparatorHorizontal size={13} style={{ color: "var(--nuru-gold)" }} />
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--nuru-navy)" }}>Sections outline</span>
+                        <span style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>{sections.length} section{sections.length === 1 ? "" : "s"} · how the reader paginates</span>
+                      </div>
+                      {sections.length === 0 ? (
+                        <div style={{ padding: "16px 14px", fontSize: 12.5, color: "var(--muted-foreground)" }}>No sections yet. Add one to start structuring the lesson.</div>
+                      ) : (
+                        <div>
+                          {sections.map((sec, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderBottom: "1px solid var(--border)" }}>
+                              <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 6, background: "var(--secondary)", color: "var(--nuru-navy)", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+                              <input
+                                value={sec.title ?? ""}
+                                placeholder={sectionLabel(null, i)}
+                                onChange={(e) => setField("lesson_content", renameSection(draft.lesson_content, i, e.target.value))}
+                                style={{ flex: 1, minWidth: 0, height: 32, borderRadius: 8, border: "1.5px solid var(--border)", background: "var(--input-background)", fontSize: 12.5, padding: "0 10px", color: "var(--foreground)", outline: "none" }}
+                              />
+                              <button
+                                title="Delete section"
+                                onClick={() => setField("lesson_content", deleteSection(draft.lesson_content, i))}
+                                style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, border: "1px solid #FECACA", background: "#FFF5F5", color: "#DC2626", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                              ><Trash2 size={13} /></button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        onClick={() => setField("lesson_content", addSection(draft.lesson_content))}
+                        style={{ width: "100%", padding: "10px 14px", textAlign: "left", display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700, color: "var(--nuru-gold)", background: "transparent", border: "none", cursor: "pointer" }}
+                      ><Plus size={13} /> Add section</button>
+                    </div>
 
                     {/* Footer */}
                     <div style={{ display: "flex", alignItems: "center", gap: 10, paddingTop: 22, paddingBottom: 40, flexWrap: "wrap" }}>

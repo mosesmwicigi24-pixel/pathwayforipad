@@ -9,7 +9,9 @@ enum Section: String, CaseIterable, Identifiable {
     // Curriculum
     case curriculumLevels, cms, levelDetail, quizBuilder, videoLibrary, contentStudio
     // Operations
-    case cellEngagement, disciples, members, reflectionQueue, chat, events, finance, certificates, badges, radio, mixer
+    case cellEngagement, disciples, members, reflectionQueue, chat, broadcast, events, finance, certificates, badges, radio, mixer
+    // Media (Mac-only sidebar entry — the iPad Radio Studio keeps this inline)
+    case uploadsSessions
     // System
     case users, roles, congregations, countries, languages, peopleIntelligence, proximity
     // Reachable from the profile menu (not listed in the sidebar)
@@ -31,12 +33,14 @@ enum Section: String, CaseIterable, Identifiable {
         case .members: "Members"
         case .reflectionQueue: "Reflection Queue"
         case .chat: "Chat"
+        case .broadcast: "Broadcast"
         case .events: "Events"
         case .finance: "Finance"
         case .certificates: "Certificates"
         case .badges: "Badges"
         case .radio: "Radio Studio"
         case .mixer: "Mixer Studio"
+        case .uploadsSessions: "Uploads & Sessions"
         case .users: "Users"
         case .roles: "Roles & Permissions"
         case .congregations: "Congregations"
@@ -63,12 +67,14 @@ enum Section: String, CaseIterable, Identifiable {
         case .members: "person.2"
         case .reflectionQueue: "text.bubble"
         case .chat: "bubble.left.and.bubble.right"
+        case .broadcast: "megaphone"
         case .events: "calendar"
         case .finance: "creditcard"
         case .certificates: "rosette"
         case .badges: "star"
         case .radio: "dot.radiowaves.left.and.right"
         case .mixer: "slider.vertical.3"
+        case .uploadsSessions: "tray.and.arrow.up"
         case .users: "person.badge.key"
         case .roles: "lock.shield"
         case .congregations: "building.columns"
@@ -90,9 +96,12 @@ private struct NavGroup: Identifiable {
 private let navGroups: [NavGroup] = [
     .init(label: "Portal", items: [.dashboard, .notifications]),
     .init(label: "Curriculum", items: [.curriculumLevels, .cms, .levelDetail, .quizBuilder, .contentStudio]),
-    .init(label: "Media", items: [.videoLibrary, .radio, .mixer]),
+    // Uploads & Sessions is Mac-only (MacDesign.isMac is compile-time): the Mac
+    // radio desk moved library/session management there; the iPad Radio Studio
+    // keeps those sections inline, so its sidebar is unchanged.
+    .init(label: "Media", items: [.videoLibrary, .radio, .mixer, .uploadsSessions]),
     .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .events, .finance, .certificates, .badges]),
-    .init(label: "Communication", items: [.chat]),
+    .init(label: "Communication", items: [.chat, .broadcast]),
     .init(label: "System", items: [.peopleIntelligence, .proximity]),
     .init(label: "Settings", items: [.users, .roles, .congregations, .countries, .languages]),
 ]
@@ -100,6 +109,26 @@ private let navGroups: [NavGroup] = [
 /// App-wide navigation router — lets any detail screen jump to another top-level
 /// sidebar section (the iPad equivalent of the web portal's cross-page links).
 struct MemberRef: Identifiable, Equatable { let id: String; let name: String }
+
+extension Notification.Name {
+    /// Cross-page deep link: the Radio Studio's Session-audio card posts this
+    /// (userInfo: ["programId": String]) to open Uploads & Sessions with that
+    /// session's console sheet showing. RootView routes; UploadsSessionsView opens.
+    static let nuruOpenUploadsSession = Notification.Name("nuruOpenUploadsSession")
+}
+
+/// Hand-off box for `.nuruOpenUploadsSession`: RootView stashes the requested
+/// program id here as it switches sections, and UploadsSessionsView consumes it
+/// once its sessions have loaded — so the deep link survives the race where the
+/// page mounts (or reloads) AFTER the notification was posted.
+@MainActor enum UploadsSessionsLink {
+    static var pendingProgramId: String?
+    /// Read-and-clear, so a consumed link never replays on a later mount.
+    static func consume() -> String? {
+        defer { pendingProgramId = nil }
+        return pendingProgramId
+    }
+}
 
 @MainActor final class NavRouter: ObservableObject {
     @Published var section: Section? = .dashboard
@@ -134,7 +163,9 @@ struct RootView: View {
     /// (like the old `.id()` swap) whenever the user leaves them. A live mic
     /// broadcast SURVIVES this teardown: MicBroadcaster is an app-wide
     /// singleton and RadioStudioView only stops its level monitoring.
-    private static let ephemeral: Set<Section> = [.radio, .mixer]
+    /// Uploads & Sessions (Mac-only) is treated the same — its live poll and
+    /// preview player stop when the user leaves.
+    private static let ephemeral: Set<Section> = [.radio, .mixer, .uploadsSessions]
 
     var body: some View {
         // Fixed navy sidebar flush against the content (web-portal layout), not a
@@ -157,8 +188,26 @@ struct RootView: View {
         .sheet(item: $router.openMember) { ref in
             NavigationStack { MemberDetailView(userId: ref.id, name: ref.name) }
         }
-        .onAppear { visit(router.section, leaving: nil) }
+        .onAppear {
+            MacWindow.enforceMinimumSize() // Catalyst: declare the desktop window floor (no-op on iPad/iPhone)
+            MacWindow.applyPreferredSize() // Catalyst: one-time comfortable default frame (~1560×980, centered)
+            #if targetEnvironment(macCatalyst)
+            // Ask for mic permission AT LAUNCH on the Mac (broadcast console —
+            // the mic is core). Files the real TCC request via AVCaptureDevice,
+            // so the consent dialog appears without navigating to Radio Studio.
+            MicBroadcaster.shared.prepareInputSensing()
+            #endif
+            visit(router.section, leaving: nil)
+        }
         .onChange(of: router.section) { old, new in visit(new, leaving: old) }
+        // Radio Studio → Uploads & Sessions deep link (Mac AND iPad): stash the
+        // program id for UploadsSessionsView to consume, then switch sections.
+        .onReceive(NotificationCenter.default.publisher(for: .nuruOpenUploadsSession)) { note in
+            if let id = note.userInfo?["programId"] as? String {
+                UploadsSessionsLink.pendingProgramId = id
+            }
+            router.go(.uploadsSessions)
+        }
     }
 
     /// Keep-alive container: every visited section keeps its own NavigationStack
@@ -238,7 +287,10 @@ struct RootView: View {
                             } else {
                                 Rectangle().fill(.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 14).padding(.vertical, 4)
                             }
-                            ForEach(group.items) { item in
+                            // Broadcast is between the shepherd and the individual —
+                            // the row itself only exists for SuperAdmin (the server
+                            // enforces the role + password step-up regardless).
+                            ForEach(group.items.filter { $0 != .broadcast || auth.profile?.role == "SuperAdmin" }) { item in
                                 NavRow(item: item, selected: router.section == item, collapsed: collapsed) {
                                     router.go(item)
                                 }
@@ -248,10 +300,14 @@ struct RootView: View {
                 }
                 .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 16)
             }
-            collapseToggle
+            // Mac: the sidebar is persistent (never collapses) like a native
+            // source list, so the collapse affordance only ships on iPad.
+            if !MacDesign.isMac { collapseToggle }
             profileFooter
         }
-        .frame(width: collapsed ? 76 : 264)
+        // Desktop: a fixed source-list width (the shell is a hand-rolled split
+        // view, so this is the Mac analogue of navigationSplitViewColumnWidth).
+        .frame(width: MacDesign.isMac ? 250 : (collapsed ? 76 : 264))
         .frame(maxHeight: .infinity)
         .background(Nuru.sidebarGradient.ignoresSafeArea())
         .animation(.easeInOut(duration: 0.22), value: collapsed)
@@ -331,12 +387,14 @@ struct RootView: View {
         case .members:          MembersView()
         case .reflectionQueue:  ReflectionQueueView()
         case .chat:             ChatView()
+        case .broadcast:        BroadcastConsoleView()
         case .events:           EventsView()
         case .finance:          FinanceView()
         case .certificates:     CertificatesView()
         case .badges:           BadgesView()
         case .radio:            RadioStudioView()
         case .mixer:            MixerStudioView()
+        case .uploadsSessions:  UploadsSessionsView()
         case .curriculumLevels: CurriculumLevelsView()
         case .cms:              CmsCurriculumView(title: "CMS — Curriculum")
         case .levelDetail:      CmsCurriculumView(title: "Level Detail")

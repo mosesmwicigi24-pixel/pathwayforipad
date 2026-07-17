@@ -77,10 +77,18 @@ struct CellEngagementView: View {
     @EnvironmentObject private var router: NavRouter
     @State private var addOpen = false
     @State private var editCell: EngagementCellRow?
-    // Portrait roster grid: ~720–760pt usable → 3-up at minimum 220.
-    private let grid = [GridItem(.adaptive(minimum: 220), spacing: 14)]
-    // Top summary: four compact tiles in a row at portrait width (~740pt → min 165 = 4-up).
-    private let summaryGrid = [GridItem(.adaptive(minimum: 165), spacing: 12)]
+    // Portrait roster grid: ~720–760pt usable → 3-up at minimum 220. Mac raises the
+    // minimum so workspace-width cards stay card-shaped (5–6 up) instead of slivers.
+    private var grid: [GridItem] {
+        [GridItem(.adaptive(minimum: MacDesign.isMac ? 270 : 220), spacing: 14)]
+    }
+    // Top summary: four compact tiles in a row at portrait width (~740pt → min 165 =
+    // 4-up). Mac: exactly four flexible columns so the strip fills the workspace row.
+    private var summaryGrid: [GridItem] {
+        MacDesign.isMac
+            ? Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
+            : [GridItem(.adaptive(minimum: 165), spacing: 12)]
+    }
 
     var body: some View {
         Group {
@@ -163,6 +171,8 @@ struct CellEngagementView: View {
                                 hint: "\(totalAtRisk) members", color: Nuru.danger)
                 }
                 .padding(.horizontal, 20)
+                // Mac: analytics workspace — fill the window (with margins).
+                .macContentColumn(MacDesign.workspaceMaxWidth)
 
                 VStack(alignment: .leading, spacing: 16) {
                     HStack(alignment: .bottom) {
@@ -203,13 +213,20 @@ struct CellEngagementView: View {
                     if !cells.isEmpty {
                         // Side-by-side on the wide canvas so neither panel runs tall
                         // with empty width; stacks naturally when space is tight.
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 380), spacing: 16)], alignment: .leading, spacing: 16) {
+                        // Mac: exactly two flexible lanes so the pair splits the
+                        // workspace row instead of bunching left in an adaptive grid.
+                        LazyVGrid(columns: MacDesign.isMac
+                                    ? Array(repeating: GridItem(.flexible(), spacing: 16, alignment: .top), count: 2)
+                                    : [GridItem(.adaptive(minimum: 380), spacing: 16)],
+                                  alignment: .leading, spacing: 16) {
                             leaderboard(ranked)
                             atRiskList(byRisk)
                         }
                     }
                 }
                 .padding(.horizontal, 20)
+                // Mac: analytics workspace — fill the window (with margins).
+                .macContentColumn(MacDesign.workspaceMaxWidth)
             }
             .padding(.bottom, 40)
         }

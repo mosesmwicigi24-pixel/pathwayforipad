@@ -119,6 +119,7 @@ struct RolesView: View {
                 .padding(.horizontal, Nuru.S.screen)
                 .padding(.top, Nuru.S.lg)
                 .padding(.bottom, Nuru.S.xxl)
+                .macContentColumn(1500)   // Mac: role list breathes at ~1500; matrix/forms stay in sheets
             }
         }
         .onAppear { createRoles = roles }

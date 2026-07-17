@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowRight, ChevronRight, Sparkles, MoreHorizontal, BookOpen, ClipboardCheck,
+  ArrowRight, ChevronRight, Sparkles, BookOpen, ClipboardCheck,
   Award, AlertTriangle, CalendarDays, HelpCircle, TrendingUp, FileEdit, Eye,
   UploadCloud, CheckCircle2, UserPlus, FilePlus2, Bell, PlayCircle,
   Download, Printer, CalendarRange, Filter, BarChart3, Globe, Languages as LanguagesIcon,
@@ -23,11 +23,13 @@ import {
 const REPORT_TABS = ["Overview", "Curriculum", "Members"] as const;
 type ReportTab = (typeof REPORT_TABS)[number];
 
+// On-brand band colors (iPad palette): bright LED green for thriving, luminous brand
+// navy for steady, gold for watch, luminous red for at-risk — no off-brand blue.
 const BAND_META: { key: string; name: string; color: string }[] = [
-  { key: "thriving", name: "Thriving", color: "#16A34A" },
-  { key: "steady", name: "Steady", color: "#1F3A6B" },
-  { key: "watch", name: "Watch", color: "#C89B3C" },
-  { key: "at_risk", name: "At-risk", color: "#DC2626" },
+  { key: "thriving", name: "Thriving", color: "#22c55e" },
+  { key: "steady", name: "Steady", color: "#1d4e86" },
+  { key: "watch", name: "Watch", color: "#c89b3c" },
+  { key: "at_risk", name: "At risk", color: "#f0405f" },
 ];
 
 const pct = (v: number): string => `${Math.round((v ?? 0) * 100)}%`;
@@ -101,22 +103,26 @@ export function Dashboard(): ReactElement {
     { label: "Avg engagement", value: pct(o?.avg_engagement ?? 0), hint: "last 7 days" },
   ];
 
+  // Pastel KPI cards — distinct soft tint per card, matching the iPad Dashboard tiles.
+  // Each pulls its bg/fg from the iPad-evolved tint tokens in index.css.
   const kpis: { label: string; value: string; icon: LucideIcon; tint: string; tone: string; route: string }[] = [
-    { label: "Modules published", value: String(o?.modules_published ?? 0), icon: BookOpen, tint: "#FDF5E5", tone: "#8A6B1F", route: "/cms" },
-    { label: "Pending reviews", value: String(o?.pending_reviews ?? 0), icon: ClipboardCheck, tint: "#FDECEC", tone: "#A8281F", route: "/reflection-queue" },
-    { label: "Certificates (mo.)", value: String(o?.certificates_this_month ?? 0), icon: Award, tint: "#E8F6EE", tone: "#0F6B33", route: "/certificates" },
-    { label: "Members at risk", value: String(o?.members_at_risk ?? 0), icon: AlertTriangle, tint: "#EEF1F8", tone: "#1F3A6B", route: "/cell-engagement" },
-    { label: "Countries", value: String(countriesActive), icon: Globe, tint: "#EEF1F8", tone: "#1F3A6B", route: "/countries" },
-    { label: "Languages", value: String(languagesActive), icon: LanguagesIcon, tint: "#F3E8FF", tone: "#7C3AED", route: "/languages" },
+    { label: "Modules published", value: String(o?.modules_published ?? 0), icon: BookOpen, tint: "var(--tint-gold-bg)", tone: "var(--tint-gold-fg)", route: "/cms" },
+    { label: "Pending reviews", value: String(o?.pending_reviews ?? 0), icon: ClipboardCheck, tint: "var(--tint-rose-bg)", tone: "var(--tint-rose-fg)", route: "/reflection-queue" },
+    { label: "Certificates (mo.)", value: String(o?.certificates_this_month ?? 0), icon: Award, tint: "var(--tint-green-bg)", tone: "var(--tint-green-fg)", route: "/certificates" },
+    { label: "Members at risk", value: String(o?.members_at_risk ?? 0), icon: AlertTriangle, tint: "var(--tint-amber-bg)", tone: "var(--tint-amber-fg)", route: "/cell-engagement" },
+    { label: "Countries", value: String(countriesActive), icon: Globe, tint: "var(--tint-navy-bg)", tone: "var(--tint-navy-fg)", route: "/countries" },
+    { label: "Languages", value: String(languagesActive), icon: LanguagesIcon, tint: "var(--tint-violet-bg)", tone: "var(--tint-violet-fg)", route: "/languages" },
   ];
 
   const sum = (pick: (l: AdminLevel) => string | number): number =>
     levels.reduce((s, l) => s + Number(pick(l) || 0), 0);
+  // Colored pipeline tiles (iPad): Drafts amber/gold · In review lavender/violet ·
+  // Archived rose · Published green.
   const pipeline = [
-    { label: "Drafts", value: sum((l) => l.draft_count), tint: "#FDF5E5", tone: "#8A6B1F", icon: FileEdit },
-    { label: "In review", value: levels.filter((l) => l.status === "in_review").length, tint: "#EEF1F8", tone: "#1F3A6B", icon: Eye },
-    { label: "Archived", value: sum((l) => l.archived_count), tint: "#FDECEC", tone: "#A8281F", icon: UploadCloud },
-    { label: "Published", value: sum((l) => l.published_count), tint: "#E8F6EE", tone: "#0F6B33", icon: CheckCircle2 },
+    { label: "Drafts", value: sum((l) => l.draft_count), tint: "var(--tint-gold-bg)", tone: "var(--tint-gold-fg)", icon: FileEdit },
+    { label: "In review", value: levels.filter((l) => l.status === "in_review").length, tint: "var(--tint-violet-bg)", tone: "var(--tint-violet-fg)", icon: Eye },
+    { label: "Archived", value: sum((l) => l.archived_count), tint: "var(--tint-rose-bg)", tone: "var(--tint-rose-fg)", icon: UploadCloud },
+    { label: "Published", value: sum((l) => l.published_count), tint: "var(--tint-green-bg)", tone: "var(--tint-green-fg)", icon: CheckCircle2 },
   ];
   const pipelineTotal = pipeline.reduce((s, p) => s + p.value, 0);
 
@@ -133,10 +139,10 @@ export function Dashboard(): ReactElement {
   );
 
   const risks = [
-    { label: "Members at risk", value: o?.members_at_risk ?? 0, tone: "#DC2626", hint: "low attendance + missed reflections" },
-    { label: "Reviews overdue (>3 days)", value: o?.reviews_overdue ?? 0, tone: "#DC2626", hint: "pastoral queue" },
-    { label: "Guardian consents to renew", value: consents, tone: "#D97706", hint: "minors needing renewal" },
-    { label: "Videos stuck encoding", value: stuck, tone: "#D97706", hint: "queued in the pipeline" },
+    { label: "Members at risk", value: o?.members_at_risk ?? 0, tone: "#f0405f", hint: "low attendance + missed reflections" },
+    { label: "Reviews overdue (>3 days)", value: o?.reviews_overdue ?? 0, tone: "#f0405f", hint: "pastoral queue" },
+    { label: "Guardian consents to renew", value: consents, tone: "#e08a1e", hint: "minors needing renewal" },
+    { label: "Videos stuck encoding", value: stuck, tone: "#e08a1e", hint: "queued in the pipeline" },
   ];
 
   return (
@@ -178,25 +184,28 @@ export function Dashboard(): ReactElement {
 
       {/* ── Body ── */}
       <div style={{ padding: "24px clamp(16px, 4vw, 48px) 48px" }}>
-        {/* KPI tiles */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5 nuru-card-rotate">
+        {/* KPI tiles — soft pastel cards, one per tile, each with a tinted rounded icon
+            chip, a big number, and a label (iPad Dashboard tile look). */}
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-5">
           {kpis.map((k) => {
             const Icon = k.icon;
             return (
-              <div key={k.label} onClick={() => navigate(k.route)} className="rounded-2xl flex items-center gap-3 cursor-pointer" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "16px 18px" }}>
-                <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 42, height: 42, background: k.tint, color: k.tone }}><Icon size={19} /></div>
-                <div className="min-w-0 flex-1">
-                  <div style={{ fontSize: 11, color: "var(--muted-foreground)", letterSpacing: "0.02em" }}>{k.label}</div>
-                  <div style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--nuru-navy)", lineHeight: 1.1, marginTop: 2 }}>{k.value}</div>
-                </div>
-                <span className="rounded-md p-1" style={{ color: "var(--muted-foreground)" }}><MoreHorizontal size={14} /></span>
+              <div
+                key={k.label}
+                onClick={() => navigate(k.route)}
+                className="rounded-2xl flex flex-col gap-2.5 cursor-pointer transition-shadow"
+                style={{ background: k.tint, border: `1px solid ${k.tone}2e`, padding: "16px 16px 18px" }}
+              >
+                <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 38, height: 38, background: "rgba(255,255,255,0.65)", color: k.tone }}><Icon size={18} /></div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 26, color: "var(--nuru-navy)", lineHeight: 1 }}>{k.value}</div>
+                <div style={{ fontSize: 11.5, color: k.tone, fontWeight: 600, lineHeight: 1.2 }}>{k.label}</div>
               </div>
             );
           })}
         </div>
 
         {/* Curriculum pipeline */}
-        <div className="rounded-2xl mb-5" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "18px 20px" }}>
+        <div className="rounded-2xl mb-5" style={{ background: "#fff", border: "1px solid var(--border)", padding: "18px 20px", boxShadow: "0 6px 18px rgba(10,37,64,0.06)" }}>
           <div className="flex items-center justify-between mb-3.5">
             <div className="flex items-center gap-2">
               <TrendingUp size={14} style={{ color: "var(--nuru-navy)" }} />
@@ -222,7 +231,7 @@ export function Dashboard(): ReactElement {
         </div>
 
         {/* Pathway Report */}
-        <div className="rounded-2xl mb-5" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "20px 22px" }}>
+        <div className="rounded-2xl mb-5" style={{ background: "#fff", border: "1px solid var(--border)", padding: "20px 22px", boxShadow: "0 6px 18px rgba(10,37,64,0.06)" }}>
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
             <div className="min-w-0">
               <h2 style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--nuru-navy)", lineHeight: 1.15 }}>Pathway Report</h2>
@@ -247,7 +256,7 @@ export function Dashboard(): ReactElement {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             {/* Donut */}
-            <div className="rounded-xl" style={{ background: "var(--secondary)", border: "1px solid var(--border)", padding: "16px 18px" }}>
+            <div className="rounded-xl" style={{ background: "#fbf8f1", border: "1px solid var(--border)", padding: "16px 18px" }}>
               <div className="flex items-center justify-between mb-2">
                 <h3 style={{ fontSize: 13, fontWeight: 700, color: "var(--nuru-navy)" }}>Status distribution</h3>
                 <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{totalLearners} learners</span>
@@ -269,7 +278,7 @@ export function Dashboard(): ReactElement {
             </div>
 
             {/* Breakdown */}
-            <div className="rounded-xl" style={{ background: "var(--secondary)", border: "1px solid var(--border)", padding: "16px 18px" }}>
+            <div className="rounded-xl" style={{ background: "#fbf8f1", border: "1px solid var(--border)", padding: "16px 18px" }}>
               <div className="flex items-center justify-between mb-2">
                 <h3 style={{ fontSize: 13, fontWeight: 700, color: "var(--nuru-navy)" }}>Status breakdown</h3>
                 <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>by band</span>
@@ -294,7 +303,7 @@ export function Dashboard(): ReactElement {
             </div>
 
             {/* Engagement bars */}
-            <div className="rounded-xl" style={{ background: "var(--secondary)", border: "1px solid var(--border)", padding: "16px 18px" }}>
+            <div className="rounded-xl" style={{ background: "#fbf8f1", border: "1px solid var(--border)", padding: "16px 18px" }}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1.5">
                   <BarChart3 size={13} style={{ color: "var(--nuru-gold)" }} />
@@ -323,7 +332,7 @@ export function Dashboard(): ReactElement {
 
         {/* Activity + Quick actions */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
-          <div className="lg:col-span-2 rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "18px 20px" }}>
+          <div className="lg:col-span-2 rounded-2xl" style={{ background: "#fff", border: "1px solid var(--border)", padding: "18px 20px", boxShadow: "0 6px 18px rgba(10,37,64,0.06)" }}>
             <div className="flex items-center justify-between mb-3">
               <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)" }}>Recent activity</h2>
               <button onClick={() => navigate("/cell-engagement")} style={{ fontSize: 12, color: "var(--nuru-gold)", fontWeight: 600, background: "none", border: "none" }}>View all</button>
@@ -334,7 +343,7 @@ export function Dashboard(): ReactElement {
               <ul className="flex flex-col">
                 {activity.map((a, i) => (
                   <li key={a.audit_id} className="flex items-start gap-3 py-3" style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
-                    <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 32, height: 32, background: "rgba(31,58,107,0.08)", color: "#1F3A6B" }}><TrendingUp size={15} /></div>
+                    <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 32, height: 32, background: "var(--tint-navy-bg)", color: "var(--tint-navy-fg)" }}><TrendingUp size={15} /></div>
                     <div className="flex-1 min-w-0">
                       <div style={{ fontSize: 13, color: "var(--nuru-navy)", fontWeight: 600, lineHeight: 1.35 }}>{humanize(a.action)}</div>
                       <div style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginTop: 2 }}>{a.entity ?? "system"}{a.actor_name ? ` · ${a.actor_name}` : ""}</div>
@@ -346,7 +355,7 @@ export function Dashboard(): ReactElement {
             )}
           </div>
 
-          <div className="rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "18px 20px" }}>
+          <div className="rounded-2xl" style={{ background: "#fff", border: "1px solid var(--border)", padding: "18px 20px", boxShadow: "0 6px 18px rgba(10,37,64,0.06)" }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)", marginBottom: 12 }}>Quick actions</h2>
             <ul className="flex flex-col">
               {QUICK_ACTIONS.map((q, i) => {
@@ -367,7 +376,7 @@ export function Dashboard(): ReactElement {
 
         {/* Upcoming + Risks */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <div className="lg:col-span-2 rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "18px 20px" }}>
+          <div className="lg:col-span-2 rounded-2xl" style={{ background: "#fff", border: "1px solid var(--border)", padding: "18px 20px", boxShadow: "0 6px 18px rgba(10,37,64,0.06)" }}>
             <div className="flex items-center justify-between mb-3">
               <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)" }}>Upcoming events</h2>
               <button onClick={() => navigate("/events")} style={{ fontSize: 12, color: "var(--nuru-gold)", fontWeight: 600, background: "none", border: "none" }}>Calendar</button>
@@ -399,10 +408,10 @@ export function Dashboard(): ReactElement {
             )}
           </div>
 
-          <div className="rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "18px 20px" }}>
+          <div className="rounded-2xl" style={{ background: "#fff", border: "1px solid var(--border)", padding: "18px 20px", boxShadow: "0 6px 18px rgba(10,37,64,0.06)" }}>
             <div className="flex items-center justify-between mb-3">
               <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)" }}>Needs attention</h2>
-              <AlertTriangle size={14} style={{ color: "#DC2626" }} />
+              <AlertTriangle size={14} style={{ color: "var(--lum-red)" }} />
             </div>
             <ul className="flex flex-col">
               {risks.map((r, i) => (

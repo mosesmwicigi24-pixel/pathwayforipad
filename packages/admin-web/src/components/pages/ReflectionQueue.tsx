@@ -24,6 +24,8 @@ const STATUS_FILTERS = ["All", "Oldest", "New", "Needs attention"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 
 const PALETTE = { gold: "#C89B3C", navy: "#0B1F33", green: "#16A34A" };
+// Visible navy hairline on white controls (iPad parity: rgba(10,37,64,0.22)).
+const RQ_CONTROL_BORDER = "rgba(10,37,64,0.22)";
 const bandStyle: Record<string, { bg: string; fg: string }> = {
   thriving: { bg: "#E8F6EE", fg: "#0F6B33" }, steady: { bg: "#FDF5E5", fg: "#8A6B1F" },
   watch: { bg: "#FDF0E6", fg: "#C2410C" }, at_risk: { bg: "#FDECEC", fg: "#A8281F" },
@@ -186,56 +188,70 @@ export function ReflectionQueue(): ReactElement {
         {error && <div className="rounded-xl mb-4" style={{ padding: "10px 14px", background: "#FDECEC", color: "#A8281F", fontSize: 13, fontWeight: 600 }}>{error}</div>}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* Queue list */}
-          <aside className="lg:col-span-5 xl:col-span-4 rounded-2xl overflow-hidden" style={{ background: "#fff", border: "1px solid var(--border)", alignSelf: "start" }}>
-            <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+          {/* Queue list — header card + discrete reflection cards (iPad parity:
+              each row a white surface with border + shadow, gold rail + warm fill
+              when selected, so cards stand off the paper page). */}
+          <aside className="lg:col-span-5 xl:col-span-4 flex flex-col gap-3" style={{ alignSelf: "start" }}>
+            <div className="rounded-2xl px-4 py-4" style={{ background: "#fff", border: "1px solid var(--border)", boxShadow: "0 1px 2px rgba(11,31,51,0.05)" }}>
               <div className="flex items-center justify-between mb-1">
                 <span style={{ fontFamily: "var(--font-display)", fontSize: 16, color: "var(--nuru-navy)", textTransform: "capitalize" }}>{tab} reflections</span>
                 <span className="rounded-full px-2 py-0.5" style={{ background: "var(--nuru-navy)", color: "#fff", fontSize: 11, fontWeight: 700 }}>{filtered.length}</span>
               </div>
               <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginBottom: 12 }}>{sort === "oldest" ? "Oldest submissions appear first" : "Newest submissions appear first"}</div>
-              <div className="relative mb-2">
+              <div className="relative mb-2.5">
                 <Search size={13} className="absolute" style={{ left: 10, top: 9, color: "var(--muted-foreground)" }} />
                 <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search member" className="w-full rounded-xl pl-8 pr-3 py-2 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 12 }} />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <select value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)} className="rounded-xl px-2 py-2 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 11 }}>{levelOptions.map((l) => <option key={l}>{l}</option>)}</select>
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} className="rounded-xl px-2 py-2 outline-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 11 }}>{STATUS_FILTERS.map((s) => <option key={s}>{s}</option>)}</select>
+              <div className="mb-2.5">
+                <select value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)} className="w-full rounded-xl px-3 outline-none" style={{ height: 36, background: "#fff", border: `1px solid ${RQ_CONTROL_BORDER}`, fontSize: 12, fontWeight: 600, color: "var(--foreground)" }}>{levelOptions.map((l) => <option key={l}>{l}</option>)}</select>
+              </div>
+              {/* Status filter — custom segmented control. Selected = solid navy +
+                  white text; unselected = dark ink on a bordered white chip
+                  (the native <select> rendered low-contrast). */}
+              <div className="flex items-center gap-1.5 rounded-xl p-1" style={{ background: "var(--secondary)", border: "1px solid var(--border)" }}>
+                {STATUS_FILTERS.map((s) => {
+                  const on = statusFilter === s;
+                  return (
+                    <button key={s} onClick={() => setStatusFilter(s)} className="flex-1 rounded-lg" style={{ padding: "6px 4px", fontSize: 11, fontWeight: 700, background: on ? "var(--nuru-navy)" : "#fff", color: on ? "#fff" : "var(--foreground)", border: on ? "1px solid transparent" : `1px solid ${RQ_CONTROL_BORDER}` }}>{s}</button>
+                  );
+                })}
               </div>
             </div>
-            <div style={{ maxHeight: 720, overflowY: "auto" }}>
-              {filtered.length === 0 ? (
-                <div className="flex flex-col items-center text-center" style={{ padding: 32 }}>
-                  <div className="rounded-2xl flex items-center justify-center mb-4" style={{ width: 56, height: 56, background: "#F5E7C5", color: "#92651B" }}><BookOpen size={24} /></div>
-                  <div style={{ fontFamily: "var(--font-display)", fontSize: 16, color: "var(--nuru-navy)", marginBottom: 6 }}>Queue is clear — well shepherded</div>
-                  <div style={{ fontSize: 12, color: "var(--muted-foreground)", lineHeight: 1.6 }}>No {tab} reflections match these filters.</div>
-                </div>
-              ) : filtered.map((r) => {
-                const sel = current?.reflection_id === r.reflection_id;
-                const pri = priorityOf(r);
-                const ps = priChip[pri];
-                const days = ageDays(r.submitted_at);
-                return (
-                  <button key={r.reflection_id} onClick={() => setSelId(r.reflection_id)} className="w-full text-left" style={{ background: sel ? "#FFFBEB" : "transparent", borderBottom: "1px solid var(--border)", borderLeft: sel ? "3px solid var(--nuru-gold)" : "3px solid transparent", padding: "14px 16px" }}>
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-xl flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: "var(--nuru-navy)", color: "#fff", fontSize: 13, fontWeight: 700 }}>{initials(r.full_name)}</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="flex items-center justify-between gap-2">
-                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{r.full_name}</span>
-                          {tab === "pending" && <span className="rounded-full px-2 py-0.5 flex items-center gap-1" style={{ background: ps.bg, color: ps.fg, fontSize: 10, fontWeight: 700 }}><span className="rounded-full" style={{ width: 5, height: 5, background: ps.dot }} />{pri}</span>}
-                        </div>
-                        <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 2 }}>L{r.level_number - 1} → <span style={{ color: "var(--nuru-gold)", fontWeight: 700 }}>L{r.level_number}</span> · {r.module_title}</div>
-                        <div style={{ fontSize: 12, color: "var(--foreground)", marginTop: 6, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{r.body.split("\n")[0]}</div>
-                        <div className="flex items-center gap-1.5 mt-2">
-                          <Clock size={10} style={{ color: days >= 4 ? "#DC2626" : "var(--muted-foreground)" }} />
-                          <span style={{ fontSize: 10, color: days >= 4 ? "#DC2626" : "var(--muted-foreground)" }}>{days === 0 ? "Today" : `${days}d ago`}</span>
+            {filtered.length === 0 ? (
+              <div className="rounded-2xl flex flex-col items-center text-center" style={{ background: "#fff", border: "1px solid var(--border)", padding: 32, boxShadow: "0 1px 2px rgba(11,31,51,0.05)" }}>
+                <div className="rounded-2xl flex items-center justify-center mb-4" style={{ width: 56, height: 56, background: "#F5E7C5", color: "#92651B" }}><BookOpen size={24} /></div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 16, color: "var(--nuru-navy)", marginBottom: 6 }}>Queue is clear — well shepherded</div>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", lineHeight: 1.6 }}>No {tab} reflections match these filters.</div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2.5" style={{ maxHeight: 760, overflowY: "auto" }}>
+                {filtered.map((r) => {
+                  const sel = current?.reflection_id === r.reflection_id;
+                  const pri = priorityOf(r);
+                  const ps = priChip[pri];
+                  const days = ageDays(r.submitted_at);
+                  return (
+                    <button key={r.reflection_id} onClick={() => setSelId(r.reflection_id)} className="w-full text-left rounded-2xl transition-all" style={{ background: sel ? "#FFFBEB" : "#fff", border: `1px solid ${sel ? "var(--nuru-gold)" : "rgba(10,37,64,0.16)"}`, borderLeft: `3px solid ${sel ? "var(--nuru-gold)" : "transparent"}`, padding: "13px 15px", boxShadow: sel ? "0 4px 14px rgba(200,155,60,0.18)" : "0 1px 2px rgba(11,31,51,0.05)" }}>
+                      <div className="flex items-start gap-3">
+                        <div className="rounded-xl flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: "var(--nuru-navy)", color: "#fff", fontSize: 13, fontWeight: 700 }}>{initials(r.full_name)}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>{r.full_name}</span>
+                            {tab === "pending" && <span className="rounded-full px-2 py-0.5 flex items-center gap-1" style={{ background: ps.bg, color: ps.fg, fontSize: 10, fontWeight: 700 }}><span className="rounded-full" style={{ width: 5, height: 5, background: ps.dot }} />{pri}</span>}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 2 }}>L{r.level_number - 1} → <span style={{ color: "var(--nuru-gold)", fontWeight: 700 }}>L{r.level_number}</span> · {r.module_title}</div>
+                          <div style={{ fontSize: 12, color: "var(--foreground)", marginTop: 6, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{r.body.split("\n")[0]}</div>
+                          <div className="flex items-center gap-1.5 mt-2">
+                            <Clock size={10} style={{ color: days >= 4 ? "#DC2626" : "var(--muted-foreground)" }} />
+                            <span style={{ fontSize: 10, color: days >= 4 ? "#DC2626" : "var(--muted-foreground)" }}>{days === 0 ? "Today" : `${days}d ago`}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </aside>
 
           {/* Workspace */}
@@ -307,18 +323,24 @@ export function ReflectionQueue(): ReactElement {
                       <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginBottom: 8 }}>Private to authorized leaders — never sent to the member (§5.4).</div>
                       <textarea value={pastoral} onChange={(e) => setPastoral(e.target.value)} rows={2} placeholder="Add a private note for the review record…" className="w-full rounded-xl px-4 py-3 outline-none resize-none" style={{ background: "var(--input-background)", border: "1px solid var(--border)", fontSize: 14, lineHeight: 1.6 }} />
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
-                      <button onClick={() => void decide("approve")} disabled={busy} className="rounded-2xl p-5 text-left" style={{ background: "#E8F6EC", border: "1px solid #BBE5C5", opacity: busy ? 0.6 : 1 }}>
-                        <div className="flex items-center gap-2 mb-2"><div className="rounded-lg flex items-center justify-center" style={{ width: 32, height: 32, background: "#16A34A", color: "#fff" }}><CheckCircle2 size={16} /></div><span style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "#15803D" }}>Approve & Advance</span></div>
-                        <div style={{ fontSize: 12, color: "#15803D", lineHeight: 1.55 }}>Advance the member to the next level and notify them.</div>
+                    {/* Decision controls (iPad parity, no off-brand blue):
+                        Approve = filled brand green; Return = gold-bordered on
+                        white; Defer = subtle navy-hairline surface. */}
+                    <div className="flex flex-col gap-2.5 mb-3">
+                      <button onClick={() => void decide("approve")} disabled={busy} className="flex items-center gap-3 rounded-2xl text-left" style={{ background: "#16A34A", border: "1px solid transparent", padding: "13px 16px", minHeight: 56, opacity: busy ? 0.6 : 1 }}>
+                        <div className="rounded-lg flex items-center justify-center shrink-0" style={{ width: 32, height: 32, background: "rgba(255,255,255,0.18)", color: "#fff" }}><CheckCircle2 size={17} /></div>
+                        <div style={{ minWidth: 0 }}><div style={{ fontSize: 14.5, fontWeight: 700, color: "#fff" }}>Approve & Advance</div><div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", lineHeight: 1.45 }}>Advance the member to the next level and notify them.</div></div>
                       </button>
-                      <button onClick={() => void decide("return")} disabled={busy} className="rounded-2xl p-5 text-left" style={{ background: "#FFFBEB", border: "1px solid #F5E0A8", opacity: busy ? 0.6 : 1 }}>
-                        <div className="flex items-center gap-2 mb-2"><div className="rounded-lg flex items-center justify-center" style={{ width: 32, height: 32, background: "#C89B3C", color: "#fff" }}><MessageSquare size={16} /></div><span style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "#92651B" }}>Return for Revision</span></div>
-                        <div style={{ fontSize: 12, color: "#92651B", lineHeight: 1.55 }}>Send kind feedback and allow the member to revise and resubmit.</div>
+                      <button onClick={() => void decide("return")} disabled={busy} className="flex items-center gap-3 rounded-2xl text-left" style={{ background: "#fff", border: "1.5px solid var(--nuru-gold)", padding: "13px 16px", minHeight: 56, opacity: busy ? 0.6 : 1 }}>
+                        <div className="rounded-lg flex items-center justify-center shrink-0" style={{ width: 32, height: 32, background: "#FFFBEB", color: "#92651B", border: "1px solid #F5E0A8" }}><MessageSquare size={17} /></div>
+                        <div style={{ minWidth: 0 }}><div style={{ fontSize: 14.5, fontWeight: 700, color: "#92651B" }}>Return for Revision</div><div style={{ fontSize: 12, color: "var(--muted-foreground)", lineHeight: 1.45 }}>Send kind feedback and allow the member to revise and resubmit.</div></div>
+                      </button>
+                      <button onClick={() => void decide("defer")} disabled={busy} className="flex items-center gap-3 rounded-2xl text-left" style={{ background: "var(--secondary)", border: `1px solid ${RQ_CONTROL_BORDER}`, padding: "12px 16px", minHeight: 52, opacity: busy ? 0.6 : 1 }}>
+                        <div className="rounded-lg flex items-center justify-center shrink-0" style={{ width: 32, height: 32, background: "#fff", color: "var(--foreground)", border: `1px solid ${RQ_CONTROL_BORDER}` }}><Calendar size={16} /></div>
+                        <div style={{ minWidth: 0 }}><div style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Defer review</div><div style={{ fontSize: 12, color: "var(--muted-foreground)", lineHeight: 1.45 }}>Set aside for now and keep it in the deferred list.</div></div>
                       </button>
                     </div>
-                    <div className="flex flex-wrap items-center justify-between gap-3 pt-4" style={{ borderTop: "1px solid var(--border)" }}>
-                      <button onClick={() => void decide("defer")} disabled={busy} className="flex items-center gap-2 rounded-xl px-4 py-2.5" style={{ background: "transparent", color: "var(--foreground)", fontSize: 13, fontWeight: 600, border: "1px solid var(--border)" }}><Calendar size={14} /> Defer review</button>
+                    <div className="flex flex-wrap items-center justify-end gap-3 pt-4" style={{ borderTop: "1px solid var(--border)" }}>
                       <span style={{ fontSize: 12, color: "var(--muted-foreground)", fontStyle: "italic" }}>“Shepherd the flock of God that is among you…” — 1 Peter 5:2</span>
                     </div>
                   </div>

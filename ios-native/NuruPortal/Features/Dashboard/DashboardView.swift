@@ -79,11 +79,36 @@ struct DashboardView: View {
     // KPI strip → FIVE compact tiles per row at portrait width (~740pt usable):
     // 5 × 132 + 4 × 12 spacing = 708 ≤ 740. A 6th KPI wraps cleanly to row 2.
     private let grid = [GridItem(.adaptive(minimum: 132), spacing: 12)]
+    // Mac: measured content-column width (background reader — see `measureWidth`).
+    // Drives the desktop breakpoints so the composition reflows with the window.
+    @State private var macWidth: CGFloat = 0
+
+    /// Mac breakpoints on the MEASURED content width (window ≈ width + 2×28pt
+    /// page margins):
+    ///   threeLane  ≥1440 (window ≳1500) — chips 6-up + REPORTS | PULSE | AHEAD
+    ///   twoLane    ≥1120 (window ≳1180) — chips 3×2 + REPORTS (55%) | PULSE+AHEAD (45%)
+    ///   stacked    <1120                — chips 3×2 (2×3 if very narrow) + one column
+    private enum MacDashMode { case threeLane, twoLane, stacked }
+    private var macMode: MacDashMode {
+        // width 0 = the single pre-measurement frame; the window now defaults
+        // wide (MacWindow.applyPreferredSize), so start from the wide layout.
+        if macWidth == 0 || macWidth >= 1440 { return .threeLane }
+        return macWidth >= 1120 ? .twoLane : .stacked
+    }
+
+    // Mac KPI strip → PINNED flexible columns (no 5+1 orphan, no dead trailing
+    // column — the exact under-utilization an adaptive minimum reintroduces):
+    // six in one row on the wide canvas, 3×2 below the three-lane breakpoint,
+    // 2×3 if the window ever gets very narrow. Every tile stays > the iPad 132 min.
+    private var macKpiColumns: [GridItem] {
+        let count = macMode == .threeLane ? 6 : (macWidth >= 720 ? 3 : 2)
+        return Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top), count: count)
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
-                hero
+                heroBlock
                 if vm.loading && vm.overview == nil {
                     // Loading mirrors the real layout: KPI-tile grid up top, then a
                     // table-shaped strip where the pipeline/report cards land.
@@ -91,7 +116,9 @@ struct DashboardView: View {
                         SkeletonGrid(tiles: 6, columns: 3)
                         SkeletonTable(rows: 5)
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, MacDesign.isMac ? 0 : 20)
+                } else if MacDesign.isMac {
+                    macDashboard
                 } else {
                     LazyVGrid(columns: grid, spacing: 12) { kpiTiles }.padding(.horizontal, 20)
                     PipelineSection(levels: vm.levels).padding(.horizontal, 20)
@@ -100,12 +127,69 @@ struct DashboardView: View {
                 }
             }
             .padding(.bottom, 40)
+            // Workspace page: fill the window (margins only) — a dashboard composes
+            // in lanes and takes the width, not a readable text column.
+            .macContentColumn(MacDesign.workspaceMaxWidth)
         }
         .background(Nuru.paper)
         .navigationTitle("Dashboard")
         .navigationBarTitleDisplayMode(.inline)
         .task { if vm.overview == nil { await vm.load() } }
         .refreshable { await vm.load() }
+    }
+
+    /// Desktop composition, responsive to the live window width (Mac only —
+    /// iPad renders the untouched branch in `body`). Stat tiles up top, then the
+    /// same cards recomposed per breakpoint in morning-review order — REPORTS
+    /// (how are we doing) | PULSE (what happened) | AHEAD (what's coming).
+    private var macDashboard: some View {
+        VStack(spacing: 18) {
+            LazyVGrid(columns: macKpiColumns, spacing: 12) { kpiTiles }
+            switch macMode {
+            case .threeLane:
+                // Wide canvas: three top-aligned lanes (40 / 30 / 30).
+                MacDashLanes {
+                    PathwayReport(bands: vm.bands, trend: vm.trend)
+                    PipelineSection(levels: vm.levels)
+                } pulse: {
+                    ActivityCard(activity: vm.activity)
+                    RisksCard(overview: vm.overview, consents: vm.consents, stuck: vm.stuck)
+                } ahead: {
+                    UpcomingCard(events: vm.upcoming)
+                }
+            case .twoLane:
+                // Mid width: REPORTS keeps the charts readable at 55%; the pulse
+                // and ahead feeds stack in the remaining 45%.
+                MacLanes(split: 0.55) {
+                    PathwayReport(bands: vm.bands, trend: vm.trend)
+                    PipelineSection(levels: vm.levels)
+                } secondary: {
+                    ActivityCard(activity: vm.activity)
+                    RisksCard(overview: vm.overview, consents: vm.consents, stuck: vm.stuck)
+                    UpcomingCard(events: vm.upcoming)
+                }
+            case .stacked:
+                // Narrow window: one clean column, report first.
+                PathwayReport(bands: vm.bands, trend: vm.trend)
+                PipelineSection(levels: vm.levels)
+                ActivityCard(activity: vm.activity)
+                RisksCard(overview: vm.overview, consents: vm.consents, stuck: vm.stuck)
+                UpcomingCard(events: vm.upcoming)
+            }
+        }
+        .measureWidth($macWidth)
+    }
+
+    /// The navy hero — full-bleed on iPad; on the Mac it floats inside the centered
+    /// content column, so it gets card corners and a breath of top space.
+    @ViewBuilder private var heroBlock: some View {
+        if MacDesign.isMac {
+            hero
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
+                .padding(.top, MacDesign.gutter)
+        } else {
+            hero
+        }
     }
 
     // Hero
@@ -150,6 +234,67 @@ struct DashboardView: View {
 }
 
 func Pctf(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
+
+// MARK: - Desktop two-lane composition (Mac only)
+
+/// Two top-aligned desktop lanes (~58/42 by default): heavy charts/tables in the
+/// primary lane, feeds/lists in the secondary. The frozen kit's `MacColumns` sizes
+/// itself with a GeometryReader, which collapses inside a vertical ScrollView —
+/// this variant measures its width with `measureWidth` (background reader) instead,
+/// so the lanes keep their natural content-driven heights on scrolling pages. Only
+/// instantiate on Mac (`MacDesign.isMac`); shared by Dashboard and People Intelligence.
+struct MacLanes<Primary: View, Secondary: View>: View {
+    var split: CGFloat = 0.58
+    @ViewBuilder var primary: () -> Primary
+    @ViewBuilder var secondary: () -> Secondary
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        HStack(alignment: .top, spacing: MacDesign.gutter) {
+            VStack(alignment: .leading, spacing: MacDesign.gutter) { primary() }
+                .frame(width: primaryWidth, alignment: .top)
+            VStack(alignment: .leading, spacing: MacDesign.gutter) { secondary() }
+                .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .measureWidth($width)
+    }
+
+    /// nil until the first measurement lands — the lanes share the row evenly
+    /// for that single frame, then settle on the split.
+    private var primaryWidth: CGFloat? {
+        width > 0 ? (width - MacDesign.gutter) * split : nil
+    }
+}
+
+/// Three top-aligned desktop lanes (~40 / 30 / 30) in morning-review order:
+/// REPORTS (how are we doing) | PULSE (what happened) | AHEAD (what's coming).
+/// Hand-rolled HStack measured with `measureWidth` (a GeometryReader wrapper
+/// would collapse inside the vertical ScrollView), so each lane keeps its
+/// natural content-driven height. Mac only, wide (three-lane) breakpoint only.
+private struct MacDashLanes<Reports: View, Pulse: View, Ahead: View>: View {
+    @ViewBuilder var reports: () -> Reports
+    @ViewBuilder var pulse: () -> Pulse
+    @ViewBuilder var ahead: () -> Ahead
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        HStack(alignment: .top, spacing: MacDesign.gutter) {
+            VStack(alignment: .leading, spacing: MacDesign.gutter) { reports() }
+                .frame(width: laneWidth(0.40), alignment: .top)
+            VStack(alignment: .leading, spacing: MacDesign.gutter) { pulse() }
+                .frame(width: laneWidth(0.30), alignment: .top)
+            VStack(alignment: .leading, spacing: MacDesign.gutter) { ahead() }
+                .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .measureWidth($width)
+    }
+
+    /// nil until the first measurement lands — the lanes share the row evenly
+    /// for that single frame, then settle on the 40/30/30 split.
+    private func laneWidth(_ split: CGFloat) -> CGFloat? {
+        width > 0 ? (width - 2 * MacDesign.gutter) * split : nil
+    }
+}
 
 /// Compact KPI tile sized for FIVE-up at portrait width (~132pt). Vertical layout so the
 /// value and label read cleanly at narrow width: tinted icon, then the value (never clipped
@@ -215,7 +360,12 @@ private struct PipelineSection: View {
                     .pressable()
                     .hoverEffect(.highlight)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
+                // Mac (REPORTS lane, ~40% wide): a pinned 2×2 — the adaptive minimum
+                // lands on 3+1 with an orphan tile at nearly every lane width.
+                LazyVGrid(columns: MacDesign.isMac
+                            ? Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top), count: 2)
+                            : [GridItem(.adaptive(minimum: 180), spacing: 12)],
+                          spacing: 12) {
                     ForEach(items, id: \.0) { it in
                         PipelineTile(label: it.0, value: "\(it.1)", icon: it.2, tint: it.3)
                     }
@@ -247,19 +397,7 @@ private struct PathwayReport: View {
         let total = slices.reduce(0) { $0 + $1.value }
         return Card(padding: 20) {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Pathway Report").font(.nTitle).foregroundStyle(Nuru.navy)
-                        Text("Cohort performance, curriculum delivery and engagement signals.")
-                            .font(.nCaption).foregroundStyle(Nuru.ink600)
-                    }
-                    Spacer()
-                    HStack(spacing: 8) {
-                        reportBtn("Export", "square.and.arrow.up")
-                        reportBtn("Print", "printer")
-                        HeroChip(label: todayLabel, icon: "calendar", style: .tag)
-                    }
-                }
+                header
                 // tabs
                 HStack(spacing: 4) {
                     ForEach(tabs, id: \.self) { t in
@@ -278,12 +416,69 @@ private struct PathwayReport: View {
                 }
                 .overlay(alignment: .bottom) { Rectangle().fill(Nuru.border).frame(height: 1) }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 14, alignment: .top)], spacing: 14) {
-                    DonutPanel(slices: slices, total: total)
-                    BreakdownPanel(slices: slices, total: total)
+                if MacDesign.isMac {
+                    // Desktop (REPORTS lane): status distribution + breakdown side by
+                    // side, attendance full-width beneath — the adaptive grid left the
+                    // attendance panel dangling at half width on the wide canvas.
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 14, alignment: .top), count: 2), spacing: 14) {
+                        DonutPanel(slices: slices, total: total)
+                        BreakdownPanel(slices: slices, total: total)
+                    }
                     AttendancePanel(trend: trend)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 14, alignment: .top)], spacing: 14) {
+                        DonutPanel(slices: slices, total: total)
+                        BreakdownPanel(slices: slices, total: total)
+                        AttendancePanel(trend: trend)
+                    }
                 }
             }
+        }
+    }
+    /// Card header. Mac: the action group NEVER compresses (`.fixedSize()` —
+    /// no more letter-wrapped "E-x-p-o-r-t"); when the lane is too tight for
+    /// one row, ViewThatFits drops the actions BELOW the title as a group, and
+    /// the title truncates gracefully instead of wrapping. iPad: the original
+    /// header, byte-identical.
+    @ViewBuilder private var header: some View {
+        if MacDesign.isMac {
+            VStack(alignment: .leading, spacing: 4) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        headerTitle.lineLimit(1)
+                        Spacer(minLength: 12)
+                        headerActions.fixedSize()
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        headerTitle.lineLimit(1)
+                        headerActions.fixedSize()
+                    }
+                }
+                headerSubtitle
+            }
+        } else {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    headerTitle
+                    headerSubtitle
+                }
+                Spacer()
+                headerActions
+            }
+        }
+    }
+    private var headerTitle: some View {
+        Text("Pathway Report").font(.nTitle).foregroundStyle(Nuru.navy)
+    }
+    private var headerSubtitle: some View {
+        Text("Cohort performance, curriculum delivery and engagement signals.")
+            .font(.nCaption).foregroundStyle(Nuru.ink600)
+    }
+    private var headerActions: some View {
+        HStack(spacing: 8) {
+            reportBtn("Export", "square.and.arrow.up")
+            reportBtn("Print", "printer")
+            HeroChip(label: todayLabel, icon: "calendar", style: .tag)
         }
     }
     private func reportBtn(_ label: String, _ icon: String) -> some View {

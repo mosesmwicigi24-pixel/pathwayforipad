@@ -5,7 +5,7 @@
 // our model, so real per-cell metrics (members, avg engagement, at-risk) are shown.
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronRight, CircleAlert, Sparkles, TrendingUp, Users, ArrowUpRight, Plus, X, Home, UserCheck, Target, CalendarClock, MapPin, CalendarPlus, GraduationCap, Star, Pencil, ImagePlus, Loader2 } from "lucide-react";
+import { ChevronRight, CircleAlert, Sparkles, TrendingUp, Users, ArrowUpRight, Plus, X, Home, UserCheck, Target, CalendarClock, MapPin, CalendarPlus, GraduationCap, Star, Pencil, ImagePlus, Loader2, Gauge, BadgeCheck, Eye, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { AdminApi, OpsApi, uploadToCloudinary, type EngagementCellRow, type CreateCellBody } from "../../api/client";
 import { errorMessage } from "../../util/error";
 
@@ -72,6 +72,11 @@ export function CellEngagement(): ReactElement {
   const totalAtRisk = cells.reduce((s, c) => s + c.at_risk, 0);
   const overallAvg = totalMembers ? Math.round((cells.reduce((s, c) => s + c.avg_engagement * c.members, 0) / totalMembers) * 100) : 0;
   const ranked = useMemo(() => [...cells].sort((a, b) => b.avg_engagement - a.avg_engagement), [cells]);
+  // Engagement bands per cell — thriving (≥70%), watch (40–69%); at-risk cells are
+  // those with any at-risk members (a pastoral-call signal). Mirrors the iPad summary.
+  const thriving = cells.filter((c) => pct(c.avg_engagement) >= 70).length;
+  const watch = cells.filter((c) => { const p = pct(c.avg_engagement); return p >= 40 && p < 70; }).length;
+  const atRiskCells = cells.filter((c) => c.at_risk > 0).length;
 
   return (
     <main className="min-h-full" style={{ background: "var(--background)" }}>
@@ -109,6 +114,17 @@ export function CellEngagement(): ReactElement {
 
       <section style={{ padding: "24px clamp(16px,4vw,48px) 48px" }}>
         {error ? <p style={{ color: "#A8281F", marginBottom: 12 }}>{error}</p> : null}
+
+        {/* Top summary — four band-coloured cards in a row (avg engagement / thriving /
+            watch / at-risk), matching the iPad. Clean: tinted icon chip, one value,
+            one short label, one quiet hint. */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <SummaryCard icon={<Gauge size={15} />} value={`${overallAvg}%`} label="Avg engagement" hint="all cells" color="var(--nuru-navy)" tintBg="var(--tint-navy-bg)" />
+          <SummaryCard icon={<BadgeCheck size={15} />} value={String(thriving)} label="Thriving" hint="≥ 70% engaged" color="#15803D" tintBg="var(--tint-green-bg)" />
+          <SummaryCard icon={<Eye size={15} />} value={String(watch)} label="Watch" hint="40–69% engaged" color="#B45309" tintBg="var(--tint-amber-bg)" />
+          <SummaryCard icon={<AlertTriangle size={15} />} value={String(atRiskCells)} label="At-risk cells" hint={`${totalAtRisk} members`} color="#B91C1C" tintBg="var(--tint-rose-bg)" />
+        </div>
+
         <div className="mb-3 flex items-end justify-between gap-3 flex-wrap">
           <div><div className="nuru-eyebrow nuru-eyebrow-gold" style={{ marginBottom: 4 }}>Cell roster</div><h2 className="type-section">Cells &amp; their disciplers</h2></div>
           <button onClick={() => setAddOpen(true)} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 34, background: "var(--nuru-gold)", color: "#fff", fontSize: 12.5, fontWeight: 700, border: "none" }}><Plus size={14} /> New cell</button>
@@ -117,61 +133,56 @@ export function CellEngagement(): ReactElement {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
           {cells.map((cell) => {
             const tone = toneOf(cell); const avg = pct(cell.avg_engagement);
+            const featuring = featuringId === cell.cell_group_id;
             return (
-              <button key={cell.cell_group_id} onClick={() => navigate(`/cell-engagement/${cell.cell_group_id}`)} className="group text-left rounded-3xl p-5 transition hover:-translate-y-0.5" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-12 w-12 items-center justify-center rounded-2xl text-sm font-extrabold" style={{ background: `${tone}18`, color: tone }}>{initials(cell.name)}</span>
-                    <div><h3 style={{ fontSize: 16, fontWeight: 800, color: "#0B1F33", lineHeight: 1.15 }}>{cell.name}</h3><p style={{ fontSize: 11.5, fontWeight: 600, color: "var(--muted-foreground)", marginTop: 2 }}>{cell.members} members</p></div>
+              <div key={cell.cell_group_id} className="rounded-3xl p-5 flex flex-col gap-3.5" style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 1px 2px rgba(11,31,51,0.04)" }}>
+                {/* 1) Identity — monogram, name, members + a single star affordance */}
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl" style={{ background: `${tone}1f`, color: tone, fontSize: 13, fontWeight: 600 }}>{initials(cell.name)}</span>
+                  <div className="min-w-0 flex-1">
+                    <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--nuru-navy)", lineHeight: 1.2 }} className="truncate">{cell.name}</h3>
+                    <p style={{ fontSize: 11.5, fontWeight: 400, color: "var(--muted-foreground)", marginTop: 1 }}>{cell.members} members</p>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      title="Edit this cell"
-                      aria-label={`Edit ${cell.name}`}
-                      onClick={(e) => { e.stopPropagation(); setEditCell(cell); }}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setEditCell(cell); } }}
-                      className="inline-flex items-center gap-0.5 rounded-full px-2 py-1"
-                      style={{ fontSize: 11, fontWeight: 800, color: "#0B1F33", background: "rgba(255,255,255,0.7)", border: "1px solid var(--border)", cursor: "pointer" }}
-                    >
-                      <Pencil size={11} /> Edit
-                    </span>
-                    <span className="inline-flex items-center gap-0.5 rounded-full px-2 py-1" style={{ fontSize: 11, fontWeight: 800, color: "#0B1F33", background: "rgba(255,255,255,0.7)", border: "1px solid var(--border)" }}>View <ChevronRight size={12} /></span>
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <span
-                    role="button"
-                    tabIndex={0}
+                  <button
+                    type="button"
                     aria-pressed={cell.is_featured ?? false}
                     title={cell.is_featured ? "Featured on the homepage — click to remove" : "Feature this cell on the homepage"}
-                    onClick={(e) => { e.stopPropagation(); if (featuringId !== cell.cell_group_id) void toggleFeatured(cell); }}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (featuringId !== cell.cell_group_id) void toggleFeatured(cell); } }}
-                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 transition"
+                    onClick={() => { if (!featuring) void toggleFeatured(cell); }}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition"
                     style={{
-                      fontSize: 11,
-                      fontWeight: 800,
-                      cursor: featuringId === cell.cell_group_id ? "wait" : "pointer",
-                      opacity: featuringId === cell.cell_group_id ? 0.6 : 1,
-                      color: cell.is_featured ? "#fff" : "var(--muted-foreground)",
-                      background: cell.is_featured ? "var(--nuru-gold)" : "rgba(0,0,0,0.03)",
-                      border: cell.is_featured ? "1px solid var(--nuru-gold)" : "1px solid var(--border)",
+                      cursor: featuring ? "wait" : "pointer",
+                      opacity: featuring ? 0.5 : 1,
+                      color: cell.is_featured ? "var(--nuru-gold)" : "#9ca3af",
+                      background: cell.is_featured ? "rgba(200,155,60,0.12)" : "rgba(0,0,0,0.03)",
+                      border: "none",
                     }}
                   >
-                    <Star size={11} fill={cell.is_featured ? "#fff" : "none"} />
-                    {cell.is_featured ? "Homepage · This week" : "Feature on homepage"}
-                  </span>
+                    <Star size={14} fill={cell.is_featured ? "var(--nuru-gold)" : "none"} />
+                  </button>
                 </div>
-                <div className="mt-4 flex items-end justify-between">
-                  <div><div className="nuru-eyebrow" style={{ marginBottom: 2 }}>Avg engagement</div><span style={{ fontFamily: "var(--font-display)", fontSize: 32, color: "#0B1F33", lineHeight: 1 }}>{avg}%</span></div>
-                  <div className="text-right">
-                    <div className="flex items-center justify-end gap-1" style={{ fontSize: 12, fontWeight: 700, color: "#0B1F33" }}><Users size={13} style={{ color: tone }} /> {cell.members} members</div>
-                    {cell.at_risk > 0 ? <div className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5" style={{ fontSize: 11, fontWeight: 800, color: "#B91C1C", background: "#FEF2F2", border: "1px solid rgba(220,38,38,0.2)" }}><CircleAlert size={11} /> {cell.at_risk} at-risk</div> : <div className="mt-1" style={{ fontSize: 11, fontWeight: 600, color: "#15803D" }}>All on track</div>}
+
+                {/* 2) Engagement — one short label, one value, one bar */}
+                <div>
+                  <div className="flex items-baseline justify-between">
+                    <span style={{ fontSize: 10.5, fontWeight: 500, letterSpacing: "0.04em", textTransform: "uppercase", color: "#6b7280" }}>Engagement</span>
+                    <span style={{ fontSize: 16, fontWeight: 600, color: "var(--nuru-navy)" }}>{avg}%</span>
                   </div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full" style={{ background: "rgba(0,0,0,0.05)" }}><div className="h-full rounded-full" style={{ width: `${avg}%`, background: tone }} /></div>
                 </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(0,0,0,0.05)" }}><div className="h-full rounded-full" style={{ width: `${avg}%`, background: tone }} /></div>
-              </button>
+
+                {/* 3) Status — single quiet line */}
+                {cell.at_risk > 0 ? (
+                  <span className="inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1" style={{ fontSize: 11, fontWeight: 500, color: "#B91C1C", background: "rgba(220,38,38,0.10)" }}><CircleAlert size={11} /> {cell.at_risk} at-risk</span>
+                ) : (
+                  <span className="inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1" style={{ fontSize: 11, fontWeight: 500, color: "#15803D", background: "rgba(22,163,74,0.10)" }}><CheckCircle2 size={11} /> On track</span>
+                )}
+
+                {/* 4) Actions — Edit & View: identical style, identical size, one row */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setEditCell(cell)} className="flex items-center justify-center gap-1.5 rounded-full" style={{ height: 34, fontSize: 12, fontWeight: 500, color: "var(--nuru-navy)", background: "transparent", border: "1px solid var(--border)" }}><Pencil size={11} /> Edit</button>
+                  <button type="button" onClick={() => navigate(`/cell-engagement/${cell.cell_group_id}`)} className="flex items-center justify-center gap-1.5 rounded-full" style={{ height: 34, fontSize: 12, fontWeight: 500, color: "var(--nuru-navy)", background: "transparent", border: "1px solid var(--border)" }}>View <ArrowUpRight size={11} /></button>
+                </div>
+              </div>
             );
           })}
           {cells.length === 0 && !error ? <p style={{ color: "var(--muted-foreground)", fontSize: 13 }}>No cells with engagement data yet.</p> : null}
@@ -184,8 +195,8 @@ export function CellEngagement(): ReactElement {
               {ranked.map((cell, idx) => { const tone = toneOf(cell); const avg = pct(cell.avg_engagement); return (
                 <div key={cell.cell_group_id} onClick={() => navigate(`/cell-engagement/${cell.cell_group_id}`)} className="cursor-pointer rounded-2xl px-1 py-1 transition hover:bg-secondary/50">
                   <div className="mb-1.5 flex items-center justify-between">
-                    <div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full" style={{ background: "#0B1F33", fontSize: 11, fontWeight: 800, color: "#fff" }}>{idx + 1}</span><span style={{ fontSize: 13.5, fontWeight: 800, color: "#0B1F33" }}>{cell.name}</span></div>
-                    <span className="font-mono" style={{ fontSize: 14, fontWeight: 800, color: "#0B1F33" }}>{avg}%</span>
+                    <div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full" style={{ background: "var(--nuru-navy)", fontSize: 11, fontWeight: 700, color: "#fff" }}>{idx + 1}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--nuru-navy)" }}>{cell.name}</span></div>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "var(--nuru-navy)" }}>{avg}%</span>
                   </div>
                   <div className="h-2.5 overflow-hidden rounded-full" style={{ background: "rgba(0,0,0,0.05)" }}><div className="h-full rounded-full" style={{ width: `${avg}%`, background: tone }} /></div>
                 </div>
@@ -199,8 +210,8 @@ export function CellEngagement(): ReactElement {
             <div className="flex flex-col gap-3">
               {[...cells].sort((a, b) => b.at_risk - a.at_risk).map((cell) => { const tone = toneOf(cell); return (
                 <div key={cell.cell_group_id} onClick={() => navigate(`/cell-engagement/${cell.cell_group_id}`)} className="flex cursor-pointer items-center justify-between rounded-2xl px-4 py-3 transition" style={{ border: "1px solid var(--border)" }}>
-                  <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ fontSize: 11, fontWeight: 800, background: `${tone}18`, color: tone }}>{initials(cell.name)}</span><div><p style={{ fontSize: 13, fontWeight: 800, color: "#0B1F33" }}>{cell.name}</p><p style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{cell.members} members</p></div></div>
-                  {cell.at_risk > 0 ? <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1" style={{ fontSize: 11, fontWeight: 800, color: "#B91C1C", background: "#FEF2F2", border: "1px solid rgba(220,38,38,0.2)" }}>{cell.at_risk} at-risk</span> : <span className="rounded-full px-2.5 py-1" style={{ fontSize: 11, fontWeight: 800, color: "#15803D", background: "#F0FDF4", border: "1px solid rgba(22,163,74,0.2)" }}>Healthy</span>}
+                  <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ fontSize: 11, fontWeight: 600, background: `${tone}1f`, color: tone }}>{initials(cell.name)}</span><div><p style={{ fontSize: 13, fontWeight: 600, color: "var(--nuru-navy)" }}>{cell.name}</p><p style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{cell.members} members</p></div></div>
+                  {cell.at_risk > 0 ? <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1" style={{ fontSize: 11, fontWeight: 500, color: "#B91C1C", background: "var(--tint-rose-bg)" }}>{cell.at_risk} at-risk</span> : <span className="rounded-full px-2.5 py-1" style={{ fontSize: 11, fontWeight: 500, color: "#15803D", background: "var(--tint-green-bg)" }}>Healthy</span>}
                 </div>
               ); })}
             </div>
@@ -212,6 +223,20 @@ export function CellEngagement(): ReactElement {
       {addOpen && <CellModal onClose={() => setAddOpen(false)} onCreate={(c, f) => { void handleCreate(c, f); }} />}
       {editCell && <CellModal cell={editCell} onClose={() => setEditCell(null)} onUpdate={handleUpdate} />}
     </main>
+  );
+}
+
+// Compact summary card for the four-up top row (avg engagement / thriving / watch /
+// at-risk). Clean vertical hierarchy: tinted icon chip, one value, one short label,
+// one quiet hint. Band-coloured; thin fonts. Mirrors the iPad SummaryTile.
+function SummaryCard({ icon, value, label, hint, color, tintBg }: { icon: ReactElement; value: string; label: string; hint: string; color: string; tintBg: string }): ReactElement {
+  return (
+    <div className="rounded-2xl p-3.5" style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 1px 2px rgba(11,31,51,0.04)" }}>
+      <span className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: tintBg, color }}>{icon}</span>
+      <div style={{ fontSize: 24, fontWeight: 600, color: "var(--nuru-navy)", lineHeight: 1.1, marginTop: 10 }}>{value}</div>
+      <div style={{ fontSize: 11.5, fontWeight: 500, color: "#374151", marginTop: 4 }}>{label}</div>
+      <div style={{ fontSize: 10.5, fontWeight: 400, color: "var(--muted-foreground)", marginTop: 1 }}>{hint}</div>
+    </div>
   );
 }
 

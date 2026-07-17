@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, LineChart, Line, Area, AreaChart,
+  CartesianGrid, Tooltip,
 } from "recharts";
 import {
   ChevronRight, BookOpen, Users, Clock, Award, Sparkles, TrendingUp, GraduationCap,
@@ -18,6 +18,18 @@ import {
 import { AdminApi, ConfigApi, type LevelAnalyticsRow, type AuditRow } from "../../api/client";
 
 interface Trend { [k: string]: string | number }
+
+// Brand per-level accent — mirrors the iPad's CL.palette: bright luminous green ·
+// gold · brand teal · violet · pink · amber · deep navy (cycling). Keeps L1 a bright
+// LED green and drops the off-brand sky-blue the API may carry. The API color is used
+// only when it is on-brand (i.e. not the bright blue it historically returned).
+const LEVEL_PALETTE = ["#22c55e", "#c89b3c", "#0e8c8c", "#7c3aed", "#ec4899", "#e08a1e", "#0b1f33"];
+const OFF_BRAND_BLUE = /^#?0ea5e9$/i;
+function levelColor(levelNumber: number, apiColor?: string): string {
+  if (apiColor && !OFF_BRAND_BLUE.test(apiColor.trim())) return apiColor;
+  const i = ((levelNumber - 1) % LEVEL_PALETTE.length + LEVEL_PALETTE.length) % LEVEL_PALETTE.length;
+  return LEVEL_PALETTE[i]!;
+}
 
 function relTime(iso: string): string {
   const t = new Date(iso).getTime();
@@ -47,20 +59,30 @@ export function CurriculumLevels(): ReactElement {
     void ConfigApi.audit({}).then((r) => setActivity(r.data.slice(0, 5))).catch(() => {});
   }, []);
 
-  const totalLearners = levels.reduce((s, l) => s + l.learners, 0);
-  const totalModules = levels.reduce((s, l) => s + l.modules_total, 0);
-  const avgCompletion = levels.length ? Math.round(levels.reduce((s, l) => s + l.completion_pct, 0) / levels.length) : 0;
-  const totalCertificates = levels.reduce((s, l) => s + l.certificates, 0);
-  const activeLevel = levels.find((l) => l.level_number === activeId) ?? levels[0];
+  // Resolve each level's accent to the brand palette (bright green for L1, no off-brand blue).
+  const rows = useMemo(() => levels.map((l) => ({ ...l, color: levelColor(l.level_number, l.color) })), [levels]);
 
-  const pieData = useMemo(() => levels.map((l) => ({ name: `L${l.level_number}`, value: l.learners, color: l.color })), [levels]);
-  const barData = useMemo(() => levels.map((l) => ({ name: `L${l.level_number}`, completion: l.completion_pct, color: l.color })), [levels]);
+  const totalLearners = rows.reduce((s, l) => s + l.learners, 0);
+  const totalModules = rows.reduce((s, l) => s + l.modules_total, 0);
+  const avgCompletion = rows.length ? Math.round(rows.reduce((s, l) => s + l.completion_pct, 0) / rows.length) : 0;
+  const totalCertificates = rows.reduce((s, l) => s + l.certificates, 0);
+  const activeLevel = rows.find((l) => l.level_number === activeId) ?? rows[0];
+
+  const pieData = useMemo(() => rows.map((l) => ({ name: `L${l.level_number}`, value: l.learners, color: l.color })), [rows]);
+  const barData = useMemo(() => rows.map((l) => ({ name: `L${l.level_number}`, completion: l.completion_pct, color: l.color })), [rows]);
+
+  // Per-month enrolment roll-up for the colored stacked bars (replaces the area chart's faint fills).
+  const monthRolls = useMemo(() => trend.slice(-6).map((p) => {
+    const seg = rows.map((l) => ({ level: l.level_number, color: l.color, value: Number(p[`L${l.level_number}`] ?? 0) }));
+    return { month: String(p.month ?? ""), total: seg.reduce((s, x) => s + x.value, 0), seg };
+  }), [trend, rows]);
+  const peakMonth = Math.max(1, ...monthRolls.map((m) => m.total));
 
   const summary = [
-    { label: "Active learners", value: totalLearners.toLocaleString(), icon: Users, sub: "enrolled across the pathway", tone: "#16A34A" },
-    { label: "Total modules", value: String(totalModules), icon: BookOpen, sub: `across ${levels.length} levels`, tone: "#C89B3C" },
-    { label: "Avg completion", value: `${avgCompletion}%`, icon: TrendingUp, sub: "of published modules", tone: "#0EA5E9" },
-    { label: "Badges available", value: String(badgeCount), icon: Award, sub: `${totalCertificates} certificates issued`, tone: "#7C3AED" },
+    { label: "Active learners", value: totalLearners.toLocaleString(), icon: Users, sub: "enrolled across the pathway", tone: "#22c55e" },
+    { label: "Total modules", value: String(totalModules), icon: BookOpen, sub: `across ${rows.length} levels`, tone: "#c89b3c" },
+    { label: "Avg completion", value: `${avgCompletion}%`, icon: TrendingUp, sub: "of published modules", tone: "#0e8c8c" },
+    { label: "Badges available", value: String(badgeCount), icon: Award, sub: `${totalCertificates} certificates issued`, tone: "#7c3aed" },
   ];
 
   return (
@@ -74,7 +96,7 @@ export function CurriculumLevels(): ReactElement {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="inline-flex items-center gap-1.5 rounded-lg px-2.5" style={{ height: 32, background: "rgba(245,199,126,0.14)", color: "#F5C77E", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", border: "1px solid rgba(245,199,126,0.25)" }}>
-              <Sparkles size={11} /> {levels.length}-level pathway
+              <Sparkles size={11} /> {rows.length}-level pathway
             </span>
             <button onClick={() => navigate("/video-library")} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "rgba(255,255,255,0.08)", color: "#fff", border: "1px solid rgba(255,255,255,0.15)", fontSize: 12, fontWeight: 600 }}><Video size={13} /> Video library</button>
             <button onClick={() => navigate("/cms")} className="flex items-center gap-2 rounded-lg px-3" style={{ height: 32, background: "var(--nuru-gold)", color: "#fff", fontSize: 12, fontWeight: 600, border: "none", boxShadow: "0 6px 18px rgba(200,155,60,0.32)" }}><PenSquare size={13} /> Open CMS</button>
@@ -116,7 +138,7 @@ export function CurriculumLevels(): ReactElement {
               </ResponsiveContainer>
             </div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-2 mt-3">
-              {levels.map((l) => (
+              {rows.map((l) => (
                 <div key={l.level_number} className="flex items-center gap-2 min-w-0">
                   <span style={{ width: 8, height: 8, background: l.color, borderRadius: 99, flexShrink: 0 }} />
                   <span style={{ fontSize: 11.5, color: "var(--foreground)", fontWeight: 600 }}>L{l.level_number}</span>
@@ -175,7 +197,7 @@ export function CurriculumLevels(): ReactElement {
             <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
               <div className="flex items-center gap-2"><Flame size={15} style={{ color: "var(--nuru-gold)" }} /><span style={{ fontSize: 14, fontWeight: 700, color: "var(--foreground)" }}>Enrolment trend (6 months)</span></div>
               <div className="flex items-center gap-3 flex-wrap">
-                {levels.map((l) => (
+                {rows.map((l) => (
                   <div key={l.level_number} className="flex items-center gap-1.5">
                     <span style={{ width: 8, height: 8, borderRadius: 99, background: l.color }} />
                     <span style={{ fontSize: 10.5, color: "var(--muted-foreground)", fontWeight: 600 }}>L{l.level_number}</span>
@@ -183,35 +205,35 @@ export function CurriculumLevels(): ReactElement {
                 ))}
               </div>
             </div>
-            <p style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginBottom: 12 }}>New enrolments per level, by month started</p>
-            <div style={{ height: 260 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trend}>
-                  <defs>
-                    {levels.map((l) => (
-                      <linearGradient id={`grad-${l.level_number}`} key={l.level_number} x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" stopColor={l.color} stopOpacity={0.35} />
-                        <stop offset="100%" stopColor={l.color} stopOpacity={0} />
-                      </linearGradient>
-                    ))}
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F3" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid var(--border)", fontSize: 12 }} />
-                  {levels.map((l) => (
-                    <Area key={l.level_number} type="monotone" dataKey={`L${l.level_number}`} stroke={l.color} strokeWidth={2} fill={`url(#grad-${l.level_number})`} />
-                  ))}
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+            <p style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginBottom: 14 }}>New enrolments by month started — bar segments coloured by level</p>
+            {/* Per-month enrolment as proportional, level-segmented bars (matches the iPad).
+                A faint track keeps the cadence readable for empty months. */}
+            {monthRolls.length === 0 ? (
+              <p style={{ fontSize: 12, color: "var(--muted-foreground)", padding: "24px 0" }}>No enrolment trend recorded yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                {monthRolls.map((m) => (
+                  <div key={m.month} className="flex items-center gap-3">
+                    <span style={{ width: 58, flexShrink: 0, fontSize: 11.5, fontWeight: 600, color: "var(--nuru-navy)" }}>{m.month}</span>
+                    <div className="flex-1 rounded-full overflow-hidden" style={{ height: 16, background: "rgba(107,114,128,0.08)" }}>
+                      <div className="flex h-full" style={{ width: `${(m.total / peakMonth) * 100}%` }}>
+                        {m.seg.filter((s) => s.value > 0).map((s) => (
+                          <div key={s.level} style={{ width: `${(s.value / m.total) * 100}%`, background: s.color, minWidth: 2 }} />
+                        ))}
+                      </div>
+                    </div>
+                    <span style={{ width: 26, flexShrink: 0, textAlign: "right", fontSize: 12, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: m.total > 0 ? "var(--nuru-navy)" : "var(--muted-foreground)" }}>{m.total}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="lg:col-span-4 flex flex-col gap-3">
-            <QuickCard icon={PenSquare} title="Open the CMS" desc="Edit modules, lessons, and quizzes" tone="#0B1F33" onClick={() => navigate("/cms")} />
-            <QuickCard icon={Video} title="Manage videos" desc="Upload, organise, and tag teachings" tone="#0EA5E9" onClick={() => navigate("/video-library")} />
-            <QuickCard icon={Award} title="Certificates" desc="Issued credentials per level" tone="#C89B3C" onClick={() => navigate("/certificates")} />
-            <QuickCard icon={Star} title="Badges" desc="Catalogue of formation markers" tone="#7C3AED" onClick={() => navigate("/badges")} />
+            <QuickCard icon={PenSquare} title="Open the CMS" desc="Edit modules, lessons, and quizzes" tone="#0b1f33" onClick={() => navigate("/cms")} />
+            <QuickCard icon={Video} title="Manage videos" desc="Upload, organise, and tag teachings" tone="#22c55e" onClick={() => navigate("/video-library")} />
+            <QuickCard icon={Award} title="Certificates" desc="Issued credentials per level" tone="#c89b3c" onClick={() => navigate("/certificates")} />
+            <QuickCard icon={Star} title="Badges" desc="Catalogue of formation markers" tone="#7c3aed" onClick={() => navigate("/badges")} />
           </div>
         </div>
 
@@ -224,22 +246,22 @@ export function CurriculumLevels(): ReactElement {
           <button onClick={() => navigate("/cms")} className="flex items-center gap-1.5" style={{ fontSize: 12, fontWeight: 600, color: "var(--nuru-gold)", background: "none", border: "none" }}>Manage all in CMS <ArrowRight size={12} /></button>
         </div>
 
-        {/* Row 4: level cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
-          {levels.map((l) => {
+        {/* Row 4: level cards — denser grid (up to 4-up on wide canvases, matching the iPad) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3.5 mb-6">
+          {rows.map((l) => {
             const active = activeId === l.level_number;
             return (
               <button key={l.level_number} onClick={() => setActiveId(l.level_number)} className="rounded-2xl text-left transition-all hover:-translate-y-0.5" style={{ background: "var(--card)", border: `1px solid ${active ? l.color : "var(--border)"}`, padding: 0, overflow: "hidden", boxShadow: active ? `0 8px 24px ${l.color}33, 0 0 0 2px ${l.color}22` : "0 1px 2px rgba(11,31,51,0.03)" }}>
-                <div className="flex items-center justify-between" style={{ background: `linear-gradient(120deg, ${l.color} 0%, ${l.color}cc 100%)`, padding: "12px 18px", color: "#fff" }}>
+                <div className="flex items-center justify-between" style={{ background: `linear-gradient(120deg, ${l.color} 0%, ${l.color}cc 100%)`, padding: "11px 16px", color: "#fff" }}>
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center justify-center rounded-lg" style={{ width: 28, height: 28, background: "rgba(255,255,255,0.18)" }}><span style={{ fontFamily: "var(--font-display)", fontSize: 14 }}>{l.level_number}</span></div>
-                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.1em" }}>LEVEL {l.level_number}</span>
+                    <div className="flex items-center justify-center rounded-lg" style={{ width: 26, height: 26, background: "rgba(255,255,255,0.2)" }}><span style={{ fontFamily: "var(--font-display)", fontSize: 13 }}>{l.level_number}</span></div>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.1em" }}>LEVEL {l.level_number}</span>
                   </div>
-                  {l.duration ? <span className="rounded-full" style={{ background: "rgba(255,255,255,0.2)", color: "#fff", fontSize: 10.5, fontWeight: 700, padding: "3px 9px", letterSpacing: "0.04em" }}>{l.duration}</span> : null}
+                  {l.duration ? <span className="rounded-full" style={{ background: "rgba(255,255,255,0.2)", color: "#fff", fontSize: 10, fontWeight: 700, padding: "3px 9px", letterSpacing: "0.04em" }}>{l.duration}</span> : null}
                 </div>
-                <div style={{ padding: "16px 18px 18px" }}>
-                  <h3 style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--foreground)", letterSpacing: "-0.01em", lineHeight: 1.2 }}>{l.title}</h3>
-                  <p style={{ fontSize: 12.5, color: "var(--muted-foreground)", lineHeight: 1.5, marginTop: 4, minHeight: 36 }}>{l.theme || "Discipleship pathway level."}</p>
+                <div style={{ padding: "14px 16px 16px" }}>
+                  <h3 style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--foreground)", letterSpacing: "-0.01em", lineHeight: 1.2 }}>{l.title}</h3>
+                  <p style={{ fontSize: 12, color: "var(--muted-foreground)", lineHeight: 1.45, marginTop: 4, minHeight: 34 }}>{l.theme || "Discipleship pathway level."}</p>
                   <div className="grid grid-cols-3 gap-2 mt-4">
                     {[
                       { lbl: "Modules", v: l.modules_total, I: BookOpen },
@@ -289,10 +311,10 @@ export function CurriculumLevels(): ReactElement {
               <p style={{ fontSize: 13, color: "var(--foreground)", lineHeight: 1.6 }}>{activeLevel.theme || "Discipleship pathway level."}</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
                 {[
-                  { lbl: "Modules", v: String(activeLevel.modules_total), I: BookOpen, tone: "#0B1F33" },
-                  { lbl: "Learners", v: String(activeLevel.learners), I: Users, tone: "#16A34A" },
-                  { lbl: "Completion", v: `${activeLevel.completion_pct}%`, I: TrendingUp, tone: "#C89B3C" },
-                  { lbl: "Certificates", v: String(activeLevel.certificates), I: Award, tone: "#7C3AED" },
+                  { lbl: "Modules", v: String(activeLevel.modules_total), I: BookOpen, tone: "#0b1f33" },
+                  { lbl: "Learners", v: String(activeLevel.learners), I: Users, tone: "#22c55e" },
+                  { lbl: "Completion", v: `${activeLevel.completion_pct}%`, I: TrendingUp, tone: "#c89b3c" },
+                  { lbl: "Certificates", v: String(activeLevel.certificates), I: Award, tone: "#7c3aed" },
                 ].map((s) => {
                   const I = s.I;
                   return (
@@ -308,23 +330,34 @@ export function CurriculumLevels(): ReactElement {
               </div>
               <div className="mt-5">
                 <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Enrolment momentum</div>
-                <div style={{ height: 90 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={trend}>
-                      <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid var(--border)", fontSize: 12 }} />
-                      <Line type="monotone" dataKey={`L${activeLevel.level_number}`} stroke={activeLevel.color} strokeWidth={2.5} dot={{ r: 3, fill: activeLevel.color }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
+                {/* This level's last-6-months new enrolments as proportional bars (was a thin line w/ dots). */}
+                {(() => {
+                  const ms = trend.slice(-6).map((p) => ({ month: String(p.month ?? ""), value: Number(p[`L${activeLevel.level_number}`] ?? 0) }));
+                  const peak = Math.max(1, ...ms.map((m) => m.value));
+                  if (ms.every((m) => m.value === 0)) return <p style={{ fontSize: 12, color: "var(--muted-foreground)" }}>No enrolment momentum recorded.</p>;
+                  return (
+                    <div className="flex flex-col gap-2">
+                      {ms.map((m) => (
+                        <div key={m.month} className="flex items-center gap-3">
+                          <span style={{ width: 52, flexShrink: 0, fontSize: 11, fontWeight: 600, color: "var(--nuru-navy)" }}>{m.month}</span>
+                          <div className="flex-1 rounded-full overflow-hidden" style={{ height: 12, background: "rgba(107,114,128,0.08)" }}>
+                            <div style={{ width: `${(m.value / peak) * 100}%`, height: "100%", background: activeLevel.color, borderRadius: 99, minWidth: m.value > 0 ? 3 : 0 }} />
+                          </div>
+                          <span style={{ width: 22, flexShrink: 0, textAlign: "right", fontSize: 11, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: m.value > 0 ? "var(--nuru-navy)" : "var(--muted-foreground)" }}>{m.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
             <div className="flex flex-col gap-3">
               <LinkRow icon={PenSquare} title="Edit modules" desc={`${activeLevel.modules_total} modules in CMS`} tone={activeLevel.color} onClick={() => navigate(`/cms/level/${activeLevel.level_number}`)} />
-              <LinkRow icon={Heart} title="Reflection queue" desc="Pastoral review for this level" tone="#16A34A" onClick={() => navigate("/reflection-queue")} />
-              <LinkRow icon={Users} title="Enrolled members" desc={`${activeLevel.learners} learners`} tone="#0EA5E9" onClick={() => navigate("/members")} />
-              <LinkRow icon={Award} title="Certificates" desc={`${activeLevel.certificates} issued`} tone="#C89B3C" onClick={() => navigate("/certificates")} />
-              <LinkRow icon={Star} title="Badges" desc="Formation markers" tone="#7C3AED" onClick={() => navigate("/badges")} />
+              <LinkRow icon={Heart} title="Reflection queue" desc="Pastoral review for this level" tone="#22c55e" onClick={() => navigate("/reflection-queue")} />
+              <LinkRow icon={Users} title="Enrolled members" desc={`${activeLevel.learners} learners`} tone="#0e8c8c" onClick={() => navigate("/members")} />
+              <LinkRow icon={Award} title="Certificates" desc={`${activeLevel.certificates} issued`} tone="#c89b3c" onClick={() => navigate("/certificates")} />
+              <LinkRow icon={Star} title="Badges" desc="Formation markers" tone="#7c3aed" onClick={() => navigate("/badges")} />
             </div>
           </div>
         ) : null}

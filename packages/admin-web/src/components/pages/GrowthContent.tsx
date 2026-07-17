@@ -6,9 +6,9 @@
 // devotional fields already map 1:1 to the make's spec.
 import { useCallback, useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import {
-  ChevronRight, ChevronDown, Plus, Pencil, Trash2, X, Search, Check,
-  BookOpen, Quote, CalendarRange, CalendarDays, Library, Sparkles, Heart,
-  FileText, Music, Video as VideoIcon, Link2, Clock, type LucideIcon,
+  ChevronRight, ChevronDown, Plus, Pencil, Trash2, X, Search, Check, MoreHorizontal,
+  BookOpen, Quote, CalendarRange, CalendarDays, Library, Sparkles,
+  FileText, Music, Video as VideoIcon, Link2, Clock, ArrowRightToLine, Hash, Quote as QuoteIcon, type LucideIcon,
 } from "lucide-react";
 import {
   GrowthAdminApi, EncouragementsAdminApi,
@@ -19,13 +19,19 @@ import { errorMessage } from "../../util/error";
 type TabKey = "devotionals" | "verses" | "dailyverses" | "plans" | "resources" | "encouragements";
 type Row = Record<string, unknown>;
 
+// Per-section accent — ONLY the two main brand colors: dark navy and golden
+// yellow (matches the iPad Content Studio, the design reference of record).
+// Sections alternate navy/gold so each has its own identity while the whole page
+// reads as one cohesive navy+gold palette — no green/blue/violet/teal decorative.
+const NAVY = "var(--nuru-navy)";
+const GOLD = "var(--nuru-gold)";
 const TABS: Array<{ key: TabKey; label: string; singular: string; icon: LucideIcon; accent: string }> = [
-  { key: "devotionals", label: "Devotionals", singular: "devotional", icon: BookOpen, accent: "#0B84E8" },
-  { key: "verses", label: "Memory Verses", singular: "memory verse", icon: Quote, accent: "#7C3AED" },
-  { key: "dailyverses", label: "Daily Verses", singular: "daily verse", icon: CalendarDays, accent: "#0EA5A0" },
-  { key: "plans", label: "Reading Plans", singular: "reading plan", icon: CalendarRange, accent: "#16A34A" },
-  { key: "resources", label: "Resources", singular: "resource", icon: Library, accent: "#C89B3C" },
-  { key: "encouragements", label: "Encouragements", singular: "encouragement", icon: Sparkles, accent: "#DB2777" },
+  { key: "devotionals", label: "Devotionals", singular: "devotional", icon: BookOpen, accent: NAVY },
+  { key: "verses", label: "Memory Verses", singular: "memory verse", icon: Quote, accent: GOLD },
+  { key: "dailyverses", label: "Daily Verses", singular: "daily verse", icon: CalendarDays, accent: NAVY },
+  { key: "plans", label: "Reading Plans", singular: "reading plan", icon: CalendarRange, accent: GOLD },
+  { key: "resources", label: "Resources", singular: "resource", icon: Library, accent: NAVY },
+  { key: "encouragements", label: "Encouragements", singular: "encouragement", icon: Sparkles, accent: GOLD },
 ];
 
 const VERSIONS = ["WEB", "NIV", "ESV", "KJV", "NLT", "MSG"];
@@ -136,33 +142,37 @@ export function GrowthContent(): ReactElement {
           </div>
         </div>
 
-        <div className="mt-5">
+        <div className="mt-5" style={{ paddingBottom: 22 }}>
           <p style={{ fontSize: 10.5, color: "#F5C77E", textTransform: "uppercase", letterSpacing: "0.14em", fontWeight: 700, marginBottom: 8 }}>Discipleship content</p>
           <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 400, color: "#fff", fontSize: "clamp(24px, 4vw, 34px)", lineHeight: 1.05 }}>Content Studio</h1>
           <p style={{ fontSize: 13.5, color: "rgba(232,239,245,0.6)", marginTop: 8, maxWidth: 580, lineHeight: 1.5 }}>
             Author the devotionals, verses, plans, resources and encouragements that members read in the mobile app.
           </p>
         </div>
+      </div>
 
-        {/* Tabs */}
-        <div className="flex items-center gap-1 mt-5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-          {TABS.map((t) => {
-            const on = tab === t.key;
-            const Icon = t.icon;
-            return (
-              <button key={t.key} onClick={() => { setTab(t.key); setQuery(""); }} className="flex items-center gap-2 shrink-0"
-                style={{ padding: "10px 14px", fontSize: 12.5, fontWeight: on ? 700 : 600, color: on ? "#fff" : "rgba(232,239,245,0.55)", background: "none", border: "none", borderBottom: on ? "2px solid var(--nuru-gold)" : "2px solid transparent", marginBottom: -1, whiteSpace: "nowrap", cursor: "pointer" }}>
-                <Icon size={14} /> {t.label}
-                <span className="rounded-full" style={{ padding: "1px 7px", fontSize: 10, fontWeight: 700, background: on ? "var(--nuru-gold)" : "rgba(255,255,255,0.1)", color: on ? "#fff" : "rgba(232,239,245,0.6)" }}>{counts[t.key]}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div style={{ height: 1, background: "rgba(255,255,255,0.08)" }} />
+      {/* ── Section switcher — capsule segmented buttons (iPad Content Studio).
+           Each segment is a styled capsule; the selected one fills with its
+           section's brand accent (navy → white text, gold → navy text) and a
+           matching count badge; the rest are quiet outlined white chips. ── */}
+      <div className="flex items-center gap-2 overflow-x-auto" style={{ padding: "14px clamp(16px, 4vw, 48px)", scrollbarWidth: "none" }}>
+        {TABS.map((t) => {
+          const on = tab === t.key;
+          const Icon = t.icon;
+          // On a gold fill, dark navy ink reads better than white; on navy, white wins.
+          const onText = t.accent === GOLD ? "var(--nuru-navy)" : "#fff";
+          return (
+            <button key={t.key} onClick={() => { setTab(t.key); setQuery(""); }} className="flex items-center gap-2 shrink-0 rounded-full"
+              style={{ padding: "0 14px", height: 38, fontSize: 13, fontWeight: on ? 600 : 500, color: on ? onText : "var(--muted-foreground)", background: on ? t.accent : "#fff", border: on ? "1px solid transparent" : "1px solid var(--border)", whiteSpace: "nowrap", cursor: "pointer", boxShadow: on ? `0 6px 16px ${t.accent === GOLD ? "rgba(200,155,60,0.28)" : "rgba(11,31,51,0.22)"}` : "none", transition: "background .15s, box-shadow .15s" }}>
+              <Icon size={13} /> {t.label}
+              <span className="rounded-full" style={{ padding: "1.5px 6.5px", fontSize: 10.5, fontWeight: 600, background: on ? (t.accent === GOLD ? "rgba(11,31,51,0.18)" : "rgba(255,255,255,0.18)") : t.accent + "1F", color: on ? onText : t.accent }}>{counts[t.key]}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* ── Body ── */}
-      <div style={{ padding: "20px clamp(16px, 4vw, 48px) 48px", maxWidth: 1080 }}>
+      <div style={{ padding: "4px clamp(16px, 4vw, 48px) 48px", maxWidth: 1080 }}>
         {error ? <p style={{ color: "#A8281F", marginBottom: 12, fontSize: 13 }}>{error}</p> : null}
         {notice && !error ? <p style={{ color: "var(--color-success)", marginBottom: 12, fontSize: 13 }}>{notice}</p> : null}
 
@@ -177,13 +187,15 @@ export function GrowthContent(): ReactElement {
         {filtered.length === 0 ? (
           <EmptyState meta={meta} onNew={() => setEditing({ row: null })} />
         ) : (
-          <div className="flex flex-col gap-3">
-            {tab === "devotionals" && (filtered as unknown as DevotionalRow[]).map((d) => <DevotionalCard key={d.devotional_id} d={d} onEdit={() => setEditing({ row: d as unknown as Row })} onDelete={() => void remove(d as unknown as Row)} />)}
-            {tab === "verses" && (filtered as unknown as VerseRow[]).map((v) => <VerseCard key={v.memory_verse_id} v={v} onEdit={() => setEditing({ row: v as unknown as Row })} onDelete={() => void remove(v as unknown as Row)} />)}
-            {tab === "dailyverses" && (filtered as unknown as DailyVerseRow[]).map((d) => <DailyVerseCard key={d.day_index} d={d} onEdit={() => setEditing({ row: d as unknown as Row })} />)}
-            {tab === "plans" && (filtered as unknown as PlanRow[]).map((p) => <PlanCard key={p.plan_id} p={p} onEdit={() => setEditing({ row: p as unknown as Row })} onDelete={() => void remove(p as unknown as Row)} />)}
-            {tab === "resources" && (filtered as unknown as ResourceAdminRow[]).map((r) => <ResourceCard key={r.resource_id} r={r} onEdit={() => setEditing({ row: r as unknown as Row })} onDelete={() => void remove(r as unknown as Row)} />)}
-            {tab === "encouragements" && (filtered as unknown as EncouragementRow[]).map((e) => <EncouragementCard key={e.encouragement_id} e={e} onEdit={() => setEditing({ row: e as unknown as Row })} onDelete={() => void remove(e as unknown as Row)} />)}
+          // One white card; every item is a full-width ROW with a hairline divider
+          // between them (iPad Content Studio), each carrying a trailing ⋯ menu.
+          <div className="rounded-2xl overflow-hidden" style={{ background: "#fff", border: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(11,31,51,0.05)" }}>
+            {tab === "devotionals" && (filtered as unknown as DevotionalRow[]).map((d, i) => <DevotionalCard key={d.devotional_id} d={d} first={i === 0} onEdit={() => setEditing({ row: d as unknown as Row })} onDelete={() => void remove(d as unknown as Row)} onAdd={() => setEditing({ row: null })} />)}
+            {tab === "verses" && (filtered as unknown as VerseRow[]).map((v, i) => <VerseCard key={v.memory_verse_id} v={v} first={i === 0} onEdit={() => setEditing({ row: v as unknown as Row })} onDelete={() => void remove(v as unknown as Row)} onAdd={() => setEditing({ row: null })} />)}
+            {tab === "dailyverses" && (filtered as unknown as DailyVerseRow[]).map((d, i) => <DailyVerseCard key={d.day_index} d={d} first={i === 0} onEdit={() => setEditing({ row: d as unknown as Row })} />)}
+            {tab === "plans" && (filtered as unknown as PlanRow[]).map((p, i) => <PlanCard key={p.plan_id} p={p} first={i === 0} onEdit={() => setEditing({ row: p as unknown as Row })} onDelete={() => void remove(p as unknown as Row)} onAdd={() => setEditing({ row: null })} />)}
+            {tab === "resources" && (filtered as unknown as ResourceAdminRow[]).map((r, i) => <ResourceCard key={r.resource_id} r={r} first={i === 0} onEdit={() => setEditing({ row: r as unknown as Row })} onDelete={() => void remove(r as unknown as Row)} onAdd={() => setEditing({ row: null })} />)}
+            {tab === "encouragements" && (filtered as unknown as EncouragementRow[]).map((e, i) => <EncouragementCard key={e.encouragement_id} e={e} first={i === 0} onEdit={() => setEditing({ row: e as unknown as Row })} onDelete={() => void remove(e as unknown as Row)} onAdd={() => setEditing({ row: null })} />)}
           </div>
         )}
       </div>
@@ -199,45 +211,68 @@ export function GrowthContent(): ReactElement {
   );
 }
 
-/* ═════════════════════════ Cards ═════════════════════════ */
-function RowShell({ accent, children, onEdit, onDelete }: { accent: string; children: ReactNode; onEdit: () => void; onDelete?: (() => void) | undefined }): ReactElement {
+/* ═════════════════════════ Row primitives (iPad Content Studio) ═════════════════════════ */
+
+// A tinted, rounded icon chip leading each row (accent at low opacity).
+function TintedIcon({ icon: Icon, accent }: { icon: LucideIcon; accent: string }): ReactElement {
   return (
-    <div className="flex items-stretch rounded-2xl overflow-hidden transition-shadow hover:shadow-md" style={{ background: "#fff", border: "1px solid var(--border)" }}>
-      <div style={{ width: 4, background: accent, flexShrink: 0 }} />
-      <div className="flex items-center gap-4 flex-1 min-w-0" style={{ padding: "14px 16px" }}>
-        <div className="flex-1 min-w-0">{children}</div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button onClick={onEdit} title="Edit" className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, border: "1px solid var(--border)", color: "var(--nuru-navy)", background: "none" }}><Pencil size={14} /></button>
-          {onDelete ? <button onClick={onDelete} title="Delete" className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, border: "1px solid var(--border)", color: "#DC2626", background: "none" }}><Trash2 size={14} /></button> : null}
-        </div>
-      </div>
+    <span className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: accent + "1A", color: accent }}><Icon size={18} /></span>
+  );
+}
+
+// Small inline meta chip (icon + value, tinted) used along the row.
+function MetaChip({ icon: Icon, text, color = "var(--muted-foreground)" }: { icon?: LucideIcon; text: string; color?: string }): ReactElement {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full shrink-0" style={{ padding: "3px 9px", fontSize: 11.5, fontWeight: 500, background: color === "var(--muted-foreground)" ? "var(--secondary)" : color + "1A", color }}>
+      {Icon ? <Icon size={10.5} /> : null}{text}
+    </span>
+  );
+}
+
+// The trailing ⋯ row menu: Edit, Add (new item in this section), Delete
+// (destructive; omitted on the edit-only daily-verses section). A subtle navy
+// control on a light rounded hit area, opening a small popover.
+function RowMenu({ onEdit, onAdd, onDelete }: { onEdit: () => void; onAdd?: (() => void) | undefined; onDelete?: (() => void) | undefined }): ReactElement {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative shrink-0">
+      <button onClick={() => setOpen((v) => !v)} title="Actions" className="flex items-center justify-center rounded-lg" style={{ width: 34, height: 34, border: "none", color: "var(--nuru-navy)", background: open ? "rgba(11,31,51,0.10)" : "rgba(11,31,51,0.06)", cursor: "pointer" }}><MoreHorizontal size={16} /></button>
+      {open ? (
+        <>
+          <div className="fixed inset-0" style={{ zIndex: 30 }} onClick={() => setOpen(false)} />
+          <div style={{ position: "absolute", right: 0, top: 38, width: 168, borderRadius: 12, overflow: "hidden", background: "#fff", boxShadow: "0 12px 36px rgba(11,31,51,0.16), 0 0 0 1px var(--border)", zIndex: 31 }}>
+            <MenuRow icon={Pencil} label="Edit" onClick={() => { setOpen(false); onEdit(); }} />
+            {onAdd ? <MenuRow icon={Plus} label="Add" onClick={() => { setOpen(false); onAdd(); }} /> : null}
+            {onDelete ? <><div style={{ height: 1, background: "var(--border)" }} /><MenuRow icon={Trash2} label="Delete" danger onClick={() => { setOpen(false); onDelete(); }} /></> : null}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+function MenuRow({ icon: Icon, label, danger, onClick }: { icon: LucideIcon; label: string; danger?: boolean; onClick: () => void }): ReactElement {
+  return (
+    <button onClick={onClick} className="w-full flex items-center gap-2.5 text-left" style={{ padding: "9px 12px", background: "transparent", border: "none", cursor: "pointer", color: danger ? "#DC2626" : "var(--foreground)", fontSize: 12.5, fontWeight: 600 }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = "var(--secondary)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+      <Icon size={13} /> {label}
+    </button>
+  );
+}
+
+// Full-width row shell: tinted icon chip → content column → trailing ⋯ menu, with
+// a hairline divider above every row except the first (the parent card owns the
+// outer chrome). One row per item, ~64pt tall.
+function RowShell({ icon, accent, first, children, onEdit, onAdd, onDelete }: { icon: LucideIcon; accent: string; first?: boolean | undefined; children: ReactNode; onEdit: () => void; onAdd?: (() => void) | undefined; onDelete?: (() => void) | undefined }): ReactElement {
+  return (
+    <div className="flex items-center gap-3.5 transition-colors hover:bg-secondary/40" style={{ padding: "12px 16px", borderTop: first ? "none" : "1px solid var(--border)" }}>
+      <TintedIcon icon={icon} accent={accent} />
+      <div className="flex-1 min-w-0">{children}</div>
+      <RowMenu onEdit={onEdit} onAdd={onAdd} onDelete={onDelete} />
     </div>
   );
 }
 
-function DailyVerseCard({ d, onEdit }: { d: DailyVerseRow; onEdit: () => void }): ReactElement {
-  const dateLabel = new Date(d.day_date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
-  return (
-    <RowShell accent="#0EA5A0" onEdit={onEdit}>
-      <div className="flex items-start gap-3.5">
-        <div className="flex flex-col items-center justify-center rounded-xl shrink-0" style={{ width: 44, height: 44, background: "rgba(14,165,160,0.1)", color: "#0E7C77" }}>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", lineHeight: 1 }}>DAY</span>
-          <span style={{ fontFamily: "var(--font-display)", fontSize: 16, lineHeight: 1 }}>{d.day_index}</span>
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)" }}>{d.reference}</span>
-            <Pill bg="rgba(14,165,160,0.1)" color="#0E7C77">{d.version}</Pill>
-            {d.theme ? <Pill bg="var(--secondary)" color="var(--muted-foreground)">{d.theme}</Pill> : null}
-            <Pill bg="var(--secondary)" color="var(--muted-foreground)"><CalendarDays size={10} /> {dateLabel}</Pill>
-          </div>
-          {d.verse_text && <p style={{ fontFamily: "var(--font-display)", fontSize: 14.5, color: "var(--nuru-navy)", marginTop: 6, lineHeight: 1.45, fontStyle: "italic" }}>“{d.verse_text}”</p>}
-        </div>
-      </div>
-    </RowShell>
-  );
-}
-
+// Pill (kept for the modal/legacy callers) + semantic status pill.
 function Pill({ children, bg, color }: { children: ReactNode; bg: string; color: string }): ReactElement {
   return <span className="inline-flex items-center gap-1 rounded-full" style={{ padding: "2px 9px", fontSize: 10.5, fontWeight: 700, background: bg, color }}>{children}</span>;
 }
@@ -247,115 +282,123 @@ function StatusPill({ on, onLabel = "Active", offLabel = "Inactive" }: { on: boo
     : <Pill bg="var(--secondary)" color="var(--muted-foreground)">{offLabel}</Pill>;
 }
 
-function DevotionalCard({ d, onEdit, onDelete }: { d: DevotionalRow; onEdit: () => void; onDelete: () => void }): ReactElement {
+// Shared two-line row body: a top line (title + meta chips + status pill) and an
+// optional one-line preview. Title stays navy; meta chips carry the accent.
+function RowBody({ title, chips, status, preview }: { title: string; chips: ReactNode; status?: ReactNode; preview?: string | null | undefined }): ReactElement {
   return (
-    <RowShell accent="#0B84E8" onEdit={onEdit} onDelete={onDelete}>
-      <div className="flex items-start gap-3.5">
-        <div className="flex flex-col items-center justify-center rounded-xl shrink-0" style={{ width: 46, height: 46, background: "rgba(11,132,232,0.1)", color: "#0B84E8" }}>
-          <span style={{ fontSize: 8.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", opacity: 0.7 }}>Day</span>
-          <span style={{ fontFamily: "var(--font-display)", fontSize: 18, lineHeight: 1 }}>{d.day_number}</span>
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span style={{ fontSize: 14.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{d.title || "Untitled devotional"}</span>
-            <StatusPill on={d.is_published} onLabel="Published" offLabel="Draft" />
-          </div>
-          <div className="flex items-center gap-2 flex-wrap mt-1" style={{ fontSize: 12, color: "var(--muted-foreground)" }}>
-            {d.series && <span>{d.series}</span>}
-            {d.scripture_ref && <Pill bg="rgba(200,155,60,0.12)" color="#8B6914">{d.scripture_ref}</Pill>}
-          </div>
-          {d.body && <p style={{ fontSize: 12.5, color: "var(--muted-foreground)", marginTop: 6, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{d.body}</p>}
-        </div>
+    <>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="truncate" style={{ fontSize: 14, fontWeight: 600, color: "var(--nuru-navy)" }}>{title}</span>
+        {chips}
+        {status ? <span className="ml-auto shrink-0">{status}</span> : null}
       </div>
+      {preview ? <p style={{ fontSize: 11.5, color: "var(--muted-foreground)", marginTop: 3, lineHeight: 1.45, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{preview}</p> : null}
+    </>
+  );
+}
+
+function DailyVerseCard({ d, first, onEdit }: { d: DailyVerseRow; first?: boolean | undefined; onEdit: () => void }): ReactElement {
+  const dateLabel = new Date(d.day_date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  return (
+    // Daily verses are edit-only (fixed year plan) — no Add, no Delete.
+    <RowShell icon={CalendarDays} accent={NAVY} first={first} onEdit={onEdit}>
+      <RowBody
+        title={d.reference || `Day ${d.day_index}`}
+        chips={<>
+          <MetaChip text={`Day ${d.day_index}`} color={NAVY} />
+          {d.version ? <MetaChip icon={BookOpen} text={d.version} color={NAVY} /> : null}
+          <MetaChip icon={CalendarDays} text={dateLabel} />
+          {d.theme ? <MetaChip icon={Sparkles} text={d.theme} /> : null}
+        </>}
+        preview={d.verse_text ? `“${d.verse_text}”` : null}
+      />
     </RowShell>
   );
 }
 
-function VerseCard({ v, onEdit, onDelete }: { v: VerseRow; onEdit: () => void; onDelete: () => void }): ReactElement {
+function DevotionalCard({ d, first, onEdit, onDelete, onAdd }: { d: DevotionalRow; first?: boolean | undefined; onEdit: () => void; onDelete: () => void; onAdd: () => void }): ReactElement {
   return (
-    <RowShell accent="#7C3AED" onEdit={onEdit} onDelete={onDelete}>
-      <div className="flex items-start gap-3.5">
-        <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: "rgba(124,58,237,0.1)", color: "#7C3AED" }}><Quote size={18} /></div>
-        <div style={{ minWidth: 0 }}>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--nuru-navy)" }}>{v.reference || "Untitled verse"}</span>
-            <Pill bg="rgba(124,58,237,0.1)" color="#7C3AED">{v.version}</Pill>
-            {v.week_number ? <Pill bg="var(--secondary)" color="var(--muted-foreground)">Week {v.week_number}</Pill> : null}
-            {v.release_date ? <Pill bg="var(--secondary)" color="var(--muted-foreground)"><CalendarRange size={10} /> {new Date(v.release_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</Pill> : null}
-            <StatusPill on={v.is_active} />
-          </div>
-          {v.verse_text && <p style={{ fontFamily: "var(--font-display)", fontSize: 14.5, color: "var(--nuru-navy)", marginTop: 6, lineHeight: 1.45, fontStyle: "italic" }}>“{v.verse_text}”</p>}
-        </div>
-      </div>
+    <RowShell icon={BookOpen} accent={NAVY} first={first} onEdit={onEdit} onDelete={onDelete} onAdd={onAdd}>
+      <RowBody
+        title={d.title || "Untitled devotional"}
+        status={<StatusPill on={d.is_published} onLabel="Published" offLabel="Draft" />}
+        chips={<>
+          <MetaChip icon={CalendarDays} text={`Day ${d.day_number}`} color={NAVY} />
+          {d.series ? <MetaChip text={d.series} /> : null}
+          {d.scripture_ref ? <MetaChip icon={QuoteIcon} text={d.scripture_ref} color={GOLD} /> : null}
+        </>}
+        preview={d.body}
+      />
     </RowShell>
   );
 }
 
-function PlanCard({ p, onEdit, onDelete }: { p: PlanRow; onEdit: () => void; onDelete: () => void }): ReactElement {
+function VerseCard({ v, first, onEdit, onDelete, onAdd }: { v: VerseRow; first?: boolean | undefined; onEdit: () => void; onDelete: () => void; onAdd: () => void }): ReactElement {
   return (
-    <RowShell accent="#16A34A" onEdit={onEdit} onDelete={onDelete}>
-      <div className="flex items-start gap-3.5">
-        <div className="rounded-xl overflow-hidden shrink-0 flex items-center justify-center" style={{ width: 56, height: 56, background: p.image_url ? undefined : "rgba(22,163,74,0.1)", color: "#16A34A" }}>
-          {p.image_url ? <img src={p.image_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <CalendarRange size={20} />}
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span style={{ fontSize: 14.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{p.title || "Untitled plan"}</span>
-            {p.category && <Pill bg="rgba(22,163,74,0.1)" color="#0F6B33">{p.category}</Pill>}
-            <StatusPill on={p.is_active} />
-          </div>
-          {p.subtitle && <div style={{ fontSize: 12.5, color: "var(--muted-foreground)", marginTop: 2 }}>{p.subtitle}</div>}
-          <div className="flex items-center gap-2 mt-1.5" style={{ fontSize: 11.5, color: "var(--muted-foreground)" }}>
-            {p.code && <span style={{ fontFamily: "var(--font-mono, monospace)" }}>{p.code}</span>}
-            <span>·</span>
-            <span>{p.day_count} day{p.day_count === 1 ? "" : "s"}</span>
-          </div>
-        </div>
-      </div>
+    <RowShell icon={Quote} accent={GOLD} first={first} onEdit={onEdit} onDelete={onDelete} onAdd={onAdd}>
+      <RowBody
+        title={v.reference || "Untitled verse"}
+        status={<StatusPill on={v.is_active} />}
+        chips={<>
+          {v.version ? <MetaChip icon={BookOpen} text={v.version} color={GOLD} /> : null}
+          {v.week_number ? <MetaChip icon={CalendarDays} text={`Week ${v.week_number}`} /> : null}
+          {v.release_date ? <MetaChip icon={CalendarRange} text={new Date(v.release_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} /> : null}
+        </>}
+        preview={v.verse_text ? `“${v.verse_text}”` : null}
+      />
     </RowShell>
   );
 }
 
-function ResourceCard({ r, onEdit, onDelete }: { r: ResourceAdminRow; onEdit: () => void; onDelete: () => void }): ReactElement {
+function PlanCard({ p, first, onEdit, onDelete, onAdd }: { p: PlanRow; first?: boolean | undefined; onEdit: () => void; onDelete: () => void; onAdd: () => void }): ReactElement {
+  return (
+    <RowShell icon={CalendarRange} accent={GOLD} first={first} onEdit={onEdit} onDelete={onDelete} onAdd={onAdd}>
+      <RowBody
+        title={p.title || "Untitled plan"}
+        status={<StatusPill on={p.is_active} />}
+        chips={<>
+          <MetaChip icon={CalendarDays} text={`${p.day_count} day${p.day_count === 1 ? "" : "s"}`} color={GOLD} />
+          {p.category ? <MetaChip icon={Library} text={p.category} color={NAVY} /> : null}
+          {p.code ? <MetaChip icon={Hash} text={p.code} /> : null}
+        </>}
+        preview={p.subtitle ?? p.description}
+      />
+    </RowShell>
+  );
+}
+
+function ResourceCard({ r, first, onEdit, onDelete, onAdd }: { r: ResourceAdminRow; first?: boolean | undefined; onEdit: () => void; onDelete: () => void; onAdd: () => void }): ReactElement {
   const Icon = RESOURCE_ICON[r.kind] ?? FileText;
   return (
-    <RowShell accent="#C89B3C" onEdit={onEdit} onDelete={onDelete}>
-      <div className="flex items-center gap-3.5">
-        <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: "rgba(200,155,60,0.12)", color: "#8B6914" }}><Icon size={18} /></div>
-        <div style={{ minWidth: 0 }}>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span style={{ fontSize: 14.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{r.title || "Untitled resource"}</span>
-            <Pill bg="rgba(200,155,60,0.12)" color="#8B6914">{r.kind}</Pill>
-            <StatusPill on={r.is_active} />
-          </div>
-          <div className="flex items-center gap-2 mt-1" style={{ fontSize: 12, color: "var(--muted-foreground)" }}>
-            {r.author && <span>{r.author}</span>}
-            {r.duration_label && <><span>·</span><span className="inline-flex items-center gap-1"><Clock size={11} /> {r.duration_label}</span></>}
-            {r.url && <><span>·</span><span className="inline-flex items-center gap-1" style={{ color: "var(--nuru-gold)" }}><Link2 size={11} /> link</span></>}
-          </div>
-        </div>
-      </div>
+    <RowShell icon={Icon} accent={NAVY} first={first} onEdit={onEdit} onDelete={onDelete} onAdd={onAdd}>
+      <RowBody
+        title={r.title || "Untitled resource"}
+        status={<StatusPill on={r.is_active} />}
+        chips={<>
+          <MetaChip icon={Icon} text={r.kind} color={NAVY} />
+          {r.author ? <MetaChip text={r.author} /> : null}
+          {r.duration_label ? <MetaChip icon={Clock} text={r.duration_label} /> : null}
+          {r.url ? <MetaChip icon={Link2} text="Link" color={GOLD} /> : null}
+        </>}
+      />
     </RowShell>
   );
 }
 
-function EncouragementCard({ e, onEdit, onDelete }: { e: EncouragementRow; onEdit: () => void; onDelete: () => void }): ReactElement {
+function EncouragementCard({ e, first, onEdit, onDelete, onAdd }: { e: EncouragementRow; first?: boolean | undefined; onEdit: () => void; onDelete: () => void; onAdd: () => void }): ReactElement {
   return (
-    <RowShell accent="#DB2777" onEdit={onEdit} onDelete={onDelete}>
-      <div className="flex items-start gap-3.5">
-        <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 44, height: 44, background: "rgba(219,39,119,0.1)", fontSize: 20 }}>
-          {e.emoji ? <span>{e.emoji.slice(0, 2)}</span> : <Heart size={18} style={{ color: "#DB2777" }} />}
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span style={{ fontSize: 14.5, fontWeight: 700, color: "var(--nuru-navy)" }}>{e.title || "Untitled encouragement"}</span>
-            <Pill bg="rgba(219,39,119,0.1)" color="#9D174D">{e.kind}</Pill>
-            <Pill bg="var(--secondary)" color="var(--muted-foreground)">After module {e.after_module_sequence}</Pill>
-            <StatusPill on={e.is_active} />
-          </div>
-          {e.body && <p style={{ fontSize: 12.5, color: "var(--muted-foreground)", marginTop: 5, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{e.body}</p>}
-        </div>
-      </div>
+    <RowShell icon={Sparkles} accent={GOLD} first={first} onEdit={onEdit} onDelete={onDelete} onAdd={onAdd}>
+      <RowBody
+        title={e.title || "Untitled encouragement"}
+        status={<StatusPill on={e.is_active} />}
+        chips={<>
+          {e.emoji ? <MetaChip text={e.emoji.slice(0, 2)} color={GOLD} /> : null}
+          <MetaChip icon={Sparkles} text={e.kind} color={GOLD} />
+          <MetaChip icon={ArrowRightToLine} text={`after module ${e.after_module_sequence}`} color={NAVY} />
+          {e.scripture_ref ? <MetaChip icon={QuoteIcon} text={e.scripture_ref} /> : null}
+        </>}
+        preview={e.body}
+      />
     </RowShell>
   );
 }

@@ -8,6 +8,10 @@ enum APIError: LocalizedError {
     case decoding(String)
     case transport(String)
     case unauthorized
+    /// 403 + details.password_required (§5.3): the route wants a FRESH password
+    /// confirmation. Not a scope refusal — the cue to raise the password gate,
+    /// POST /auth/confirm-password, and retry with the re-minted token.
+    case passwordRequired
 
     var errorDescription: String? {
         switch self {
@@ -15,16 +19,19 @@ enum APIError: LocalizedError {
         case .decoding(let m): return "Couldn't read the server response. \(m)"
         case .transport(let m): return m
         case .unauthorized: return "Your session has expired. Please sign in again."
+        case .passwordRequired: return "Confirm your password to open this."
         }
     }
 }
 
 /// Backend error envelope: { "error": { "code": "...", "message": "..." } } or { "message": "..." }.
 private struct ErrorEnvelope: Decodable {
-    struct Inner: Decodable { let code: String?; let message: String? }
+    struct Details: Decodable { let passwordRequired: Bool? }
+    struct Inner: Decodable { let code: String?; let message: String?; let details: Details? }
     let error: Inner?
     let message: String?
     var text: String? { error?.message ?? message }
+    var passwordRequired: Bool { error?.details?.passwordRequired == true }
 }
 
 actor APIClient {
@@ -72,6 +79,12 @@ actor APIClient {
     }
 
     func clearSession() { setSession(access: nil, refresh: nil) }
+
+    /// Swap ONLY the access token (step-up re-mint) — the refresh token stays.
+    func setAccessTokenOnly(_ token: String) {
+        accessToken = token
+        Keychain.set(token, for: atKey)
+    }
 
     // MARK: Requests
 
@@ -165,6 +178,77 @@ actor APIClient {
         }
     }
 
+    /// Progress-capable variant of `uploadFile` (ADDITIVE — the original above is
+    /// untouched). Same Bearer header, multipart body layout ("file" part first,
+    /// then text fields), one transparent 401 refresh-and-replay, and JSON decode —
+    /// but the transfer runs through `URLSession.upload(for:from:delegate:)` with a
+    /// task-specific delegate, so `didSendBodyData` streams (bytesSent, bytesTotal)
+    /// to `onProgress` while the body goes up. The callback fires on URLSession's
+    /// delegate queue; callers hop to the main actor themselves.
+    func uploadFileWithProgress<T: Decodable>(
+        _ path: String, fileData: Data, filename: String, mimeType: String,
+        fields: [String: String] = [:], as type: T.Type,
+        onProgress: @escaping @Sendable (Int64, Int64) -> Void,
+        isRetry: Bool = false
+    ) async throws -> T {
+        let url = baseURL.appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path)
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 300
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+        func add(_ s: String) { body.append(s.data(using: .utf8)!) }
+        add("--\(boundary)\r\n")
+        add("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
+        add("Content-Type: \(mimeType)\r\n\r\n")
+        body.append(fileData); add("\r\n")
+        for (k, v) in fields {
+            add("--\(boundary)\r\n")
+            add("Content-Disposition: form-data; name=\"\(k)\"\r\n\r\n")
+            add("\(v)\r\n")
+        }
+        add("--\(boundary)--\r\n")
+
+        let data: Data, response: URLResponse
+        do {
+            let delegate = UploadProgressDelegate(onProgress: onProgress)
+            (data, response) = try await URLSession.shared.upload(for: req, from: body, delegate: delegate)
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.transport("No HTTP response.")
+        }
+
+        if http.statusCode == 401, !isRetry, refreshToken != nil {
+            if try await refreshSession() {
+                return try await uploadFileWithProgress(
+                    path, fileData: fileData, filename: filename, mimeType: mimeType,
+                    fields: fields, as: T.self, onProgress: onProgress, isRetry: true)
+            } else {
+                onSessionExpired?()
+                throw APIError.unauthorized
+            }
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = (try? decoder.decode(ErrorEnvelope.self, from: data))?.text
+                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw APIError.http(status: http.statusCode, message: msg)
+        }
+
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw APIError.decoding(String(describing: error))
+        }
+    }
+
     /// Core request with one transparent token refresh + replay on 401.
     private func send<B: Encodable, T: Decodable>(
         _ path: String, method: String, query: [String: String] = [:],
@@ -204,7 +288,11 @@ actor APIClient {
         }
 
         guard (200..<300).contains(http.statusCode) else {
-            let msg = (try? decoder.decode(ErrorEnvelope.self, from: data))?.text
+            let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
+            if http.statusCode == 403, envelope?.passwordRequired == true {
+                throw APIError.passwordRequired
+            }
+            let msg = envelope?.text
                 ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
             throw APIError.http(status: http.statusCode, message: msg)
         }
@@ -213,6 +301,20 @@ actor APIClient {
             return try decoder.decode(T.self, from: data)
         } catch {
             throw APIError.decoding(String(describing: error))
+        }
+    }
+
+    /// Task-specific URLSession delegate that forwards multipart-body upload
+    /// progress (`didSendBodyData`) to a `@Sendable` callback. Deliberately tiny:
+    /// no session ownership, no retained state beyond the closure — one instance
+    /// per upload task, released when the task completes.
+    private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        private let onProgress: @Sendable (Int64, Int64) -> Void
+        init(onProgress: @escaping @Sendable (Int64, Int64) -> Void) { self.onProgress = onProgress }
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        didSendBodyData bytesSent: Int64, totalBytesSent: Int64,
+                        totalBytesExpectedToSend: Int64) {
+            onProgress(totalBytesSent, totalBytesExpectedToSend)
         }
     }
 

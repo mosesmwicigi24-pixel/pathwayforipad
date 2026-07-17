@@ -89,6 +89,7 @@ struct UsersView: View {
                 .padding(.horizontal, Nuru.S.screen)
                 .padding(.top, Nuru.S.lg)
                 .padding(.bottom, Nuru.S.xxl)
+                .macContentColumn(1500)   // Mac: admin table breathes at ~1500; forms stay in sheets
             }
         }
     }

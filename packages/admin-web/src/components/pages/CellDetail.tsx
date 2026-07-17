@@ -103,64 +103,64 @@ export function CellDetail(): ReactElement {
       </div>
 
       <section style={{ padding: "24px clamp(16px,4vw,48px) 48px" }}>
-        {/* Band breakdown + KPI tiles */}
+        {/* Band breakdown + KPI tiles — clean white cards, one soft shadow each */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-          <div className="rounded-3xl p-6" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <div className="rounded-3xl p-6" style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 1px 2px rgba(11,31,51,0.04)" }}>
             <div className="nuru-eyebrow nuru-eyebrow-gold" style={{ marginBottom: 4 }}>Health mix</div>
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0B1F33", marginBottom: 16 }}>Engagement bands</h3>
+            <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--nuru-navy)", marginBottom: 16 }}>Engagement bands</h3>
             <div className="flex h-3 overflow-hidden rounded-full mb-4" style={{ background: "rgba(0,0,0,0.05)" }}>
               {BANDS.map((b) => roster.length && bandCounts[b] > 0 ? <div key={b} style={{ width: `${(bandCounts[b] / roster.length) * 100}%`, background: bandMeta[b].dot }} title={`${bandMeta[b].label}: ${bandCounts[b]}`} /> : null)}
             </div>
             <div className="grid grid-cols-2 gap-2.5">
               {BANDS.map((b) => (
                 <div key={b} className="flex items-center justify-between rounded-xl px-3 py-2" style={{ border: "1px solid var(--border)" }}>
-                  <span className="inline-flex items-center gap-1.5" style={{ fontSize: 12, fontWeight: 600, color: "#0B1F33" }}><span className="h-2 w-2 rounded-full" style={{ background: bandMeta[b].dot }} /> {bandMeta[b].label}</span>
-                  <span className="font-mono" style={{ fontSize: 12, fontWeight: 800, color: "#0B1F33" }}>{bandCounts[b]}</span>
+                  <span className="inline-flex items-center gap-1.5" style={{ fontSize: 12, fontWeight: 400, color: "var(--nuru-navy)" }}><span className="h-2 w-2 rounded-full" style={{ background: bandMeta[b].dot }} /> {bandMeta[b].label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--nuru-navy)" }}>{bandCounts[b]}</span>
                 </div>
               ))}
             </div>
           </div>
-          <div className="lg:col-span-2 grid grid-cols-2 gap-4 nuru-card-rotate">
+          <div className="lg:col-span-2 grid grid-cols-2 gap-4">
             {[
-              { label: "Members", value: cell.members, Icon: Users, tint: "tint-blue", sub: "in this cell" },
-              { label: "At-risk", value: cell.at_risk, Icon: CircleAlert, tint: "tint-red", sub: "need pastoral call" },
-              { label: "Watch list", value: watch, Icon: Clock3, tint: "tint-amber", sub: "send nudge" },
-              { label: "Avg engagement", value: `${avg}%`, Icon: MessageSquareText, tint: "tint-green", sub: "this cell" },
-            ].map(({ label, value, Icon, tint, sub }) => (
-              <div key={label} className="rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "14px 16px" }}>
-                <div className="flex items-start justify-between mb-2"><div className={`flex items-center justify-center rounded-lg ${tint}`} style={{ width: 34, height: 34 }}><Icon size={15} /></div></div>
-                <div className="nuru-eyebrow" style={{ marginBottom: 4 }}>{label}</div>
-                <div style={{ fontFamily: "var(--font-display)", color: "var(--nuru-navy)", fontSize: 22, lineHeight: 1 }}>{value}</div>
+              { label: "Members", value: cell.members, Icon: Users, tint: "tint-navy-bg", fg: "var(--tint-navy-fg)", sub: "in this cell" },
+              { label: "At-risk", value: cell.at_risk, Icon: CircleAlert, tint: "tint-rose-bg", fg: "var(--tint-rose-fg)", sub: "need pastoral call" },
+              { label: "Watch list", value: watch, Icon: Clock3, tint: "tint-amber-bg", fg: "var(--tint-amber-fg)", sub: "send nudge" },
+              { label: "Avg engagement", value: `${avg}%`, Icon: MessageSquareText, tint: "tint-green-bg", fg: "var(--tint-green-fg)", sub: "this cell" },
+            ].map(({ label, value, Icon, tint, fg, sub }) => (
+              <div key={label} className="rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)", padding: "14px 16px", boxShadow: "0 1px 2px rgba(11,31,51,0.04)" }}>
+                <span className="flex items-center justify-center rounded-lg" style={{ width: 34, height: 34, background: `var(--${tint})`, color: fg }}><Icon size={15} /></span>
+                <div className="nuru-eyebrow" style={{ marginTop: 12, marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 22, fontWeight: 600, color: "var(--nuru-navy)", lineHeight: 1 }}>{value}</div>
                 <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 6 }}>{sub}</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Member table */}
-        <div className="overflow-hidden rounded-[28px]" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-          <div className="flex items-center justify-between gap-6 px-6 py-5" style={{ background: "#0B1F33", color: "#fff" }}>
+        {/* Member table — navy header, aligned columns, clean white body + soft shadow */}
+        <div className="overflow-hidden rounded-[28px]" style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 1px 2px rgba(11,31,51,0.04)" }}>
+          <div className="flex items-center justify-between gap-6 px-6 py-5" style={{ background: "var(--nuru-navy)", color: "#fff" }}>
             <div><p className="type-table-header" style={{ color: "rgba(255,255,255,0.55)" }}>{cell.name}</p><h2 style={{ fontFamily: "var(--font-display)", fontWeight: 400, fontSize: 18, lineHeight: 1.2, marginTop: 4 }}>Member engagement</h2></div>
-            <button onClick={() => setSortAsc((v) => !v)} className="inline-flex items-center gap-1.5 rounded-2xl px-4 py-2.5" style={{ border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.1)", fontSize: 12, fontWeight: 800, color: "rgba(255,255,255,0.8)" }}>{sortAsc ? "Lowest first" : "Highest first"} <ChevronDown size={14} /></button>
+            <button onClick={() => setSortAsc((v) => !v)} className="inline-flex items-center gap-1.5 rounded-2xl px-4 py-2.5" style={{ border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.1)", fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.85)" }}>{sortAsc ? "Lowest first" : "Highest first"} <ChevronDown size={14} /></button>
           </div>
           <div className="overflow-x-auto"><table className="w-full border-collapse">
             <thead><tr style={{ background: "var(--secondary)", textAlign: "left" }}>
-              {["Member", "Level", "Engagement", "Band", "Last active", "Action"].map((h) => <th key={h} className="px-5 py-3.5" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#0B1F33" }}>{h}</th>)}
+              {["Member", "Level", "Engagement", "Band", "Last active", "Action"].map((h) => <th key={h} className="px-5 py-3.5" style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--muted-foreground)" }}>{h}</th>)}
             </tr></thead>
             <tbody>
               {sorted.map((m) => { const score = pct(m.e_score); const band = (m.band ?? "steady") as BandKey; const bm = bandMeta[band] ?? bandMeta.steady; const da = daysAgo(m.last_activity); return (
                 <tr key={m.user_id} onClick={() => navigate(`/member-profile?id=${m.user_id}`)} className="cursor-pointer transition hover:bg-secondary/60" style={{ borderTop: "1px solid var(--border)" }}>
-                  <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full" style={{ background: "#0B1F33", fontSize: 12, fontWeight: 800, color: "#fff" }}>{initials(m.full_name)}</div><div><p style={{ fontSize: 14, fontWeight: 800, color: "var(--foreground)", whiteSpace: "nowrap" }}>{m.full_name}</p><p style={{ fontSize: 12, color: "var(--muted-foreground)" }}>{m.email ?? m.phone_number}</p></div></div></td>
-                  <td className="px-5 py-4" style={{ fontSize: 13, fontWeight: 700, color: "#0B1F33" }}>L{m.current_level ?? "—"}</td>
+                  <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full" style={{ background: "var(--nuru-navy)", fontSize: 12, fontWeight: 600, color: "#fff" }}>{initials(m.full_name)}</div><div><p style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)", whiteSpace: "nowrap" }}>{m.full_name}</p><p style={{ fontSize: 12, color: "var(--muted-foreground)" }}>{m.email ?? m.phone_number}</p></div></div></td>
+                  <td className="px-5 py-4" style={{ fontSize: 13, fontWeight: 500, color: "var(--nuru-navy)" }}>L{m.current_level ?? "—"}</td>
                   <td className="px-5 py-4">
                     <div style={{ minWidth: 120 }}>
-                      <div className="mb-1 font-mono" style={{ fontSize: 11, fontWeight: 700, color: "var(--foreground)" }}>{score}%</div>
+                      <div className="mb-1" style={{ fontSize: 11, fontWeight: 600, color: "var(--foreground)" }}>{score}%</div>
                       <div className="h-1.5 overflow-hidden rounded-full" style={{ background: "rgba(0,0,0,0.06)" }}><div className="h-full rounded-full" style={{ width: `${score}%`, background: bm.dot }} /></div>
                     </div>
                   </td>
-                  <td className="px-5 py-4"><span className="inline-flex rounded-full px-3 py-1" style={{ fontSize: 12, fontWeight: 800, background: bm.bg, color: bm.color }}>{bm.label}</span></td>
-                  <td className="px-5 py-4"><span className="font-mono" style={{ fontSize: 14, fontWeight: da != null && da >= 7 ? 800 : 600, color: da != null && da >= 7 ? "#B91C1C" : "var(--foreground)" }}>{da == null ? "—" : `${da}d`}</span></td>
-                  <td className="px-5 py-4"><button onClick={(e) => { e.stopPropagation(); navigate(`/member-profile?id=${m.user_id}`); }} className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ border: "1px solid var(--border)", background: "var(--card)", fontSize: 12, fontWeight: 800, color: "#0B1F33" }}>View <ChevronRight size={14} style={{ color: "var(--muted-foreground)" }} /></button></td>
+                  <td className="px-5 py-4"><span className="inline-flex rounded-full px-3 py-1" style={{ fontSize: 12, fontWeight: 500, background: bm.bg, color: bm.color }}>{bm.label}</span></td>
+                  <td className="px-5 py-4"><span style={{ fontSize: 14, fontWeight: da != null && da >= 7 ? 600 : 400, color: da != null && da >= 7 ? "#B91C1C" : "var(--foreground)" }}>{da == null ? "—" : `${da}d`}</span></td>
+                  <td className="px-5 py-4"><button onClick={(e) => { e.stopPropagation(); navigate(`/member-profile?id=${m.user_id}`); }} className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2" style={{ border: "1px solid var(--border)", background: "var(--card)", fontSize: 12, fontWeight: 500, color: "var(--nuru-navy)" }}>View <ChevronRight size={14} style={{ color: "var(--muted-foreground)" }} /></button></td>
                 </tr>
               ); })}
               {sorted.length === 0 ? <tr><td colSpan={6} className="px-5 py-8 text-center" style={{ fontSize: 13, color: "var(--muted-foreground)" }}>No members loaded for this cell.</td></tr> : null}

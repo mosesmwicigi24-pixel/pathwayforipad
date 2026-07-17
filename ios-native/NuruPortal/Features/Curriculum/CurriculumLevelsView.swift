@@ -90,6 +90,15 @@ struct CurriculumLevelsView: View {
                 hero(levels)
 
                 VStack(spacing: 18) {
+                    if MacDesign.isMac {
+                        // Desktop: all three analytics charts sit as one row of
+                        // top-aligned lanes — distribution · completion · trend.
+                        HStack(alignment: .top, spacing: 18) {
+                            LearnersByLevel(levels: levels).frame(maxWidth: .infinity, alignment: .top)
+                            CompletionByLevel(levels: levels).frame(maxWidth: .infinity, alignment: .top)
+                            EnrolmentTrend(levels: levels, trend: report.trend).frame(maxWidth: .infinity, alignment: .top)
+                        }
+                    } else {
                     // Row 1: distribution + completion — side-by-side on the wide
                     // iPad canvas, stacked when narrow. Same cards, denser use of width.
                     ViewThatFits(in: .horizontal) {
@@ -105,6 +114,7 @@ struct CurriculumLevelsView: View {
 
                     // Row 2: enrolment trend
                     EnrolmentTrend(levels: levels, trend: report.trend)
+                    }
 
                     // Row 3: active-level deep-dive — sits after the enrolment trend
                     // and before the levels grid (per v3 reorder).
@@ -124,8 +134,9 @@ struct CurriculumLevelsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    // Row 5: level cards — denser grid (4-up on the wide canvas)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 14)], spacing: 14) {
+                    // Row 5: level cards — denser grid (4-up on the wide canvas;
+                    // Mac gets roomier ≥300pt cards across the workspace row)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: MacDesign.isMac ? 300 : 230), spacing: 14)], spacing: 14) {
                         ForEach(levels) { lvl in
                             LevelCard(level: lvl, active: activeId == lvl.levelNumber,
                                       onOpen: { router.openLevel(lvl.levelNumber) })
@@ -134,6 +145,7 @@ struct CurriculumLevelsView: View {
                     }
                 }
                 .padding(.horizontal, 20)
+                .macContentColumn(MacDesign.workspaceMaxWidth)   // Mac: analytics lanes + level grid use the width
             }
             .padding(.bottom, 40)
         }
