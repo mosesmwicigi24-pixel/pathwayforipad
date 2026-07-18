@@ -89,6 +89,50 @@ enum Section: String, CaseIterable, Identifiable {
         case .profile: "person.crop.circle"
         }
     }
+
+    /// Required permission key ("module:capability") from the effective set on
+    /// MeProfile.permissions — the native mirror of admin-web's nav.tsx
+    /// NavItem.permission, derived from the SAME requirePermission(module,
+    /// capability) guard on that section's primary endpoint. `nil` = no
+    /// sensible single-permission mapping (a coarse requireRole(...) gate, or
+    /// none at all) — the row stays visible; the server keeps enforcing its
+    /// own gate regardless of what the sidebar shows.
+    var permission: String? {
+        switch self {
+        case .dashboard, .notifications, .cellEngagement: "dashboard:view"
+        case .curriculumLevels: "levels:view"
+        case .cms, .levelDetail: "cms:view"
+        case .quizBuilder: "quiz:view"
+        case .videoLibrary: "videos:view"
+        case .members: "members:view"
+        case .finance: "finance:view"
+        case .certificates: "certificates:view"
+        case .badges: "badges:view"
+        case .users: "users:view"
+        case .roles: "rolesAdmin:view"
+        case .congregations: "congregations:view"
+        case .countries: "countries:view"
+        case .languages: "languages:view"
+        case .proximity: "members:proximity"
+        // contentStudio/disciples/reflectionQueue/levelReviews/chat/events/
+        // radio/mixer/uploadsSessions/peopleIntelligence/flockBrief/broadcast/
+        // profile: coarse requireRole(...) gates or no gate at all — no fine
+        // RBAC permission to key off. Stays visible.
+        default: nil
+        }
+    }
+}
+
+/// True if `item` should show in the sidebar for this profile: `.broadcast`
+/// needs SuperAdmin (the server enforces the role + password step-up
+/// regardless); a permission-mapped item needs that key present in
+/// `profile.permissions`. `profile == nil` (still booting, /me not back yet)
+/// fails OPEN — never hide/redirect on a guess. Everything else defaults to
+/// visible. The native mirror of admin-web's nav.tsx `navItemVisible`.
+func isSectionVisible(_ item: Section, profile: MeProfile?) -> Bool {
+    if item == .broadcast, profile?.role != "SuperAdmin" { return false }
+    if let perm = item.permission, let perms = profile?.permissions, !perms.contains(perm) { return false }
+    return true
 }
 
 private struct NavGroup: Identifiable {
@@ -203,7 +247,17 @@ struct RootView: View {
             #endif
             visit(router.section, leaving: nil)
         }
-        .onChange(of: router.section) { old, new in visit(new, leaving: old) }
+        .onChange(of: router.section) { old, new in
+            // Defense in depth for deep links (push notifications, cross-page
+            // jumps) that could otherwise target a section this profile can't
+            // see — the sidebar already keeps a normal tap from reaching one.
+            guard let new else { return }
+            if !isSectionVisible(new, profile: auth.profile) {
+                router.section = .dashboard
+                return
+            }
+            visit(new, leaving: old)
+        }
         // Radio Studio → Uploads & Sessions deep link (Mac AND iPad): stash the
         // program id for UploadsSessionsView to consume, then switch sections.
         .onReceive(NotificationCenter.default.publisher(for: .nuruOpenUploadsSession)) { note in
@@ -267,7 +321,7 @@ struct RootView: View {
     }
 
     private var sectionShortcuts: some View {
-        let quick = Array(navGroups.flatMap(\.items).prefix(5))
+        let quick = Array(navGroups.flatMap(\.items).filter { isSectionVisible($0, profile: auth.profile) }.prefix(5))
         return ForEach(Array(quick.enumerated()), id: \.element.id) { i, section in
             Button(section.title) { router.go(section) }
                 .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
@@ -291,10 +345,10 @@ struct RootView: View {
                             } else {
                                 Rectangle().fill(.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 14).padding(.vertical, 4)
                             }
-                            // Broadcast is between the shepherd and the individual —
-                            // the row itself only exists for SuperAdmin (the server
-                            // enforces the role + password step-up regardless).
-                            ForEach(group.items.filter { $0 != .broadcast || auth.profile?.role == "SuperAdmin" }) { item in
+                            // Permitted-but-limited users see ONLY the rows their
+                            // permissions grant — everything else absent, not
+                            // grayed (isSectionVisible mirrors nav.tsx's filter).
+                            ForEach(group.items.filter { isSectionVisible($0, profile: auth.profile) }) { item in
                                 NavRow(item: item, selected: router.section == item, collapsed: collapsed) {
                                     router.go(item)
                                 }
