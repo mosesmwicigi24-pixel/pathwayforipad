@@ -49,6 +49,8 @@ struct OverviewKpis: Codable {
     @DefaultZero var reflectionsThisWeek: Int
     @DefaultZero var pendingReviews: Int
     @DefaultZero var reviewsOverdue: Int
+    @DefaultZero var newMembers14d: Int
+    @DefaultZero var newMembersPrev14d: Int
     @DefaultZero var modulesPublished: Int
     @DefaultZero var cohortsRunning: Int
     @DefaultZero var checkedInThisWeek: Int

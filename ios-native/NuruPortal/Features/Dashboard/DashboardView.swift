@@ -421,9 +421,16 @@ struct DashboardView: View {
         stats.append(HeroStat(label: "Reflections (wk.)",
                               value: o.map { "\($0.reflectionsThisWeek)" } ?? "—",
                               hint: o.map { "\($0.pendingReviews) awaiting review" } ?? "this week"))
-        stats.append(HeroStat(label: "Active learners",
-                              value: o.map { "\($0.activeLearners)" } ?? "—",
-                              hint: o.map { "\($0.cohortsRunning) cohorts running" } ?? "on the pathway"))
+        if let o, o.newMembers14d > 0 || o.newMembersPrev14d > 0 {
+            let hint = o.newMembersPrev14d > 0
+                ? "last 14 days · \(o.newMembers14d >= o.newMembersPrev14d ? "▲" : "▼") vs \(o.newMembersPrev14d) prior"
+                : "joined in the last 14 days"
+            stats.append(HeroStat(label: "New members", value: "\(o.newMembers14d)", hint: hint))
+        } else {
+            stats.append(HeroStat(label: "Active learners",
+                                  value: o.map { "\($0.activeLearners)" } ?? "—",
+                                  hint: o.map { "\($0.cohortsRunning) cohorts running" } ?? "on the pathway"))
+        }
         return PortalHero(breadcrumb: ["Nuru Pathway", "Dashboard"], title: vm.greeting, stats: stats) {
             HStack(spacing: 8) {
                 HeroChip(label: todayLabel, icon: "sparkles", style: .tag)
