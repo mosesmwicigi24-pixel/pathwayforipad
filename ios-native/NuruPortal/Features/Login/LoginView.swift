@@ -12,8 +12,16 @@ struct LoginView: View {
     @State private var loading = false
     @State private var error: String?
     @State private var forgotOpen = false
+    @State private var bioBusy = false
     @FocusState private var focus: Field?
     private enum Field { case email, password, code }
+
+    /// Biometric fast path: the lock preference is ON and a session survives on
+    /// this device (e.g. the admin chose "Use password instead" earlier) — offer
+    /// Face ID / Touch ID to restore it without typing anything.
+    private var canFastPath: Bool {
+        mfaToken == nil && auth.biometricLockEnabled && auth.hasPersistedSession && BiometricAuth.isAvailable
+    }
 
     var body: some View {
         ZStack {
@@ -54,6 +62,19 @@ struct LoginView: View {
             Text(mfaToken == nil ? "Welcome back" : "Two-factor verification")
                 .font(.nuruDisplay(22)).foregroundStyle(Nuru.navy)
 
+            // Gentle note when a biometric unlock revealed a dead session — the
+            // device can unlock the app, but only a password can mint a new one.
+            if let note = auth.sessionNote, mfaToken == nil {
+                Label(note, systemImage: "clock.arrow.circlepath")
+                    .font(.nCaption).foregroundStyle(Nuru.goldChipText)
+                    .padding(.horizontal, 12).padding(.vertical, 9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Nuru.goldChipBg)
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+            }
+
+            if canFastPath { biometricFastPath }
+
             if mfaToken == nil { credentialsFields } else { mfaField }
 
             if let error {
@@ -92,6 +113,41 @@ struct LoginView: View {
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.xl, style: .continuous))
         .frame(maxWidth: 430)
         .shadow(color: .black.opacity(0.35), radius: 40, y: 20)
+    }
+
+    /// "Sign in with Face ID" — restores the persisted session behind one system
+    /// authentication, above the password form. The password stays the fallback.
+    private var biometricFastPath: some View {
+        VStack(spacing: 14) {
+            Button {
+                guard !bioBusy else { return }
+                bioBusy = true; error = nil
+                Task {
+                    _ = await auth.restoreViaBiometrics()
+                    bioBusy = false
+                }
+            } label: {
+                HStack(spacing: 9) {
+                    if bioBusy { ProgressView().tint(.white) }
+                    else { Image(systemName: BiometricAuth.icon).font(.system(size: 16, weight: .semibold)) }
+                    Text(BiometricAuth.label.map { "Sign in with \($0)" } ?? "Unlock")
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 15)
+                .background(Nuru.navyGradient)
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.control, style: .continuous))
+                .nuruShadow(0.6)
+            }
+            .disabled(bioBusy)
+
+            HStack(spacing: 10) {
+                Rectangle().fill(Nuru.border).frame(height: 1)
+                Text("or use your password").font(.nMicro).foregroundStyle(Nuru.muted)
+                    .fixedSize()
+                Rectangle().fill(Nuru.border).frame(height: 1)
+            }
+        }
     }
 
     private var credentialsFields: some View {

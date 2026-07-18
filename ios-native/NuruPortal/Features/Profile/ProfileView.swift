@@ -157,6 +157,7 @@ struct ProfileView: View {
                     }
                     headerCard
                     tabbedCard
+                    if BiometricAuth.isAvailable { appLockCard }
                     signOutButton
                 }
                 .padding(.horizontal, Nuru.S.lg)
@@ -258,6 +259,45 @@ struct ProfileView: View {
         case .sessions:    SessionsPanel()
         case .preferences: PreferencesPanel()
         case .activity:    ActivityPanel(store: store)
+        }
+    }
+
+    /// Face ID / Touch ID app lock (BiometricAuth). Turning it ON runs one
+    /// system authentication first, so the switch never arms a gate that can't
+    /// open. The password itself is never stored — the lock only guards the
+    /// already-persisted session tokens.
+    private var appLockCard: some View {
+        let label = BiometricAuth.label
+        return Card(padding: 20) {
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Nuru.gold.opacity(0.14))
+                    Image(systemName: BiometricAuth.icon).font(.system(size: 17)).foregroundStyle(Nuru.gold)
+                }.frame(width: 36, height: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label.map { "Require \($0)" } ?? "Require unlock")
+                        .font(.inter(13, .bold)).foregroundStyle(Nuru.navy)
+                    Text("Ask for \(label ?? "your device password") when Nuru Portal opens or returns from the background. You won't need to type your portal password again.")
+                        .font(.inter(12)).foregroundStyle(Nuru.muted).lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
+                Toggle("", isOn: Binding(
+                    get: { auth.biometricLockEnabled },
+                    set: { on in
+                        if on {
+                            Task {
+                                if case .success = await BiometricAuth.authenticate(
+                                    reason: "Confirm \(label ?? "your device password") to turn on the app lock.") {
+                                    auth.biometricLockEnabled = true
+                                }
+                            }
+                        } else {
+                            auth.biometricLockEnabled = false
+                        }
+                    }
+                )).labelsHidden().tint(Nuru.gold)
+            }
         }
     }
 

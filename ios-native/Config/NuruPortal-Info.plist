@@ -11,5 +11,8 @@
 	<!-- Radio Studio live mic — required for the on-mic broadcaster (MicBroadcaster). -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Broadcast your microphone into Nuru Radio live broadcasts.</string>
+	<!-- Face ID app lock (BiometricAuth) — unlocks the persisted admin session. -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>Nuru Portal uses Face ID to unlock your signed-in session.</string>
 </dict>
 </plist>

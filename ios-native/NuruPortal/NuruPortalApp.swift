@@ -6,6 +6,10 @@ import UIKit
 @main
 struct NuruPortalApp: App {
     @StateObject private var auth = AuthStore()
+    @Environment(\.scenePhase) private var scenePhase
+    /// When the scene last left for the background — drives the biometric
+    /// re-lock debounce (a quick app-switch under 30s never re-prompts).
+    @State private var backgroundedAt: Date?
 
     init() {
         Nuru.registerFonts()
@@ -18,7 +22,18 @@ struct NuruPortalApp: App {
                 if auth.booting {
                     SplashView()
                 } else if auth.isAuthenticated {
-                    RootView()
+                    // Signed in — with the Face ID / Touch ID gate layered over
+                    // the (blurred) app whenever the lock is armed.
+                    ZStack {
+                        RootView()
+                            .blur(radius: auth.isLocked ? 24 : 0)
+                            .disabled(auth.isLocked)
+                            .accessibilityHidden(auth.isLocked)
+                        if auth.isLocked {
+                            BiometricLockView().transition(.opacity)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: auth.isLocked)
                 } else {
                     LoginView()
                 }
@@ -28,6 +43,29 @@ struct NuruPortalApp: App {
             // The portal is designed entirely in warm light tones; never let the
             // device's Dark Mode bleed into system Form/sheet/picker chrome.
             .preferredColorScheme(.light)
+            // One-time offer after a successful password login on biometric
+            // hardware ("auth.biometricOffered" remembers either answer).
+            .alert("Sign in with \(BiometricAuth.label ?? "Face ID") next time?",
+                   isPresented: $auth.biometricEnrollPrompt) {
+                Button("Enable") { auth.answerBiometricOffer(enable: true) }
+                Button("Not now", role: .cancel) { auth.answerBiometricOffer(enable: false) }
+            } message: {
+                Text("Unlock Nuru Portal with \(BiometricAuth.label ?? "Face ID") instead of typing your password. You can change this any time in My Profile.")
+            }
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .background:
+                    if backgroundedAt == nil { backgroundedAt = Date() }
+                case .active:
+                    if let left = backgroundedAt,
+                       Date().timeIntervalSince(left) > AuthStore.relockGrace {
+                        auth.relockIfNeeded()
+                    }
+                    backgroundedAt = nil
+                default:
+                    break
+                }
+            }
         }
     }
 
