@@ -19,6 +19,15 @@ import UniformTypeIdentifiers
 
 // MARK: - Page-local rich media model (superset of the shared MediaAssetRow)
 
+/// One placement of this asset (docs/CURRICULUM_ARCHITECTURE.md §2.2) — the
+/// AUTHORITATIVE attachment list on every /admin/media row. The level is always
+/// derived from the module server-side; the library only ever displays it.
+struct MediaPlacementRef: Codable, Hashable {
+    @DefaultEmpty var moduleId: String
+    @DefaultEmpty var moduleTitle: String
+    let levelNumber: Int?
+}
+
 /// Tolerant decode of /admin/media rows including the homepage / external-id / module
 /// fields the shared row omits. All optionals so partial server projections still decode.
 struct MediaAssetFull: Codable, Identifiable {
@@ -28,6 +37,7 @@ struct MediaAssetFull: Codable, Identifiable {
     @DefaultEmpty var videoSource: String
     let externalUrl: String?
     let externalVideoId: String?
+    let title: String?
     let caption: String?
     let levelNumber: Int?
     let thumbnailUrl: String?
@@ -35,11 +45,17 @@ struct MediaAssetFull: Codable, Identifiable {
     @DefaultEmpty var createdAt: String
     let attachedModuleId: String?
     let attachedModuleTitle: String?
+    /// placements[] (§2.2) — one asset, many modules. attached_module_* stays
+    /// only as the legacy mirror during the transition.
+    let placements: [MediaPlacementRef]?
     let views: Int?
     let completion: Double?
     @DefaultFalse var isHomepage: Bool
     let errorDetail: String?
     var id: String { mediaAssetId }
+
+    var placementList: [MediaPlacementRef] { placements ?? [] }
+    var isPlaced: Bool { !placementList.isEmpty || attachedModuleTitle != nil }
 }
 private struct MediaListFullResponse: Codable {
     let data: [MediaAssetFull]
@@ -116,15 +132,47 @@ final class VideoLibraryVM: ObservableObject {
         } catch { self.error = Self.message(error) }
     }
 
-    /// PATCH /admin/media/:id — caption / level edits.
-    func patch(_ a: MediaAssetFull, caption: String?, levelNumber: Int?) async {
+    /// PATCH /admin/media/:id — caption edits. (level_number is no longer
+    /// written as an "attachment" — §2.2 demotes it to a derived display tag.)
+    func patch(_ a: MediaAssetFull, caption: String?) async {
         working = true; defer { working = false }
         do {
             _ = try await APIClient.shared.patch("/admin/media/\(a.mediaAssetId)",
-                                                 body: PatchAssetBody(caption: caption, levelNumber: levelNumber),
+                                                 body: PatchAssetBody(caption: caption),
                                                  as: WriteAck.self)
             await load()
             notice = "Saved."; error = nil
+        } catch { self.error = Self.message(error) }
+    }
+
+    /// POST /admin/media/:id/placements — the REAL module attach (§2.2). The
+    /// level is inferred from the module server-side. 409 = already placed.
+    func place(_ a: MediaAssetFull, module: AdminModuleSummary) async {
+        working = true; defer { working = false }
+        do {
+            _ = try await PortalAPI.addPlacement(mediaAssetId: a.mediaAssetId, moduleId: module.moduleId)
+            await load()
+            notice = "Placed in “\(module.title)” (Level \(module.levelNumber))."; error = nil
+        } catch {
+            if case APIError.http(let status, _) = error, status == 409 {
+                self.error = "Already placed in “\(module.title)” — an asset can be placed in a module only once."
+            } else { self.error = Self.message(error) }
+        }
+    }
+
+    /// Remove ONE placement (never the asset). The list rows don't carry the
+    /// placement id, so it resolves via GET /admin/modules/{id}/media first.
+    func removePlacement(_ a: MediaAssetFull, _ ref: MediaPlacementRef) async {
+        working = true; defer { working = false }
+        do {
+            let rows = try await PortalAPI.modulePlacements(ref.moduleId)
+            guard let row = rows.first(where: { $0.mediaAssetId == a.mediaAssetId }) else {
+                await load()
+                self.error = "That placement is already gone."; return
+            }
+            try await PortalAPI.removePlacement(row.placementId)
+            await load()
+            notice = "Removed from “\(ref.moduleTitle)” — the asset stays in the library."; error = nil
         } catch { self.error = Self.message(error) }
     }
 
@@ -169,18 +217,16 @@ struct RegisterExternalBody: Encodable {
     let url: String
     let title: String?
     let caption: String?
-    let levelNumber: Int?
 }
+/// Caption-only PATCH: the library no longer writes level_number as an
+/// "attachment" — placements are the attachment mechanism (§2.2).
 private struct PatchAssetBody: Encodable {
     let caption: String?
-    let levelNumber: Int?  // nil = leave; the web sends null to clear — see encode below
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         if let caption { try c.encode(caption, forKey: .caption) }
-        // Always send level_number (incl. null) so clearing it works, matching the web.
-        try c.encode(levelNumber, forKey: .levelNumber)
     }
-    enum CodingKeys: String, CodingKey { case caption, levelNumber }
+    enum CodingKeys: String, CodingKey { case caption }
 }
 /// Writes return small/varied JSON (e.g. { archived: true }, { is_homepage: true },
 /// or the patched row). We don't read the body, so decode permissively.
@@ -218,7 +264,7 @@ private func uiStatus(_ a: MediaAssetFull) -> UiStatus {
     case "uploading":   return .uploading
     case "transcoding": return .transcoding
     case "stuck":       return .stuck
-    default:            return a.attachedModuleTitle != nil ? .ready : .unattached
+    default:            return a.isPlaced ? .ready : .unattached
     }
 }
 
@@ -235,10 +281,17 @@ private func providerMeta(_ source: String) -> ProviderMeta {
 private let EXTERNAL: Set<String> = ["youtube", "vimeo", "direct", "private"]
 
 private func assetTitle(_ a: MediaAssetFull) -> String {
+    if let t = a.title, !t.isEmpty { return t }
+    if let m = a.placementList.first?.moduleTitle, !m.isEmpty { return m }
     if let m = a.attachedModuleTitle, !m.isEmpty { return m }
     if let c = a.caption, !c.isEmpty { return c }
     let k = a.kind.replacingOccurrences(of: "_", with: " ")
     return "\(k) · \(String(a.mediaAssetId.prefix(8)))"
+}
+
+/// "L2 · Rooted" chips describing every placement of an asset.
+private func placementLabel(_ p: MediaPlacementRef) -> String {
+    p.levelNumber.map { "L\($0) · \(p.moduleTitle)" } ?? p.moduleTitle
 }
 private func durText(_ s: Int?) -> String {
     guard let s, s > 0 else { return "—" }
@@ -264,6 +317,9 @@ struct VideoLibraryView: View {
     @State private var attachedFilter = "All"
     @State private var selected: MediaAssetFull?
     @State private var deleteFor: MediaAssetFull?
+    /// Placement flow: the asset being attached; the picker lists modules with
+    /// the level INFERRED and shown, never asked (§2.2).
+    @State private var attachFor: MediaAssetFull?
 
     // Register-external + upload UI state.
     @State private var showRegister = false
@@ -316,13 +372,25 @@ struct VideoLibraryView: View {
                 working: vm.working,
                 onToggleHomepage: { Task { await vm.toggleHomepage(a); selected = nil } },
                 onDelete: { selected = nil; deleteFor = a },
-                onSaveMeta: { caption, level in Task { await vm.patch(a, caption: caption, levelNumber: level) } },
+                onSaveMeta: { caption in Task { await vm.patch(a, caption: caption); refreshSelected(a.id) } },
+                onAttach: { selected = nil; attachFor = a },
+                onRemovePlacement: { ref in Task { await vm.removePlacement(a, ref); refreshSelected(a.id) } },
                 onThumbPicked: { data, name, mime in
                     Task { await vm.uploadThumbnail(a, data: data, filename: name, mime: mime); refreshSelected(a.id) }
                 },
                 onClearThumb: { Task { await vm.clearThumbnail(a); refreshSelected(a.id) } }
             )
             .presentationDetents([.large])
+        }
+        // Module picker — attach becomes REAL: POST /admin/media/{id}/placements.
+        .sheet(item: $attachFor) { a in
+            ModulePickerSheet(
+                assetName: assetTitle(a),
+                alreadyPlaced: Set(a.placementList.map(\.moduleId)),
+                onPick: { module in
+                    attachFor = nil
+                    Task { await vm.place(a, module: module) }
+                })
         }
         // Thumbnail image picker (menu-triggered; the sheet embeds its own picker).
         .photosPicker(isPresented: $showThumbPicker, selection: $thumbItem, matching: .images)
@@ -653,11 +721,12 @@ struct VideoLibraryView: View {
             if statusFilter == "Failed" && a.status != "failed" { return false }
             if sourceFilter != "All" && a.videoSource != sourceFilter { return false }
             if levelFilter != "All" && a.levelNumber.map(String.init) != levelFilter { return false }
-            if attachedFilter == "Attached" && a.attachedModuleTitle == nil { return false }
-            if attachedFilter == "Unattached" && a.attachedModuleTitle != nil { return false }
+            if attachedFilter == "Attached" && !a.isPlaced { return false }
+            if attachedFilter == "Unattached" && a.isPlaced { return false }
             if !query.trimmingCharacters(in: .whitespaces).isEmpty {
                 let q = query.lowercased()
-                let hay = [assetTitle(a), a.caption ?? "", a.attachedModuleTitle ?? ""].joined(separator: " ").lowercased()
+                let hay = ([assetTitle(a), a.caption ?? "", a.attachedModuleTitle ?? ""]
+                           + a.placementList.map(\.moduleTitle)).joined(separator: " ").lowercased()
                 if !hay.contains(q) { return false }
             }
             return true
@@ -694,6 +763,7 @@ struct VideoLibraryView: View {
                                  onView: { selected = a },
                                  onToggleHomepage: { Task { await vm.toggleHomepage(a) } },
                                  onCopyURL: { copyURL(a) },
+                                 onAttach: { attachFor = a },
                                  onUploadThumb: { thumbTarget = a; showThumbPicker = true },
                                  onClearThumb: { Task { await vm.clearThumbnail(a) } },
                                  onDelete: { deleteFor = a })
@@ -705,6 +775,7 @@ struct VideoLibraryView: View {
                                           onView: { selected = a },
                                           onToggleHomepage: { Task { await vm.toggleHomepage(a) } },
                                           onCopyURL: { copyURL(a) },
+                                          onAttach: { attachFor = a },
                                           onUploadThumb: { thumbTarget = a; showThumbPicker = true },
                                           onClearThumb: { Task { await vm.clearThumbnail(a) } },
                                           onDelete: { deleteFor = a })
@@ -887,6 +958,7 @@ private struct AssetRow: View {
     let onView: () -> Void
     let onToggleHomepage: () -> Void
     let onCopyURL: () -> Void
+    let onAttach: () -> Void
     let onUploadThumb: () -> Void
     let onClearThumb: () -> Void
     let onDelete: () -> Void
@@ -899,16 +971,8 @@ private struct AssetRow: View {
                     ProviderBadge(source: asset.videoSource)
                     if asset.isHomepage { HomepageBadge() }
                 }
-                HStack(spacing: 6) {
-                    Text(asset.attachedModuleTitle ?? "Not attached")
-                        .font(.inter(12))
-                        .foregroundStyle(asset.attachedModuleTitle != nil ? Nuru.ink : Nuru.ink600)
-                        .italic(asset.attachedModuleTitle == nil)
-                        .lineLimit(1)
-                    if let lvl = asset.levelNumber {
-                        Text("· Level \(lvl)").font(.inter(12)).foregroundStyle(Nuru.ink600)
-                    }
-                }
+                // ALL placements (§2.2), level·module — not just the mirror column.
+                PlacementChips(asset: asset)
                 HStack(spacing: 8) {
                     StatusPill(status: uiStatus(asset))
                     Text(durText(asset.durationSec)).font(.inter(11, .medium)).foregroundStyle(Nuru.ink600)
@@ -919,13 +983,44 @@ private struct AssetRow: View {
             // Per-asset actions (web's row buttons: View · URL · Attach▾/homepage · trash).
             AssetActionMenu(asset: asset, working: working,
                             onView: onView, onToggleHomepage: onToggleHomepage,
-                            onCopyURL: onCopyURL,
+                            onCopyURL: onCopyURL, onAttach: onAttach,
                             onUploadThumb: onUploadThumb, onClearThumb: onClearThumb,
                             onDelete: onDelete)
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
         .contentShape(Rectangle())
         .onTapGesture(perform: onView)
+    }
+}
+
+/// Compact "L2 · Rooted" chips listing every placement of the asset (first two
+/// + a "+n" overflow); falls back to the legacy mirror title, else "Not placed".
+private struct PlacementChips: View {
+    let asset: MediaAssetFull
+    var body: some View {
+        let refs = asset.placementList
+        HStack(spacing: 5) {
+            if refs.isEmpty {
+                if let legacy = asset.attachedModuleTitle {
+                    chip(legacy)
+                } else {
+                    Text("Not placed in any module").font(.inter(12)).italic().foregroundStyle(Nuru.ink600)
+                }
+            } else {
+                ForEach(Array(refs.prefix(2)), id: \.self) { p in chip(placementLabel(p)) }
+                if refs.count > 2 {
+                    Text("+\(refs.count - 2)").font(.inter(10.5, .bold)).foregroundStyle(Nuru.ink600)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Nuru.mutedBg).clipShape(Capsule())
+                }
+            }
+        }
+    }
+    private func chip(_ label: String) -> some View {
+        Text(label).font(.inter(10.5, .semibold)).foregroundStyle(Color(hex: 0x1F3A6B))
+            .lineLimit(1)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(Color(hex: 0xEEF1F8)).clipShape(Capsule())
     }
 }
 
@@ -943,14 +1038,15 @@ private struct HomepageBadge: View {
 }
 
 /// View + an overflow menu with the per-asset writes that have live endpoints:
-/// set/clear homepage, copy URL, thumbnail upload/remove, delete (archive).
-/// Attach-to-module is preview-only.
+/// attach to module (REAL — placements §2.2), set/clear homepage, copy URL,
+/// thumbnail upload/remove, delete (archive).
 private struct AssetActionMenu: View {
     let asset: MediaAssetFull
     let working: Bool
     let onView: () -> Void
     let onToggleHomepage: () -> Void
     let onCopyURL: () -> Void
+    let onAttach: () -> Void
     let onUploadThumb: () -> Void
     let onClearThumb: () -> Void
     let onDelete: () -> Void
@@ -962,6 +1058,9 @@ private struct AssetActionMenu: View {
                     .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             }.buttonStyle(.plain)
             Menu {
+                if asset.status != "failed" {
+                    Button { onAttach() } label: { Label("Attach to module…", systemImage: "link.badge.plus") }
+                }
                 if asset.externalUrl != nil {
                     Button { onCopyURL() } label: { Label("Copy video URL", systemImage: "doc.on.doc") }
                 }
@@ -998,6 +1097,7 @@ private struct AssetGridCard: View {
     let onView: () -> Void
     let onToggleHomepage: () -> Void
     let onCopyURL: () -> Void
+    let onAttach: () -> Void
     let onUploadThumb: () -> Void
     let onClearThumb: () -> Void
     let onDelete: () -> Void
@@ -1017,11 +1117,7 @@ private struct AssetGridCard: View {
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(assetTitle(asset)).font(.inter(14, .bold)).foregroundStyle(Nuru.ink).lineLimit(2)
-                    Text(asset.attachedModuleTitle ?? "Not attached to a module")
-                        .font(.inter(12))
-                        .foregroundStyle(asset.attachedModuleTitle != nil ? Nuru.ink : Nuru.ink600)
-                        .italic(asset.attachedModuleTitle == nil)
-                        .lineLimit(1)
+                    PlacementChips(asset: asset)
                     HStack(spacing: 6) {
                         Text(durText(asset.durationSec)).font(.inter(11, .medium))
                         Text("·"); Text(providerMeta(asset.videoSource).label).font(.inter(11, .medium))
@@ -1046,6 +1142,9 @@ private struct AssetGridCard: View {
                                 .background(Nuru.inputBg).clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
                         }.buttonStyle(.plain)
                         Menu {
+                            if asset.status != "failed" {
+                                Button { onAttach() } label: { Label("Attach to module…", systemImage: "link.badge.plus") }
+                            }
                             if asset.externalUrl != nil {
                                 Button { onCopyURL() } label: { Label("Copy video URL", systemImage: "doc.on.doc") }
                             }
@@ -1106,18 +1205,18 @@ private struct PreviewSheet: View {
     let working: Bool
     let onToggleHomepage: () -> Void
     let onDelete: () -> Void
-    let onSaveMeta: (_ caption: String?, _ levelNumber: Int?) -> Void
+    let onSaveMeta: (_ caption: String?) -> Void
+    let onAttach: () -> Void
+    let onRemovePlacement: (_ ref: MediaPlacementRef) -> Void
     let onThumbPicked: (_ data: Data, _ filename: String, _ mime: String) -> Void
     let onClearThumb: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     @State private var caption: String = ""
-    @State private var level: String = ""   // "" = none
     @State private var thumbPickerItem: PhotosPickerItem?
     @State private var thumbReadError: String?
 
     private var captionDirty: Bool { caption.trimmingCharacters(in: .whitespaces) != (asset.caption ?? "") }
-    private var levelDirty: Bool { (level.isEmpty ? nil : Int(level)) != asset.levelNumber }
 
     var body: some View {
         let us = uiStatus(asset)
@@ -1152,9 +1251,11 @@ private struct PreviewSheet: View {
                         detail("Uploaded", Fmt.relative(asset.createdAt))
                         detail("Source", providerMeta(asset.videoSource).label)
                         detail("Delivery", deliveryText(us))
-                        detail("Attached module", asset.attachedModuleTitle ?? "Not attached")
-                        detail("Level", asset.levelNumber.map { "Level \($0)" } ?? "—")
                     }
+
+                    // Placements (§2.2): ALL of them, per-placement remove;
+                    // detaching removes one placement, never the asset.
+                    placementsTile
 
                     if let url = asset.externalUrl {
                         HStack(spacing: 8) {
@@ -1221,12 +1322,82 @@ private struct PreviewSheet: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
             .onAppear {
                 caption = asset.caption ?? ""
-                level = asset.levelNumber.map(String.init) ?? ""
             }
         }
     }
 
-    // ── Editable caption + level (PATCH) ──
+    // ── Placements (level·module, per-placement remove, attach) ──
+    @ViewBuilder private var placementsTile: some View {
+        SurfaceTile {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("PLACEMENTS").font(.inter(12, .bold)).tracking(0.8).foregroundStyle(Nuru.navy)
+                    Spacer()
+                    Text(asset.placementList.isEmpty
+                         ? (asset.attachedModuleTitle != nil ? "Legacy attach only" : "Not placed")
+                         : "\(asset.placementList.count) module\(asset.placementList.count == 1 ? "" : "s")")
+                        .font(.nMicro).foregroundStyle(Nuru.ink600)
+                }
+                Text("One asset, many modules — the level comes from the module, never asked. Removing a placement never deletes the asset.")
+                    .font(.nMicro).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
+
+                if asset.placementList.isEmpty {
+                    if let legacy = asset.attachedModuleTitle {
+                        HStack(spacing: 8) {
+                            Image(systemName: "link").font(.system(size: 11)).foregroundStyle(Nuru.ink600)
+                            Text(legacy).font(.inter(13, .semibold)).foregroundStyle(Nuru.ink)
+                            if let lvl = asset.levelNumber {
+                                Text("· Level \(lvl)").font(.inter(12)).foregroundStyle(Nuru.ink600)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(10).background(Nuru.white)
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                    }
+                } else {
+                    VStack(spacing: 6) {
+                        ForEach(asset.placementList, id: \.self) { p in
+                            HStack(spacing: 8) {
+                                Text("L\(p.levelNumber ?? 0)").font(.inter(10, .bold))
+                                    .foregroundStyle(.white).frame(width: 26, height: 20)
+                                    .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                Text(p.moduleTitle).font(.inter(13, .semibold)).foregroundStyle(Nuru.ink).lineLimit(1)
+                                Spacer(minLength: 0)
+                                Button { onRemovePlacement(p) } label: {
+                                    Image(systemName: "trash").font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(Nuru.danger)
+                                        .frame(width: 26, height: 26)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(working)
+                                .accessibilityLabel("Remove from \(p.moduleTitle)")
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 7)
+                            .background(Nuru.white)
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        }
+                    }
+                }
+
+                Button(action: onAttach) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "link.badge.plus").font(.system(size: 12, weight: .semibold))
+                        Text("Attach to module…").font(.inter(12.5, .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Nuru.navy)
+                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(working || uiStatus(asset) == .failed)
+            }
+        }
+    }
+
+    // ── Editable caption (PATCH — level is placement-derived now, not edited) ──
     @ViewBuilder private var editMetadata: some View {
         SurfaceTile {
             VStack(alignment: .leading, spacing: 12) {
@@ -1242,36 +1413,18 @@ private struct PreviewSheet: View {
                         .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("LEVEL").font(.inter(11.5, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
-                    Menu {
-                        Button("None") { level = "" }
-                        ForEach(1...6, id: \.self) { n in Button("Level \(n)") { level = String(n) } }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(level.isEmpty ? "None" : "Level \(level)").font(.inter(15, .semibold)).foregroundStyle(Nuru.ink)
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(Nuru.gold)
-                        }
-                        .padding(.horizontal, 13).padding(.vertical, 12)
-                        .frame(maxWidth: 220, alignment: .leading)
-                        .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1.5))
-                    }.buttonStyle(.plain)
-                }
-
                 Button {
-                    onSaveMeta(caption.trimmingCharacters(in: .whitespaces), level.isEmpty ? nil : Int(level))
+                    onSaveMeta(caption.trimmingCharacters(in: .whitespaces))
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
                         Text("Save changes").font(.inter(13, .bold))
                     }
-                    .foregroundStyle((captionDirty || levelDirty) ? .white : Nuru.ink600)
+                    .foregroundStyle(captionDirty ? .white : Nuru.ink600)
                     .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background((captionDirty || levelDirty) ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.inputBg))
+                    .background(captionDirty ? AnyShapeStyle(Nuru.gold) : AnyShapeStyle(Nuru.inputBg))
                     .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
-                }.buttonStyle(.plain).disabled((!captionDirty && !levelDirty) || working)
+                }.buttonStyle(.plain).disabled(!captionDirty || working)
             }
         }
     }
@@ -1467,7 +1620,6 @@ private struct RegisterExternalSheet: View {
     @State private var url = ""
     @State private var title = ""
     @State private var caption = ""
-    @State private var level = ""        // "" = none
     @State private var markPrivate = false
 
     private var parsed: ParsedVideo? { parseVideoUrl(url) }
@@ -1509,22 +1661,13 @@ private struct RegisterExternalSheet: View {
                                         .font(.inter(15)).textFieldStyle(.plain).foregroundStyle(Nuru.ink)
                                 }
                             )
-                            twoCol(
-                                labeledField("Level") {
-                                    Menu {
-                                        Button("None") { level = "" }
-                                        ForEach(1...6, id: \.self) { n in Button("Level \(n)") { level = String(n) } }
-                                    } label: {
-                                        HStack(spacing: 6) {
-                                            Text(level.isEmpty ? "None" : "Level \(level)")
-                                                .font(.inter(15, .semibold)).foregroundStyle(Nuru.ink)
-                                            Spacer(minLength: 0)
-                                            Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(Nuru.gold)
-                                        }
-                                    }.buttonStyle(.plain)
-                                },
-                                EmptyView()
-                            )
+                            // Level tagging removed (§2.2): attach the video to a
+                            // MODULE after registering — the level is inferred.
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "link.badge.plus").font(.system(size: 13)).foregroundStyle(Nuru.ink600)
+                                Text("After registering, use “Attach to module…” to place this video — the level comes from the module automatically.")
+                                    .font(.inter(12.5)).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
+                            }
                             if parsed?.provider == "direct" {
                                 Toggle(isOn: $markPrivate) {
                                     HStack(spacing: 6) {
@@ -1579,8 +1722,7 @@ private struct RegisterExternalSheet: View {
                         let body = RegisterExternalBody(
                             videoSource: s, url: p.url,
                             title: t.isEmpty ? nil : t,
-                            caption: c.isEmpty ? nil : c,
-                            levelNumber: level.isEmpty ? nil : Int(level))
+                            caption: c.isEmpty ? nil : c)
                         Task { _ = await onRegister(body) }
                     }
                     .disabled(source == nil || working)
@@ -1720,5 +1862,130 @@ final class ChunkUploader: ObservableObject {
                 ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
             throw APIError.http(status: http.statusCode, message: msg)
         }
+    }
+}
+
+// MARK: - Module picker (REAL attach — §2.2 placements; level inferred, shown, never asked)
+
+private struct ModulePickerSheet: View {
+    let assetName: String
+    let alreadyPlaced: Set<String>
+    let onPick: (AdminModuleSummary) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private struct LevelGroup: Identifiable {
+        let level: AdminLevel
+        let modules: [AdminModuleSummary]
+        var id: Int { level.levelNumber }
+    }
+
+    @State private var groups: [LevelGroup] = []
+    @State private var search = ""
+    @State private var loading = true
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if loading {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error {
+                    ErrorBanner(message: error) { Task { await load() } }.padding(Nuru.S.screen)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Placing “\(assetName)” — the level is inferred from the module you pick.")
+                                .font(.nCaption).foregroundStyle(Nuru.ink600)
+                            ForEach(filteredGroups) { g in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 6) {
+                                        Text("L\(g.level.levelNumber)").font(.inter(10, .bold))
+                                            .foregroundStyle(.white).frame(width: 26, height: 20)
+                                            .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                        Text(g.level.title).font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy)
+                                        Spacer(minLength: 0)
+                                    }
+                                    VStack(spacing: 6) {
+                                        ForEach(g.modules) { m in moduleRow(m, level: g.level) }
+                                    }
+                                }
+                            }
+                            if filteredGroups.isEmpty {
+                                Text("No modules match.").font(.nCaption).foregroundStyle(Nuru.ink600)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 30)
+                            }
+                        }
+                        .padding(16)
+                    }
+                }
+            }
+            .background(Nuru.paper)
+            .navigationTitle("Attach to module")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $search, prompt: "Search modules")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .task { await load() }
+        }
+        .presentationDetents([.large])
+    }
+
+    private var filteredGroups: [LevelGroup] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return groups }
+        return groups.compactMap { g in
+            let mods = g.modules.filter { $0.title.lowercased().contains(q) }
+            let levelHit = g.level.title.lowercased().contains(q)
+            if mods.isEmpty && !levelHit { return nil }
+            return LevelGroup(level: g.level, modules: mods.isEmpty ? g.modules : mods)
+        }
+    }
+
+    private func moduleRow(_ m: AdminModuleSummary, level: AdminLevel) -> some View {
+        let placed = alreadyPlaced.contains(m.moduleId)
+        return Button { if !placed { onPick(m) } } label: {
+            HStack(spacing: 10) {
+                Text("\(m.moduleSequenceNumber)").font(.inter(11, .bold))
+                    .foregroundStyle(Nuru.ink600).frame(width: 22, height: 22)
+                    .background(Nuru.mutedBg).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(m.title).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                    // Level shown as inferred context, never a choice.
+                    Text("Level \(level.levelNumber) · \(m.evaluationKind == "none" ? "lesson" : m.evaluationKind) · \(m.status)")
+                        .font(.nMicro).foregroundStyle(Nuru.ink600)
+                }
+                Spacer(minLength: 0)
+                if placed {
+                    Text("Placed").font(.inter(10.5, .bold)).foregroundStyle(Nuru.ink400)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Nuru.mutedBg).clipShape(Capsule())
+                } else {
+                    Image(systemName: "plus.circle.fill").font(.system(size: 18)).foregroundStyle(Nuru.gold)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(Nuru.white)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            .opacity(placed ? 0.55 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(placed)
+    }
+
+    @MainActor private func load() async {
+        loading = true
+        do {
+            let levels = try await PortalAPI.curriculumLevels()
+            var built: [LevelGroup] = []
+            for level in levels.sorted(by: { $0.levelNumber < $1.levelNumber }) {
+                let mods = (try? await PortalAPI.modules(level: level.levelNumber)) ?? []
+                let usable = mods.filter { $0.status != "archived" }
+                    .sorted { $0.moduleSequenceNumber < $1.moduleSequenceNumber }
+                if !usable.isEmpty { built.append(LevelGroup(level: level, modules: usable)) }
+            }
+            groups = built
+            error = nil
+        } catch { self.error = (error as? APIError)?.errorDescription ?? "Could not load modules." }
+        loading = false
     }
 }

@@ -6,8 +6,11 @@ import SwiftUI
 enum Section: String, CaseIterable, Identifiable {
     // Portal
     case dashboard, notifications
-    // Curriculum
-    case curriculumLevels, cms, levelDetail, quizBuilder, videoLibrary, contentStudio
+    // Curriculum — ONE dashboard entry (docs/CURRICULUM_ARCHITECTURE.md §5.4):
+    // .curriculum replaces the old .curriculumLevels/.cms pair and the duplicate
+    // .levelDetail; .quizBuilder survives for PROGRAMMATIC navigation only
+    // (context-aware launches from the workspace — no sidebar row).
+    case curriculum, quizBuilder, videoLibrary, contentStudio
     // Operations
     case cellEngagement, disciples, members, reflectionQueue, levelReviews, chat, broadcast, events, finance, certificates, badges, radio, mixer
     // Media (Mac-only sidebar entry — the iPad Radio Studio keeps this inline)
@@ -22,9 +25,7 @@ enum Section: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: "Dashboard"
         case .notifications: "Notifications"
-        case .curriculumLevels: "Curriculum Levels"
-        case .cms: "CMS — Curriculum"
-        case .levelDetail: "Level Detail"
+        case .curriculum: "Curriculum"
         case .quizBuilder: "Quiz Builder"
         case .videoLibrary: "Video Library"
         case .contentStudio: "Content Studio"
@@ -58,9 +59,7 @@ enum Section: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: "square.grid.2x2"
         case .notifications: "bell"
-        case .curriculumLevels: "list.bullet.indent"
-        case .cms: "book"
-        case .levelDetail: "square.stack.3d.up"
+        case .curriculum: "book"
         case .quizBuilder: "questionmark.circle"
         case .videoLibrary: "play.rectangle"
         case .contentStudio: "sparkles"
@@ -100,8 +99,7 @@ enum Section: String, CaseIterable, Identifiable {
     var permission: String? {
         switch self {
         case .dashboard, .notifications, .cellEngagement: "dashboard:view"
-        case .curriculumLevels: "levels:view"
-        case .cms, .levelDetail: "cms:view"
+        case .curriculum: "cms:view"
         case .quizBuilder: "quiz:view"
         case .videoLibrary: "videos:view"
         case .members: "members:view"
@@ -143,7 +141,10 @@ private struct NavGroup: Identifiable {
 
 private let navGroups: [NavGroup] = [
     .init(label: "Portal", items: [.dashboard, .notifications]),
-    .init(label: "Curriculum", items: [.curriculumLevels, .cms, .levelDetail, .quizBuilder, .contentStudio]),
+    // §5.4 target nav: ONE Curriculum entry (dashboard → workspace drill-in).
+    // Quiz Builder is deliberately absent — it is reached context-aware from
+    // the workspace/dashboard (NavRouter.openQuizBuilder), never re-selecting.
+    .init(label: "Curriculum", items: [.curriculum, .contentStudio]),
     // Uploads & Sessions is Mac-only (MacDesign.isMac is compile-time): the Mac
     // radio desk moved library/session management there; the iPad Radio Studio
     // keeps those sections inline, so its sidebar is unchanged.
@@ -184,13 +185,17 @@ extension Notification.Name {
     @Published var memberSearch: String?
     /// Deep-link: open a specific member's profile from anywhere (param route).
     @Published var openMember: MemberRef?
-    /// Deep-link: open CMS Curriculum focused on a specific level number.
+    /// Deep-link: open the Curriculum Dashboard routed into the workspace at a level.
     @Published var pendingLevel: Int?
+    /// Deep-link: open the Quiz Builder with this level PRESELECTED (context-aware
+    /// launches from the workspace — the builder never re-asks for the level).
+    @Published var pendingQuizLevel: Int?
     // Instant — no transition animation, for maximum tap reactivity.
     func go(_ s: Section) { section = s }
     func search(_ q: String) { memberSearch = q; section = .members }
     func member(_ id: String, _ name: String) { openMember = MemberRef(id: id, name: name) }
-    func openLevel(_ n: Int) { pendingLevel = n; section = .cms }
+    func openLevel(_ n: Int) { pendingLevel = n; section = .curriculum }
+    func openQuizBuilder(level n: Int) { pendingQuizLevel = n; section = .quizBuilder }
 }
 
 struct RootView: View {
@@ -454,9 +459,7 @@ struct RootView: View {
         case .radio:            RadioStudioView()
         case .mixer:            MixerStudioView()
         case .uploadsSessions:  UploadsSessionsView()
-        case .curriculumLevels: CurriculumLevelsView()
-        case .cms:              CmsCurriculumView(title: "CMS — Curriculum")
-        case .levelDetail:      CmsCurriculumView(title: "Level Detail")
+        case .curriculum:       CurriculumDashboardView()
         case .quizBuilder:      QuizBuilderView()
         case .videoLibrary:     VideoLibraryView()
         case .contentStudio:    ContentStudioView()

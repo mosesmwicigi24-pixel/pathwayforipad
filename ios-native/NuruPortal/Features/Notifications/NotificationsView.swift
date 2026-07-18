@@ -133,9 +133,9 @@ struct NotificationsView: View {
         switch first {
         case "", "dashboard":         return .dashboard
         case "notifications":         return .notifications
-        case "curriculum-levels":     return .curriculumLevels
-        case "cms":                   return .cms
-        case "level-detail":          return .levelDetail
+        // The old curriculum pages collapsed into ONE dashboard (§5.4) — legacy
+        // hrefs 301 into it, mirroring the web's route redirects.
+        case "curriculum", "curriculum-levels", "cms", "level-detail": return .curriculum
         case "quiz-builder":          return .quizBuilder
         case "video-library":         return .videoLibrary
         case "content-studio":        return .contentStudio

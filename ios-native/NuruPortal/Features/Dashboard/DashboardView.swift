@@ -435,7 +435,7 @@ struct DashboardView: View {
             HStack(spacing: 8) {
                 HeroChip(label: todayLabel, icon: "sparkles", style: .tag)
                 HeroChip(label: "Review queue", icon: "checklist", style: .ghost) { router.go(.reflectionQueue) }
-                HeroChip(label: "Curriculum", icon: "book", style: .ghost) { router.go(.cms) }
+                HeroChip(label: "Curriculum", icon: "book", style: .ghost) { router.go(.curriculum) }
                 HeroChip(label: "Members", trailingIcon: "arrow.right", style: .gold) { router.go(.members) }
             }
         }
@@ -1007,7 +1007,7 @@ private struct WordPulseCard: View {
                              loading: vm.loading,
                              label: "Modules published",
                              caption: vm.levels.map { "\($0.filter { $0.status == "in_review" }.count) levels in review" } ?? "curriculum") {
-                        router.go(.cms)
+                        router.go(.curriculum)
                     }
                     broadcastTile
                     WordTile(icon: "list.bullet.rectangle.portrait",

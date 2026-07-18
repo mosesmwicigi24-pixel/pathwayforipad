@@ -135,6 +135,49 @@ enum PortalAPI {
         try await api.get("/admin/modules/\(moduleId)/questions", as: DataList<AdminQuestion>.self).data
     }
 
+    // MARK: Curriculum stats — ONE stats source (docs/CURRICULUM_ARCHITECTURE.md §3)
+    // The dashboard payload in one call, the completeness report, and the
+    // classified activity feed. All replica reads; perm("levels","view").
+
+    /// GET /admin/curriculum/summary → totals + pipeline + per-level cards (no envelope).
+    static func curriculumSummary() async throws -> CurriculumSummary {
+        try await api.get("/admin/curriculum/summary", as: CurriculumSummary.self)
+    }
+    /// { data: [...] } envelope for Decodable-only rows (DataList needs Codable).
+    private struct DecList<T: Decodable>: Decodable { let data: [T] }
+
+    /// GET /admin/curriculum/validate → { data: [issues] }, errors-first server-side.
+    static func curriculumValidate() async throws -> [CurriculumIssue] {
+        try await api.get("/admin/curriculum/validate", as: DecList<CurriculumIssue>.self).data
+    }
+    /// GET /admin/curriculum/activity → { data: [rows] }, each row classified
+    /// server-side (kind: published|edited|review|video|quiz|module|milestone).
+    static func curriculumActivity(limit: Int = 40) async throws -> [CurriculumActivityRow] {
+        try await api.get("/admin/curriculum/activity", query: ["limit": "\(limit)"],
+                          as: DecList<CurriculumActivityRow>.self).data
+    }
+
+    // MARK: Media placements (§2.2 — one asset, many modules; level always inferred)
+
+    /// GET /admin/modules/{id}/media → { data: [placements] }, position-ordered.
+    static func modulePlacements(_ moduleId: String) async throws -> [ModulePlacementRow] {
+        try await api.get("/admin/modules/\(moduleId)/media", as: DecList<ModulePlacementRow>.self).data
+    }
+    /// POST /admin/media/{id}/placements { module_id, position?, required? }.
+    /// 404 unknown asset/module; 409 when the pair already exists.
+    static func addPlacement(mediaAssetId: String, moduleId: String,
+                             position: Int? = nil, required: Bool? = nil) async throws -> PlacementAck {
+        struct Body: Encodable { let moduleId: String; let position: Int?; let required: Bool? }
+        return try await api.post("/admin/media/\(mediaAssetId)/placements",
+                                  body: Body(moduleId: moduleId, position: position, required: required),
+                                  as: PlacementAck.self)
+    }
+    /// DELETE /admin/media/placements/{placementId} — removes ONE placement, never the asset.
+    static func removePlacement(_ placementId: String) async throws {
+        struct Ack: Decodable { let deleted: Bool? }
+        _ = try await api.delete("/admin/media/placements/\(placementId)", as: Ack.self)
+    }
+
     // Content Studio (growth)
     static func devotionals() async throws -> [DevotionalRow] {
         try await api.get("/admin/growth/devotionals", as: DataList<DevotionalRow>.self).data
@@ -461,4 +504,160 @@ enum PortalAPI {
         try await api.post("/admin/intelligence/flock-brief/run",
                            body: [String: String](), as: FlockBriefRunResult.self)
     }
+}
+
+// MARK: - Curriculum stats models (GET /admin/curriculum/* — stats.ts shapes)
+//
+// Decode-tolerant per the app convention: every non-optional scalar uses a
+// @Default* wrapper so a missing/null key can never take down the dashboard;
+// nested objects are optionals the views default. Wire is snake_case — the
+// shared convertFromSnakeCase decoder maps to these camelCase keys.
+
+/// Counts-by-status bucket (levels: published/draft/in_review; modules: +archived).
+struct CurriculumStatusCounts: Decodable {
+    @DefaultZero var published: Int
+    @DefaultZero var draft: Int
+    @DefaultZero var inReview: Int
+    @DefaultZero var archived: Int
+    @DefaultZero var total: Int
+}
+
+/// Attached/unattached split of the video library.
+struct CurriculumAssetCounts: Decodable {
+    @DefaultZero var attached: Int
+    @DefaultZero var unattached: Int
+    @DefaultZero var total: Int
+}
+
+struct CurriculumTotals: Decodable {
+    let levels: CurriculumStatusCounts?
+    let modules: CurriculumStatusCounts?
+    @DefaultZero var modulesMissingVideo: Int
+    @DefaultZero var modulesMissingQuiz: Int
+    @DefaultZero var modulesMissingContent: Int
+    @DefaultZero var learnersActive: Int
+    /// The ONE completion formula (§3): distinct completed published-module
+    /// rows ÷ (active learners × published modules), server-rounded.
+    @DefaultZero var avgCompletionPct: Int
+    let avgQuizScore: Int?
+    @DefaultZero var certificatesIssued: Int
+    @DefaultZero var badgesConfigured: Int
+    @DefaultZero var reflectionQueue: Int
+    @DefaultZero var levelReviewsWaiting: Int
+    let videoAssets: CurriculumAssetCounts?
+}
+
+/// The Draft / In Review / Locked / Live strip.
+struct CurriculumPipeline: Decodable {
+    @DefaultZero var drafts: Int
+    @DefaultZero var inReview: Int
+    @DefaultZero var locked: Int
+    @DefaultZero var live: Int
+}
+
+/// One §5.1 level summary card.
+struct CurriculumLevelCard: Decodable, Identifiable {
+    struct Quiz: Decodable {
+        @DefaultFalse var examExists: Bool
+        @DefaultFalse var examPublished: Bool
+        let examQuestionCount: Int?
+        @DefaultZero var questionCount: Int
+    }
+    struct Validation: Decodable {
+        @DefaultZero var errors: Int
+        @DefaultZero var warnings: Int
+        @DefaultEmpty var status: String   // "ok" | "warnings" | "errors"
+    }
+    @DefaultZero var levelNumber: Int
+    @DefaultEmpty var title: String
+    let theme: String?
+    @DefaultEmpty var color: String
+    @DefaultEmpty var status: String
+    @DefaultFalse var locked: Bool
+    let duration: String?
+    @DefaultZero var modulesPublished: Int
+    @DefaultZero var modulesDraft: Int
+    @DefaultZero var modulesTotal: Int
+    @DefaultZero var modulesArchived: Int
+    let quiz: Quiz?
+    @DefaultZero var videosAttached: Int
+    @DefaultZero var estimatedMinutes: Int
+    @DefaultZero var learners: Int
+    @DefaultZero var completionPct: Int
+    @DefaultZero var certificates: Int
+    let lastUpdated: String?
+    let validation: Validation?
+    var id: Int { levelNumber }
+}
+
+/// GET /admin/curriculum/summary — the whole dashboard payload in one call.
+struct CurriculumSummary: Decodable {
+    let totals: CurriculumTotals?
+    let pipeline: CurriculumPipeline?
+    let levels: [CurriculumLevelCard]?
+}
+
+/// One completeness-report issue ({severity, level_number, module_id?, code, message}).
+struct CurriculumIssue: Decodable, Identifiable {
+    @DefaultEmpty var severity: String   // "error" | "warning" | "info"
+    @DefaultZero var levelNumber: Int
+    let moduleId: String?
+    @DefaultEmpty var code: String
+    @DefaultEmpty var message: String
+    var id: String { "\(severity)-\(levelNumber)-\(code)-\(moduleId ?? "L")" }
+}
+
+/// One classified activity row. `audit_id` may arrive as a JSON number or a
+/// string depending on the column type, so it's decoded by hand; `metadata`
+/// is dropped (the feed shows actor/action/time only).
+struct CurriculumActivityRow: Decodable, Identifiable {
+    var auditId = ""
+    var actorName: String?
+    var action = ""
+    var entity = ""
+    var entityId: String?
+    var occurredAt = ""
+    var kind = "edited"
+    var id: String { auditId.isEmpty ? "\(action)-\(occurredAt)" : auditId }
+
+    enum CodingKeys: String, CodingKey { case auditId, actorName, action, entity, entityId, occurredAt, kind }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        if let s = try? c.decode(String.self, forKey: .auditId) { auditId = s }
+        else if let n = try? c.decode(Int.self, forKey: .auditId) { auditId = String(n) }
+        actorName = try? c.decodeIfPresent(String.self, forKey: .actorName)
+        action = (try? c.decode(String.self, forKey: .action)) ?? ""
+        entity = (try? c.decode(String.self, forKey: .entity)) ?? ""
+        if let s = try? c.decodeIfPresent(String.self, forKey: .entityId) { entityId = s }
+        occurredAt = (try? c.decode(String.self, forKey: .occurredAt)) ?? ""
+        kind = (try? c.decode(String.self, forKey: .kind)) ?? "edited"
+    }
+}
+
+// MARK: - Media placement models (§2.2)
+
+/// One placement of a module (GET /admin/modules/{id}/media) with the asset's
+/// library fields joined in.
+struct ModulePlacementRow: Decodable, Identifiable {
+    @DefaultEmpty var placementId: String
+    @DefaultEmpty var mediaAssetId: String
+    @DefaultZero var position: Int
+    @DefaultTrue var required: Bool
+    let title: String?
+    let caption: String?
+    let durationSec: Int?
+    @DefaultEmpty var status: String
+    let thumbnailUrl: String?
+    @DefaultEmpty var videoSource: String
+    let externalUrl: String?
+    var id: String { placementId }
+}
+
+/// POST /admin/media/{id}/placements response row.
+struct PlacementAck: Decodable {
+    @DefaultEmpty var placementId: String
+    @DefaultEmpty var mediaAssetId: String
+    @DefaultEmpty var moduleId: String
+    @DefaultZero var position: Int
+    @DefaultTrue var required: Bool
 }
