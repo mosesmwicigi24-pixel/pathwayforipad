@@ -31,6 +31,12 @@ struct MeProfile: Codable, Identifiable {
     let locale: String?
     @DefaultEmpty var accountStatus: String
     let roleKeys: [String]
+    /// Effective RBAC permission keys ("module:capability") — role grants ∪
+    /// direct per-user grants, or the full grid for SuperAdmin/Admin (same
+    /// shape as admin-web's MeProfile.permissions). Drives RootView's sidebar
+    /// filter (Section.permission / isSectionVisible) — the native counterpart
+    /// of nav.tsx's navItemVisible. (DefaultEmptyList is declared in RolesView.swift.)
+    @DefaultEmptyList var permissions: [String]
     var id: String { userId }
 }
 
