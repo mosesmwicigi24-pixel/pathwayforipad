@@ -113,6 +113,39 @@ actor APIClient {
         try await send(path, method: "POST", body: Optional<Int>.none, as: T.self)
     }
 
+    /// Raw GET for non-JSON payloads (e.g. the attendance CSV export). Same
+    /// Bearer header and one transparent 401 refresh-and-replay as the JSON path;
+    /// returns the response bytes untouched.
+    func getData(_ path: String, accept: String = "*/*", isRetry: Bool = false) async throws -> Data {
+        let url = baseURL.appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path)
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 30
+        req.setValue(accept, forHTTPHeaderField: "Accept")
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let data: Data, response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: req)
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.transport("No HTTP response.") }
+        if http.statusCode == 401, !isRetry, refreshToken != nil {
+            if try await refreshSession() {
+                return try await getData(path, accept: accept, isRetry: true)
+            } else {
+                onSessionExpired?()
+                throw APIError.unauthorized
+            }
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = (try? decoder.decode(ErrorEnvelope.self, from: data))?.text
+                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw APIError.http(status: http.statusCode, message: msg)
+        }
+        return data
+    }
+
     /// Authenticated multipart/form-data upload to OUR API (unlike ImageUpload, which
     /// POSTs straight to Cloudinary). Injects the same Bearer header + one transparent
     /// 401 refresh-and-replay the JSON path uses, builds the body (file part named

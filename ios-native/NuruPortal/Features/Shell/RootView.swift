@@ -452,7 +452,7 @@ struct RootView: View {
         case .levelReviews:     LevelReviewsView()
         case .chat:             ChatView()
         case .broadcast:        BroadcastConsoleView()
-        case .events:           EventsView()
+        case .events:           EventsOperationsView()
         case .finance:          FinanceView()
         case .certificates:     CertificatesView()
         case .badges:           BadgesView()
