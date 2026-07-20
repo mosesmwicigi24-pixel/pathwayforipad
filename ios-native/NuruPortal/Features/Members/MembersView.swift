@@ -29,7 +29,7 @@ private struct MRow: Codable, Identifiable {
     let status: String?     // server-derived: graduated | band
     var id: String { userId }
 }
-private struct MPage: Codable { let data: [MRow] }
+private struct MPage: Codable { let data: [MRow]; let nextCursor: String? }
 
 private struct MEditDetail: Codable {
     @DefaultEmpty var fullName: String
@@ -163,13 +163,20 @@ private func relDays(_ iso: String?) -> String {
 // MARK: - API
 
 private enum MembersAPI {
-    static func list(search: String, band: String?, country: String?) async throws -> [MRow] {
+    /// One keyset page. Every server-accepted filter (search/band/country/cell) goes
+    /// to the DB; "graduated" is a derived flag with no server filter and is handled
+    /// client-side. `cursor` is the last user_id of the prior page; nil = page 1.
+    static func list(search: String, band: String?, country: String?,
+                     cellGroupId: String?, cursor: String?, limit: Int) async throws -> MPage {
         var q: [String: String] = [:]
         let s = search.trimmingCharacters(in: .whitespaces)
         if !s.isEmpty { q["search"] = s }
         if let band, band != "All", band != "graduated" { q["band"] = band }
         if let country, country != "All" { q["country_code"] = country }
-        return try await APIClient.shared.get("/admin/members", query: q, as: MPage.self).data
+        if let cellGroupId, cellGroupId != "All" { q["cell_group_id"] = cellGroupId }
+        if let cursor { q["cursor"] = cursor }
+        q["limit"] = String(limit)
+        return try await APIClient.shared.get("/admin/members", query: q, as: MPage.self)
     }
     static func detail(_ id: String) async throws -> MEditDetail {
         try await APIClient.shared.get("/admin/members/\(id)", as: MEditDetail.self)
@@ -192,6 +199,15 @@ private enum MembersAPI {
         _ = try await APIClient.shared.patch("/admin/members/\(id)/graduation",
                                              body: ["graduated": JSONValue.bool(graduated)], as: OkResponse.self)
     }
+    /// Elevate a member to portal (staff) access — POST /admin/members/{id}/elevate
+    /// (perm users:create), body `{}`. Mirrors the web OpsApi.elevateMember: the member
+    /// keeps their Student membership and now also appears on System ▸ Users, where
+    /// roles/permissions are assigned. The `{ user_id, full_name, is_staff, role }` ack
+    /// is ignored — the caller already holds the row's name for the toast.
+    static func elevate(_ id: String) async throws {
+        _ = try await APIClient.shared.post("/admin/members/\(id)/elevate",
+                                            body: [String: JSONValue](), as: OkResponse.self)
+    }
 }
 
 // MARK: - View model
@@ -203,20 +219,33 @@ private final class MembersVM: ObservableObject {
     @Published var countries: [Country] = []
     @Published var search = ""
     @Published var band: String = "All"
-    @Published var cellFilter = "All"
+    @Published var cellFilter = "All"     // cell_group_id or "All" (applied server-side)
     @Published var country = "All"
     @Published var error: String?
     @Published var loading = true
+    // Keyset pagination: the server pages by user_id and returns next_cursor. We load
+    // page 1 on any filter change, then append pages via infinite scroll / "Load more"
+    // so the whole directory is reachable — never just the first 50.
+    @Published var nextCursor: String?
+    @Published var loadingMore = false
+    private let PAGE = 100
     private var task: Task<Void, Never>?
+    // Bumped on every reload so an in-flight loadMore/auto-page from a stale query
+    // (e.g. after the filters changed) can bail instead of corrupting the new page.
+    private var generation = 0
 
     var countryByCode: [String: Country] { Dictionary(countries.map { ($0.code, $0) }, uniquingKeysWith: { a, _ in a }) }
-    var cellNames: [String] { ["All"] + Array(Set(rows.compactMap { $0.cellName })).sorted() }
+    // Cell filter cycles the FULL cell list (by id) and is applied server-side, so it
+    // finds members on any page — not just those already loaded.
+    var cellOptions: [String] { ["All"] + cells.map { $0.cellGroupId } }
+    func cellLabel(_ id: String) -> String {
+        id == "All" ? "All" : (cells.first { $0.cellGroupId == id }?.name ?? "Cell")
+    }
 
     var filtered: [MRow] {
-        rows.filter { m in
-            (cellFilter == "All" || m.cellName == cellFilter) &&
-            (band != "graduated" || m.status == "graduated")
-        }
+        // Only "graduated" is client-side (no server filter); every other filter is
+        // already applied by the query, so this operates on the fully-paged set.
+        band == "graduated" ? rows.filter { $0.status == "graduated" } : rows
     }
     var counts: (total: Int, thriving: Int, watch: Int, atRisk: Int) {
         (rows.count,
@@ -238,9 +267,44 @@ private final class MembersVM: ObservableObject {
         await reload()
     }
     func reload() async {
-        do { rows = try await MembersAPI.list(search: search, band: band, country: country); error = nil }
-        catch { self.error = (error as? APIError)?.errorDescription ?? "Could not load members." }
+        generation += 1
+        let gen = generation
+        if rows.isEmpty { loading = true }
+        do {
+            let page = try await MembersAPI.list(search: search, band: band, country: country,
+                                                 cellGroupId: cellFilter, cursor: nil, limit: PAGE)
+            guard gen == generation else { return }   // superseded by a newer reload
+            rows = page.data
+            nextCursor = page.nextCursor
+            error = nil
+        } catch {
+            guard gen == generation else { return }
+            self.error = (error as? APIError)?.errorDescription ?? "Could not load members."
+        }
         loading = false
+        // "Graduated" has no server filter, so to surface every graduate we must page
+        // the whole set. Auto-advance through the pages while that filter is active;
+        // stop if a page fails so a persistent error can't tight-loop the server.
+        while gen == generation, band == "graduated", nextCursor != nil, error == nil {
+            await loadMore(gen: gen)
+        }
+    }
+    func loadMore(gen: Int? = nil) async {
+        guard let cursor = nextCursor, !loadingMore else { return }
+        let g = gen ?? generation
+        loadingMore = true
+        do {
+            let page = try await MembersAPI.list(search: search, band: band, country: country,
+                                                 cellGroupId: cellFilter, cursor: cursor, limit: PAGE)
+            guard g == generation else { loadingMore = false; return }
+            let seen = Set(rows.map { $0.userId })
+            rows.append(contentsOf: page.data.filter { !seen.contains($0.userId) })
+            nextCursor = page.nextCursor
+        } catch {
+            guard g == generation else { loadingMore = false; return }
+            self.error = (error as? APIError)?.errorDescription ?? "Could not load more members."
+        }
+        loadingMore = false
     }
     func scheduleReload() {
         task?.cancel()
@@ -278,6 +342,8 @@ struct MembersView: View {
     @State private var addOpen = false
     @State private var editId: String?
     @State private var resultsId: String?
+    @State private var resetPasswordFor: IdName?     // row-menu "Reset password" target
+    @State private var elevateFor: IdName?           // row-menu "Make portal user" target
     @State private var exportOpen = false
     @State private var toast: ToastData?
 
@@ -303,6 +369,8 @@ struct MembersView: View {
                                 MemberRowCard(member: m, index: i, country: m.countryCode.flatMap { vm.countryByCode[$0] },
                                               onResults: { resultsId = m.userId },
                                               onEdit: { editId = m.userId },
+                                              onResetPassword: { resetPasswordFor = IdName(id: m.userId, name: m.fullName) },
+                                              onElevate: { elevateFor = IdName(id: m.userId, name: m.fullName) },
                                               onGraduate: {
                                                   let next = m.status != "graduated"
                                                   Task {
@@ -313,6 +381,13 @@ struct MembersView: View {
                                                       }
                                                   }
                                               })
+                                    // Infinite scroll: the last loaded row nearing the
+                                    // viewport pulls the next keyset page.
+                                    .onAppear {
+                                        if i == vm.filtered.count - 1, vm.nextCursor != nil {
+                                            Task { await vm.loadMore() }
+                                        }
+                                    }
                             }
                         }
                         .background(Nuru.white)
@@ -359,6 +434,35 @@ struct MembersView: View {
             MemberResultsSheet(userId: box.id)
         }
         .sheet(isPresented: $exportOpen) { ExportSheet(members: vm.filtered, countryByCode: vm.countryByCode) }
+        // Row-menu "Reset password" — the web ResetPasswordModal, surfaced per row.
+        .sheet(item: $resetPasswordFor) { t in
+            MemberResetPasswordSheet(userId: t.id, name: t.name)
+                .presentationDetents([.medium, .large])
+        }
+        // Row-menu "Make portal user" — confirm, elevate, toast, reload (web `elevate`).
+        .confirmationDialog(
+            "Make portal user?",
+            isPresented: Binding(get: { elevateFor != nil }, set: { if !$0 { elevateFor = nil } }),
+            titleVisibility: .visible,
+            presenting: elevateFor
+        ) { t in
+            Button("Make portal user") { Task { await elevate(t) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { t in
+            Text("Make \(t.name) a portal user? They'll be able to sign in to the admin console and will appear on System ▸ Users, where you assign roles and permissions. Their member access is unchanged.")
+        }
+    }
+
+    // Elevate a member to portal (staff) access from the row menu (web "Make portal
+    // user"). On success: a toast pointing to System ▸ Users, then reload.
+    private func elevate(_ t: IdName) async {
+        do {
+            try await MembersAPI.elevate(t.id)
+            toast = .success("\(t.name) is now a portal user — assign roles on System ▸ Users.")
+            await vm.reload()
+        } catch {
+            toast = .error((error as? APIError)?.errorDescription ?? "Could not make portal user.")
+        }
     }
 
     // Hero — shared PortalHero (breadcrumb · title · band stat strip · trailing chips).
@@ -455,9 +559,10 @@ struct MembersView: View {
 
             Menu {
                 Picker("Cell", selection: $vm.cellFilter) {
-                    ForEach(vm.cellNames, id: \.self) { Text($0).tag($0) }
+                    ForEach(vm.cellOptions, id: \.self) { Text(vm.cellLabel($0)).tag($0) }
                 }
-            } label: { filterLabel("Cell: \(vm.cellFilter)") }
+            } label: { filterLabel("Cell: \(vm.cellLabel(vm.cellFilter))") }
+            .onChange(of: vm.cellFilter) { _, _ in vm.scheduleReload() }
         }
         .padding(12)
         .background(Nuru.white).clipShape(RoundedRectangle(cornerRadius: Nuru.R.card, style: .continuous))
@@ -504,11 +609,28 @@ struct MembersView: View {
 
     private var footer: some View {
         HStack {
-            Text("Showing \(vm.filtered.count) of \(vm.rows.count) loaded").font(.nCaption).foregroundStyle(Nuru.ink600)
+            Text("Showing \(vm.filtered.count)\(vm.nextCursor != nil ? " so far" : " of \(vm.filtered.count)")\(vm.loadingMore ? " · loading…" : "")")
+                .font(.nCaption).foregroundStyle(Nuru.ink600)
             Spacer()
-            HStack(spacing: 5) {
-                Image(systemName: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(Nuru.success)
-                Text("Live from the directory").font(.nMicro).foregroundStyle(Nuru.ink600)
+            if vm.nextCursor != nil {
+                Button { Task { await vm.loadMore() } } label: {
+                    HStack(spacing: 6) {
+                        if vm.loadingMore { ProgressView().controlSize(.small).tint(.white) }
+                        Text(vm.loadingMore ? "Loading…" : "Load more").font(.inter(12.5, .semibold))
+                        Image(systemName: "chevron.down").font(.system(size: 10))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14).frame(height: 34)
+                    .background(Nuru.navy).clipShape(Capsule())
+                }
+                .disabled(vm.loadingMore)
+                .pressable()
+                .hoverEffect(.lift)
+            } else {
+                HStack(spacing: 5) {
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(Nuru.success)
+                    Text("All members loaded").font(.nMicro).foregroundStyle(Nuru.ink600)
+                }
             }
         }
         .padding(.top, 8)
@@ -516,6 +638,109 @@ struct MembersView: View {
 }
 
 private struct IdBox: Identifiable { let id: String }
+/// Row-menu action target that carries the display name for confirm copy / toasts.
+private struct IdName: Identifiable { let id: String; let name: String }
+
+// MARK: - Reset password (row-menu flow — mirrors the web ResetPasswordModal)
+
+/// Surfaced from the member row's ⋮ menu. Explains the consequences, then POSTs the
+/// reset and reveals the freshly-minted temporary password EXACTLY ONCE with a Copy
+/// affordance. The server revokes every session and invalidates the old password.
+private struct MemberResetPasswordSheet: View {
+    let userId: String
+    let name: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var resetting = false
+    @State private var temp: String?
+    @State private var error: String?
+    @State private var toast: ToastData?
+
+    private static let teal = Color(hex: 0x0E7490)     // web KeyRound accent
+    private var firstName: String { name.split(separator: " ").first.map(String.init) ?? name }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 12) {
+                        TintedIcon(systemName: "key.fill", color: Self.teal, size: 40)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(name).font(.inter(15, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                            Text("Manual password reset").font(.inter(12)).foregroundStyle(Nuru.ink600)
+                        }
+                        Spacer(minLength: 0)
+                    }
+
+                    if let error {
+                        Text(error).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.danger)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12).background(Nuru.danger.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                    }
+
+                    if let temp {
+                        // Shown ONCE — never retrievable again.
+                        (Text("Hand this to \(firstName) — it works immediately and they can change it in their app under Profile. ")
+                            + Text("It will not be shown again.").bold())
+                            .font(.inter(13)).foregroundStyle(Nuru.ink600)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 12) {
+                            Text(temp)
+                                .font(.system(size: 20, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Nuru.navy).textSelection(.enabled)
+                                .lineLimit(1).minimumScaleFactor(0.6)
+                            Spacer(minLength: 0)
+                            Button {
+                                UIPasteboard.general.string = temp
+                                toast = .success("Password copied")
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "doc.on.doc").font(.system(size: 12, weight: .semibold))
+                                    Text("Copy").font(.inter(12.5, .bold))
+                                }
+                                .foregroundStyle(.white).padding(.horizontal, 14).frame(height: 34)
+                                .background(Nuru.navy).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }
+                            .pressable().hoverEffect(.lift)
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 13)
+                        .background(Nuru.inputBg)
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                    } else {
+                        Text("This creates a new temporary password for \(name), signs them out of every device, and invalidates their old password. Use it when a member is locked out and can't reset it themselves.")
+                            .font(.inter(13)).foregroundStyle(Nuru.ink600)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button { Task { await reset() } } label: {
+                            HStack(spacing: 8) {
+                                if resetting { ProgressView().controlSize(.small).tint(.white) }
+                                else { Image(systemName: "key.fill").font(.system(size: 13, weight: .semibold)) }
+                                Text(resetting ? "Resetting…" : "Reset & get password").font(.inter(13.5, .bold))
+                            }
+                            .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 46)
+                            .background(Self.teal).clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                        }
+                        .pressable().hoverEffect(.lift).disabled(resetting)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: 560).frame(maxWidth: .infinity)
+            }
+            .background(Nuru.paper)
+            .navigationTitle("Reset password")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toast($toast)
+        }
+    }
+
+    private func reset() async {
+        guard !resetting else { return }
+        resetting = true; error = nil
+        do { temp = try await PortalAPI.resetMemberPassword(userId) }
+        catch { self.error = (error as? APIError)?.errorDescription ?? "Could not reset password." }
+        resetting = false
+    }
+}
 
 /// One pastel stat tile: quiet muted label over a big deep-tint numeral —
 /// borderless tinted surface, exactly the web Members page's airy tiles.
@@ -547,6 +772,8 @@ private struct MemberRowCard: View {
     let country: Country?
     let onResults: () -> Void
     let onEdit: () -> Void
+    let onResetPassword: () -> Void
+    let onElevate: () -> Void
     let onGraduate: () -> Void
 
     var body: some View {
@@ -625,8 +852,12 @@ private struct MemberRowCard: View {
                 .pressable()
                 .hoverEffect(.highlight)
 
+                // Row actions — identical order to the web ⋮ menu:
+                // Edit member · Reset password · Make portal user · Mark graduated.
                 Menu {
                     Button { onEdit() } label: { Label("Edit member", systemImage: "pencil") }
+                    Button { onResetPassword() } label: { Label("Reset password", systemImage: "key.fill") }
+                    Button { onElevate() } label: { Label("Make portal user", systemImage: "shield.lefthalf.filled") }
                     Button { onGraduate() } label: { Label(member.status == "graduated" ? "Un-graduate" : "Mark graduated", systemImage: "graduationcap") }
                 } label: {
                     Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(Nuru.ink600)
