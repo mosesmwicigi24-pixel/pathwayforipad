@@ -4,6 +4,7 @@
 // optional). The backend provisions the ingest provider + stream key on create, so
 // the caller just refreshes the list afterward.
 import SwiftUI
+import UIKit
 import PhotosUI
 import UniformTypeIdentifiers
 
@@ -108,11 +109,18 @@ struct RadioProgramForm: View {
                     section("Schedule") {
                         Toggle(isOn: $scheduled) { Text("Schedule for later").font(.inter(13.5, .semibold)).foregroundStyle(Rs.text) }.tint(Rs.gold)
                         if scheduled {
-                            DatePicker("", selection: $scheduledAt).labelsHidden().datePickerStyle(.compact).tint(Rs.gold)
-                                .environment(\.colorScheme, .dark)
+                            // UIKit-backed picker so the minutes snap to :00/:15/:30/:45
+                            // (SwiftUI's DatePicker has no minuteInterval). Compact style
+                            // opens a tap-through calendar + time wheel.
+                            MinuteIntervalDatePicker(selection: $scheduledAt, minuteInterval: 15)
+                                .fixedSize()
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        Stepper(value: $durationMin, in: 5...480, step: 5) {
-                            Text("Duration: \(durationMin) min").font(.inter(13.5, .semibold)).foregroundStyle(Rs.text)
+                        // Duration runs from 15 min to a full 24 hours (1440), in 15-min
+                        // steps — one session can air non-stop for a day. Backend caps at 1440.
+                        Stepper(value: $durationMin, in: 15...1440, step: 15) {
+                            Text("Duration: \(durationMin) min · \(durationLabel(durationMin))")
+                                .font(.inter(13.5, .semibold)).foregroundStyle(Rs.text)
                         }
                         picker("Repeat", $repeatRule, repeats)
                         VStack(alignment: .leading, spacing: 4) {
@@ -211,8 +219,13 @@ struct RadioProgramForm: View {
     /// Populate every form field from the existing program the first time the sheet
     /// appears. Runs once (guarded by `didPrefill`) so re-renders don't clobber edits.
     private func prefillIfNeeded() {
-        guard let p = existing, !didPrefill else { return }
+        guard !didPrefill else { return }
         didPrefill = true
+        // Create mode: snap the suggested default time to the 15-min grid.
+        guard let p = existing else {
+            scheduledAt = snapDateTo15(scheduledAt)
+            return
+        }
         title = p.title
         category = categories.contains(p.category) ? p.category : (p.category.isEmpty ? "Sermon" : p.category)
         description = p.description ?? ""
@@ -223,11 +236,12 @@ struct RadioProgramForm: View {
         visibility = visibilities.contains(p.visibility) ? p.visibility : "public"
         if let iso = p.scheduledAt, !iso.isEmpty, let d = parseISO(iso) {
             scheduled = true
-            scheduledAt = d
+            // Normalize a server value (e.g. 23:20) onto the 15-min grid.
+            scheduledAt = snapDateTo15(d)
         } else {
             scheduled = false
         }
-        durationMin = p.durationMin ?? 60
+        durationMin = clampDuration(p.durationMin ?? 60)
         repeatRule = repeats.contains(p.repeatRule ?? "") ? (p.repeatRule ?? "none") : "none"
         autoGoLive = p.autoGoLive
         recordBroadcast = p.recordBroadcast
@@ -396,6 +410,36 @@ struct RadioProgramForm: View {
         }
     }
 
+    // MARK: Schedule helpers (15-min grid + friendly duration)
+
+    /// Round a Date to the nearest 15 minutes (:00/:15/:30/:45), zeroing seconds.
+    /// A stray 23:20 lands on 23:15/23:30 so airtimes always sit on the grid.
+    private func snapDateTo15(_ date: Date) -> Date {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        guard let minute = comps.minute else { return date }
+        let snapped = Int((Double(minute) / 15.0).rounded()) * 15
+        var hourStart = comps
+        hourStart.minute = 0
+        hourStart.second = 0
+        guard let base = cal.date(from: hourStart) else { return date }
+        return cal.date(byAdding: .minute, value: snapped, to: base) ?? date
+    }
+
+    /// Clamp a duration into [15, 1440] minutes, rounded onto the 15-min grid.
+    private func clampDuration(_ minutes: Int) -> Int {
+        let snapped = Int((Double(minutes) / 15.0).rounded()) * 15
+        return Swift.max(15, Swift.min(1440, snapped))
+    }
+
+    /// Friendly duration label: 1440 → "24h", 480 → "8h", 75 → "1h 15m".
+    private func durationLabel(_ minutes: Int) -> String {
+        let h = minutes / 60, m = minutes % 60
+        if h == 0 { return "\(m)m" }
+        if m == 0 { return "\(h)h" }
+        return "\(h)h \(String(format: "%02d", m))m"
+    }
+
     // MARK: Submit
 
     private func submit() async {
@@ -413,7 +457,7 @@ struct RadioProgramForm: View {
             "artwork_url": artworkUrl.trimmingCharacters(in: .whitespaces).isEmpty ? .null : .string(artworkUrl.trimmingCharacters(in: .whitespaces)),
             "tags": .strings(tags),
             "visibility": .string(visibility),
-            "duration_min": .int(durationMin),
+            "duration_min": .int(clampDuration(durationMin)),
             "repeat": .string(repeatRule),
             "timezone": .string(TimeZone.current.identifier),
             "auto_go_live": .bool(autoGoLive),
@@ -424,7 +468,8 @@ struct RadioProgramForm: View {
         ]
         if scheduled {
             let f = ISO8601DateFormatter()
-            body["scheduled_at"] = .string(f.string(from: scheduledAt))
+            // Snap to the 15-min grid before persisting, so a stray value never lands off-mark.
+            body["scheduled_at"] = .string(f.string(from: snapDateTo15(scheduledAt)))
         } else if isEdit {
             // In edit mode, an unchecked schedule clears any existing scheduled_at.
             body["scheduled_at"] = .null
@@ -454,5 +499,45 @@ private extension View {
             .padding(.horizontal, 12).frame(height: 40)
             .background(Color.white.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Rs.border, lineWidth: 1))
+    }
+}
+
+// A UIKit UIDatePicker wrapped for SwiftUI so the minutes snap to a fixed
+// interval (:00/:15/:30/:45) — SwiftUI's DatePicker exposes no `minuteInterval`.
+// `.compact` renders one obvious tappable control that opens a calendar + time
+// wheel; dark-styled and gold-tinted to match the studio sheet. (UIDatePicker is
+// supported under Mac Catalyst.)
+private struct MinuteIntervalDatePicker: UIViewRepresentable {
+    @Binding var selection: Date
+    var minuteInterval: Int = 15
+
+    func makeUIView(context: Context) -> UIDatePicker {
+        let picker = UIDatePicker()
+        picker.datePickerMode = .dateAndTime
+        picker.minuteInterval = minuteInterval
+        picker.preferredDatePickerStyle = .compact
+        picker.overrideUserInterfaceStyle = .dark
+        picker.tintColor = UIColor(Rs.gold)
+        picker.date = selection
+        picker.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .valueChanged)
+        picker.setContentHuggingPriority(.required, for: .horizontal)
+        picker.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return picker
+    }
+
+    func updateUIView(_ picker: UIDatePicker, context: Context) {
+        picker.minuteInterval = minuteInterval
+        // Only push external changes down; avoid fighting an in-flight user edit.
+        if abs(picker.date.timeIntervalSince(selection)) > 1 {
+            picker.setDate(selection, animated: false)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject {
+        var parent: MinuteIntervalDatePicker
+        init(_ parent: MinuteIntervalDatePicker) { self.parent = parent }
+        @objc func changed(_ sender: UIDatePicker) { parent.selection = sender.date }
     }
 }
