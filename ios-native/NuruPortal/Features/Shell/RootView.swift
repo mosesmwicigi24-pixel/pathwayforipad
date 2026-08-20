@@ -116,6 +116,9 @@ enum Section: String, CaseIterable, Identifiable {
         case .countries: "countries:view"
         case .languages: "languages:view"
         case .proximity: "members:proximity"
+        // Its own module, so holding it does not imply the member roll and
+        // holding the roll does not imply it.
+        case .services, .followUp: "followUp:view"
         // contentStudio/disciples/reflectionQueue/levelReviews/chat/events/
         // radio/mixer/uploadsSessions/peopleIntelligence/flockBrief/broadcast/
         // profile: coarse requireRole(...) gates or no gate at all — no fine
@@ -161,7 +164,15 @@ private let navGroups: [NavGroup] = [
     // and ordered, and a route missing from it compiles, builds clean and ships
     // invisible. Both pages shipped that way on 2026-08-17: every target built,
     // and neither page could be opened.
-    .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .levelReviews, .events, .services, .followUp, .finance, .certificates, .badges]),
+    .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .levelReviews, .events, .finance, .certificates, .badges]),
+    // Follow-up is its own section, a peer of Operations rather than a row
+    // inside it (owner ruling, 2026-08-17). It is a distinct pastoral job — a
+    // list of names, phone numbers, missed services and what was said on the
+    // last call — and it is gated on its own `followUp` module (migration 198),
+    // not on members:view. A follow_up_team role grants this section and
+    // nothing else, which is what makes it safe to hand to whoever actually
+    // rings round on a Monday.
+    .init(label: "Follow-up", items: [.services, .followUp]),
     .init(label: "Communication", items: [.chat, .broadcast]),
     .init(label: "System", items: [.peopleIntelligence, .flockBrief, .proximity]),
     .init(label: "Settings", items: [.users, .roles, .congregations, .countries, .languages]),
