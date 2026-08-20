@@ -31,7 +31,33 @@ No page, section, or code path is skipped. Build + PR happen only after ALL are 
 | 22 | Countries | Countries.tsx | System/CountriesView.swift | ✅ |
 | 23 | Languages | Languages.tsx | System/LanguagesView.swift | ✅ |
 | 24 | Profile | Profile.tsx | Profile/ProfileView.swift | ✅ |
+| 25 | Services | Services.tsx | Attendance/ServicesView.swift | ✅ |
+| 26 | Follow-up | FollowUp.tsx | Attendance/FollowUpView.swift | ✅ |
 
 Each page file is self-contained: page-local Codable models + `APIClient.shared.get(...)`
 calls, composed over the shared design kit (NuruTheme + Components). Shared files are
 never edited by page work, so all pages port in parallel without collisions.
+
+## 2026-08-17 — Services and Follow-up
+
+These two were not "pending" in this tracker; they were ABSENT. Both pages
+postdate the original port (pathway #427 church-service QR attendance, #429
+scan-to-join and the follow-up cadence engine), so the iPad and Mac could not
+create a service, project its QR, or see who was waiting to be called — while
+the web portal could.
+
+That is the failure mode a parity tracker exists to prevent, and it did not,
+because nothing adds a row for a page that was invented after the last audit.
+Worth remembering the next time this list reads as complete: a full column of
+green means every page SOMEONE LISTED is done.
+
+  Services   — service list with a live open/closed pill, and a projection view.
+               The QR is rendered on-device with CoreImage at correction level H
+               (photographed across a room, at an angle, often half-blocked by a
+               head) and never interpolated, because a smoothed QR is an
+               unreadable one.
+  Follow-up  — "To call" first and default; it is the only tab that asks
+               something of the reader. Members and Services tabs alongside.
+               Closing a call demands an outcome, not a tick.
+
+Both build for iPad and for Mac Catalyst.

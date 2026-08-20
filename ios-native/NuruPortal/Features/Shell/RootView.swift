@@ -12,7 +12,7 @@ enum Section: String, CaseIterable, Identifiable {
     // (context-aware launches from the workspace — no sidebar row).
     case curriculum, quizBuilder, videoLibrary, contentStudio
     // Operations
-    case cellEngagement, disciples, members, reflectionQueue, levelReviews, chat, broadcast, events, finance, certificates, badges, radio, mixer
+    case cellEngagement, disciples, members, reflectionQueue, levelReviews, chat, broadcast, events, services, followUp, finance, certificates, badges, radio, mixer
     // Media (Mac-only sidebar entry — the iPad Radio Studio keeps this inline)
     case uploadsSessions
     // System
@@ -37,6 +37,8 @@ enum Section: String, CaseIterable, Identifiable {
         case .chat: "Chat"
         case .broadcast: "Broadcast"
         case .events: "Events"
+        case .services: "Services"
+        case .followUp: "Follow-up"
         case .finance: "Finance"
         case .certificates: "Certificates"
         case .badges: "Badges"
@@ -71,6 +73,8 @@ enum Section: String, CaseIterable, Identifiable {
         case .chat: "bubble.left.and.bubble.right"
         case .broadcast: "megaphone"
         case .events: "calendar"
+        case .services: "qrcode"
+        case .followUp: "phone.badge.checkmark"
         case .finance: "creditcard"
         case .certificates: "rosette"
         case .badges: "star"
@@ -454,6 +458,8 @@ struct RootView: View {
         case .broadcast:        BroadcastConsoleView()
         case .events:           EventsOperationsView()
         case .finance:          FinanceView()
+        case .services:         ServicesView()
+        case .followUp:         FollowUpView()
         case .certificates:     CertificatesView()
         case .badges:           BadgesView()
         case .radio:            RadioStudioView()
