@@ -153,7 +153,15 @@ private let navGroups: [NavGroup] = [
     // radio desk moved library/session management there; the iPad Radio Studio
     // keeps those sections inline, so its sidebar is unchanged.
     .init(label: "Media", items: [.videoLibrary, .radio, .mixer, .uploadsSessions]),
-    .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .levelReviews, .events, .finance, .certificates, .badges]),
+    // Services and Follow-up sit beside Events on purpose: a service is what a
+    // QR belongs to, and follow-up is what the scans feed.
+    //
+    // Adding the Section case, its title, its icon and its destination is NOT
+    // enough to make a page reachable — THIS list is the sidebar, it is explicit
+    // and ordered, and a route missing from it compiles, builds clean and ships
+    // invisible. Both pages shipped that way on 2026-08-17: every target built,
+    // and neither page could be opened.
+    .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .levelReviews, .events, .services, .followUp, .finance, .certificates, .badges]),
     .init(label: "Communication", items: [.chat, .broadcast]),
     .init(label: "System", items: [.peopleIntelligence, .flockBrief, .proximity]),
     .init(label: "Settings", items: [.users, .roles, .congregations, .countries, .languages]),
