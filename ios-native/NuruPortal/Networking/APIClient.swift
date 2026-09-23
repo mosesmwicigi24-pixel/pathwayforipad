@@ -330,8 +330,13 @@ actor APIClient {
             throw APIError.http(status: http.statusCode, message: msg)
         }
 
+        // A 204 / empty body (DELETE /admin/departments/{id}/posts/{postId} ends
+        // with `.status(204).end()`) has nothing to decode: decode `{}` instead,
+        // so an empty-tolerant ack type (`struct Empty: Decodable {}`) succeeds
+        // while a type that needs fields still fails loudly.
+        let payload = data.isEmpty ? Data("{}".utf8) : data
         do {
-            return try decoder.decode(T.self, from: data)
+            return try decoder.decode(T.self, from: payload)
         } catch {
             throw APIError.decoding(String(describing: error))
         }

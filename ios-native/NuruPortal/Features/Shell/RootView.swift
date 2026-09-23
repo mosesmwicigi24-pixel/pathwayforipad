@@ -12,7 +12,7 @@ enum Section: String, CaseIterable, Identifiable {
     // (context-aware launches from the workspace — no sidebar row).
     case curriculum, quizBuilder, videoLibrary, contentStudio
     // Operations
-    case cellEngagement, disciples, members, reflectionQueue, levelReviews, chat, broadcast, events, services, followUp, finance, certificates, badges, radio, mixer
+    case cellEngagement, disciples, members, reflectionQueue, levelReviews, chat, broadcast, events, services, followUp, finance, partners, departments, certificates, badges, radio, mixer
     // Media (Mac-only sidebar entry — the iPad Radio Studio keeps this inline)
     case uploadsSessions
     // System
@@ -40,6 +40,8 @@ enum Section: String, CaseIterable, Identifiable {
         case .services: "Services"
         case .followUp: "Follow-up"
         case .finance: "Finance"
+        case .partners: "Partners"
+        case .departments: "Departments"
         case .certificates: "Certificates"
         case .badges: "Badges"
         case .radio: "Radio Studio"
@@ -76,6 +78,8 @@ enum Section: String, CaseIterable, Identifiable {
         case .services: "qrcode"
         case .followUp: "phone.badge.checkmark"
         case .finance: "creditcard"
+        case .partners: "person.2.badge.gearshape"
+        case .departments: "person.3"
         case .certificates: "rosette"
         case .badges: "star"
         case .radio: "dot.radiowaves.left.and.right"
@@ -107,7 +111,11 @@ enum Section: String, CaseIterable, Identifiable {
         case .quizBuilder: "quiz:view"
         case .videoLibrary: "videos:view"
         case .members: "members:view"
-        case .finance: "finance:view"
+        // Partners is the giving programme's office console: its routes sit
+        // under perm("finance", "view") (pathway #482), so it shows with Finance.
+        case .finance, .partners: "finance:view"
+        // Its own module (pathway #483) — departments:view, not finance.
+        case .departments: "departments:view"
         case .certificates: "certificates:view"
         case .badges: "badges:view"
         case .users: "users:view"
@@ -164,7 +172,10 @@ private let navGroups: [NavGroup] = [
     // and ordered, and a route missing from it compiles, builds clean and ships
     // invisible. Both pages shipped that way on 2026-08-17: every target built,
     // and neither page could be opened.
-    .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .levelReviews, .events, .finance, .certificates, .badges]),
+    // Partners and Departments follow Finance (pathway #482 / #483): partners
+    // are the giving programme's people, departments are where members serve
+    // and what they ask for — both gated on their own view permission above.
+    .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .levelReviews, .events, .finance, .partners, .departments, .certificates, .badges]),
     // Follow-up is its own section, a peer of Operations rather than a row
     // inside it (owner ruling, 2026-08-17). It is a distinct pastoral job — a
     // list of names, phone numbers, missed services and what was said on the
@@ -477,6 +488,8 @@ struct RootView: View {
         case .broadcast:        BroadcastConsoleView()
         case .events:           EventsOperationsView()
         case .finance:          FinanceView()
+        case .partners:         PartnersView()
+        case .departments:      DepartmentsView()
         case .services:         ServicesView()
         case .followUp:         FollowUpView()
         case .certificates:     CertificatesView()

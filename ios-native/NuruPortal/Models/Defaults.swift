@@ -45,3 +45,36 @@ typealias DefaultZero = DefaultCodable<ZeroIntProvider>
 typealias DefaultFalse = DefaultCodable<FalseBoolProvider>
 typealias DefaultTrue = DefaultCodable<TrueBoolProvider>
 typealias DefaultZeroD = DefaultCodable<ZeroDoubleProvider>
+
+/// An integer that may arrive as a JSON number, a float, or a numeric STRING.
+/// Postgres BIGINT / NUMERIC columns cast `::text` on the way out (pledge
+/// claims, partner schedules and payments all send `amount_minor` that way,
+/// financial/partners.ts) and `@DefaultZero` would silently read those as 0 —
+/// a wrong money figure, not a missing one. Null / missing / unparseable → 0.
+/// Views keep using plain `Int`.
+@propertyWrapper
+struct LooseInt: Codable, Equatable, Hashable {
+    var wrappedValue: Int
+    init(wrappedValue: Int) { self.wrappedValue = wrappedValue }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let i = try? c.decode(Int.self) {
+            wrappedValue = i
+        } else if let d = try? c.decode(Double.self), d.isFinite {
+            wrappedValue = Int(d.rounded())
+        } else if let s = try? c.decode(String.self) {
+            let t = s.trimmingCharacters(in: .whitespaces)
+            wrappedValue = Int(t) ?? Double(t).map { Int($0.rounded()) } ?? 0
+        } else {
+            wrappedValue = 0
+        }
+    }
+    func encode(to encoder: Encoder) throws { try wrappedValue.encode(to: encoder) }
+}
+
+extension KeyedDecodingContainer {
+    /// Missing key OR explicit null → 0 (never throws), like the providers above.
+    func decode(_ type: LooseInt.Type, forKey key: Key) throws -> LooseInt {
+        try decodeIfPresent(type, forKey: key) ?? LooseInt(wrappedValue: 0)
+    }
+}
