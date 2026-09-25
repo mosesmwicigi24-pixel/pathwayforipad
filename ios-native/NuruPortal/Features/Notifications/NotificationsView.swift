@@ -129,7 +129,8 @@ struct NotificationsView: View {
         var path = href
         if let h = path.firstIndex(where: { $0 == "?" || $0 == "#" }) { path = String(path[..<h]) }
         path = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let first = path.split(separator: "/").first.map(String.init) ?? path
+        let segments = path.split(separator: "/").map(String.init)
+        let first = segments.first ?? path
         switch first {
         case "", "dashboard":         return .dashboard
         case "notifications":         return .notifications
@@ -144,7 +145,10 @@ struct NotificationsView: View {
         case "reflection-queue":      return .reflectionQueue
         case "chat":                  return .chat
         case "events":                return .events
-        case "finance":               return .finance
+        // Finance is a group of pages now (docs/FINANCE_ERP.md §1):
+        // "/finance/<page>" opens that page; "/partners" redirects like the web.
+        case "finance":               return Section.finance(route: segments.count > 1 ? segments[1] : "")
+        case "partners":              return .partners
         case "certificates":          return .certificates
         case "badges":                return .badges
         case "users":                 return .users

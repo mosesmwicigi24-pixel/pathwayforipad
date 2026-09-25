@@ -146,6 +146,53 @@ actor APIClient {
         return data
     }
 
+    /// Raw GET for a DOWNLOAD (the Finance CSV twins and statement PDFs): the
+    /// same Bearer header, one transparent 401 refresh-and-replay and error
+    /// mapping as the JSON path, plus a query string and the response's
+    /// Content-Disposition so the caller can keep the server's filename.
+    /// ADDITIVE — `getData` above is untouched. A literal "+" in a query value
+    /// is sent as %2B (URLComponents leaves it bare, and the server would read
+    /// it as a space — "+2547…" phone searches).
+    func getFile(_ path: String, query: [String: String] = [:], accept: String = "*/*",
+                 isRetry: Bool = false) async throws -> (data: Data, contentDisposition: String?, mimeType: String?) {
+        guard var comps = URLComponents(url: baseURL.appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path),
+                                        resolvingAgainstBaseURL: false) else {
+            throw APIError.transport("Bad download address.")
+        }
+        if !query.isEmpty {
+            comps.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+            comps.percentEncodedQuery = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        }
+        guard let url = comps.url else { throw APIError.transport("Bad download address.") }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 120                      // a whole-year CSV can take a while to build
+        req.setValue(accept, forHTTPHeaderField: "Accept")
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let data: Data, response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: req)
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.transport("No HTTP response.") }
+        if http.statusCode == 401, !isRetry, refreshToken != nil {
+            if try await refreshSession() {
+                return try await getFile(path, query: query, accept: accept, isRetry: true)
+            } else {
+                onSessionExpired?()
+                throw APIError.unauthorized
+            }
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
+            if http.statusCode == 403, envelope?.passwordRequired == true { throw APIError.passwordRequired }
+            let msg = envelope?.text ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw APIError.http(status: http.statusCode, message: msg)
+        }
+        return (data, http.value(forHTTPHeaderField: "Content-Disposition"), http.mimeType)
+    }
+
     /// Authenticated multipart/form-data upload to OUR API (unlike ImageUpload, which
     /// POSTs straight to Cloudinary). Injects the same Bearer header + one transparent
     /// 401 refresh-and-replay the JSON path uses, builds the body (file part named

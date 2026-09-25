@@ -12,7 +12,12 @@ enum Section: String, CaseIterable, Identifiable {
     // (context-aware launches from the workspace — no sidebar row).
     case curriculum, quizBuilder, videoLibrary, contentStudio
     // Operations
-    case cellEngagement, disciples, members, reflectionQueue, levelReviews, chat, broadcast, events, services, followUp, finance, partners, departments, certificates, badges, radio, mixer
+    case cellEngagement, disciples, members, reflectionQueue, levelReviews, chat, broadcast, events, services, followUp, departments, certificates, badges, radio, mixer
+    // Finance — the ERP module (pathway docs/FINANCE_ERP.md §1). Partners lives
+    // here too; the old single `.finance` page is gone (FinanceView is unrouted).
+    case financeOverview, financeTransactions, financePledges, partners, financeClaims, financeRecurring,
+         financeCampaigns, financeNeeds, financeExpenses, financeBudgets, financeFunds, financeLedger,
+         financeReconciliation, financeReports, financeStatements, financeAudit, financeSettings
     // Media (Mac-only sidebar entry — the iPad Radio Studio keeps this inline)
     case uploadsSessions
     // System
@@ -39,8 +44,24 @@ enum Section: String, CaseIterable, Identifiable {
         case .events: "Events"
         case .services: "Services"
         case .followUp: "Follow-up"
-        case .finance: "Finance"
+        // Finance labels are the spec §1 Label column, verbatim.
+        case .financeOverview: "Overview"
+        case .financeTransactions: "Transactions"
+        case .financePledges: "Pledges"
         case .partners: "Partners"
+        case .financeClaims: "Claims"
+        case .financeRecurring: "Recurring gifts"
+        case .financeCampaigns: "Campaigns"
+        case .financeNeeds: "Department needs"
+        case .financeExpenses: "Expenses"
+        case .financeBudgets: "Budgets"
+        case .financeFunds: "Funds"
+        case .financeLedger: "Ledger"
+        case .financeReconciliation: "Reconciliation"
+        case .financeReports: "Reports"
+        case .financeStatements: "Statements"
+        case .financeAudit: "Audit"
+        case .financeSettings: "Settings"
         case .departments: "Departments"
         case .certificates: "Certificates"
         case .badges: "Badges"
@@ -77,8 +98,23 @@ enum Section: String, CaseIterable, Identifiable {
         case .events: "calendar"
         case .services: "qrcode"
         case .followUp: "phone.badge.checkmark"
-        case .finance: "creditcard"
+        case .financeOverview: "chart.pie"
+        case .financeTransactions: "arrow.left.arrow.right"
+        case .financePledges: "signature"
         case .partners: "person.2.badge.gearshape"
+        case .financeClaims: "list.clipboard"
+        case .financeRecurring: "repeat.circle"
+        case .financeCampaigns: "flag"
+        case .financeNeeds: "target"
+        case .financeExpenses: "banknote"
+        case .financeBudgets: "chart.bar.doc.horizontal"
+        case .financeFunds: "square.stack.3d.up"
+        case .financeLedger: "book.closed"
+        case .financeReconciliation: "arrow.triangle.2.circlepath"
+        case .financeReports: "chart.bar.xaxis"
+        case .financeStatements: "doc.text"
+        case .financeAudit: "checkmark.shield"
+        case .financeSettings: "gearshape"
         case .departments: "person.3"
         case .certificates: "rosette"
         case .badges: "star"
@@ -111,9 +147,13 @@ enum Section: String, CaseIterable, Identifiable {
         case .quizBuilder: "quiz:view"
         case .videoLibrary: "videos:view"
         case .members: "members:view"
-        // Partners is the giving programme's office console: its routes sit
-        // under perm("finance", "view") (pathway #482), so it shows with Finance.
-        case .finance, .partners: "finance:view"
+        // Every Finance page is gated on finance:view (spec §6) — Partners too:
+        // its routes sit under perm("finance", "view") (pathway #482). Write
+        // actions inside the pages need export/manage/approve (FinanceCaps).
+        case .financeOverview, .financeTransactions, .financePledges, .partners, .financeClaims,
+             .financeRecurring, .financeCampaigns, .financeNeeds, .financeExpenses, .financeBudgets,
+             .financeFunds, .financeLedger, .financeReconciliation, .financeReports,
+             .financeStatements, .financeAudit, .financeSettings: "finance:view"
         // Its own module (pathway #483) — departments:view, not finance.
         case .departments: "departments:view"
         case .certificates: "certificates:view"
@@ -134,6 +174,47 @@ enum Section: String, CaseIterable, Identifiable {
         default: nil
         }
     }
+
+    /// A page of the Finance group (Partners included) — drives the "Finance ·"
+    /// breadcrumb and the group's auto-expand.
+    var isFinance: Bool {
+        switch self {
+        case .financeOverview, .financeTransactions, .financePledges, .partners, .financeClaims,
+             .financeRecurring, .financeCampaigns, .financeNeeds, .financeExpenses, .financeBudgets,
+             .financeFunds, .financeLedger, .financeReconciliation, .financeReports,
+             .financeStatements, .financeAudit, .financeSettings: true
+        default: false
+        }
+    }
+
+    /// The detail header's title: "Finance · Ledger" for a Finance page (spec
+    /// §1 — the web breadcrumb reads the same), the plain title otherwise.
+    var breadcrumbTitle: String { isFinance ? "Finance · \(title)" : title }
+
+    /// Web route → section for "/finance/<sub>" (spec §1 route column; the
+    /// legacy "/partners" redirect is mapped by the caller). An unknown or empty
+    /// sub-route lands on the Overview rather than nowhere.
+    static func finance(route sub: String) -> Section {
+        switch sub {
+        case "transactions": .financeTransactions
+        case "pledges": .financePledges
+        case "partners": .partners
+        case "claims": .financeClaims
+        case "recurring": .financeRecurring
+        case "campaigns": .financeCampaigns
+        case "needs": .financeNeeds
+        case "expenses": .financeExpenses
+        case "budgets": .financeBudgets
+        case "funds": .financeFunds
+        case "ledger": .financeLedger
+        case "reconciliation": .financeReconciliation
+        case "reports": .financeReports
+        case "statements": .financeStatements
+        case "audit": .financeAudit
+        case "settings": .financeSettings
+        default: .financeOverview
+        }
+    }
 }
 
 /// True if `item` should show in the sidebar for this profile: `.broadcast`
@@ -152,6 +233,8 @@ private struct NavGroup: Identifiable {
     let label: String
     let items: [Section]
     var id: String { label }
+    /// The one collapsible group (RootView.financeOpen) — its label and header key.
+    static let financeLabel = "Finance"
 }
 
 private let navGroups: [NavGroup] = [
@@ -172,10 +255,19 @@ private let navGroups: [NavGroup] = [
     // and ordered, and a route missing from it compiles, builds clean and ships
     // invisible. Both pages shipped that way on 2026-08-17: every target built,
     // and neither page could be opened.
-    // Partners and Departments follow Finance (pathway #482 / #483): partners
-    // are the giving programme's people, departments are where members serve
-    // and what they ask for — both gated on their own view permission above.
-    .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .levelReviews, .events, .finance, .partners, .departments, .certificates, .badges]),
+    // Departments (pathway #483) stays in Operations — where members serve; its
+    // money view is Finance → Department needs. Finance and Partners moved out
+    // to their own group below (docs/FINANCE_ERP.md §1).
+    .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .levelReviews, .events, .departments, .certificates, .badges]),
+    // FINANCE — the ERP module, directly after Operations, in the ERP flow:
+    // money in → commitments → money out → planning → books → reporting →
+    // admin (spec §1). Collapsible (RootView.financeOpen); every row finance:view.
+    .init(label: NavGroup.financeLabel, items: [
+        .financeOverview, .financeTransactions, .financePledges, .partners, .financeClaims,
+        .financeRecurring, .financeCampaigns, .financeNeeds, .financeExpenses, .financeBudgets,
+        .financeFunds, .financeLedger, .financeReconciliation, .financeReports,
+        .financeStatements, .financeAudit, .financeSettings,
+    ]),
     // Follow-up is its own section, a peer of Operations rather than a row
     // inside it (owner ruling, 2026-08-17). It is a distinct pastoral job — a
     // list of names, phone numbers, missed services and what was said on the
@@ -224,8 +316,18 @@ extension Notification.Name {
     /// Deep-link: open the Quiz Builder with this level PRESELECTED (context-aware
     /// launches from the workspace — the builder never re-asks for the level).
     @Published var pendingQuizLevel: Int?
+    /// Deep link INTO a Finance page with a filter preset (the Overview's
+    /// alerts, a pledge row → its partner, a need → its gifts). The target page
+    /// consumes it with `.onFinanceLink(section) { params in … }` (FinanceKit),
+    /// which clears it — read-and-clear, so it never replays on a later mount.
+    @Published var financeLink: FinanceLink?
     // Instant — no transition animation, for maximum tap reactivity.
     func go(_ s: Section) { section = s }
+    /// Open a Finance page with params (e.g. `.financeExpenses, ["status": "recorded"]`).
+    func openFinance(_ s: Section, _ params: [String: String] = [:]) {
+        financeLink = FinanceLink(section: s, params: params)
+        section = s
+    }
     func search(_ q: String) { memberSearch = q; section = .members }
     func member(_ id: String, _ name: String) { openMember = MemberRef(id: id, name: name) }
     func openLevel(_ n: Int) { pendingLevel = n; section = .curriculum }
@@ -238,6 +340,10 @@ struct RootView: View {
     @ObservedObject private var network = NetworkMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var collapsed = false
+    /// The FINANCE group's disclosure state (the only collapsible group).
+    /// Default expanded; persisted per device; forced open whenever a Finance
+    /// page is selected, so the current page is never hidden inside it.
+    @AppStorage("nuru.nav.finance.open") private var financeOpen = true
     /// Keep-alive registry, MRU order (current section first). Each listed
     /// section keeps its NavigationStack mounted (hidden) so scroll position,
     /// push state and loaded VM data survive sidebar switches.
@@ -260,7 +366,8 @@ struct RootView: View {
         HStack(spacing: 0) {
             sidebar
             VStack(spacing: 0) {
-                PortalTopBar(title: (router.section ?? .dashboard).title)
+                // Finance pages read "Finance · <Title>" (spec §1 breadcrumb).
+                PortalTopBar(title: (router.section ?? .dashboard).breadcrumbTitle)
                 if !network.online { offlineStrip }
                 detailStacks
             }
@@ -285,6 +392,7 @@ struct RootView: View {
             MicBroadcaster.shared.prepareInputSensing()
             #endif
             visit(router.section, leaving: nil)
+            if router.section?.isFinance == true { financeOpen = true }
         }
         .onChange(of: router.section) { old, new in
             // Defense in depth for deep links (push notifications, cross-page
@@ -292,9 +400,11 @@ struct RootView: View {
             // see — the sidebar already keeps a normal tap from reaching one.
             guard let new else { return }
             if !isSectionVisible(new, profile: auth.profile) {
+                router.financeLink = nil          // never replay a link into a page this profile can't see
                 router.section = .dashboard
                 return
             }
+            if new.isFinance, !financeOpen { financeOpen = true }
             visit(new, leaving: old)
         }
         // Radio Studio → Uploads & Sessions deep link (Mac AND iPad): stash the
@@ -375,21 +485,35 @@ struct RootView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: collapsed ? 6 : 18) {
                     ForEach(navGroups) { group in
-                        VStack(alignment: .leading, spacing: 4) {
-                            if !collapsed {
-                                Text(group.label.uppercased())
-                                    .font(.inter(11.5, .bold)).tracking(1.2)
-                                    .foregroundStyle(.white.opacity(0.34))
-                                    .padding(.horizontal, 14).padding(.bottom, 2)
-                            } else {
-                                Rectangle().fill(.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 14).padding(.vertical, 4)
-                            }
-                            // Permitted-but-limited users see ONLY the rows their
-                            // permissions grant — everything else absent, not
-                            // grayed (isSectionVisible mirrors nav.tsx's filter).
-                            ForEach(group.items.filter { isSectionVisible($0, profile: auth.profile) }) { item in
-                                NavRow(item: item, selected: router.section == item, collapsed: collapsed) {
-                                    router.go(item)
+                        // Permitted-but-limited users see ONLY the rows their
+                        // permissions grant — everything else absent, not
+                        // grayed (isSectionVisible mirrors nav.tsx's filter).
+                        let items = group.items.filter { isSectionVisible($0, profile: auth.profile) }
+                        let isFinanceGroup = group.id == NavGroup.financeLabel
+                        // A Finance group with no visible page (no finance:view)
+                        // shows nothing at all, not an empty header.
+                        if !(isFinanceGroup && items.isEmpty) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                if !collapsed {
+                                    if isFinanceGroup {
+                                        financeGroupHeader(label: group.label, containsSelection: items.contains { $0 == router.section })
+                                    } else {
+                                        Text(group.label.uppercased())
+                                            .font(.inter(11.5, .bold)).tracking(1.2)
+                                            .foregroundStyle(.white.opacity(0.34))
+                                            .padding(.horizontal, 14).padding(.bottom, 2)
+                                    }
+                                } else {
+                                    Rectangle().fill(.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 14).padding(.vertical, 4)
+                                }
+                                // The mini sidebar has no header to re-open the
+                                // group from, so it always shows the Finance icons.
+                                if !isFinanceGroup || financeOpen || collapsed {
+                                    ForEach(items) { item in
+                                        NavRow(item: item, selected: router.section == item, collapsed: collapsed) {
+                                            router.go(item)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -408,6 +532,38 @@ struct RootView: View {
         .frame(maxHeight: .infinity)
         .background(Nuru.sidebarGradient.ignoresSafeArea())
         .animation(.easeInOut(duration: 0.22), value: collapsed)
+    }
+
+    /// The FINANCE group header: the same overline as every other group, plus a
+    /// disclosure chevron. Collapsed with the current page inside it, a gold dot
+    /// says where you are (auto-expand makes that rare — only a manual close).
+    private func financeGroupHeader(label: String, containsSelection: Bool) -> some View {
+        Button {
+            if reduceMotion { financeOpen.toggle() }
+            else { withAnimation(.easeInOut(duration: 0.2)) { financeOpen.toggle() } }
+        } label: {
+            HStack(spacing: 6) {
+                Text(label.uppercased())
+                    .font(.inter(11.5, .bold)).tracking(1.2)
+                    .foregroundStyle(.white.opacity(financeOpen ? 0.34 : 0.5))
+                if !financeOpen && containsSelection {
+                    Circle().fill(Nuru.gold).frame(width: 5, height: 5)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .rotationEffect(.degrees(financeOpen ? 0 : -90))
+            }
+            .padding(.horizontal, 14).padding(.bottom, 2).padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityLabel(label)
+        .accessibilityValue(financeOpen ? "Expanded" : "Collapsed")
+        .accessibilityHint(financeOpen ? "Hides the Finance pages" : "Shows the Finance pages")
+        .accessibilityAddTraits(.isHeader)
     }
 
     private var collapseToggle: some View {
@@ -487,8 +643,25 @@ struct RootView: View {
         case .chat:             ChatView()
         case .broadcast:        BroadcastConsoleView()
         case .events:           EventsOperationsView()
-        case .finance:          FinanceView()
-        case .partners:         PartnersView()
+        // Finance (spec §1). The old FinanceView is deliberately unrouted — the
+        // page agents harvest it and then delete it.
+        case .financeOverview:       FinanceOverviewView()
+        case .financeTransactions:   FinanceTransactionsView()
+        case .financePledges:        FinancePledgesView()
+        case .partners:              PartnersView()
+        case .financeClaims:         FinanceClaimsView()
+        case .financeRecurring:      FinanceRecurringView()
+        case .financeCampaigns:      FinanceCampaignsView()
+        case .financeNeeds:          FinanceNeedsView()
+        case .financeExpenses:       FinanceExpensesView()
+        case .financeBudgets:        FinanceBudgetsView()
+        case .financeFunds:          FinanceFundsView()
+        case .financeLedger:         FinanceLedgerView()
+        case .financeReconciliation: FinanceReconciliationView()
+        case .financeReports:        FinanceReportsView()
+        case .financeStatements:     FinanceStatementsView()
+        case .financeAudit:          FinanceAuditView()
+        case .financeSettings:       FinanceSettingsView()
         case .departments:      DepartmentsView()
         case .services:         ServicesView()
         case .followUp:         FollowUpView()
@@ -665,3 +838,44 @@ private struct PortalTopBar: View {
         }
     }
 }
+
+#if DEBUG
+/// DEBUG self-check of the Finance sidebar (this project has no test target —
+/// FinanceSelfCheck runs it at launch in Debug builds): FINANCE sits directly
+/// after OPERATIONS and lists the 17 spec §1 pages in order with their Label
+/// titles, distinct icons and finance:view gates; Operations keeps Departments
+/// and nothing of Finance. Returns the failures (empty = pass).
+func financeNavSelfCheckFailures() -> [String] {
+    var failures: [String] = []
+    let labels = navGroups.map(\.label)
+    guard let ops = labels.firstIndex(of: "Operations"),
+          let fin = labels.firstIndex(of: NavGroup.financeLabel) else {
+        return ["nav: the Operations or Finance group is missing"]
+    }
+    if fin != ops + 1 { failures.append("nav: Finance is not directly after Operations") }
+    let expected: [Section] = [
+        .financeOverview, .financeTransactions, .financePledges, .partners, .financeClaims,
+        .financeRecurring, .financeCampaigns, .financeNeeds, .financeExpenses, .financeBudgets,
+        .financeFunds, .financeLedger, .financeReconciliation, .financeReports,
+        .financeStatements, .financeAudit, .financeSettings,
+    ]
+    if navGroups[fin].items != expected { failures.append("nav: the Finance items are not the 17 spec §1 sections in order") }
+    let titles = ["Overview", "Transactions", "Pledges", "Partners", "Claims", "Recurring gifts", "Campaigns",
+                  "Department needs", "Expenses", "Budgets", "Funds", "Ledger", "Reconciliation", "Reports",
+                  "Statements", "Audit", "Settings"]
+    if expected.map(\.title) != titles { failures.append("nav: Finance titles differ from the spec §1 Label column") }
+    for s in expected where s.permission != "finance:view" { failures.append("nav: \(s.rawValue) is not gated on finance:view") }
+    for s in expected where !s.isFinance { failures.append("nav: \(s.rawValue) is not marked isFinance") }
+    if Set(expected.map(\.icon)).count != expected.count { failures.append("nav: Finance icons are not distinct") }
+    if navGroups[ops].items.contains(where: \.isFinance) { failures.append("nav: Operations still lists a Finance page") }
+    if !navGroups[ops].items.contains(.departments) { failures.append("nav: Departments left Operations") }
+    if navGroups.flatMap(\.items).filter(\.isFinance).count != expected.count { failures.append("nav: a Finance page is listed outside the Finance group") }
+    if Section.financeLedger.breadcrumbTitle != "Finance · Ledger" { failures.append("nav: Finance breadcrumb is not \"Finance · <Title>\"") }
+    if Section.members.breadcrumbTitle != "Members" { failures.append("nav: a non-Finance breadcrumb gained a prefix") }
+    if Section.finance(route: "expenses") != .financeExpenses || Section.finance(route: "") != .financeOverview
+        || Section.finance(route: "partners") != .partners {
+        failures.append("nav: /finance/<sub> route mapping is wrong")
+    }
+    return failures
+}
+#endif

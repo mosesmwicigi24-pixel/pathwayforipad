@@ -503,7 +503,7 @@ struct PartnersView: View {
         let s = vm.summary
         let behind = s?.behind ?? 0
         return PortalHero(
-            breadcrumb: ["Operations", "Partners"],
+            breadcrumb: ["Finance", "Partners"],
             title: "Partners",
             stats: [
                 HeroStat(label: "Partners", value: s.map { String($0.partners) } ?? "—", hint: "in the programme"),

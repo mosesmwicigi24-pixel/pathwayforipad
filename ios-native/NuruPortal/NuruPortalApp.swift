@@ -14,6 +14,11 @@ struct NuruPortalApp: App {
     init() {
         Nuru.registerFonts()
         Self.configureAppearance()
+        #if DEBUG
+        // No unit-test target: the Finance kit asserts its money/date helpers
+        // and the Finance sidebar once per Debug launch (FinanceKit.swift).
+        FinanceSelfCheck.runAtLaunch()
+        #endif
     }
 
     var body: some Scene {
