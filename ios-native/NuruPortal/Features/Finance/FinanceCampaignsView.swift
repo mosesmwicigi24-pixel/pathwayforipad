@@ -88,7 +88,7 @@ final class FinanceCampaignsModel: ObservableObject {
     }
 
     /// "12 days left" / "ends today" / "starts in 5 days" / "end date passed 3 days ago" / "ended".
-    static func timing(_ c: FinCampaign, today: String = FinanceDates.today()) -> String {
+    nonisolated static func timing(_ c: FinCampaign, today: String = FinanceDates.today()) -> String {
         if c.status == "ended" { return "ended" }
         if today < c.startsOn, let d = FinBTime.days(from: today, to: c.startsOn) { return "starts in \(d) \(d == 1 ? "day" : "days")" }
         guard let left = FinBTime.days(from: today, to: c.endsOn) else { return "" }

@@ -2027,6 +2027,10 @@ enum FinanceSelfCheck {
 
         // The sidebar.
         for f in financeNavSelfCheckFailures() { expect(false, f) }
+        // The Pledges … Statements pages' helpers (Features/Finance/B/FinanceBSelfCheck.swift).
+        let pagesB = pagesB()
+        checks += pagesB.checks
+        failures += pagesB.failures
         return (checks, failures)
     }
 
