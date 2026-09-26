@@ -2,7 +2,10 @@
 // Roles.tsx (packages/admin-web/src/components/pages/Roles.tsx). Navy hero, a
 // "Key roles in the pathway" grid of access tiers, a searchable list of all
 // configured roles (name/key, type, permission count, users, status), and an
-// editable PERMISSIONS matrix (17 modules × 6 capabilities).
+// editable PERMISSIONS matrix whose modules × capabilities come from the
+// server's own lists (GET /admin/permissions/catalog — pathway
+// docs/FINANCE_ERP.md §6), so saving never strips a grant the matrix did not
+// show (it used to drop finance:manage and live:go/manage).
 //
 // Fully wired to the RBAC role API, mirroring SystemApi in api/client.ts:
 //   • Create role      → POST   /admin/roles                  { name, role_type, description, copy_from }
@@ -31,7 +34,9 @@ struct RolesView: View {
         .id(reloadToken)
         .portalPage("Roles & Permissions")
         .sheet(item: $openRole) { role in
+            // The catalog's 8 capability columns want more than a form sheet.
             PermissionsMatrixSheet(role: role) { refresh() }
+                .rolesMatrixSizing()
         }
         .sheet(item: $editRole) { role in
             RoleForm(mode: .edit(role), allRoles: [], onSaved: { _ in refresh() })
@@ -123,6 +128,10 @@ struct RolesView: View {
             }
         }
         .onAppear { createRoles = roles }
+        // DEBUG: NURU_FINANCE_PARAMS="open=<role_key>" opens that role's matrix (headless screenshots).
+        .finADebugLaunchParams(.roles) { p in
+            if let key = p["open"], let r = roles.first(where: { $0.roleKey == key }) { openRole = r }
+        }
     }
 
     @ViewBuilder
@@ -268,16 +277,55 @@ enum RolePerm {
         Module(id: "countries",     label: "Countries",             group: "System"),
         Module(id: "languages",     label: "Languages",             group: "System"),
         Module(id: "congregations", label: "Congregations",         group: "System"),
+        // Known to the server (PERM_MODULES) and labelled like the web's Roles page.
+        Module(id: "departments",   label: "Departments (serving, posts & needs)", group: "Operations"),
+        Module(id: "live",          label: "Nuru Live (go live & oversight)",      group: "Operations"),
+        Module(id: "followUp",      label: "Follow-up (call list & services)",     group: "Follow-up"),
+        Module(id: "website",       label: "Website (nuruplace.org)",              group: "Website"),
     ]
     struct Capability: Identifiable { let key: String; let label: String; var id: String { key } }
     static let capabilities: [Capability] = [
         Capability(key: "view", label: "View"), Capability(key: "create", label: "Create"),
         Capability(key: "edit", label: "Edit"), Capability(key: "delete", label: "Delete"),
         Capability(key: "approve", label: "Approve"), Capability(key: "export", label: "Export"),
+        Capability(key: "go", label: "Go live"), Capability(key: "manage", label: "Manage"),
     ]
     static var groups: [String] {
         var seen = Set<String>(); var out: [String] = []
         for m in modules where !seen.contains(m.group) { seen.insert(m.group); out.append(m.group) }
+        return out
+    }
+
+    /// A catalog module id → its label and group; an id this build does not
+    /// know still renders (label = the id, group "Other").
+    static func module(_ id: String) -> Module {
+        modules.first { $0.id == id } ?? Module(id: id, label: id, group: "Other")
+    }
+    /// A catalog capability → its column label (unknown: the key itself).
+    static func capability(_ key: String) -> Capability {
+        capabilities.first { $0.key == key } ?? Capability(key: key, label: key)
+    }
+    /// The groups of `list` in the familiar order, unknown groups after, "Other" last.
+    static func groups(of list: [Module]) -> [String] {
+        var out = groups.filter { g in list.contains { $0.group == g } }
+        for m in list where !out.contains(m.group) && m.group != "Other" { out.append(m.group) }
+        if list.contains(where: { $0.group == "Other" }) { out.append("Other") }
+        return out
+    }
+    /// What to PUT for a role: every checked cell of the rendered matrix, plus
+    /// every original grant whose module or capability the matrix did not
+    /// render — so a save never strips what the editor could not show.
+    static func grantsToSave(working: Set<String>, modules: [Module], capabilities: [Capability],
+                             original: [LocalPerm]) -> [(moduleId: String, capability: String)] {
+        var out: [(moduleId: String, capability: String)] = []
+        for m in modules {
+            for c in capabilities where working.contains("\(m.id)|\(c.key)") { out.append((m.id, c.key)) }
+        }
+        let shownModules = Set(modules.map(\.id)), shownCaps = Set(capabilities.map(\.key))
+        var seen = Set(out.map { "\($0.moduleId)|\($0.capability)" })
+        for p in original where !(shownModules.contains(p.moduleId) && shownCaps.contains(p.capability)) {
+            if seen.insert("\(p.moduleId)|\(p.capability)").inserted { out.append((p.moduleId, p.capability)) }
+        }
         return out
     }
 
@@ -558,11 +606,25 @@ private struct PermissionsMatrixSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private var locked: Bool { role.roleKey == "super_admin" }
-    private var capacity: Int { RolePerm.modules.count * RolePerm.capabilities.count }
+    private var capacity: Int { modules.count * capabilities.count }
 
     @State private var working: Set<String> = []        // "moduleId|capability"
     @State private var saving = false
     @State private var error: String?
+    /// The server's own dimensions (GET /admin/permissions/catalog). Until it
+    /// loads — or if it fails — Save stays off, so no grant can be dropped.
+    @State private var catalog: FinPermissionCatalog?
+    @State private var catalogError: String?
+
+    private var modules: [RolePerm.Module] { (catalog?.modules ?? []).map(RolePerm.module) }
+    private var capabilities: [RolePerm.Capability] { (catalog?.capabilities ?? []).map(RolePerm.capability) }
+    private var canSave: Bool { !locked && catalog != nil && !saving }
+
+    private func loadCatalog() async {
+        catalogError = nil
+        do { catalog = try await FinanceERPAPI.permissionsCatalog() }
+        catch { if !Task.isCancelled { catalogError = (error as? APIError)?.errorDescription ?? error.localizedDescription } }
+    }
 
     private func cellKey(_ mod: String, _ cap: String) -> String { "\(mod)|\(cap)" }
     private var total: Int { working.count }
@@ -579,6 +641,7 @@ private struct PermissionsMatrixSheet: View {
         }
         .background(Nuru.paper)
         .onAppear { working = Set(role.permissions.map { cellKey($0.moduleId, $0.capability) }) }
+        .task { await loadCatalog() }
     }
 
     // MARK: Toggles (web setCell / toggleRow / toggleColumn)
@@ -590,29 +653,27 @@ private struct PermissionsMatrixSheet: View {
     }
     private func toggleRow(_ mod: String) {
         guard !locked else { return }
-        let allOn = RolePerm.capabilities.allSatisfy { working.contains(cellKey(mod, $0.key)) }
-        for c in RolePerm.capabilities {
+        let allOn = capabilities.allSatisfy { working.contains(cellKey(mod, $0.key)) }
+        for c in capabilities {
             let k = cellKey(mod, c.key)
             if allOn { working.remove(k) } else { working.insert(k) }
         }
     }
     private func toggleColumn(_ cap: String) {
         guard !locked else { return }
-        let allOn = RolePerm.modules.allSatisfy { working.contains(cellKey($0.id, cap)) }
-        for m in RolePerm.modules {
+        let allOn = modules.allSatisfy { working.contains(cellKey($0.id, cap)) }
+        for m in modules {
             let k = cellKey(m.id, cap)
             if allOn { working.remove(k) } else { working.insert(k) }
         }
     }
 
     private func save() {
-        guard !locked else { return }
+        guard canSave else { return }
         saving = true; error = nil
-        let perms: [RolesAPI.PermItem] = RolePerm.modules.flatMap { m in
-            RolePerm.capabilities.compactMap { c in
-                working.contains(cellKey(m.id, c.key)) ? RolesAPI.PermItem(moduleId: m.id, capability: c.key) : nil
-            }
-        }
+        let perms: [RolesAPI.PermItem] = RolePerm.grantsToSave(working: working, modules: modules, capabilities: capabilities,
+                                                               original: role.permissions)
+            .map { RolesAPI.PermItem(moduleId: $0.moduleId, capability: $0.capability) }
         Task {
             do { try await RolesAPI.setPermissions(role.roleKey, perms); saving = false; onSaved(); dismiss() }
             catch {
@@ -661,39 +722,65 @@ private struct PermissionsMatrixSheet: View {
         .background(Nuru.navy)
     }
 
-    private var matrix: some View {
+    @ViewBuilder private var matrix: some View {
+        if catalog == nil {
+            VStack(alignment: .leading, spacing: 10) {
+                if let catalogError {
+                    Text("Couldn't load the list of permissions — saving is off so no grant is lost. \(catalogError)")
+                        .font(.nCaption).foregroundStyle(Nuru.danger).fixedSize(horizontal: false, vertical: true)
+                    Button { Task { await loadCatalog() } } label: {
+                        Label("Try again", systemImage: "arrow.clockwise").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading the permission list…").font(.nCaption).foregroundStyle(Nuru.ink600)
+                    }
+                }
+            }
+            .frame(maxWidth: 520, alignment: .leading)
+            .padding(.vertical, 12)
+        } else {
+            matrixGrid
+        }
+    }
+
+    private var matrixGrid: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Column header row — tapping a capability label toggles the whole column.
             HStack(spacing: 0) {
                 Text("MODULE").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600)
-                    .frame(width: 190, alignment: .leading).padding(.vertical, 8)
-                ForEach(RolePerm.capabilities) { cap in
+                    .frame(width: 176, alignment: .leading).padding(.vertical, 8)
+                ForEach(capabilities) { cap in
                     Button { toggleColumn(cap.key) } label: {
                         Text(cap.label.uppercased()).font(.inter(10.5, .bold)).tracking(0.3).foregroundStyle(Nuru.navy)
-                            .frame(width: 60).padding(.vertical, 8)
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                            .frame(width: 56).padding(.vertical, 8)
                     }
                     .buttonStyle(.plain).disabled(locked)
                 }
             }
 
-            ForEach(RolePerm.groups, id: \.self) { group in
+            ForEach(RolePerm.groups(of: modules), id: \.self) { group in
                 Text(group.uppercased())
                     .font(.inter(11.5, .semibold)).tracking(1.4).foregroundStyle(Nuru.goldLo)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 9).padding(.bottom, 3).padding(.horizontal, 0)
 
-                ForEach(RolePerm.modules.filter { $0.group == group }) { mod in
+                ForEach(modules.filter { $0.group == group }) { mod in
                     HStack(spacing: 0) {
                         // Tapping the module label toggles the whole row.
                         Button { toggleRow(mod.id) } label: {
                             Text(mod.label).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
-                                .frame(width: 190, alignment: .leading).padding(.vertical, 5)
+                                .lineLimit(2).minimumScaleFactor(0.85)
+                                .frame(width: 176, alignment: .leading).padding(.vertical, 5)
                         }
                         .buttonStyle(.plain).disabled(locked)
-                        ForEach(RolePerm.capabilities) { cap in
+                        ForEach(capabilities) { cap in
                             Button { toggleCell(mod.id, cap.key) } label: {
                                 MatrixBox(on: working.contains(cellKey(mod.id, cap.key)))
-                                    .frame(width: 60).padding(.vertical, 4)
+                                    .frame(width: 56).padding(.vertical, 4)
                             }
                             .buttonStyle(.plain).disabled(locked)
                         }
@@ -731,17 +818,28 @@ private struct PermissionsMatrixSheet: View {
                     Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
                     Text("Save changes").font(.inter(13, .semibold))
                 }
-                .foregroundStyle(locked ? Nuru.ink400 : .white)
+                .foregroundStyle(canSave ? .white : Nuru.ink400)
                 .padding(.horizontal, 18).padding(.vertical, 9)
-                .background(locked ? Nuru.inputBg : Nuru.gold)
+                .background(canSave ? Nuru.gold : Nuru.inputBg)
                 .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
             }
-            .buttonStyle(.plain).disabled(locked || saving)
+            .buttonStyle(.plain).disabled(!canSave)
         }
         .padding(.horizontal, 22).padding(.vertical, 14)
         .frame(maxWidth: .infinity)
         .background(Nuru.surface)
         .overlay(Rectangle().fill(Nuru.border).frame(height: 1), alignment: .top)
+    }
+}
+
+private extension View {
+    /// Page-sized sheet where the OS has it (iOS 18+), so every catalog column shows.
+    @ViewBuilder func rolesMatrixSizing() -> some View {
+        if #available(iOS 18.0, macCatalyst 18.0, *) {
+            presentationSizing(.page)
+        } else {
+            self
+        }
     }
 }
 
