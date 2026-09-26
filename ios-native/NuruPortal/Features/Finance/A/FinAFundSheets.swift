@@ -270,17 +270,21 @@ struct FinAFundEditorSheet: View {
                       confirmTitle: creating ? "Create fund" : (nothingChanged ? "Nothing to save" : "Save changes"),
                       confirmEnabled: !nothingChanged && inUse == nil,
                       busy: busy,
+                      alertKey: inUse ?? error,
                       onConfirm: { Task { await save(force: false) } }) {
-            if let inUse {
+            if inUse != nil || error != nil {
                 VStack(alignment: .leading, spacing: 10) {
-                    FinanceNoticeBar(notice: .warn(inUse))
-                    HStack(spacing: 10) {
-                        FinanceButton(title: "Cancel") { self.inUse = nil; active = true }
-                        FinanceButton(title: "Deactivate anyway", icon: "exclamationmark.triangle", style: .danger, busy: busy) { forceAsk = true }
+                    if let inUse {
+                        FinanceNoticeBar(notice: .warn(inUse))
+                        HStack(spacing: 10) {
+                            FinanceButton(title: "Cancel") { self.inUse = nil; active = true }
+                            FinanceButton(title: "Deactivate anyway", icon: "exclamationmark.triangle", style: .danger, busy: busy) { forceAsk = true }
+                        }
                     }
+                    if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil } }
                 }
+                .id(FinAFormAnchor.alert)
             }
-            if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil } }
             FinAFormField(label: "Name", error: shown("name")) {
                 TextField("e.g. Building Fund", text: Binding(get: { name }, set: { v in
                     name = String(v.prefix(150))
@@ -439,17 +443,21 @@ struct FinATransferSheet: View {
                       confirmTitle: amountMinor.map { "Post \(FinanceMoney.format($0, currency))" } ?? "Post transfer",
                       confirmEnabled: negative == nil,
                       busy: busy,
+                      alertKey: negative != nil ? "negative" : error,
                       onConfirm: { Task { await post(allowNegative: false) } }) {
-            if negative != nil {
+            if negative != nil || error != nil {
                 VStack(alignment: .leading, spacing: 10) {
-                    FinanceNoticeBar(notice: .warn(negativeText))
-                    HStack(spacing: 10) {
-                        FinanceButton(title: "Cancel") { negative = nil }
-                        FinanceButton(title: "Post anyway", icon: "exclamationmark.triangle", style: .danger, busy: busy) { askAnyway = true }
+                    if negative != nil {
+                        FinanceNoticeBar(notice: .warn(negativeText))
+                        HStack(spacing: 10) {
+                            FinanceButton(title: "Cancel") { negative = nil }
+                            FinanceButton(title: "Post anyway", icon: "exclamationmark.triangle", style: .danger, busy: busy) { askAnyway = true }
+                        }
                     }
+                    if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil } }
                 }
+                .id(FinAFormAnchor.alert)
             }
-            if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil } }
             FinAFieldRow {
                 FinAFormField(label: "From", error: shown("from")) {
                     FinAMenuField(placeholder: "Choose…", selection: Binding(get: { from }, set: { from = $0; negative = nil }),
@@ -607,8 +615,9 @@ struct FinAOpeningBalanceSheet: View {
                       subtitle: "What was already in the bank or cash box when you started using Pathway.",
                       confirmTitle: amountMinor.map { "Post \(FinanceMoney.format($0, currency))" } ?? "Post opening balance",
                       busy: busy,
+                      alertKey: error,
                       onConfirm: { Task { await post() } }) {
-            if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil } }
+            if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil }.id(FinAFormAnchor.alert) }
             FinAExplain("Without opening balances every fund starts at zero and the first expenses drive it negative. Post one entry per place the money sits, per fund and currency — e.g. the bank account's building money, then the cash box's tithe. A wrong opening balance is reversed from the Ledger (Journals) and posted again.")
             FinAFormField(label: "Where the money sits") {
                 FinAMenuField(placeholder: "Choose…", selection: Binding(get: { channel.rawValue }, set: { channel = FinOfficeChannel(rawValue: $0) ?? .bank }),

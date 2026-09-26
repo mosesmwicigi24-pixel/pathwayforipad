@@ -254,41 +254,54 @@ struct FinAPeriodMenu: View {
 
 // MARK: - Form sheets (bright, roomy — UI_DENSITY_SPEC v6)
 
+/// The id a write sheet scrolls to when its `alertKey` changes — put it on the
+/// refusal / error block, so the answer to a toolbar tap is always in view.
+enum FinAFormAnchor { static let alert = "finA.form.alert" }
+
 /// A write sheet: warm paper, a centred column (≤ 820), the title inline, Cancel
-/// and a confirm button in the toolbar. Opens large.
+/// and a confirm button in the toolbar. Opens large. When `alertKey` changes to
+/// a value, the sheet scrolls the view marked `.id(FinAFormAnchor.alert)` into view.
 struct FinAFormSheet<Content: View>: View {
     let title: String
     var subtitle: String? = nil
     var confirmTitle: String? = nil
     var confirmEnabled = true
     var busy = false
+    var alertKey: String? = nil
     var onConfirm: () -> Void = {}
     let content: Content
     @Environment(\.dismiss) private var dismiss
 
     init(title: String, subtitle: String? = nil, confirmTitle: String? = nil, confirmEnabled: Bool = true,
-         busy: Bool = false, onConfirm: @escaping () -> Void = {}, @ViewBuilder content: () -> Content) {
+         busy: Bool = false, alertKey: String? = nil, onConfirm: @escaping () -> Void = {}, @ViewBuilder content: () -> Content) {
         self.title = title
         self.subtitle = subtitle
         self.confirmTitle = confirmTitle
         self.confirmEnabled = confirmEnabled
         self.busy = busy
+        self.alertKey = alertKey
         self.onConfirm = onConfirm
         self.content = content()
     }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    if let subtitle {
-                        Text(subtitle).font(.nBody).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        if let subtitle {
+                            Text(subtitle).font(.nBody).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
+                        }
+                        content
                     }
-                    content
+                    .padding(24)
+                    .frame(maxWidth: 820, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(24)
-                .frame(maxWidth: 820, alignment: .leading)
-                .frame(maxWidth: .infinity)
+                .onChange(of: alertKey) { _, key in
+                    guard key != nil else { return }
+                    withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(FinAFormAnchor.alert, anchor: .center) }
+                }
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Nuru.paper)

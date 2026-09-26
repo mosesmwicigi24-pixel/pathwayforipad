@@ -108,9 +108,11 @@ enum FinanceAFixtures {
         case ("GET", "/admin/finance/config"): return (200, FinAFixtureData.config)
         case ("GET", "/admin/finance/overview"): return (200, FinAFixtureData.overview)
         case ("GET", "/admin/finance/transactions"):
-            if query["status"] == "processing" || query["status"] == "requires_action" {
-                // David Mwangi (+254744000404) has an M-Pesa push in flight, started 25 minutes ago.
-                guard query["status"] == "processing", (query["q"] ?? "").contains("254744000404") else {
+            let david = (query["q"] ?? "").contains("254744000404")
+            if query["status"] == "processing" || query["status"] == "requires_action" || david {
+                // David Mwangi (+254744000404) has an M-Pesa push in flight, started 25 minutes ago
+                // (the gift form's check searches his phone over the last three days, any status).
+                guard david, query["status"] == nil || query["status"] == "processing" else {
                     return (200, #"{"data":[],"next_cursor":null,"totals":[]}"#)
                 }
                 let started = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-25 * 60))

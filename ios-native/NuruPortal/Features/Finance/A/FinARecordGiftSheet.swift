@@ -337,6 +337,7 @@ struct FinARecordGiftSheet: View {
                       confirmTitle: vm.result == nil ? "Record" : nil,
                       confirmEnabled: !vm.busy,
                       busy: vm.busy,
+                      alertKey: vm.failure?.text ?? (vm.attempted && !vm.problems.isEmpty ? "problems:\(vm.problems.count)" : nil),
                       onConfirm: { Task { await vm.submit() } }) {
             if let r = vm.result {
                 success(r)
@@ -434,9 +435,10 @@ struct FinARecordGiftSheet: View {
         }
         section("Where it goes") { destination }
         VStack(alignment: .leading, spacing: 12) {
-            if let f = vm.failure { failureBar(f) }
-            if vm.attempted, !vm.problems.isEmpty {
+            if let f = vm.failure { failureBar(f).id(FinAFormAnchor.alert) }
+            if vm.attempted, !vm.problems.isEmpty, vm.failure == nil {
                 FinanceNoticeBar(notice: .warn("Check the highlighted fields — \(vm.problems.count == 1 ? "one thing is" : "\(vm.problems.count) things are") missing."))
+                    .id(FinAFormAnchor.alert)
             }
             if let s = vm.summary {
                 Text(s).font(.nCaption).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
