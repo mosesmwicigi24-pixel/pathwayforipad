@@ -1,12 +1,227 @@
-// Finance → Transactions (pathway docs/FINANCE_ERP.md §5). STUB — the page agent
-// replaces the body; the header, breadcrumb and routing are already wired.
+// Finance → Transactions (pathway docs/FINANCE_ERP.md §5): the register — every
+// gift and purchase, online and office — filtered by period, fund, status,
+// channel, source, pledge and need, with a search over receipt, name, phone and
+// M-Pesa code; the per-currency totals of the WHOLE filtered set; the CSV twin;
+// a detail sheet per transaction (Reverse for office gifts) and Record a gift.
+// Deep links: tx=<id> opens a transaction; record=gift opens the form; the
+// filter keys (from, to, fund, status, channel, source, q, pledged, need) apply.
 import SwiftUI
+import Combine
+
+/// The sheet the register shows.
+enum FinATxSheet: Identifiable, Equatable {
+    case detail(String)
+    case gift
+    var id: String {
+        switch self { case .detail(let id): "tx:\(id)"; case .gift: "gift" }
+    }
+}
+
+@MainActor
+final class FinanceTransactionsModel: ObservableObject {
+    @Published var filter = FinTransactionFilter()
+    let pager = FinancePager<FinTransactionsPage>()
+    @Published private(set) var funds: [FundOption] = []
+    @Published var sheet: FinATxSheet?
+    private var forward: AnyCancellable?
+
+    init() {
+        forward = pager.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+
+    func loadFunds() async {
+        guard funds.isEmpty else { return }
+        funds = (try? await FinanceERPAPI.config().funds) ?? []
+    }
+
+    var fundNames: [String: String] { Dictionary(funds.map { ($0.code, $0.name) }, uniquingKeysWith: { a, _ in a }) }
+    var isFiltered: Bool { filter != FinTransactionFilter() }
+    func clearFilters() { filter = FinTransactionFilter() }
+
+    private static let filterKeys: Set<String> = ["from", "to", "fund", "status", "channel", "source", "q", "pledged", "need"]
+
+    /// A deep link: filter keys replace the filters; tx=<id> opens that
+    /// transaction; record=gift opens the form.
+    func apply(_ p: [String: String]) {
+        if !Self.filterKeys.isDisjoint(with: p.keys) {
+            var f = FinTransactionFilter()
+            if let from = p["from"], let to = p["to"],
+               FinanceDates.date(fromYMD: from) != nil, FinanceDates.date(fromYMD: to) != nil {
+                f.period = .custom(from: from, to: to)
+            }
+            f.fund = p["fund"] ?? ""
+            f.status = p["status"] ?? ""
+            f.channel = p["channel"] ?? ""
+            f.source = p["source"] ?? ""
+            f.q = p["q"] ?? ""
+            f.pledged = p["pledged"] ?? "any"
+            f.need = p["need"] ?? "any"
+            filter = f
+        }
+        if let tx = p["tx"], !tx.isEmpty { sheet = .detail(tx) }
+        else if p["record"] != nil { sheet = .gift }
+    }
+}
 
 struct FinanceTransactionsView: View {
+    @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var router: NavRouter
+    @StateObject private var vm = FinanceTransactionsModel()
+    @State private var width: CGFloat = 0
+
+    private static let statusOptions = [
+        FinanceFilterOption.all("Any"), FinanceFilterOption("succeeded", "Succeeded"),
+        FinanceFilterOption("processing", "Processing"), FinanceFilterOption("requires_action", "Action needed"),
+        FinanceFilterOption("failed", "Failed"), FinanceFilterOption("refunded", "Refunded / reversed"),
+    ]
+    private static let channelOptions = [
+        FinanceFilterOption.all("Any"), FinanceFilterOption("mpesa", "M-Pesa"), FinanceFilterOption("card", "Card"),
+        FinanceFilterOption("airtel", "Airtel"), FinanceFilterOption("paypal", "PayPal"),
+        FinanceFilterOption("onhand", "Cash on hand"), FinanceFilterOption("bank", "Bank"),
+        FinanceFilterOption("cheque", "Cheque"), FinanceFilterOption("other", "Other (office)"),
+        FinanceFilterOption("manual", "Claim (paid another way)"),
+    ]
+    private static let sourceOptions = [
+        FinanceFilterOption.all("Any"), FinanceFilterOption("app", "App"),
+        FinanceFilterOption("website", "Website"), FinanceFilterOption("admin", "Office"),
+    ]
+
     var body: some View {
+        let caps = auth.financeCaps
         FinancePageScaffold(title: Section.financeTransactions.title,
-                            subtitle: "Every gift and payment, online and at the office.") {
-            FinanceStubNote("Filters (dates, fund, status, channel, source, pledged, need, search), per-currency totals for the whole filtered set, the keyset-paged register with CSV, a detail drawer (ledger legs, receipt, member / pledge / need links, Reverse for office entries) and Record a gift (member search or walk-in / anonymous, fund, amount, channel, reference, date, optional pledge or need). Office receipts are OR-<year>-<5 digits>; the M-Pesa code, cheque number or bank reference is the office reference.")
+                            subtitle: "Every gift and purchase — online and recorded by the office.",
+                            onRefresh: { await vm.pager.reload() }) {
+            HStack(spacing: 8) {
+                FinanceExportButton(caps: caps, path: FinanceERPAPI.transactionsCSV, query: vm.filter.query, placement: .hero)
+                if caps.manage {
+                    HeroChip(label: "Record a gift", icon: "plus", style: .gold) { vm.sheet = .gift }
+                }
+            }
+        } content: {
+            filters
+            VStack(alignment: .leading, spacing: 6) {
+                FinanceTotalsStrip(totals: vm.pager.totals, title: "Succeeded", noun: ("transaction", "transactions"),
+                                   loading: vm.pager.isLoadingFirstPage)
+                FinAExplain("Amounts add up succeeded gifts only, per currency; the count is every transaction that matches, whatever its status.")
+            }
+            table
         }
+        .task { await vm.loadFunds() }
+        .task(id: vm.filter) {
+            let filter = vm.filter
+            await vm.pager.load { cursor in try await FinanceERPAPI.transactions(filter, cursor: cursor) }
+        }
+        .onFinanceLink(.financeTransactions) { vm.apply($0) }
+        .sheet(item: $vm.sheet) { s in
+            switch s {
+            case .detail(let id):
+                FinATransactionSheet(transactionId: id, caps: caps, fundNames: vm.fundNames,
+                                     onChanged: { Task { await vm.pager.reload() } },
+                                     onOpenMember: { userId, name in
+                                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { router.member(userId, name) }
+                                     })
+            case .gift:
+                FinARecordGiftSheet(onOpenTransaction: { id in vm.sheet = .detail(id) },
+                                    onRecorded: { Task { await vm.pager.reload() } })
+            }
+        }
+    }
+
+    // MARK: Filters
+
+    private var filters: some View {
+        FinanceFilterBar(period: Binding(get: { vm.filter.period ?? .thisMonth }, set: { vm.filter.period = $0 }),
+                         search: $vm.filter.q,
+                         searchPrompt: "Receipt, name, phone, M-Pesa code",
+                         isFiltered: vm.isFiltered,
+                         onClear: vm.clearFilters) {
+            FinanceFilterMenu(title: "Fund", selection: $vm.filter.fund,
+                              options: [.all("Any")] + vm.funds.map { FinanceFilterOption($0.code, $0.isActive ? $0.name : "\($0.name) (inactive)") },
+                              icon: "square.stack.3d.up")
+            FinanceFilterMenu(title: "Status", selection: $vm.filter.status, options: Self.statusOptions)
+            FinanceFilterMenu(title: "Channel", selection: $vm.filter.channel, options: Self.channelOptions)
+            FinanceFilterMenu(title: "Source", selection: $vm.filter.source, options: Self.sourceOptions)
+            FinanceFilterMenu(title: "Pledge", selection: anyBinding(\.pledged),
+                              options: [.all("Any"), FinanceFilterOption("yes", "Toward a pledge"), FinanceFilterOption("no", "Not pledged")])
+            FinanceFilterMenu(title: "Need", selection: anyBinding(\.need),
+                              options: [.all("Any"), FinanceFilterOption("yes", "Toward a need"), FinanceFilterOption("no", "Not for a need")])
+        }
+    }
+
+    /// pledged / need carry "any" on the wire; the menu's "no filter" value is "".
+    private func anyBinding(_ key: WritableKeyPath<FinTransactionFilter, String>) -> Binding<String> {
+        Binding(get: { vm.filter[keyPath: key] == "any" ? "" : vm.filter[keyPath: key] },
+                set: { vm.filter[keyPath: key] = $0.isEmpty ? "any" : $0 })
+    }
+
+    // MARK: Table
+
+    /// Wide (landscape) shows channel and source as their own columns; compact
+    /// (portrait) folds them under the giver.
+    private var wide: Bool { width >= 980 }
+
+    private var columns: [FinanceColumn] {
+        if wide {
+            return [
+                FinanceColumn("Date (EAT)", width: 92), FinanceColumn("Receipt", width: 120),
+                FinanceColumn("Giver", minWidth: 150), FinanceColumn("Fund", width: 110),
+                FinanceColumn("Channel", width: 96), FinanceColumn("Source", width: 70),
+                FinanceColumn("Amount", width: 120, align: .trailing), FinanceColumn("Status", width: 100),
+            ]
+        }
+        return [
+            FinanceColumn("Date (EAT)", width: 78), FinanceColumn("Receipt", width: 104),
+            FinanceColumn("Giver", minWidth: 150), FinanceColumn("Fund", width: 92),
+            FinanceColumn("Amount", width: 108, align: .trailing), FinanceColumn("Status", width: 92),
+        ]
+    }
+
+    private var table: some View {
+        let cols = columns
+        let wide = self.wide
+        return FinancePagedTable(pager: vm.pager, columns: cols,
+                                 emptyIcon: "arrow.left.arrow.right",
+                                 emptyMessage: vm.isFiltered ? "No transaction matches these filters." : "No transactions in this period.",
+                                 totalCount: vm.pager.totals.isEmpty ? nil : vm.pager.totals.reduce(0) { $0 + $1.count },
+                                 onSelect: { vm.sheet = .detail($0.transactionId) }) { t in
+            let reversed = t.reversedAt != nil
+            VStack(alignment: .leading, spacing: 1) {
+                Text(FinanceATime.day(t.createdAt)).font(.inter(12.5)).lineLimit(1).minimumScaleFactor(0.8)
+                Text(FinanceATime.time(t.createdAt)).font(.nMicro).foregroundStyle(Nuru.ink400)
+            }
+            .financeCell(cols[0])
+            VStack(alignment: .leading, spacing: 1) {
+                Text(t.receiptCode ?? "—").font(.nMono(12)).foregroundStyle(t.receiptCode == nil ? Nuru.ink400 : Nuru.ink)
+                    .lineLimit(1).minimumScaleFactor(0.75)
+                if let ref = t.officeReference, !ref.isEmpty, ref != t.receiptCode {
+                    Text(ref).font(.nMono(10.5)).foregroundStyle(Nuru.ink400).lineLimit(1)
+                }
+            }
+            .financeCell(cols[1])
+            VStack(alignment: .leading, spacing: 2) {
+                Text(t.giverLabel).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                HStack(spacing: 5) {
+                    if !wide {
+                        Text("\(FinWords.channel(t.channel)) · \(FinWords.source(t.source))")
+                            .font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                    }
+                    if let p = t.pledgeTitle { FinATag(text: "Pledge · \(p)", tone: FinanceStatus.navy) }
+                    if let n = t.needTitle { FinATag(text: "Need · \(n)", tone: FinanceStatus.amberStrong) }
+                }
+            }
+            .financeCell(cols[2])
+            Text(t.fundName ?? t.fund ?? "—").font(.inter(12.5)).foregroundStyle(Nuru.ink).lineLimit(2).financeCell(cols[3])
+            if wide {
+                Text(FinWords.channel(t.channel)).font(.inter(12.5)).lineLimit(1).financeCell(cols[4])
+                Text(FinWords.source(t.source)).font(.inter(12.5)).foregroundStyle(Nuru.ink600).lineLimit(1).financeCell(cols[5])
+            }
+            Text(FinanceMoney.format(t.amountMinor, t.currency))
+                .font(.nMono(13, .medium)).foregroundStyle(reversed || t.status == "failed" ? Nuru.ink400 : Nuru.navy)
+                .strikethrough(reversed, color: Nuru.ink400)
+                .lineLimit(1).minimumScaleFactor(0.7)
+                .financeCell(cols[wide ? 6 : 4])
+            FinanceStatusChip(status: reversed ? "reversed" : t.status).financeCell(cols[wide ? 7 : 5])
+        }
+        .measureWidth($width)
     }
 }

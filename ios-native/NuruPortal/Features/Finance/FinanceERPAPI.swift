@@ -2125,3 +2125,72 @@ enum FinanceERPAPI {
         return last.isEmpty ? "export" : last
     }
 }
+
+// MARK: - Appended by the Finance A pages (Overview · Transactions · Funds · Ledger ·
+// Reconciliation · Audit · Settings). Additive only — nothing above changed.
+
+/// One of a member's OPEN pledges, as GET /admin/finance/givers returns it —
+/// what Record a gift offers to pay toward (a pledge decides the fund).
+struct FinGiverPledge: Decodable, Hashable, Identifiable {
+    let pledgeId: String
+    @DefaultEmpty var title: String
+    @DefaultEmpty var currency: String
+    /// monthly | total
+    @DefaultEmpty var shape: String
+    /// A monthly pledge's instalment.
+    @LooseOptInt var amountMinor: Int?
+    /// A total pledge's target.
+    @LooseOptInt var targetMinor: Int?
+    /// The fund a gift toward this pledge is booked to.
+    let paysTo: FinFundRef?
+    var id: String { pledgeId }
+}
+
+/// A member the office can record a gift for (GET /admin/finance/givers, finance:view).
+struct FinGiver: Decodable, Hashable, Identifiable {
+    let userId: String
+    @DefaultEmpty var fullName: String
+    let phone: String?
+    let email: String?
+    let congregationName: String?
+    let openPledges: [FinGiverPledge]
+    var id: String { userId }
+}
+
+/// PATCH /funds/{code} with the FUND_IN_USE override: the patch's own fields
+/// plus `force` (true = deactivate even though pledges, recurring gifts,
+/// departments or live campaigns still send money to the fund).
+struct FinFundPatchForced: Encodable {
+    var patch: FinFundPatch
+    var force: Bool
+
+    private enum CodingKeys: String, CodingKey { case name, nameSw, description, sort, isActive, force }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(patch.name, forKey: .name)
+        try c.encode(patch.nameSw, forKey: .nameSw)
+        try c.encode(patch.description, forKey: .description)
+        try c.encodeIfPresent(patch.sort, forKey: .sort)
+        try c.encodeIfPresent(patch.isActive, forKey: .isActive)
+        if force { try c.encode(true, forKey: .force) }
+    }
+}
+
+extension FinanceERPAPI {
+    private struct GiversEnvelope: Decodable { let data: [FinGiver] }
+
+    /// GET /admin/finance/givers?q&limit (finance:view) — members matching a
+    /// name / phone / email, each with their OPEN pledges (for Record a gift).
+    static func givers(q: String, limit: Int = 8) async throws -> [FinGiver] {
+        var query: [String: String] = ["limit": String(min(max(limit, 1), 50))]
+        if let term = searchTerm(q) { query["q"] = term }
+        return try await api.get("/admin/finance/givers", query: query, as: GiversEnvelope.self).data
+    }
+
+    /// PATCH /funds/{code} (finance:manage) with `force` — the second step after
+    /// a 409 FUND_IN_USE (details active_pledges · active_schedules ·
+    /// departments · live_campaigns) when the office deactivates anyway.
+    static func updateFund(code: String, _ patch: FinFundPatch, force: Bool) async throws -> FinFund {
+        try await api.patch("/admin/finance/funds/\(code)", body: FinFundPatchForced(patch: patch, force: force), as: FinFund.self)
+    }
+}
