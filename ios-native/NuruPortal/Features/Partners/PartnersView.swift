@@ -637,13 +637,6 @@ private struct PartnerDetailPanel: View {
     @State private var error: String?
     @State private var remindOpen = false
     @State private var remindResult: Notice?
-    /// This partner's rows of this year's pledge register — kept / due per
-    /// pledge (the partner detail carries progress, not the counts). Nil until
-    /// read; `registerError` when it could not be read.
-    @State private var register: [FinPledgeRow]?
-    @State private var registerError: String?
-    /// The year the two statement PDFs are for.
-    @State private var statementYear = FinanceDates.currentYear()
 
     private var canManage: Bool { caps.manage }
 
@@ -669,6 +662,7 @@ private struct PartnerDetailPanel: View {
             } else if let d {
                 VStack(spacing: 14) {
                     headerCard(d)
+                    PartnerFaithfulnessCard(userId: userId, fullName: d.member.fullName, caps: caps)
                     pledgesCard(d)
                     schedulesCard(d)
                     paymentsCard(d)
@@ -697,40 +691,13 @@ private struct PartnerDetailPanel: View {
     private func load() async {
         if d == nil { loading = true }
         do {
-            let detail = try await PartnersAPI.detail(userId)
-            d = detail
+            d = try await PartnersAPI.detail(userId)
             error = nil
-            loading = false
-            await loadRegister(detail.member)
         } catch {
             self.error = (error as? APIError)?.errorDescription
                 ?? (d == nil ? "Could not load this partner." : "Could not refresh this partner.")
         }
         loading = false
-    }
-
-    /// Kept / due come from the pledge register (GET /admin/finance/pledges —
-    /// the same instalment ledger as the statement). It has no member filter,
-    /// so search by the member's phone (else name) and keep exactly this
-    /// member's rows by user id; at most five pages of 200.
-    private func loadRegister(_ m: PartnerRow) async {
-        let term = [m.phone, m.fullName].compactMap { $0.flatMap(FinanceERPAPI.searchTerm) }.first
-        guard let term else { register = []; return }
-        do {
-            var rows: [FinPledgeRow] = []
-            var cursor: String? = nil
-            for _ in 0..<5 {
-                let page = try await FinanceERPAPI.pledges(FinPledgeFilter(year: FinanceDates.currentYear(), q: term),
-                                                           cursor: cursor, limit: 200)
-                rows += page.data.filter { $0.userId == userId }
-                guard let next = page.nextCursor else { break }
-                cursor = next
-            }
-            register = rows
-            registerError = nil
-        } catch {
-            registerError = FinBError.message(error, fallback: "Could not read the instalment ledger.")
-        }
     }
 
     // Dominant currency for the row-level minor amounts (they carry none).
@@ -769,8 +736,6 @@ private struct PartnerDetailPanel: View {
                     statCell("Last gift", FinBTime.day(m.lastGiftAt))
                     statCell("Next due", FinBTime.day(m.nextDueOn), tint: m.behind ? Color(hex: 0xA87616) : nil)
                 }
-                faithfulnessStrip(d)
-                statementsRow
                 if let error { NoticeBar(notice: Notice(kind: .error, text: error)) { self.error = nil } }
                 if canManage {
                     HStack(spacing: 10) {
@@ -799,73 +764,6 @@ private struct PartnerDetailPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.inputBg)
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
-    }
-
-    /// The faithfulness strip: instalments kept of those due this year (Σ over
-    /// monthly pledges not cancelled, from the register), the standing (the
-    /// server's behind flag) and the earliest "overdue since" of any pledge.
-    private func faithfulnessStrip(_ d: PartnerDetail) -> some View {
-        let monthly = (register ?? []).filter { $0.shape == "monthly" && $0.status != "cancelled" }
-        let kept = monthly.reduce(0) { $0 + $1.kept }
-        let due = monthly.reduce(0) { $0 + $1.dueCount }
-        let overdue = d.pledges.filter { $0.status != "cancelled" }.compactMap { $0.progress?.overdueSince }.sorted().first
-        let standing: String = d.member.behind ? "behind"
-            : d.pledges.contains { $0.status == "active" } ? "on_track"
-            : d.pledges.contains { $0.status == "fulfilled" } ? "fulfilled"
-            : d.pledges.isEmpty ? "" : "paused"
-        let keptText: String = register == nil ? (registerError == nil ? "…" : "—")
-            : due > 0 ? "\(kept) of \(due)" : "Nothing due yet"
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 0) {
-                faithCell("Kept this year", hint: due > 0 ? "instalments paid in full, on time or late" : "monthly instalments") {
-                    Text(keptText).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy).monospacedDigit()
-                }
-                Rectangle().fill(Nuru.border).frame(width: 1).padding(.vertical, 4)
-                faithCell("Standing", hint: d.member.behind ? "an instalment is past due" : "as the member's card reads") {
-                    FinanceStatusChip(status: standing, label: standing.isEmpty ? "No pledges" : nil)
-                }
-                Rectangle().fill(Nuru.border).frame(width: 1).padding(.vertical, 4)
-                faithCell("Overdue", hint: overdue == nil ? "every instalment due is paid" : "the earliest missed instalment") {
-                    if let overdue {
-                        Text("since \(FinanceDates.display(overdue))").font(.inter(14, .semibold)).foregroundStyle(FinanceStatus.amber.fg)
-                    } else {
-                        Text("Nothing overdue").font(.inter(14, .semibold)).foregroundStyle(Nuru.success)
-                    }
-                }
-            }
-            .background(Nuru.surface)
-            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-            if let registerError {
-                Text("Kept of due is unavailable — \(registerError)").font(.nMicro).foregroundStyle(FinanceStatus.rose.fg)
-            }
-        }
-    }
-
-    private func faithCell<V: View>(_ label: String, hint: String, @ViewBuilder value: () -> V) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label.uppercased()).font(.inter(10.5, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600).lineLimit(1)
-            value()
-            Text(hint).font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
-    /// The member's two PDFs for a chosen year (finance:view): the Partner
-    /// statement (404 if they were never a partner) and the complete Giving
-    /// statement (404 when nothing was given that year).
-    private var statementsRow: some View {
-        let y = String(statementYear)
-        return FinanceFlowLayout(spacing: 8, rowSpacing: 8) {
-            Text("STATEMENTS").font(.inter(10.5, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
-                .frame(height: 34)
-            FinanceYearMenu(year: $statementYear)
-            FinBDownloadButton(caps: caps, path: FinanceERPAPI.partnersStatementPath(userId), query: ["year": y],
-                               title: "Partner statement", icon: "doc.richtext", notFound: "No partner statement for \(y)")
-            FinBDownloadButton(caps: caps, path: FinanceERPAPI.givingStatementPath(userId), query: ["year": y],
-                               title: "Giving statement", icon: "doc.text", notFound: "No giving statement for \(y)")
-        }
     }
 
     private func sectionLabel(_ title: String, icon: String, caption: String? = nil) -> some View {
@@ -942,23 +840,10 @@ private struct PartnerDetailPanel: View {
                 ProgressBar(pct: ratio * 100, fill: bar, height: 8)
             }
             FinanceFlowLayout(spacing: 16, rowSpacing: 4) {
-                if let since = p.progress?.overdueSince {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.circle").font(.system(size: 11))
-                        Text("Overdue since \(FinanceDates.display(since))").font(.inter(11.5, .semibold))
-                    }
-                    .foregroundStyle(Color(hex: 0xA87616))
-                }
                 HStack(spacing: 4) {
                     Image(systemName: "calendar.badge.clock").font(.system(size: 11))
                     Text("Next due")
                     Text(FinBTime.day(nextDue)).font(.nMono(11.5)).foregroundStyle(prog.label == "Behind" ? Color(hex: 0xA87616) : Nuru.navy)
-                }
-                if p.isMonthly, let reg = register?.first(where: { $0.pledgeId == p.pledgeId }) {
-                    HStack(spacing: 4) {
-                        Text("This year")
-                        Text(reg.dueCount > 0 ? "\(reg.kept) of \(reg.dueCount) kept" : "nothing due yet").font(.nMono(11.5)).foregroundStyle(Nuru.navy)
-                    }
                 }
                 HStack(spacing: 4) { Text("All time"); Text(money(p.progress?.paidMinor ?? 0, p.currency)).font(.nMono(11.5)).foregroundStyle(Nuru.navy) }
                 HStack(spacing: 4) { Text("Since"); Text(FinBTime.day(p.createdAt)).font(.nMono(11.5)).foregroundStyle(Nuru.navy) }
@@ -1102,6 +987,172 @@ private struct PartnerDetailPanel: View {
         }
         .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+    }
+}
+
+// MARK: - Faithfulness (web PartnerFaithfulness)
+
+/// For a chosen year: the member's standing, instalments kept of those due,
+/// the date they have been overdue since, and pledged / paid / remaining per
+/// currency — each pledge's figures straight from the pledge register (GET
+/// /admin/finance/pledges, the member statement's own rule) — plus that
+/// year's Partner and Giving statement PDFs (finance:view).
+private struct PartnerFaithfulnessCard: View {
+    let userId: String
+    let fullName: String
+    let caps: FinanceCaps
+
+    @State private var year = FinanceDates.currentYear()
+    @State private var rows: [FinPledgeRow]?
+    @State private var error: String?
+
+    private var thisYear: Int { FinanceDates.currentYear() }
+    private var inYear: String { year == thisYear ? "this year" : "in \(String(year))" }
+
+    var body: some View {
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 7) {
+                    Image(systemName: "checkmark.seal").font(.system(size: 13, weight: .semibold)).foregroundStyle(Nuru.gold)
+                    Text("Faithfulness").font(.inter(13.5, .bold)).foregroundStyle(Nuru.navy)
+                    Spacer(minLength: 8)
+                    Text("From the pledge register — the member statement's own rule").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                }
+                FinanceFlowLayout(spacing: 8, rowSpacing: 8) {
+                    FinanceYearMenu(year: $year, years: Array(((thisYear - 5)...thisYear).reversed()))
+                    let y = String(year)
+                    FinBDownloadButton(caps: caps, path: FinanceERPAPI.partnersStatementPath(userId), query: ["year": y],
+                                       title: "Partner statement PDF", icon: "doc.richtext", notFound: "No partner statement for \(y)")
+                    FinBDownloadButton(caps: caps, path: FinanceERPAPI.givingStatementPath(userId), query: ["year": y],
+                                       title: "Giving statement PDF", icon: "doc.text", notFound: "No giving statement for \(y)")
+                }
+                content
+            }
+        }
+        .task(id: year) { await load() }
+    }
+
+    @ViewBuilder private var content: some View {
+        if let error {
+            ErrorBanner(message: error) { Task { await load() } }
+        } else if let rows {
+            if rows.isEmpty {
+                Text("No pledge on the register \(inYear).").font(.nCaption).foregroundStyle(Nuru.ink600)
+                    .frame(maxWidth: .infinity).padding(.vertical, 16)
+                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous)
+                        .strokeBorder(Nuru.border, style: StrokeStyle(lineWidth: 1, dash: [6, 4])))
+            } else {
+                summary(FinBMath.faithfulness(rows))
+                pledgeTable(rows)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) { Skeleton(height: 14, width: 280); Skeleton(height: 14, width: 200) }
+        }
+    }
+
+    private func summary(_ s: FinBMath.Faithfulness) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            FinanceFlowLayout(spacing: 14, rowSpacing: 6) {
+                if s.standing != "none" { FinanceStatusChip(status: s.standing) }
+                if s.monthly > 0 {
+                    (Text("Kept ") + Text("\(s.kept) of \(s.due)").font(.nMono(13, .semibold)) + Text(" \(s.due == 1 ? "instalment" : "instalments") due \(inYear)"))
+                        .font(.inter(13)).foregroundStyle(Nuru.navy)
+                } else {
+                    Text("No monthly instalments — total pledges only.").font(.inter(13)).foregroundStyle(Nuru.ink600)
+                }
+                if let since = s.overdueSince {
+                    Text("Overdue since \(FinanceDates.display(since))").font(.inter(12.5, .bold)).foregroundStyle(FinanceStatus.amber.fg)
+                }
+            }
+            ForEach(s.totals, id: \.currency) { t in
+                FinanceFlowLayout(spacing: 14, rowSpacing: 4) {
+                    figure("Pledged", t.pledgedMinor, t.currency, nil)
+                    figure("Paid", t.paidMinor, t.currency, Nuru.success)
+                    figure("Remaining", t.remainingMinor, t.currency, t.remainingMinor > 0 ? FinanceStatus.amber.fg : nil)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(s.standing == "behind" ? Color(hex: 0xFFFBF0) : Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+    }
+
+    private func figure(_ label: String, _ minor: Int, _ currency: String, _ tint: Color?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(label).font(.nCaption).foregroundStyle(Nuru.ink600)
+            Text(FinanceMoney.format(minor, currency)).font(.inter(12.5, .semibold)).foregroundStyle(tint ?? Nuru.navy).monospacedDigit()
+        }
+        .fixedSize()
+    }
+
+    private func pledgeTable(_ rows: [FinPledgeRow]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Th(text: "Pledge").frame(width: 200, alignment: .leading)
+                    Th(text: "Standing").frame(width: 150, alignment: .leading)
+                    Th(text: "Kept / due").frame(width: 76, alignment: .center)
+                    Th(text: "Next due").frame(width: 100, alignment: .leading)
+                    Th(text: "Paid \(inYear)").frame(width: 120, alignment: .trailing)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(Nuru.mutedBg)
+                ForEach(rows) { r in
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(r.title).font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                            Text(r.paysTo.map { "Pays to \($0.name)" } ?? (r.shape == "monthly" ? "Monthly" : "Total"))
+                                .font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                        }
+                        .frame(width: 200, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 3) {
+                            FinanceStatusChip(status: r.status == "cancelled" ? "cancelled" : r.standing)
+                            if let since = r.overdueSince, r.status != "cancelled" {
+                                Text("Overdue since \(FinanceDates.display(since))").font(.inter(11, .semibold)).foregroundStyle(FinanceStatus.amber.fg)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .frame(width: 150, alignment: .leading)
+                        Text(r.shape == "monthly" ? "\(r.kept) of \(r.dueCount)" : "—").font(.nMono(12)).foregroundStyle(Nuru.navy)
+                            .frame(width: 76, alignment: .center)
+                        Text(FinanceDates.display(r.nextDue)).font(.nMono(12)).foregroundStyle(Nuru.navy)
+                            .frame(width: 100, alignment: .leading)
+                        Text(FinanceMoney.format(r.paidYearMinor, r.currency)).font(.nMono(12)).foregroundStyle(Nuru.navy)
+                            .frame(width: 120, alignment: .trailing)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .overlay(alignment: .top) { Rectangle().fill(Nuru.border).frame(height: 1) }
+                }
+            }
+        }
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+    }
+
+    /// Every register row for this member in `year`. The register has no
+    /// member filter, so it is searched by the member's name (≤ 80
+    /// characters) and rows are kept by user id — a namesake's pledges never
+    /// leak in. At most five pages of 200 (web memberPledgeRows).
+    private func load() async {
+        let wanted = year
+        error = nil
+        rows = nil
+        guard let term = FinanceERPAPI.searchTerm(fullName) else { rows = []; return }
+        do {
+            var out: [FinPledgeRow] = []
+            var cursor: String? = nil
+            for _ in 0..<5 {
+                let page = try await FinanceERPAPI.pledges(FinPledgeFilter(year: wanted, q: term), cursor: cursor, limit: 200)
+                out += page.data.filter { $0.userId == userId }
+                guard let next = page.nextCursor else { break }
+                cursor = next
+            }
+            if wanted == year { rows = out }
+        } catch {
+            if wanted == year { self.error = FinBError.message(error, fallback: "Could not load this partner's pledge register.") }
+        }
     }
 }
 

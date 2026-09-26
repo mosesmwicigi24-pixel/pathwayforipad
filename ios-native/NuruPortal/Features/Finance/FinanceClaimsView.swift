@@ -41,13 +41,17 @@ final class FinanceClaimsModel: ObservableObject {
         if mine == seq { refreshing = false }
     }
 
-    /// Where a confirmed claim's money goes — PledgePaysTo from the member's
-    /// partner detail (the claims list does not carry it). Read once per pledge.
+    /// Where a confirmed claim's money goes — the pledge's pays_to (else its
+    /// own fund) from the member's partner detail; the claims list does not
+    /// carry it. Read once per pledge (web parity: Claims.tsx askConfirm).
     func resolvePaysTo(_ c: PledgeClaimRow) async {
         guard paysTo[c.pledgeId] == nil, !c.userId.isEmpty else { return }
         do {
             let detail = try await PartnersAPI.detail(c.userId)
-            for p in detail.pledges { if let f = p.paysTo { paysTo[p.pledgeId] = f } }
+            for p in detail.pledges {
+                if let f = p.paysTo { paysTo[p.pledgeId] = f }
+                else if let f = p.fund, let name = f.name { paysTo[p.pledgeId] = FinFundRef(code: f.code, name: name) }
+            }
             if paysTo[c.pledgeId] == nil { paysToFailed.insert(c.pledgeId) }
         } catch {
             paysToFailed.insert(c.pledgeId)
@@ -62,11 +66,13 @@ final class FinanceClaimsModel: ObservableObject {
             claims.removeAll { $0.claimId == c.claimId }
             let amount = FinanceMoney.format(c.amountMinor, c.currency)
             notice = confirm
-                ? .ok("Recorded \(amount) toward “\(c.pledgeTitle)” — \(c.fullName) gets a receipt.")
-                : .ok("Rejected \(c.fullName)'s claim of \(amount) — they are told.")
+                ? .ok("Recorded \(amount) from \(c.fullName) — receipt on its way")
+                : .ok("Rejected \(c.fullName)'s claim of \(amount)")
+            await load()
         } catch {
-            if let status = error.apiStatus, status == 422 || status == 404 {
-                notice = .warn("\(FinBError.message(error, fallback: "Already decided")) — someone decided this claim meanwhile, so the queue was reloaded.")
+            // 422: someone decided it first — nothing to retry; the queue catches up.
+            if error.apiStatus == 422 {
+                notice = .warn(FinBError.message(error, fallback: "That claim was already decided."))
                 await load()
                 return
             }
@@ -87,7 +93,8 @@ final class FinanceClaimsModel: ObservableObject {
         }
     }
 
-    var oldestWait: String? { claims.first.map { FinBTime.waiting(since: $0.createdAt) } }
+    /// The longest-waiting claim's submission time.
+    var oldest: String? { claims.compactMap(\.createdAt).min() }
 }
 
 /// A decision waiting for its confirmation sheet.
@@ -106,7 +113,7 @@ struct FinanceClaimsView: View {
     var body: some View {
         let caps = auth.financeCaps
         FinancePageScaffold(title: Section.financeClaims.title,
-                            subtitle: "“I paid another way” — nothing counts toward a pledge until the office confirms it.",
+                            subtitle: "“I paid another way” — members who paid a pledge outside the app. Confirming records the gift toward their pledge (ledger + receipt); rejecting tells them the office could not confirm it.",
                             stats: stats,
                             onRefresh: { await vm.load() }) {
             content(caps)
@@ -114,12 +121,12 @@ struct FinanceClaimsView: View {
         .task { await vm.load() }
         .onFinanceLink(.financeClaims) { _ in Task { await vm.load() } }
         .sheet(item: $deciding) { d in
-            FinBConfirmSheet(title: d.confirm ? "Confirm this claim" : "Reject this claim",
+            FinBConfirmSheet(title: d.confirm ? "Confirm this claim?" : "Reject this claim?",
                              consequence: consequence(d),
-                             confirmLabel: d.confirm ? "Confirm and record" : "Reject claim",
-                             destructive: !d.confirm) {
-                try await vm.decide(d.claim, confirm: d.confirm)
-            }
+                             confirmLabel: d.confirm ? "Confirm \(FinanceMoney.format(d.claim.amountMinor, d.claim.currency))" : "Reject claim",
+                             destructive: !d.confirm,
+                             onConfirm: { try await vm.decide(d.claim, confirm: d.confirm) },
+                             errorText: { FinBError.message($0, fallback: d.confirm ? "Could not confirm the claim." : "Could not reject the claim.") })
             .task { if d.confirm { await vm.resolvePaysTo(d.claim) } }
         }
     }
@@ -127,16 +134,20 @@ struct FinanceClaimsView: View {
     private var stats: [HeroStat] {
         guard vm.phase == .loaded else { return [] }
         return [
-            HeroStat(label: "Waiting", value: String(vm.claims.count), hint: vm.claims.count == 1 ? "claim to decide" : "claims to decide"),
-            HeroStat(label: "Oldest", value: vm.oldestWait ?? "—", hint: "since it was submitted"),
+            HeroStat(label: "Waiting", value: String(vm.claims.count), hint: "claims to decide",
+                     tint: vm.claims.isEmpty ? nil : Color(hex: 0xF5C77E)),
+            HeroStat(label: "Oldest", value: vm.oldest.map { FinBTime.age(since: $0) } ?? "—",
+                     hint: vm.oldest.map { "claimed \(FinBTime.stamp($0))" } ?? "nothing waiting"),
         ]
     }
 
     @ViewBuilder private func content(_ caps: FinanceCaps) -> some View {
         if let n = vm.notice { FinanceNoticeBar(notice: n) { vm.notice = nil } }
-        FinBCurrencyFigures(title: "Waiting for a decision", rows: vm.totalsRows, noun: ("claim", "claims"),
-                            caption: "per currency — never added together", loading: vm.phase == .loading)
-        FinBExplain(text: "Confirm records the amount as an office gift toward the pledge — dated the day the member says they paid, booked to the fund the pledge pays to, posted to the books, with a receipt to the member. Reject records nothing; the member is told. A confirmation made in error is corrected by reversing that gift in Transactions.")
+        FinBCurrencyFigures(title: "Amount claimed", rows: vm.totalsRows, noun: ("claim", "claims"),
+                            caption: "per currency — never added", loading: vm.phase == .loading)
+        FinBExplain(text: caps.manage
+                    ? "Oldest first. Check the note against the bank statement, till or cash book before confirming. Confirming records the gift toward the pledge — dated the day they say they paid, booked to the fund the pledge pays to — with a receipt; rejecting tells them the office could not confirm it."
+                    : "Oldest first. Deciding a claim needs finance:manage.")
         switch vm.phase {
         case .loading:
             SkeletonList(rows: 3)
@@ -144,8 +155,8 @@ struct FinanceClaimsView: View {
             ErrorBanner(message: message) { Task { await vm.load() } }
         case .loaded:
             if vm.claims.isEmpty {
-                EmptyState(icon: "checkmark.seal", title: "Nothing to decide",
-                           message: "Every “I paid another way” claim has been confirmed or rejected.")
+                EmptyState(icon: "checkmark.seal", title: "No claims waiting",
+                           message: "When a member pays a pledge outside the app — cash at the office, a bank transfer, an M-Pesa payment to the till — they can say so from their pledge (“I paid another way”). The claim waits here until the office checks it: confirming records it as a gift toward the pledge with a receipt; rejecting tells them it could not be confirmed.")
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(vm.claims.enumerated()), id: \.element.id) { i, c in
@@ -179,16 +190,16 @@ struct FinanceClaimsView: View {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "text.quote").font(.system(size: 10, weight: .semibold)).foregroundStyle(Nuru.ink400).padding(.top, 2)
                     if let note = c.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
-                        Text(note).font(.nCaption).foregroundStyle(Nuru.ink600).lineLimit(3)
-                            .accessibilityLabel("How they paid: \(note)")
+                        (Text("How they paid: ").foregroundColor(Nuru.ink400) + Text(note).foregroundColor(Nuru.ink600))
+                            .font(.nCaption).lineLimit(3)
                     } else {
-                        Text("No note — ask the member how they paid before confirming.").font(.nCaption).italic().foregroundStyle(Nuru.ink400)
+                        Text("How they paid: — no note").font(.nCaption).foregroundStyle(Nuru.ink400)
                     }
                 }
                 FinanceFlowLayout(spacing: 12, rowSpacing: 3) {
                     label("calendar", "Paid on \(FinanceDates.display(c.paidOn))")
-                    label("tray.and.arrow.down", "Submitted \(FinBTime.stamp(c.createdAt))")
-                    label("hourglass", "Waiting \(FinBTime.waiting(since: c.createdAt))")
+                    label("tray.and.arrow.down", "Claimed \(FinBTime.stamp(c.createdAt))")
+                    label("hourglass", "\(FinBTime.age(since: c.createdAt)) waiting")
                 }
             }
             Spacer(minLength: 8)
@@ -213,22 +224,20 @@ struct FinanceClaimsView: View {
         .font(.nMicro).foregroundStyle(Nuru.ink600).fixedSize()
     }
 
-    /// What confirming / rejecting will do, in plain words.
+    /// What confirming / rejecting will do — the web's own sentences
+    /// (logic.ts claimConfirmConsequence / claimRejectConsequence).
     private func consequence(_ d: FinanceClaimDecision) -> [String] {
         let c = d.claim
         let amount = FinanceMoney.format(c.amountMinor, c.currency)
-        let who = c.fullName.isEmpty ? "The member" : c.fullName
-        let pledge = c.pledgeTitle.isEmpty ? "the pledge" : "“\(c.pledgeTitle)”"
         guard d.confirm else {
-            return ["Rejects \(who)'s claim of \(amount) toward \(pledge).",
-                    "Nothing is recorded and the pledge does not move. \(who) is told."]
+            return ["Rejects \(c.fullName)’s claim of \(amount).",
+                    "Nothing is recorded, and they are told the office could not confirm it."]
         }
         let fund: String
         if let f = vm.paysTo[c.pledgeId] { fund = f.name.isEmpty ? f.code : f.name }
-        else if vm.paysToFailed.contains(c.pledgeId) { fund = "the fund this pledge pays to" }
-        else { fund = "the pledge's fund (finding it…)" }
-        return ["Records \(amount) to \(fund) and counts it toward \(pledge).",
-                "The gift is dated \(FinanceDates.display(c.paidOn)) — the day \(who) says they paid — posts to the books, and \(who) gets a receipt.",
-                "Confirm only if the money has really arrived. A wrong confirmation is corrected by reversing the gift in Transactions."]
+        else if vm.paysToFailed.contains(c.pledgeId) { fund = "the fund the pledge pays to" }
+        else { fund = "the fund the pledge pays to (looking it up…)" }
+        return ["Records \(amount) to \(fund) and counts it toward “\(c.pledgeTitle)”.",
+                "\(c.fullName) gets a receipt. A mistake is corrected later by reversing the gift in Transactions."]
     }
 }

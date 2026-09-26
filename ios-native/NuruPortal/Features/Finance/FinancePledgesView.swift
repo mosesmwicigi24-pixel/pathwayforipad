@@ -65,40 +65,43 @@ struct FinancePledgesView: View {
 
     static let standingOptions: [FinanceFilterOption] = [.all("Any"), .init("on_track", "On track"), .init("behind", "Behind")]
     static let statusOptions: [FinanceFilterOption] = [
-        .all("Any"), .init("active", "Active"), .init("paused", "Paused"), .init("fulfilled", "Fulfilled"), .init("cancelled", "Cancelled"),
+        .all("All"), .init("active", "Active"), .init("paused", "Paused"), .init("fulfilled", "Fulfilled"), .init("cancelled", "Cancelled"),
     ]
-    static let shapeOptions: [FinanceFilterOption] = [.all("Any"), .init("monthly", "Monthly"), .init("total", "Total by a date")]
+    static let shapeOptions: [FinanceFilterOption] = [.all("Both"), .init("monthly", "Monthly"), .init("total", "Total by a date")]
 
-    // Floors ≈ 700 pt: fits portrait on the 13-inch; scrolls sideways narrower.
+    // Floors ≈ 720 pt: fits portrait on the 13-inch; scrolls sideways narrower.
     private static let columns: [FinanceColumn] = [
         FinanceColumn("Member", minWidth: 130),
         FinanceColumn("Pledge · pays to", minWidth: 160),
-        FinanceColumn("This year", width: 128, align: .trailing),
-        FinanceColumn("Kept · next", width: 112),
-        FinanceColumn("Standing", width: 84),
+        FinanceColumn("Paid · remaining", width: 128, align: .trailing),
+        FinanceColumn("Kept / due · next", width: 100),
+        FinanceColumn("Standing", width: 124),
     ]
+
+    private var yearWord: String { vm.year == FinanceDates.currentYear() ? "this year" : "in \(String(vm.year))" }
 
     var body: some View {
         let caps = auth.financeCaps
         FinancePageScaffold(title: Section.financePledges.title,
-                            subtitle: "Every commitment, read from the instalment ledger — the same figures the member's own statement shows.",
+                            subtitle: "Every pledge, read from the same instalment ledger as the member's statement: what was promised \(yearWord), what has been paid, instalments kept of those due, and who is behind — with the date they fell behind.",
+                            stats: vm.totalCount.map { [HeroStat(label: "Pledges", value: String($0), hint: "in this selection")] } ?? [],
                             onRefresh: { await vm.pager.reload() }) {
             FinanceExportButton(caps: caps, path: FinanceERPAPI.pledgesCSV, query: vm.filter.query, placement: .hero)
         } content: {
-            FinanceFilterBar(search: $vm.filter.q, searchPrompt: "Member name or phone, or the pledge title",
+            FinanceFilterBar(search: $vm.filter.q, searchPrompt: "Member name or phone, or pledge title",
                              isFiltered: vm.isFiltered, onClear: vm.clear) {
                 FinanceYearMenu(year: Binding(get: { vm.year }, set: { vm.filter.year = $0 }))
                 FinanceFilterMenu(title: "Standing", selection: $vm.filter.standing, options: Self.standingOptions, icon: "flag")
                 FinanceFilterMenu(title: "Status", selection: $vm.filter.status, options: Self.statusOptions)
                 FinanceFilterMenu(title: "Shape", selection: $vm.filter.shape, options: Self.shapeOptions)
             }
-            FinBCurrencyFigures(title: "\(String(vm.year)) · all matching pledges", rows: vm.totalsRows,
+            FinBCurrencyFigures(title: "Totals \(yearWord)", rows: vm.totalsRows,
                                 noun: ("pledge", "pledges"),
-                                caption: "per currency — never added together",
+                                caption: "Over every pledge that matches — not just the rows loaded. KES and USD are never added.",
                                 loading: vm.pager.isLoadingFirstPage || vm.pager.refreshing)
-            FinBExplain(text: "Pledged is what falls due in \(String(vm.year)): each monthly instalment dated in the year, or a total pledge's target when its date is in the year. Paid is what arrived toward the pledge in \(String(vm.year)). Remaining is pledged − paid, never below zero. Kept counts the instalments paid in full (on time or late) of those due so far.")
+            FinBExplain(text: "Pledged: monthly instalments due in the year + total pledges' targets due in the year. Paid: succeeded payments toward the pledge \(yearWord) (the member statement's rule). Remaining: pledged minus paid, never below zero. Kept / due: monthly pledges' instalments paid in full (on time or late) of those due so far. Standing is as of today — the pledge card's own label. Newest pledge first; a row opens the member's partner record.")
             FinancePagedTable(pager: vm.pager, columns: Self.columns, emptyIcon: "signature",
-                              emptyMessage: vm.isFiltered ? "No pledges match these filters." : "No pledges yet — members make them in the app (Give → Partners).",
+                              emptyMessage: vm.isFiltered ? "No pledges match these filters." : "No pledges yet — members pledge from Give → Partners in the app.",
                               totalCount: vm.totalCount,
                               onSelect: { router.openFinance(.partners, ["member": $0.userId]) }) { p in
                 row(p)
@@ -116,43 +119,40 @@ struct FinancePledgesView: View {
             .financeCell(cols[1])
         VStack(alignment: .trailing, spacing: 2) {
             FinBAmount(minor: p.paidYearMinor, currency: p.currency)
-            Text(p.remainingYearMinor > 0
-                 ? "\(FinanceMoney.format(p.remainingYearMinor, "")) left of \(FinanceMoney.format(p.pledgedYearMinor, ""))"
-                 : "nothing left of \(FinanceMoney.format(p.pledgedYearMinor, ""))")
-                .font(.nMicro).foregroundStyle(p.remainingYearMinor > 0 ? FinanceStatus.amber.fg : Nuru.ink600)
+            Text("\(FinanceMoney.format(p.remainingYearMinor, "")) remaining")
+                .font(.nMicro).foregroundStyle(p.remainingYearMinor > 0 ? FinanceStatus.amber.fg : Nuru.ink400)
                 .monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
         }
         .financeCell(cols[2])
         VStack(alignment: .leading, spacing: 2) {
-            Text(p.shape == "monthly" ? (p.dueCount > 0 ? "\(p.kept) of \(p.dueCount) kept" : "none due yet") : "—")
-                .font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
-            if let since = p.overdueSince {
-                Text("overdue since \(FinanceDates.display(since))").font(.nMicro).foregroundStyle(FinanceStatus.amber.fg).lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            } else if let next = p.nextDue {
-                Text("next \(FinanceDates.display(next))").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
-            } else {
-                Text("nothing due").font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
-            }
+            Text(Self.keptOfDue(p)).font(.nMono(12.5, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
+            Text("next \(FinanceDates.display(p.nextDue))").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .financeCell(cols[3])
-        Group {
+        VStack(alignment: .leading, spacing: 3) {
             if p.status == "cancelled" { FinanceStatusChip(status: "cancelled") }
             else { FinanceStatusChip(status: p.standing) }
+            if let since = p.overdueSince, p.status != "cancelled" {
+                Text("Overdue since \(FinanceDates.display(since))").font(.inter(11, .semibold))
+                    .foregroundStyle(FinanceStatus.amber.fg).lineLimit(1).minimumScaleFactor(0.8)
+            }
         }
         .financeCell(cols[4])
     }
 
-    /// "Monthly KES 2,000.00 · pays to Tithe" / "Total KES 50,000.00 by 31 Dec 2026 · pays to Building".
+    /// Kept of due as the register counts it ("7 of 9"); a total pledge has no instalments: "—".
+    static func keptOfDue(_ p: FinPledgeRow) -> String { p.shape == "monthly" ? "\(p.kept) of \(p.dueCount)" : "—" }
+
+    /// "KES 5,000.00 a month · pays to Tithe" / "KES 120,000.00 by 31 Dec 2026 · pays to Building".
     private func terms(_ p: FinPledgeRow) -> String {
         let money: String
         if p.shape == "monthly" {
-            money = "Monthly \(p.amountMinor.map { FinanceMoney.format($0, p.currency) } ?? "—")"
+            money = "\(p.amountMinor.map { FinanceMoney.format($0, p.currency) } ?? "—") a month"
         } else {
-            let target = p.targetMinor.map { FinanceMoney.format($0, p.currency) } ?? "—"
-            money = "Total \(target)" + (p.dueOn.map { " by \(FinanceDates.display($0))" } ?? "")
+            money = (p.targetMinor.map { FinanceMoney.format($0, p.currency) } ?? "—") + (p.dueOn.map { " by \(FinanceDates.display($0))" } ?? "")
         }
-        let paysTo = p.paysTo.map { " · pays to \($0.name.isEmpty ? $0.code : $0.name)" } ?? " · no active fund"
+        let paysTo = p.paysTo.map { " · pays to \($0.name.isEmpty ? $0.code : $0.name)" } ?? ""
         return money + paysTo
     }
 }

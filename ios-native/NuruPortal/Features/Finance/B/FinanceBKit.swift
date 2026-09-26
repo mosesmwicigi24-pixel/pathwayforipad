@@ -58,11 +58,16 @@ enum FinBTime {
         return FinanceDates.calendar.dateComponents([.day], from: a, to: b).day
     }
 
-    /// How long something has waited, in EAT days: "today", "1 day", "12 days".
-    static func waiting(since raw: String?, now: Date = Date()) -> String {
-        guard let start = ymd(raw), let n = days(from: start, to: FinanceDates.today(now: now)) else { return "—" }
-        if n <= 0 { return "today" }
-        return n == 1 ? "1 day" : "\(n) days"
+    /// How long ago an instant was, for a queue's age (web `ageSince`):
+    /// "just now", "12 minutes", "5 hours" (under 48 hours), then "3 days".
+    static func age(since raw: String?, now: Date = Date()) -> String {
+        guard let start = parse(raw) else { return "—" }
+        let minutes = max(0, Int(now.timeIntervalSince(start) / 60))
+        if minutes < 1 { return "just now" }
+        if minutes < 60 { return "\(minutes) \(minutes == 1 ? "minute" : "minutes")" }
+        let hours = minutes / 60
+        if hours < 48 { return "\(hours) \(hours == 1 ? "hour" : "hours")" }
+        return "\(hours / 24) days"
     }
 }
 
@@ -99,8 +104,9 @@ enum FinBMath {
     /// counted as 52 ÷ 12 charges a month.
     struct RunRate: Equatable {
         let currency: String
-        /// ≈ per month: Σ monthly amounts + Σ weekly amounts × 52 ÷ 12 — integer
-        /// math, divided once per currency (so rounding happens once).
+        /// ≈ per month: (Σ weekly × 52 + Σ monthly × 12) ÷ 12, rounded half up
+        /// to the cent — integer math, divided once per currency (web parity:
+        /// logic.ts recurringTotals).
         let monthlyMinor: Int
         /// Active schedules — the only ones that collect.
         let active: Int
@@ -126,10 +132,104 @@ enum FinBMath {
             }
         }
         return listed.keys.sorted(by: FinanceMoney.currencyPrecedes).map { c in
-            RunRate(currency: c,
-                    monthlyMinor: (monthly[c] ?? 0) + (weekly[c] ?? 0) * 52 / 12,
-                    active: active[c] ?? 0, listed: listed[c] ?? 0, unrated: unrated[c] ?? 0)
+            let annual = (weekly[c] ?? 0) * 52 + (monthly[c] ?? 0) * 12
+            return RunRate(currency: c, monthlyMinor: perMonth(fromAnnual: annual),
+                           active: active[c] ?? 0, listed: listed[c] ?? 0, unrated: unrated[c] ?? 0)
         }
+    }
+
+    /// A yearly amount ÷ 12, rounded half up (symmetric for negatives).
+    static func perMonth(fromAnnual annual: Int) -> Int {
+        annual >= 0 ? (annual + 6) / 12 : -((-annual + 6) / 12)
+    }
+
+    // Partners — the faithfulness summary of one member's register rows.
+
+    struct Faithfulness: Equatable {
+        struct Total: Equatable {
+            let currency: String
+            let pledgedMinor: Int
+            let paidMinor: Int
+            let remainingMinor: Int
+            let count: Int
+        }
+        /// behind · on_track · fulfilled · paused · none — behind when any pledge is.
+        let standing: String
+        /// Σ kept / Σ due over the monthly pledges (not cancelled).
+        let kept: Int
+        let due: Int
+        let monthly: Int
+        /// The earliest date any pledge (not cancelled) has been overdue since.
+        let overdueSince: String?
+        /// Per currency, KES first: pledged / paid / remaining in the year and how many pledges.
+        let totals: [Total]
+    }
+
+    /// One member's pledge-register rows summed for the partner's
+    /// faithfulness strip — counts and same-currency sums only; standing,
+    /// kept, due and overdue dates are the server's, per pledge (web
+    /// logic.ts faithfulnessSummary).
+    static func faithfulness(_ rows: [FinPledgeRow]) -> Faithfulness {
+        let live = rows.filter { $0.status != "cancelled" }
+        let monthly = live.filter { $0.shape == "monthly" }
+        let standing: String
+        if live.contains(where: { $0.standing == "behind" }) { standing = "behind" }
+        else if live.contains(where: { $0.standing == "on_track" }) { standing = "on_track" }
+        else if !live.isEmpty && live.allSatisfy({ $0.standing == "fulfilled" }) { standing = "fulfilled" }
+        else if !live.isEmpty { standing = "paused" }
+        else { standing = "none" }
+        let overdue = live.compactMap(\.overdueSince).filter { FinanceDates.date(fromYMD: $0) != nil }.sorted().first
+        var by: [String: (pledged: Int, paid: Int, remaining: Int, count: Int)] = [:]
+        for r in rows {
+            let c = r.currency.trimmingCharacters(in: .whitespaces).uppercased()
+            var t = by[c] ?? (0, 0, 0, 0)
+            t.pledged += r.pledgedYearMinor; t.paid += r.paidYearMinor; t.remaining += r.remainingYearMinor; t.count += 1
+            by[c] = t
+        }
+        return Faithfulness(standing: standing,
+                            kept: monthly.reduce(0) { $0 + $1.kept },
+                            due: monthly.reduce(0) { $0 + $1.dueCount },
+                            monthly: monthly.count,
+                            overdueSince: overdue,
+                            totals: by.keys.sorted(by: FinanceMoney.currencyPrecedes).map { c in
+                                let t = by[c] ?? (0, 0, 0, 0)
+                                return .init(currency: c, pledgedMinor: t.pledged, paidMinor: t.paid, remainingMinor: t.remaining, count: t.count)
+                            })
+    }
+
+    // Years.
+
+    /// A year menu that also plans ahead: next year, this year and `back`
+    /// years before, plus any years that already have data — newest first.
+    static func planningYears(now: Date = Date(), back: Int = 4, extra: [Int] = []) -> [Int] {
+        let y = FinanceDates.currentYear(now: now)
+        return Array(Set([y + 1, y] + (0..<max(back, 0)).map { y - 1 - $0 } + extra)).sorted(by: >)
+    }
+
+    // Expenses — what a posting does to its fund.
+
+    /// A fund's balance before and after an expense posting, in the expense's
+    /// currency: approving takes the amount out, voiding an approved expense
+    /// puts it back. Below zero is a warning, never a block (the money really
+    /// left). Web parity: logic.ts fundImpact.
+    struct FundImpact: Equatable {
+        let before: Int
+        let after: Int
+        /// "General Fund balance: KES 120,000.00 → KES 105,000.00 after this."
+        let sentence: String
+        let warning: String?
+    }
+
+    static func fundImpact(fundName: String, currency: String, balanceMinor: Int, amountMinor: Int, approving: Bool) -> FundImpact {
+        let after = approving ? balanceMinor - amountMinor : balanceMinor + amountMinor
+        let sentence = "\(fundName) balance: \(FinanceMoney.format(balanceMinor, currency)) → \(FinanceMoney.format(after, currency)) after this."
+        var warning: String? = nil
+        if after < 0 {
+            warning = approving
+                ? "\(fundName) will be \(FinanceMoney.format(-after, currency)) overdrawn — approve only if the money has really left."
+                : "\(fundName) will still be \(FinanceMoney.format(-after, currency)) overdrawn after this."
+        }
+        return FundImpact(before: balanceMinor, after: after, sentence: sentence, warning: warning)
     }
 
     // Budgets.
@@ -237,25 +337,38 @@ enum FinBMakerChecker {
     enum State: Equatable {
         /// Show Approve.
         case approve
-        /// This person recorded or edited it (and is not a SuperAdmin) — hide
-        /// Approve and say that another person must approve it.
-        case maker
+        /// This person recorded it (not a SuperAdmin) — no Approve, the sentence instead.
+        case recordedByMe
+        /// This person edited it while recorded (not a SuperAdmin) — likewise.
+        case editedByMe
         /// No finance:approve (or /me still loading) — no Approve at all.
         case noCapability
         /// Approved or void — nothing left to approve.
         case notRecorded
+
+        /// The sentence shown in place of Approve, if any.
+        var sentence: String? {
+            switch self {
+            case .recordedByMe: "You recorded this expense, so another person must approve it."
+            case .editedByMe: "You edited this expense, so another person must approve it."
+            default: nil
+            }
+        }
     }
 
-    /// The one sentence for a maker — also what a 403 SAME_PERSON becomes.
-    static let sentence = "Another person must approve this — whoever records or edits an expense cannot approve it."
+    /// What a 403 SAME_PERSON from the server becomes (web SAME_PERSON_SENTENCE).
+    static let sentence = "Another person must approve this expense — whoever recorded or edited it cannot approve it."
 
-    /// `editedByMe`: this person saved an edit to it (the server counts editors
-    /// as makers; the expense itself only names its recorder).
-    static func state(caps: FinanceCaps, status: String, recordedBy: String?, editedByMe: Bool) -> State {
+    /// `editors`: everyone who edited it while it was recorded (the audit's
+    /// expense.updated rows, plus this person after a save here) — the server
+    /// counts each as a maker. Unknown "me" → Approve shows and the server's
+    /// SAME_PERSON answer maps to `sentence` (web approveGate).
+    static func state(caps: FinanceCaps, status: String, recordedBy: String?, editors: Set<String>) -> State {
         guard status == "recorded" else { return .notRecorded }
         guard caps.approve else { return .noCapability }
-        if caps.isSuperAdmin { return .approve }
-        if !caps.canApprove(recordedBy: recordedBy) || editedByMe { return .maker }
+        guard !caps.isSuperAdmin, let me = caps.userId else { return .approve }
+        if recordedBy == me { return .recordedByMe }
+        if editors.contains(me) { return .editedByMe }
         return .approve
     }
 }
