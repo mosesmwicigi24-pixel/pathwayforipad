@@ -195,6 +195,25 @@ extension FinanceSelfCheck {
             expectEqual(s.totals.first?.paidMinor, 10_000, "paid counts every row of the currency")
         }
 
+        // Paid toward / beyond (verification cycle 1): a live row pledged 750,000 paid
+        // 150,000 + a cancelled row pledged 0 paid 200,000.
+        let twoRows = "[" + [
+            row("t1", "u", cur: "KES", shape: "monthly", status: "active", standing: "on_track", kept: 2, due: 2, overdue: nil, pledged: 750_000, paid: 150_000),
+            row("t2", "u", cur: "KES", shape: "monthly", status: "cancelled", standing: "paused", kept: 0, due: 0, overdue: nil, pledged: 0, paid: 200_000),
+        ].joined(separator: ",") + "]"
+        if let rows = decode([FinPledgeRow].self, twoRows), let t = FinBMath.faithfulness(rows).totals.first {
+            expectEqual(t.towardMinor, 150_000, "toward = Σ min(paid, pledged)")
+            expectEqual(t.beyondMinor, 200_000, "beyond = Σ max(paid − pledged, 0)")
+            expectEqual(t.remainingMinor, 600_000, "remaining as the register says")
+            expect(t.pledgedMinor == t.towardMinor + t.remainingMinor, "pledged = toward + remaining")
+            expect(t.paidMinor == t.towardMinor + t.beyondMinor, "paid = toward + beyond")
+        }
+        if let total = decode(FinPledgeTotal.self, #"{"currency":"KES","amount_minor":"750000","count":2,"pledged_minor":750000,"paid_minor":"350000","remaining_minor":600000,"paid_toward_minor":"150000","paid_beyond_minor":200000}"#) {
+            expect(total.paidTowardMinor == 150_000 && total.paidBeyondMinor == 200_000, "pledge totals read toward / beyond (BIGINT as text too)")
+            expect(total.pledgedMinor == total.paidTowardMinor + total.remainingMinor && total.paidMinor == total.paidTowardMinor + total.paidBeyondMinor,
+                   "the register totals' identities hold")
+        }
+
         // Words: need deadlines and campaign timing.
         if let need = decode(FinNeedRow.self, #"{"need_id":"n","title":"Chairs","why":"","department_id":"d","department_name":"Ushers","fund_code":null,"target_minor":1000,"raised_minor":400,"gifts_count":2,"currency":"KES","deadline":"2026-09-20","status":"approved","created_at":"2026-09-01T00:00:00Z","decided_at":null}"#) {
             let note = FinanceNeedsView.deadlineNote(need, today: "2026-09-26")

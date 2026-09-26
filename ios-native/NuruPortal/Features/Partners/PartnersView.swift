@@ -1065,10 +1065,16 @@ private struct PartnerFaithfulnessCard: View {
                 }
             }
             ForEach(s.totals, id: \.currency) { t in
-                FinanceFlowLayout(spacing: 14, rowSpacing: 4) {
-                    figure("Pledged", t.pledgedMinor, t.currency, nil)
-                    figure("Paid", t.paidMinor, t.currency, Nuru.success)
-                    figure("Remaining", t.remainingMinor, t.currency, t.remainingMinor > 0 ? FinanceStatus.amber.fg : nil)
+                VStack(alignment: .leading, spacing: 3) {
+                    FinanceFlowLayout(spacing: 14, rowSpacing: 4) {
+                        figure("Pledged", t.pledgedMinor, t.currency, nil)
+                        figure("Paid toward it", t.towardMinor, t.currency, Nuru.success)
+                        figure("Remaining", t.remainingMinor, t.currency, t.remainingMinor > 0 ? FinanceStatus.amber.fg : nil)
+                    }
+                    if t.beyondMinor > 0 {
+                        Text("Also paid \(FinanceMoney.format(t.beyondMinor, t.currency)) beyond this year's promises (a cancelled pledge, or paid ahead).")
+                            .font(.nMicro).foregroundStyle(Nuru.ink600)
+                    }
                 }
             }
         }

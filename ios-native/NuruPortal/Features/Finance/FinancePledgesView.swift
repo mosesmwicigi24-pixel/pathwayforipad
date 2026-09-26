@@ -42,16 +42,22 @@ final class FinancePledgesModel: ObservableObject {
         filter = f
     }
 
-    /// The totals strip: pledged, paid and remaining per currency.
+    /// The totals strip: pledged = paid toward it + remaining; "Paid beyond"
+    /// (a pledge since cancelled, or paid ahead) only when there is some.
     var totalsRows: [FinBCurrencyFigures.Row] {
         pager.totals.map { t in
-            FinBCurrencyFigures.Row(currency: t.currency, figures: [
+            var figures: [FinBCurrencyFigures.Figure] = [
                 .init(label: "Pledged", minor: t.pledgedMinor),
-                .init(label: "Paid", minor: t.paidMinor, tint: Nuru.success),
+                .init(label: "Paid toward it", minor: t.paidTowardMinor, tint: Nuru.success),
                 .init(label: "Remaining", minor: t.remainingMinor, tint: t.remainingMinor > 0 ? FinanceStatus.amber.fg : nil),
-            ], count: t.count)
+            ]
+            if t.paidBeyondMinor > 0 { figures.append(.init(label: "Paid beyond", minor: t.paidBeyondMinor)) }
+            return FinBCurrencyFigures.Row(currency: t.currency, figures: figures, count: t.count)
         }
     }
+
+    var anyBeyond: Bool { pager.totals.contains { $0.paidBeyondMinor > 0 } }
+    func lines(_ value: (FinPledgeTotal) -> Int) -> [String] { FinanceMoney.lines(pager.totals.map { ($0.currency, value($0)) }) }
 
     /// Pledges in the whole filtered set (each pledge has one currency, so the
     /// per-currency counts add up to pledges — never money).
@@ -88,6 +94,17 @@ struct FinancePledgesView: View {
                             onRefresh: { await vm.pager.reload() }) {
             FinanceExportButton(caps: caps, path: FinanceERPAPI.pledgesCSV, query: vm.filter.query, placement: .hero)
         } content: {
+            let first = vm.pager.isLoadingFirstPage
+            FinanceKpiGrid(minimum: 170) {
+                FinanceKpiTile(label: "Pledges", icon: "signature", tint: Nuru.brandTint(2),
+                               values: first ? [] : [String(vm.totalCount ?? 0)], hint: "in this selection", loading: first)
+                FinanceKpiTile(label: "Pledged \(yearWord)", icon: "calendar", tint: Nuru.brandTint(1),
+                               values: vm.lines(\.pledgedMinor), hint: "instalments due + total targets", loading: first)
+                FinanceKpiTile(label: "Paid \(yearWord)", icon: "banknote", tint: Nuru.brandTint(0),
+                               values: vm.lines(\.paidMinor), hint: "every succeeded payment to a pledge — toward this year's promises, or beyond them", loading: first)
+                FinanceKpiTile(label: "Remaining", icon: "exclamationmark.triangle", tint: Nuru.brandTint(3),
+                               values: vm.lines(\.remainingMinor), hint: "still to come \(yearWord)", loading: first)
+            }
             FinanceFilterBar(search: $vm.filter.q, searchPrompt: "Member name or phone, or pledge title",
                              isFiltered: vm.isFiltered, onClear: vm.clear) {
                 FinanceYearMenu(year: Binding(get: { vm.year }, set: { vm.filter.year = $0 }))
@@ -99,7 +116,7 @@ struct FinancePledgesView: View {
                                 noun: ("pledge", "pledges"),
                                 caption: "Over every pledge that matches — not just the rows loaded. KES and USD are never added.",
                                 loading: vm.pager.isLoadingFirstPage || vm.pager.refreshing)
-            FinBExplain(text: "Pledged: monthly instalments due in the year + total pledges' targets due in the year. Paid: succeeded payments toward the pledge \(yearWord) (the member statement's rule). Remaining: pledged minus paid, never below zero. Kept / due: monthly pledges' instalments paid in full (on time or late) of those due so far. Standing is as of today — the pledge card's own label. Newest pledge first; a row opens the member's partner record.")
+            FinBExplain(text: "Pledged: monthly instalments due in the year + total pledges' targets due in the year. Pledged = paid toward it + remaining; every payment = paid toward it + paid beyond" + (vm.anyBeyond ? " (paid beyond: paid above this year's promise — to a pledge since cancelled, or paid ahead)" : "") + ". Paid: succeeded payments toward the pledge \(yearWord) (the member statement's rule). Remaining: pledged minus paid, never below zero. Kept / due: monthly pledges' instalments paid in full (on time or late) of those due so far. Standing is as of today — the pledge card's own label. Newest pledge first; a row opens the member's partner record.")
             FinancePagedTable(pager: vm.pager, columns: Self.columns, emptyIcon: "signature",
                               emptyMessage: vm.isFiltered ? "No pledges match these filters." : "No pledges yet — members pledge from Give → Partners in the app.",
                               totalCount: vm.totalCount,

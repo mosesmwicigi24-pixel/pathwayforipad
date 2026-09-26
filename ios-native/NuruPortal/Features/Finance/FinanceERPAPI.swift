@@ -621,7 +621,9 @@ struct FinPledgeRow: Decodable, Hashable, Identifiable {
     var id: String { pledgeId }
 }
 
-/// FinancePledgeTotal — `amount_minor` = pledged.
+/// FinancePledgeTotal — `amount_minor` = pledged. pledged = paid_toward +
+/// remaining and paid = paid_toward + paid_beyond (verification cycle 1: a
+/// cancelled pledge paid this year has pledged 0, so paid alone cannot foot).
 struct FinPledgeTotal: Decodable, Hashable, FinCurrencyTotaled {
     @DefaultEmpty var currency: String
     @LooseInt var amountMinor: Int
@@ -629,6 +631,10 @@ struct FinPledgeTotal: Decodable, Hashable, FinCurrencyTotaled {
     @LooseInt var pledgedMinor: Int
     @LooseInt var paidMinor: Int
     @LooseInt var remainingMinor: Int
+    /// Σ min(paid_year, pledged_year) — paid toward this year's promises.
+    @LooseInt var paidTowardMinor: Int
+    /// Σ max(paid_year − pledged_year, 0) — paid beyond them (a cancelled pledge, or paid ahead).
+    @LooseInt var paidBeyondMinor: Int
 }
 
 struct FinPledgesPage: FinPaged {

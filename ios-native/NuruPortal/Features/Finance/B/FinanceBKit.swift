@@ -151,6 +151,10 @@ enum FinBMath {
             let pledgedMinor: Int
             let paidMinor: Int
             let remainingMinor: Int
+            /// Σ min(paid, pledged) per row — pledged = toward + remaining.
+            let towardMinor: Int
+            /// Σ max(paid − pledged, 0) per row — paid = toward + beyond.
+            let beyondMinor: Int
             let count: Int
         }
         /// behind · on_track · fulfilled · paused · none — behind when any pledge is.
@@ -179,11 +183,13 @@ enum FinBMath {
         else if !live.isEmpty { standing = "paused" }
         else { standing = "none" }
         let overdue = live.compactMap(\.overdueSince).filter { FinanceDates.date(fromYMD: $0) != nil }.sorted().first
-        var by: [String: (pledged: Int, paid: Int, remaining: Int, count: Int)] = [:]
+        var by: [String: (pledged: Int, paid: Int, remaining: Int, toward: Int, beyond: Int, count: Int)] = [:]
         for r in rows {
             let c = r.currency.trimmingCharacters(in: .whitespaces).uppercased()
-            var t = by[c] ?? (0, 0, 0, 0)
-            t.pledged += r.pledgedYearMinor; t.paid += r.paidYearMinor; t.remaining += r.remainingYearMinor; t.count += 1
+            var t = by[c] ?? (0, 0, 0, 0, 0, 0)
+            t.pledged += r.pledgedYearMinor; t.paid += r.paidYearMinor; t.remaining += r.remainingYearMinor
+            t.toward += min(r.paidYearMinor, r.pledgedYearMinor); t.beyond += max(r.paidYearMinor - r.pledgedYearMinor, 0)
+            t.count += 1
             by[c] = t
         }
         return Faithfulness(standing: standing,
@@ -192,8 +198,9 @@ enum FinBMath {
                             monthly: monthly.count,
                             overdueSince: overdue,
                             totals: by.keys.sorted(by: FinanceMoney.currencyPrecedes).map { c in
-                                let t = by[c] ?? (0, 0, 0, 0)
-                                return .init(currency: c, pledgedMinor: t.pledged, paidMinor: t.paid, remainingMinor: t.remaining, count: t.count)
+                                let t = by[c] ?? (0, 0, 0, 0, 0, 0)
+                                return .init(currency: c, pledgedMinor: t.pledged, paidMinor: t.paid, remainingMinor: t.remaining,
+                                             towardMinor: t.toward, beyondMinor: t.beyond, count: t.count)
                             })
     }
 
