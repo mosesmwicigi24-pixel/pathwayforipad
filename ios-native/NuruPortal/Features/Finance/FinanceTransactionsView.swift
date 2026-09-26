@@ -208,7 +208,9 @@ struct FinanceTransactionsView: View {
                 if layout == .narrow {
                     Text(t.receiptCode ?? FinanceATime.time(t.createdAt)).font(.nMono(10.5)).foregroundStyle(Nuru.ink600)
                         .lineLimit(1).minimumScaleFactor(0.75)
-                } else {
+                } else if t.source != "admin" {
+                    // An office gift is dated 12:00 EAT on the day it was received (a
+                    // date, not a time) — only online payments have a real clock time.
                     Text(FinanceATime.time(t.createdAt)).font(.nMicro).foregroundStyle(Nuru.ink400)
                 }
             }
