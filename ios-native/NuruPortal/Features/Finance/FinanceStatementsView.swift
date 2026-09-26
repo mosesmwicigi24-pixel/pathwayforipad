@@ -63,7 +63,11 @@ struct FinanceStatementsView: View {
         let caps = auth.financeCaps
         let y = String(vm.filter.year)
         FinancePageScaffold(title: Section.financeStatements.title,
-                            subtitle: "Every member who gave in the year, with what each gave — and each one's giving and partner statements as PDFs.",
+                            subtitle: "Everyone who gave in \(y), as their own statement counts it — and each member's Giving and Partner statement PDFs for the office to print or send.",
+                            stats: vm.pager.phase == .loaded ? [
+                                HeroStat(label: "Givers", value: "\(vm.pager.rows.count)\(vm.pager.hasMore ? "+" : "")", hint: "members with a statement"),
+                                HeroStat(label: "Gifts", value: String(vm.giftCount), hint: "succeeded, every currency"),
+                            ] : [],
                             onRefresh: { await vm.pager.reload() }) {
             FinanceExportButton(caps: caps, path: FinanceERPAPI.statementsCSV, query: vm.query, placement: .hero)
         } content: {
@@ -75,9 +79,9 @@ struct FinanceStatementsView: View {
                                 rows: vm.pager.totals.map { .init(currency: $0.currency, figures: [.init(label: "Given", minor: $0.amountMinor, tint: Nuru.success)], count: $0.count) },
                                 noun: ("gift", "gifts"), caption: "per currency — never added together",
                                 loading: vm.pager.isLoadingFirstPage || vm.pager.refreshing)
-            FinBExplain(text: "Gifts are dated in East Africa Time — the member statement's own year rule — so each row adds up to that member's PDF. Walk-in and anonymous gifts have no member and no statement. The Partner statement exists only for someone who has been a partner.")
+            FinBExplain(text: "By name. Each row adds up to that member's own statement for the year (gifts dated in East Africa Time). Members only — website and walk-in gifts have no statement. The Partner statement exists only for someone who has been a partner.")
             FinancePagedTable(pager: vm.pager, columns: Self.columns, emptyIcon: "doc.text",
-                              emptyMessage: vm.isFiltered ? "Nobody matches — try another name or year." : "Nobody with an account gave in \(y) yet.") { r in
+                              emptyMessage: FinanceERPAPI.searchTerm(vm.filter.q) != nil ? "No giver matches that search." : "No member gave in \(y).") { r in
                 // No row tap: the row carries its own PDF buttons.
                 row(r, caps: caps, year: y)
             }

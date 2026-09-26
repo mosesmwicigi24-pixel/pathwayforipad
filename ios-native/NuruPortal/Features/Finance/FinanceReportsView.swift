@@ -139,7 +139,7 @@ struct FinanceReportsView: View {
     var body: some View {
         let caps = auth.financeCaps
         FinancePageScaffold(title: Section.financeReports.title,
-                            subtitle: "The year in figures and the two financial statements — per currency, never added across currencies.",
+                            subtitle: "The year's income, spending and pledges month by month, and the two financial statements — each per currency, each checked to add up.",
                             onRefresh: { await vm.load() }) {
             FinanceExportButton(caps: caps, path: vm.csv.path, query: vm.csv.query, placement: .hero)
         } subheader: {
@@ -167,30 +167,36 @@ struct FinanceReportsView: View {
                 FinanceYearMenu(year: $vm.year)
                 FinBChoiceChips(options: Self.incomeByOptions, selection: $vm.incomeBy)
             }
-            FinBExplain(text: "Succeeded gifts by the month they were given (East Africa Time) — the member statements' own basis; a reversed gift drops out of its month. A gift with no fund (a media purchase) is the row \"none\". Rows add up to the totals, months to the year.")
+            FinBExplain(text: "\(yearNote) Succeeded gifts by the month they were given (EAT) — a reversed gift drops out of its month. A gift with no fund (a media purchase) is the row \"none\".")
         case .expenses:
             FinanceFilterBar {
                 FinanceYearMenu(year: $vm.year)
                 FinBChoiceChips(options: Self.expensesByOptions, selection: $vm.expensesBy)
             }
-            FinBExplain(text: "APPROVED expenses by the month they were spent. Recorded ones (awaiting approval) and void ones are not here — they are not in the books.")
+            FinBExplain(text: "\(yearNote) Approved expenses by the month they were spent — a void drops out; ones awaiting approval are not in the books yet.")
         case .pledges:
             FinanceFilterBar { FinanceYearMenu(year: $vm.year) }
-            FinBExplain(text: "Pledged: monthly instalments due in the month + a total pledge's target in the month it falls due. Paid: pledge payments by the month they were made. Kept / missed: monthly instalments due that month, paid in full (on time or late) or missed as of today — exactly as the member statement counts them. Behind: partners with a missed instalment due that month (the year's total counts each partner once).")
+            FinBExplain(text: "\(yearNote) From the instalment ledger — the same rule as the member's statement and the pledge register. Pledged: monthly instalments due in the month + total pledges' targets due in the month. Paid: payments toward pledges by the month they were paid. Kept / missed: instalments due in the month paid in full (on time or late) / missed as of today. Behind: distinct partners with a missed instalment due in the month.")
         case .ie:
             FinanceFilterBar(period: $vm.period)
-            FinBExplain(text: "Income is gifts net of reversals per fund, plus other income (media sales); expenditure is approved expenses per category, by the day spent. Transfers between funds and opening balances move money inside the books, so they are left out. Surplus = income − expenditure.")
+            FinBExplain(text: "Gifts net of reversals and approved expenses, dated by when they happened. Transfers between funds and opening balances move money inside the church and are left out. KES and USD are reported side by side, never added.")
         case .position:
             HStack(spacing: 10) {
-                Text("AS OF").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
+                Text("AS OF THE END OF").font(.nOverline).tracking(1.2).foregroundStyle(Nuru.ink600)
                 FinBDayPicker(label: "As of", ymd: $vm.asOf, latest: FinanceDates.today())
                 if vm.asOf != FinanceDates.today() {
                     FinanceButton(title: "Today", icon: "arrow.uturn.backward") { vm.asOf = FinanceDates.today() }
                 }
                 Spacer(minLength: 0)
             }
-            FinBExplain(text: "Every posting up to the end of the day (East Africa Time): cash accounts (what the church holds, debits − credits), fund balances (credits − debits), and other accounts such as media sales. Balanced means assets = funds + other, per currency.")
+            FinBExplain(text: "\(vm.asOf == FinanceDates.today() ? "Today" : FinanceDates.display(vm.asOf)) (EAT) · every posting up to then, transfers and opening balances included. Cash accounts are what the church holds; funds (and other accounts such as media sales) are what it is held for — per currency they must be equal.")
         }
+    }
+
+    /// "Showing 2026 (to 26 Sep 2026). KES and USD are reported side by side, never added."
+    private var yearNote: String {
+        let current = vm.year == FinanceDates.currentYear()
+        return "Showing \(String(vm.year))\(current ? " (to \(FinanceDates.display(FinanceDates.today())))" : ""). KES and USD are reported side by side, never added."
     }
 
     // MARK: Income / Expenses
@@ -208,7 +214,8 @@ struct FinanceReportsView: View {
             } else {
                 ForEach(m.currencies) { block in
                     FinanceReportMatrixCard(block: block, year: m.year, by: m.by, showChart: kind == "income",
-                                            rowNoun: kind == "income" ? "Income" : "Spending")
+                                            rowNoun: kind == "income" ? "Income" : "Spending",
+                                            emptyText: "No \(kind == "income" ? "income" : "approved expenses") in \(block.currency) in \(String(m.year)).")
                 }
             }
         }

@@ -109,6 +109,7 @@ struct FinanceReportMatrixCard: View {
     let by: String
     var showChart = false
     var rowNoun = "Income"
+    var emptyText = "Nothing in this currency."
 
     private static let labelWidth: CGFloat = 180
     private static let monthWidth: CGFloat = 88
@@ -124,7 +125,12 @@ struct FinanceReportMatrixCard: View {
                 Text("Total").font(.nCaption).foregroundStyle(Nuru.ink600)
                 FinBAmount(minor: block.totals.totalMinor, currency: block.currency, size: 15)
             }
+            Text("Amounts in \(block.currency). \(block.rows.count) \(block.rows.count == 1 ? "row" : "rows"), largest first.")
+                .font(.nMicro).foregroundStyle(Nuru.ink600)
             FinBFootWarning(problems: problems)
+            if block.rows.isEmpty {
+                Text(emptyText).font(.nCaption).foregroundStyle(Nuru.ink400)
+            } else {
             if showChart { chart }
             ScrollView(.horizontal, showsIndicators: true) {
                 VStack(spacing: 0) {
@@ -138,6 +144,11 @@ struct FinanceReportMatrixCard: View {
             .background(Nuru.white)
             .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            if problems.isEmpty {
+                Text("✓ Every row adds up across the months, and every month down the rows, to the totals.")
+                    .font(.nMicro).foregroundStyle(Nuru.success)
+            }
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -230,13 +241,13 @@ struct FinancePledgesReportCard: View {
                             missed: m.missed > 0)
                     }
                     let t = block.totals
-                    row(["Year", money(t.pledgedMinor), money(t.paidMinor), String(t.kept), String(t.missed), String(t.behindPartners)], strong: true)
+                    row(["Year", money(t.pledgedMinor), money(t.paidMinor), String(t.kept), String(t.missed), "\(t.behindPartners) (distinct)"], strong: true)
                 }
             }
             .background(Nuru.white)
             .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-            Text("Behind on the year row counts each partner once, however many months they missed.")
+            Text("Amounts in \(block.currency). Behind = partners with a missed instalment due in the month; the year row counts each partner once.")
                 .font(.nMicro).foregroundStyle(Nuru.ink400)
         }
         .padding(16)
@@ -300,7 +311,7 @@ struct FinanceIncomeExpenditureCard: View {
 
     private func incomeSide(_ c: String, _ t: FinIncomeExpenditure.Totals) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionTitle("Income")
+            sectionTitle("Income — gifts by fund (net of reversals)")
             if block.income.isEmpty { none("No gifts in this period.") }
             ForEach(block.income) { l in statementLine(l.label.isEmpty ? l.key : l.label, l.amountMinor, c) }
             statementLine("Gifts, net of reversals", t.giftsMinor, c, subtotal: true)
@@ -316,7 +327,7 @@ struct FinanceIncomeExpenditureCard: View {
 
     private func expenseSide(_ c: String, _ t: FinIncomeExpenditure.Totals) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionTitle("Expenditure")
+            sectionTitle("Expenditure — approved expenses by category")
             if block.expenses.isEmpty { none("No approved expenses in this period.") }
             ForEach(block.expenses) { l in statementLine(l.label.isEmpty ? l.key : l.label, l.amountMinor, c) }
             statementLine("Total expenditure", t.expensesMinor, c, strong: true)
@@ -357,8 +368,8 @@ struct FinancePositionBanner: View {
                 Text(position.balanced ? "Balanced ✓" : "Not balanced").font(.inter(14.5, .bold))
                     .foregroundStyle(position.balanced ? Nuru.success : FinanceStatus.red.fg)
                 Text(position.balanced
-                     ? "As of \(FinanceDates.display(position.asOf)), in every currency, the money the church holds equals its fund balances plus its other accounts."
-                     : "As of \(FinanceDates.display(position.asOf)), \(unbalanced.joined(separator: " and ")) does not balance — assets differ from funds + other. Reconciliation → Integrity shows where.")
+                     ? "In every currency, the cash the church holds equals its funds plus other accounts, as of \(FinanceDates.display(position.asOf))."
+                     : "In \(unbalanced.joined(separator: " and ")), cash ≠ funds + other as of \(FinanceDates.display(position.asOf)). Check Reconciliation for the postings that do not pair.")
                     .font(.nCaption).foregroundStyle(Nuru.ink).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -403,7 +414,7 @@ struct FinancePositionCard: View {
 
     private func assets(_ c: String, _ t: FinFinancialPosition.Totals) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("WHAT THE CHURCH HOLDS").font(.nOverline).tracking(1.1).foregroundStyle(Nuru.ink600)
+            Text("ASSETS — CASH ACCOUNTS").font(.nOverline).tracking(1.1).foregroundStyle(Nuru.ink600)
             if block.assets.isEmpty { Text("No cash accounts.").font(.nCaption).foregroundStyle(Nuru.ink400) }
             ForEach(block.assets) { a in statementLine(a.label.isEmpty ? a.account : a.label, a.balanceMinor, c) }
             statementLine("Total assets", t.assetsMinor, c, strong: true)
@@ -413,13 +424,14 @@ struct FinancePositionCard: View {
 
     private func fundsSide(_ c: String, _ t: FinFinancialPosition.Totals) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("WHAT IT IS HELD FOR").font(.nOverline).tracking(1.1).foregroundStyle(Nuru.ink600)
+            Text("FUNDS — WHAT IT IS HELD FOR").font(.nOverline).tracking(1.1).foregroundStyle(Nuru.ink600)
             if block.funds.isEmpty { Text("No fund balances.").font(.nCaption).foregroundStyle(Nuru.ink400) }
             ForEach(block.funds) { f in
                 statementLine(f.label.isEmpty ? f.code : f.label, f.balanceMinor, c, tint: f.balanceMinor < 0 ? FinanceStatus.red.fg : nil)
             }
             statementLine("Funds", t.fundsMinor, c, subtotal: true)
             if !block.other.isEmpty {
+                Text("OTHER (MEDIA SALES, …)").font(.nOverline).tracking(1.1).foregroundStyle(Nuru.ink600).padding(.top, 6)
                 ForEach(block.other) { o in statementLine(o.label.isEmpty ? o.account : o.label, o.balanceMinor, c) }
                 statementLine("Other accounts", t.otherMinor, c, subtotal: true)
             }
