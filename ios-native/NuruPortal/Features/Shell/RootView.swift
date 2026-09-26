@@ -229,12 +229,74 @@ func isSectionVisible(_ item: Section, profile: MeProfile?) -> Bool {
     return true
 }
 
+/// A folding sub-menu inside a sidebar group — Finance's Giving & Income,
+/// Spending & Planning and Accounting & Reporting (pathway docs/FINANCE_ERP.md
+/// §1). The native twin of nav.tsx NavSubgroup. `key` is stable: the saved open
+/// state is keyed on it, so a relabel keeps it.
+private struct NavSubgroup: Identifiable {
+    let key: String
+    let label: String
+    /// SF Symbol for the header in the full sidebar; the mini sidebar shows the rows' own.
+    let icon: String
+    let items: [Section]
+    var id: String { key }
+}
+
+/// One line of a group: a page row, or a sub-menu and its rows.
+private enum NavEntry: Identifiable {
+    case row(Section)
+    case subgroup(NavSubgroup)
+    var id: String {
+        switch self {
+        case .row(let s): s.rawValue
+        case .subgroup(let sg): "sub:\(sg.key)"
+        }
+    }
+    var sections: [Section] {
+        switch self {
+        case .row(let s): [s]
+        case .subgroup(let sg): sg.items
+        }
+    }
+}
+
 private struct NavGroup: Identifiable {
     let label: String
-    let items: [Section]
+    let entries: [NavEntry]
     var id: String { label }
-    /// The one collapsible group (RootView.financeOpen) — its label and header key.
+    /// Every row, flat, in sidebar order — what the ⌘-shortcuts, the route
+    /// guard and the self-check walk. Sub-menus change only how rows are shown.
+    var items: [Section] { entries.flatMap(\.sections) }
+    /// A group of plain rows (every group but Finance).
+    init(label: String, items: [Section]) {
+        self.label = label
+        entries = items.map { NavEntry.row($0) }
+    }
+    init(label: String, entries: [NavEntry]) {
+        self.label = label
+        self.entries = entries
+    }
     static let financeLabel = "Finance"
+    /// The sub-menus of every group, flat.
+    var subgroups: [NavSubgroup] {
+        entries.compactMap { if case .subgroup(let sg) = $0 { sg } else { nil } }
+    }
+}
+
+/// The group's lines for this profile: the rows it may see, and each sub-menu
+/// holding at least one of them (with only those rows) — a sub-menu with
+/// nothing to show is left out, header and all. The native twin of nav.tsx
+/// `sidebarEntries(group, visibleItems)`.
+private func visibleEntries(_ group: NavGroup, profile: MeProfile?) -> [NavEntry] {
+    group.entries.compactMap { entry in
+        switch entry {
+        case .row(let s):
+            return isSectionVisible(s, profile: profile) ? entry : nil
+        case .subgroup(let sg):
+            let rows = sg.items.filter { isSectionVisible($0, profile: profile) }
+            return rows.isEmpty ? nil : .subgroup(NavSubgroup(key: sg.key, label: sg.label, icon: sg.icon, items: rows))
+        }
+    }
 }
 
 private let navGroups: [NavGroup] = [
@@ -259,14 +321,24 @@ private let navGroups: [NavGroup] = [
     // money view is Finance → Department needs. Finance and Partners moved out
     // to their own group below (docs/FINANCE_ERP.md §1).
     .init(label: "Operations", items: [.cellEngagement, .disciples, .members, .reflectionQueue, .levelReviews, .events, .departments, .certificates, .badges]),
-    // FINANCE — the ERP module, directly after Operations, in the ERP flow:
-    // money in → commitments → money out → planning → books → reporting →
-    // admin (spec §1). Collapsible (RootView.financeOpen); every row finance:view.
-    .init(label: NavGroup.financeLabel, items: [
-        .financeOverview, .financeTransactions, .financePledges, .partners, .financeClaims,
-        .financeRecurring, .financeCampaigns, .financeNeeds, .financeExpenses, .financeBudgets,
-        .financeFunds, .financeLedger, .financeReconciliation, .financeReports,
-        .financeStatements, .financeAudit, .financeSettings,
+    // FINANCE — the ERP module, directly after Operations (spec §1). A plain
+    // title like Media over three folding sub-menus, with Settings kept apart
+    // at the bottom because it is administration rather than day-to-day
+    // finance (owner, 2026-09-26: "much cleaner than having 16 items exposed at
+    // the same level, while not changing any of your existing terminology").
+    // Same order, keys and labels as nav.tsx; every row finance:view.
+    .init(label: NavGroup.financeLabel, entries: [
+        .subgroup(.init(key: "giving", label: "Giving & Income", icon: "gift", items: [
+            .financeOverview, .financeTransactions, .financePledges, .partners, .financeRecurring, .financeCampaigns,
+        ])),
+        .subgroup(.init(key: "spending", label: "Spending & Planning", icon: "wallet.bifold", items: [
+            .financeNeeds, .financeExpenses, .financeClaims, .financeBudgets, .financeFunds,
+        ])),
+        // "The books".
+        .subgroup(.init(key: "accounting", label: "Accounting & Reporting", icon: "books.vertical", items: [
+            .financeLedger, .financeReconciliation, .financeReports, .financeStatements, .financeAudit,
+        ])),
+        .row(.financeSettings),
     ]),
     // Follow-up is its own section, a peer of Operations rather than a row
     // inside it (owner ruling, 2026-08-17). It is a distinct pastoral job — a
@@ -340,10 +412,13 @@ struct RootView: View {
     @ObservedObject private var network = NetworkMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var collapsed = false
-    /// The FINANCE group's disclosure state (the only collapsible group).
-    /// Default expanded; persisted per device; forced open whenever a Finance
-    /// page is selected, so the current page is never hidden inside it.
-    @AppStorage("nuru.nav.finance.open") private var financeOpen = true
+    /// The sidebar sub-menus the user opened (their stable keys, comma-
+    /// separated), persisted per device. Folded by default, so FINANCE reads
+    /// as its three sub-menu headers and Settings.
+    @AppStorage("nuru.nav.subgroups.open") private var savedOpenSubsRaw = ""
+    /// Sub-menus opened because a page inside one was selected — for this run
+    /// only (web parity), so what is remembered is only what the user chose.
+    @State private var autoOpenSubs: Set<String> = []
     /// Keep-alive registry, MRU order (current section first). Each listed
     /// section keeps its NavigationStack mounted (hidden) so scroll position,
     /// push state and loaded VM data survive sidebar switches.
@@ -401,7 +476,7 @@ struct RootView: View {
             }
             #endif
             visit(router.section, leaving: nil)
-            if router.section?.isFinance == true { financeOpen = true }
+            revealSubgroup(of: router.section)
         }
         .onChange(of: router.section) { old, new in
             // Defense in depth for deep links (push notifications, cross-page
@@ -413,7 +488,8 @@ struct RootView: View {
                 router.section = .dashboard
                 return
             }
-            if new.isFinance, !financeOpen { financeOpen = true }
+            // The current page is never hidden inside a folded sub-menu.
+            revealSubgroup(of: new)
             visit(new, leaving: old)
         }
         // Radio Studio → Uploads & Sessions deep link (Mac AND iPad): stash the
@@ -496,31 +572,43 @@ struct RootView: View {
                     ForEach(navGroups) { group in
                         // Permitted-but-limited users see ONLY the rows their
                         // permissions grant — everything else absent, not
-                        // grayed (isSectionVisible mirrors nav.tsx's filter).
-                        let items = group.items.filter { isSectionVisible($0, profile: auth.profile) }
-                        let isFinanceGroup = group.id == NavGroup.financeLabel
-                        // A Finance group with no visible page (no finance:view)
-                        // shows nothing at all, not an empty header.
-                        if !(isFinanceGroup && items.isEmpty) {
+                        // grayed (visibleEntries mirrors nav.tsx's filter). A
+                        // group with no visible row shows nothing at all, not
+                        // an empty header (web parity).
+                        let entries = visibleEntries(group, profile: auth.profile)
+                        if !entries.isEmpty {
                             VStack(alignment: .leading, spacing: 4) {
                                 if !collapsed {
-                                    if isFinanceGroup {
-                                        financeGroupHeader(label: group.label, containsSelection: items.contains { $0 == router.section })
-                                    } else {
-                                        Text(group.label.uppercased())
-                                            .font(.inter(11.5, .bold)).tracking(1.2)
-                                            .foregroundStyle(.white.opacity(0.34))
-                                            .padding(.horizontal, 14).padding(.bottom, 2)
-                                    }
+                                    Text(group.label.uppercased())
+                                        .font(.inter(11.5, .bold)).tracking(1.2)
+                                        .foregroundStyle(.white.opacity(0.34))
+                                        .padding(.horizontal, 14).padding(.bottom, 2)
                                 } else {
                                     Rectangle().fill(.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 14).padding(.vertical, 4)
                                 }
-                                // The mini sidebar has no header to re-open the
-                                // group from, so it always shows the Finance icons.
-                                if !isFinanceGroup || financeOpen || collapsed {
-                                    ForEach(items) { item in
-                                        NavRow(item: item, selected: router.section == item, collapsed: collapsed) {
-                                            router.go(item)
+                                ForEach(entries) { entry in
+                                    switch entry {
+                                    case .row(let item):
+                                        navRow(item)
+                                    case .subgroup(let sg):
+                                        // The mini sidebar has no header to unfold a
+                                        // sub-menu from, so it shows every page's icon.
+                                        if collapsed {
+                                            ForEach(sg.items) { navRow($0) }
+                                        } else {
+                                            subgroupHeader(sg, containsSelection: sg.items.contains { $0 == router.section })
+                                            if isSubOpen(sg.key) {
+                                                // its pages, indented under a hairline from the header's icon
+                                                VStack(alignment: .leading, spacing: 4) {
+                                                    ForEach(sg.items) { navRow($0) }
+                                                }
+                                                .padding(.leading, 30)
+                                                .overlay(alignment: .leading) {
+                                                    Rectangle().fill(.white.opacity(0.08)).frame(width: 1)
+                                                        .padding(.leading, 23).padding(.vertical, 2)
+                                                }
+                                                .transition(.opacity)
+                                            }
                                         }
                                     }
                                 }
@@ -543,36 +631,75 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.22), value: collapsed)
     }
 
-    /// The FINANCE group header: the same overline as every other group, plus a
-    /// disclosure chevron. Collapsed with the current page inside it, a gold dot
-    /// says where you are (auto-expand makes that rare — only a manual close).
-    private func financeGroupHeader(label: String, containsSelection: Bool) -> some View {
-        Button {
-            if reduceMotion { financeOpen.toggle() }
-            else { withAnimation(.easeInOut(duration: 0.2)) { financeOpen.toggle() } }
+    private func navRow(_ item: Section) -> some View {
+        NavRow(item: item, selected: router.section == item, collapsed: collapsed) {
+            router.go(item)
+        }
+    }
+
+    private var savedOpenSubs: Set<String> {
+        Set(savedOpenSubsRaw.split(separator: ",").map(String.init))
+    }
+    private func isSubOpen(_ key: String) -> Bool {
+        savedOpenSubs.contains(key) || autoOpenSubs.contains(key)
+    }
+    /// A fold or unfold the user makes — remembered (web: localStorage per sub-menu).
+    private func toggleSub(_ key: String) {
+        var saved = savedOpenSubs
+        if isSubOpen(key) {
+            saved.remove(key)
+            autoOpenSubs.remove(key)
+        } else {
+            saved.insert(key)
+        }
+        savedOpenSubsRaw = saved.sorted().joined(separator: ",")
+    }
+    /// Open the sub-menu holding `section`, for this run only (never saved).
+    private func revealSubgroup(of section: Section?) {
+        guard let section else { return }
+        for sg in navGroups.flatMap(\.subgroups) where sg.items.contains(section) {
+            autoOpenSubs.insert(sg.key)
+        }
+    }
+
+    /// A sub-menu header: a row like the page rows (its own glyph, a semibold
+    /// label), with a chevron — down while folded, up while open (web parity).
+    /// Folded with the current page inside it, a gold dot says where you are
+    /// (auto-open makes that rare — only a manual fold).
+    private func subgroupHeader(_ sg: NavSubgroup, containsSelection: Bool) -> some View {
+        let open = isSubOpen(sg.key)
+        return Button {
+            if reduceMotion { toggleSub(sg.key) }
+            else { withAnimation(.easeInOut(duration: 0.2)) { toggleSub(sg.key) } }
         } label: {
-            HStack(spacing: 6) {
-                Text(label.uppercased())
-                    .font(.inter(11.5, .bold)).tracking(1.2)
-                    .foregroundStyle(.white.opacity(financeOpen ? 0.34 : 0.5))
-                if !financeOpen && containsSelection {
-                    Circle().fill(Nuru.gold).frame(width: 5, height: 5)
+            HStack(spacing: 12) {
+                Image(systemName: sg.icon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 22)
+                HStack(spacing: 6) {
+                    Text(sg.label).font(.inter(14.5, .semibold))
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    if !open && containsSelection {
+                        Circle().fill(Nuru.gold).frame(width: 6, height: 6)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .rotationEffect(.degrees(open ? 180 : 0))
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .rotationEffect(.degrees(financeOpen ? 0 : -90))
             }
-            .padding(.horizontal, 14).padding(.bottom, 2).padding(.vertical, 2)
+            // brighter while the current page is one of its rows
+            .foregroundStyle(containsSelection ? .white : Color.white.opacity(0.7))
+            .padding(.horizontal, 12).padding(.vertical, 10)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .pressable()
         .hoverEffect(.highlight)
-        .accessibilityLabel(label)
-        .accessibilityValue(financeOpen ? "Expanded" : "Collapsed")
-        .accessibilityHint(financeOpen ? "Hides the Finance pages" : "Shows the Finance pages")
-        .accessibilityAddTraits(.isHeader)
+        .help(sg.label)
+        .accessibilityLabel(sg.label)
+        .accessibilityValue(open ? "Expanded" : "Collapsed")
+        .accessibilityHint(open ? "Hides its pages" : "Shows its pages")
     }
 
     private var collapseToggle: some View {
@@ -851,9 +978,11 @@ private struct PortalTopBar: View {
 #if DEBUG
 /// DEBUG self-check of the Finance sidebar (this project has no test target —
 /// FinanceSelfCheck runs it at launch in Debug builds): FINANCE sits directly
-/// after OPERATIONS and lists the 17 spec §1 pages in order with their Label
-/// titles, distinct icons and finance:view gates; Operations keeps Departments
-/// and nothing of Finance. Returns the failures (empty = pass).
+/// after OPERATIONS; its 17 spec §1 pages keep their Label titles, distinct
+/// icons and finance:view gates, in the owner's three sub-menus (Giving &
+/// Income · Spending & Planning · Accounting & Reporting) with Settings apart
+/// at the bottom; every glyph resolves; Operations keeps Departments and
+/// nothing of Finance. Returns the failures (empty = pass).
 func financeNavSelfCheckFailures() -> [String] {
     var failures: [String] = []
     let labels = navGroups.map(\.label)
@@ -862,20 +991,54 @@ func financeNavSelfCheckFailures() -> [String] {
         return ["nav: the Operations or Finance group is missing"]
     }
     if fin != ops + 1 { failures.append("nav: Finance is not directly after Operations") }
+    let finance = navGroups[fin]
+    // The sidebar, top to bottom (owner, 2026-09-26).
+    let expectedEntries: [String] = ["sub:giving", "sub:spending", "sub:accounting", Section.financeSettings.rawValue]
+    if finance.entries.map(\.id) != expectedEntries { failures.append("nav: Finance is not the three sub-menus then Settings") }
+    if finance.subgroups.map(\.label) != ["Giving & Income", "Spending & Planning", "Accounting & Reporting"] {
+        failures.append("nav: Finance sub-menu labels differ from the owner's")
+    }
+    let rows: [String: [Section]] = Dictionary(uniqueKeysWithValues: finance.subgroups.map { ($0.key, $0.items) })
+    if rows["giving"] != [.financeOverview, .financeTransactions, .financePledges, .partners, .financeRecurring, .financeCampaigns] {
+        failures.append("nav: Giving & Income rows are wrong")
+    }
+    if rows["spending"] != [.financeNeeds, .financeExpenses, .financeClaims, .financeBudgets, .financeFunds] {
+        failures.append("nav: Spending & Planning rows are wrong")
+    }
+    if rows["accounting"] != [.financeLedger, .financeReconciliation, .financeReports, .financeStatements, .financeAudit] {
+        failures.append("nav: Accounting & Reporting rows are wrong")
+    }
     let expected: [Section] = [
-        .financeOverview, .financeTransactions, .financePledges, .partners, .financeClaims,
-        .financeRecurring, .financeCampaigns, .financeNeeds, .financeExpenses, .financeBudgets,
-        .financeFunds, .financeLedger, .financeReconciliation, .financeReports,
-        .financeStatements, .financeAudit, .financeSettings,
+        .financeOverview, .financeTransactions, .financePledges, .partners, .financeRecurring, .financeCampaigns,
+        .financeNeeds, .financeExpenses, .financeClaims, .financeBudgets, .financeFunds,
+        .financeLedger, .financeReconciliation, .financeReports, .financeStatements, .financeAudit,
+        .financeSettings,
     ]
-    if navGroups[fin].items != expected { failures.append("nav: the Finance items are not the 17 spec §1 sections in order") }
-    let titles = ["Overview", "Transactions", "Pledges", "Partners", "Claims", "Recurring gifts", "Campaigns",
-                  "Department needs", "Expenses", "Budgets", "Funds", "Ledger", "Reconciliation", "Reports",
-                  "Statements", "Audit", "Settings"]
-    if expected.map(\.title) != titles { failures.append("nav: Finance titles differ from the spec §1 Label column") }
+    if finance.items != expected { failures.append("nav: the flat Finance rows are not the 17 spec §1 sections in sidebar order") }
+    let titles = ["Overview", "Transactions", "Pledges", "Partners", "Recurring gifts", "Campaigns",
+                  "Department needs", "Expenses", "Claims", "Budgets", "Funds",
+                  "Ledger", "Reconciliation", "Reports", "Statements", "Audit", "Settings"]
+    if expected.map(\.title) != titles { failures.append("nav: Finance titles changed (the owner asked for none to)") }
     for s in expected where s.permission != "finance:view" { failures.append("nav: \(s.rawValue) is not gated on finance:view") }
     for s in expected where !s.isFinance { failures.append("nav: \(s.rawValue) is not marked isFinance") }
     if Set(expected.map(\.icon)).count != expected.count { failures.append("nav: Finance icons are not distinct") }
+    // Sub-menu glyphs: distinct, shared with no page row, and real SF Symbols
+    // (a misspelt name renders as nothing, silently).
+    let subIcons = finance.subgroups.map(\.icon)
+    if Set(subIcons).count != subIcons.count { failures.append("nav: sub-menu icons are not distinct") }
+    let rowIcons = Set(Section.allCases.map(\.icon))
+    for icon in subIcons where rowIcons.contains(icon) { failures.append("nav: sub-menu icon \(icon) is also a page's") }
+    for icon in subIcons + expected.map(\.icon) where UIImage(systemName: icon) == nil {
+        failures.append("nav: SF Symbol \(icon) does not exist")
+    }
+    // Sub-menu keys are the saved-state tokens: unique across the whole sidebar.
+    let keys = navGroups.flatMap(\.subgroups).map(\.key)
+    if Set(keys).count != keys.count { failures.append("nav: sub-menu keys are not unique") }
+    if navGroups.filter({ !$0.subgroups.isEmpty }).map(\.label) != [NavGroup.financeLabel] {
+        failures.append("nav: a group other than Finance has sub-menus")
+    }
+    // With no profile yet (booting) everything shows; the filter keeps sub-menu order.
+    if visibleEntries(finance, profile: nil).map(\.id) != expectedEntries { failures.append("nav: visibleEntries drops or reorders Finance lines") }
     if navGroups[ops].items.contains(where: \.isFinance) { failures.append("nav: Operations still lists a Finance page") }
     if !navGroups[ops].items.contains(.departments) { failures.append("nav: Departments left Operations") }
     if navGroups.flatMap(\.items).filter(\.isFinance).count != expected.count { failures.append("nav: a Finance page is listed outside the Finance group") }
