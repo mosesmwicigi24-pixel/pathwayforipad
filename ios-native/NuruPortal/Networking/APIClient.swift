@@ -84,7 +84,21 @@ actor APIClient {
     static let shared = APIClient()
 
     /// Prod API surface (same base the Capacitor build bakes in via VITE_API_BASE).
-    private let baseURL = URL(string: "https://pathway.nuruplace.org/v1")!
+    /// Debug builds only: the NURU_API_URL launch variable may point the app at a
+    /// LOOPBACK backend (127.0.0.1 / localhost) for local verification runs on the
+    /// simulator. Any other host is ignored, and Release always talks to prod.
+    private let baseURL: URL = APIClient.resolveBaseURL()
+
+    private static func resolveBaseURL() -> URL {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["NURU_API_URL"]?.trimmingCharacters(in: .whitespaces),
+           let url = URL(string: raw), let host = url.host,
+           ["127.0.0.1", "localhost"].contains(host) {
+            return url
+        }
+        #endif
+        return URL(string: "https://pathway.nuruplace.org/v1")!
+    }
 
     private let atKey = "nuru.portal.at"
     private let rtKey = "nuru.portal.rt"
