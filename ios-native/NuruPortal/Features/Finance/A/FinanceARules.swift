@@ -429,8 +429,39 @@ enum FinanceARules {
         if let k = known[action] { return k }
         let verb = action.split(separator: ".", maxSplits: 1).dropFirst().first.map(String.init) ?? action
         let words = verb.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: ".", with: " ")
+            .split(separator: " ").map { w -> String in
+                switch w.lowercased() {
+                case "mpesa": "M-Pesa"
+                case "paypal": "PayPal"
+                case "stripe": "Stripe"
+                case "airtel": "Airtel"
+                case "sms": "SMS"
+                default: String(w)
+                }
+            }.joined(separator: " ")
         guard let f = words.first else { return action }
         return f.uppercased() + words.dropFirst()
+    }
+
+    /// An audit row's record in words: "transactions" → "Transaction".
+    static func entityLabel(_ entity: String) -> String {
+        switch entity {
+        case "transactions": "Transaction"
+        case "journals": "Journal"
+        case "expenses": "Expense"
+        case "funds": "Fund"
+        case "expense_categories": "Expense category"
+        case "budgets": "Budget"
+        case "pledges": "Pledge"
+        case "pledge_claims": "Payment claim"
+        case "department_needs": "Department need"
+        case "giving_schedules": "Recurring gift"
+        case "products": "Product"
+        case "": "—"
+        default:
+            entity.replacingOccurrences(of: "_", with: " ").prefix(1).uppercased()
+                + entity.replacingOccurrences(of: "_", with: " ").dropFirst()
+        }
     }
 
     /// The audit filter's action prefixes (the finance slice, spec §4).
@@ -461,7 +492,7 @@ enum FinanceARules {
             }
         }
         var parts: [String] = []
-        if let amount = int("amount_minor") { parts.append(FinanceMoney.format(amount, str("currency") ?? "")) }
+        if let amount = int("amount_minor") { parts.append(FinanceMoney.format(amount, str("currency") ?? FinanceMoney.homeCurrency)) }
         if let r = str("receipt_code") { parts.append(r) }
         if let from = str("from"), let to = str("to") { parts.append("\(from) → \(to)") }
         else if let fund = str("fund") { parts.append(fund) }
@@ -477,6 +508,56 @@ enum FinanceARules {
             parts.append("“" + (reason.count > 60 ? String(reason.prefix(59)) + "…" : reason) + "”")
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// The audit detail's lines — every metadata key as recorded, except that a
+    /// money key (…_minor, at any depth) reads as money in the row's currency
+    /// (metadata.currency, else KES) and is labelled without the suffix
+    /// ("income total: KES 1,200,000.00"); the bare currency key is left out
+    /// when a money line already carries it (web parity).
+    static func auditMetadataFacts(_ metadata: [String: FinJSON]?) -> [FinAFact] {
+        guard let m = metadata, !m.isEmpty else { return [] }
+        var currency = FinanceMoney.homeCurrency
+        if case .string(let c)? = m["currency"], !c.isEmpty { currency = c }
+        let hasMoney = m.keys.contains { $0.hasSuffix("_minor") }
+        return m.keys.sorted().compactMap { k in
+            if k == "currency" && hasMoney { return nil }
+            let v = m[k] ?? .null
+            return FinAFact(auditLabel(k), auditValue(k, v, currency: currency),
+                            mono: k.hasSuffix("_id") || k == "reference" || k == "receipt_code")
+        }
+    }
+
+    /// "income_total_minor" → "income total"; "user_id" → "user id".
+    static func auditLabel(_ key: String) -> String {
+        let bare = key.hasSuffix("_minor") ? String(key.dropLast("_minor".count)) : key
+        return bare.replacingOccurrences(of: "_", with: " ")
+    }
+
+    /// One metadata value in words; money keys as money, nested objects as
+    /// "label: value · label: value" by the same rules.
+    static func auditValue(_ key: String, _ v: FinJSON, currency: String) -> String {
+        if key.hasSuffix("_minor") {
+            switch v {
+            case .number(let n) where n.isFinite: return FinanceMoney.format(Int(n.rounded()), currency)
+            case .string(let t): if let i = Int(t.trimmingCharacters(in: .whitespaces)) { return FinanceMoney.format(i, currency) }
+            default: break
+            }
+        }
+        switch v {
+        case .object(let o):
+            var cur = currency
+            if case .string(let c)? = o["currency"], !c.isEmpty { cur = c }
+            let money = o.keys.contains { $0.hasSuffix("_minor") }
+            return o.keys.sorted().compactMap { k in
+                if k == "currency" && money { return nil }
+                return "\(auditLabel(k)): \(auditValue(k, o[k] ?? .null, currency: cur))"
+            }.joined(separator: " · ")
+        case .array(let a):
+            return a.map { auditValue(key, $0, currency: currency) }.joined(separator: ", ")
+        default:
+            return v.text
+        }
     }
 
     // MARK: Who can do what (spec §6)
@@ -611,12 +692,26 @@ enum FinanceASelfCheck {
         expectEqual(FinanceARules.humanAction("finance.gift_recorded"), "Gift recorded", "known action")
         expectEqual(FinanceARules.humanAction("webhook.stripe_received"), "Stripe received", "unknown action reads its verb")
         expectEqual(FinanceARules.humanAction("department.need_approved"), "Department need approved", "department need action")
+        expectEqual(FinanceARules.humanAction("webhook.mpesa_callback"), "M-Pesa callback", "brand words in unknown actions")
+        expectEqual(FinanceARules.entityLabel("pledge_claims"), "Payment claim", "entity words")
+        expectEqual(FinanceARules.entityLabel("webhook_events"), "Webhook events", "unknown entity reads its words")
         let meta: [String: FinJSON] = ["amount_minor": .number(150_050), "currency": .string("KES"), "receipt_code": .string("OR-2026-00012"),
                                        "fund": .string("tithe"), "channel": .string("mpesa"), "reference": .string("QJK4ABC123")]
         expectEqual(FinanceARules.auditDetails(meta), "KES 1,500.50 · OR-2026-00012 · tithe · M-Pesa QJK4ABC123", "audit details — gift")
         expectEqual(FinanceARules.auditDetails(["from": .string("building"), "to": .string("missions"), "amount_minor": .string("100000"), "currency": .string("KES")]),
                     "KES 1,000.00 · building → missions", "audit details — transfer, BIGINT as text")
         expectEqual(FinanceARules.auditDetails(nil), "", "no metadata")
+        expectEqual(FinanceARules.auditDetails(["amount_minor": .number(5_000)]), "KES 50.00", "details: currency falls back to KES")
+        func facts(_ m: [String: FinJSON]) -> [String] { FinanceARules.auditMetadataFacts(m).map { "\($0.label): \($0.value)" } }
+        expectEqual(facts(["income_total_minor": .number(120_000_000), "currency": .string("KES")]),
+                    ["income total: KES 1,200,000.00"], "money key: no suffix, no bare currency line")
+        expectEqual(facts(["amount_minor": .string("5000")]), ["amount: KES 50.00"], "money key as text, KES fallback")
+        expectEqual(facts(["currency": .string("USD"), "reason": .string("Duplicate")]),
+                    ["currency: USD", "reason: Duplicate"], "currency kept when no money line carries it")
+        expectEqual(facts(["currency": .string("USD"), "changes": .object(["amount_minor": .number(5_000), "payee": .string("KPLC")])]),
+                    ["changes: amount: USD 50.00 · payee: KPLC", "currency: USD"], "nested money key in the row's currency")
+        expectEqual(facts(["from_balance_after_minor": .number(-300_000), "currency": .string("KES"), "to": .string("missions")]),
+                    ["from balance after: -KES 3,000.00", "to: missions"], "negative money key")
 
         // The fund patch override encodes `force` only when set.
         let enc = JSONEncoder()

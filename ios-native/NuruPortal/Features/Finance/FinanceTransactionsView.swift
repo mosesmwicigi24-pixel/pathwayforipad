@@ -41,8 +41,8 @@ final class FinanceTransactionsModel: ObservableObject {
     private static let filterKeys: Set<String> = ["from", "to", "fund", "status", "channel", "source", "q", "pledged", "need"]
 
     /// A deep link: filter keys replace the filters; tx=<id> opens that
-    /// transaction; record=gift opens the form.
-    func apply(_ p: [String: String]) {
+    /// transaction; record=gift opens the form (only with finance:manage).
+    func apply(_ p: [String: String], caps: FinanceCaps) {
         if !Self.filterKeys.isDisjoint(with: p.keys) {
             var f = FinTransactionFilter()
             if let from = p["from"], let to = p["to"],
@@ -59,7 +59,7 @@ final class FinanceTransactionsModel: ObservableObject {
             filter = f
         }
         if let tx = p["tx"], !tx.isEmpty { sheet = .detail(tx) }
-        else if p["record"] != nil { sheet = .gift }
+        else if p["record"] != nil, caps.manage { sheet = .gift }
     }
 }
 
@@ -111,8 +111,8 @@ struct FinanceTransactionsView: View {
             let filter = vm.filter
             await vm.pager.load { cursor in try await FinanceERPAPI.transactions(filter, cursor: cursor) }
         }
-        .onFinanceLink(.financeTransactions) { vm.apply($0) }
-        .finADebugLaunchParams(.financeTransactions) { vm.apply($0) }
+        .onFinanceLink(.financeTransactions) { vm.apply($0, caps: auth.financeCaps) }
+        .finADebugLaunchParams(.financeTransactions) { vm.apply($0, caps: auth.financeCaps) }
         .sheet(item: $vm.sheet) { s in
             switch s {
             case .detail(let id):
@@ -120,6 +120,9 @@ struct FinanceTransactionsView: View {
                                      onChanged: { Task { await vm.pager.reload() } },
                                      onOpenMember: { userId, name in
                                          DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { router.member(userId, name) }
+                                     },
+                                     onOpenPartner: { userId in
+                                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { router.openFinance(.partners, ["member": userId]) }
                                      })
             case .gift:
                 FinARecordGiftSheet(onOpenTransaction: { id in vm.sheet = .detail(id) },

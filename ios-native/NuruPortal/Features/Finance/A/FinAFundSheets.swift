@@ -34,10 +34,10 @@ struct FinAFundDetailSheet: View {
     }
 
     private var cols: [FinanceColumn] { [
-        FinanceColumn("Posted", width: 88),
-        FinanceColumn("From / to", minWidth: 170),
-        FinanceColumn("Out (debit)", width: 116, align: .trailing),
-        FinanceColumn("In (credit)", width: 116, align: .trailing),
+        FinanceColumn("Posted", width: 80),
+        FinanceColumn("From / to", minWidth: 150),
+        FinanceColumn("Out (Dr)", width: 108, align: .trailing),
+        FinanceColumn("In (Cr)", width: 108, align: .trailing),
     ] }
 
     var body: some View {
@@ -241,6 +241,15 @@ struct FinAFundEditorSheet: View {
                 .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
             }
         }
+        #if DEBUG
+        .task {
+            guard let p = FinanceAFixtures.formValues() else { return }
+            if let v = p["name"] { name = v }
+            if let v = p["code"] { code = v; codeEdited = true }
+            if let v = p["active"] { active = v == "1" }
+            if p["submit"] == "1" { await save(force: false) }
+        }
+        #endif
         .alert("Deactivate \(fund?.name ?? "this fund") anyway?", isPresented: $confirmForce) {
             Button("Deactivate", role: .destructive) { Task { await save(force: true) } }
             Button("Cancel", role: .cancel) {}
@@ -347,6 +356,17 @@ struct FinATransferSheet: View {
                 form
             }
         }
+        #if DEBUG
+        .task {
+            guard let p = FinanceAFixtures.formValues() else { return }
+            if let v = p["from"] { from = v }
+            if let v = p["to"] { to = v }
+            if let v = p["currency"] { currency = v }
+            if let v = p["amount"] { amountText = v }
+            if let v = p["memo"] { memo = v }
+            if p["submit"] == "1" { await post(allowNegative: false) }
+        }
+        #endif
         .alert("Take \(fromFund?.name ?? "the fund") below zero?", isPresented: $confirmNegative) {
             Button("Post anyway", role: .destructive) { Task { await post(allowNegative: true) } }
             Button("Cancel", role: .cancel) {}
@@ -403,7 +423,7 @@ struct FinATransferSheet: View {
         let name = fromFund?.name ?? "The fund"
         let bal = n.balance.map { FinanceMoney.format($0, currency) } ?? "less than this"
         let after = n.after.map { " — this transfer would leave it at \(FinanceMoney.format($0, currency))" } ?? ""
-        return "\(name) has \(bal) in \(currency)\(after). Nothing was posted."
+        return "\(name) holds \(bal)\(after). Nothing was posted."
     }
 
     private func done(_ r: FinTransfer) -> some View {
@@ -545,7 +565,22 @@ struct FinAOpeningBalanceSheet: View {
                 }
             }
         }
+        #if DEBUG
+        .task { await debugPrefill() }
+        #endif
     }
+
+    #if DEBUG
+    fileprivate func debugPrefill() async {
+        guard let p = FinanceAFixtures.formValues() else { return }
+        if let v = p["fund"] { fund = v }
+        if let v = p["channel"], let c = FinOfficeChannel(rawValue: v) { channel = c }
+        if let v = p["currency"] { currency = v }
+        if let v = p["amount"] { amountText = v }
+        if let v = p["memo"] { memo = v }
+        if p["submit"] == "1" { await post() }
+    }
+    #endif
 
     private func post() async {
         showProblems = true

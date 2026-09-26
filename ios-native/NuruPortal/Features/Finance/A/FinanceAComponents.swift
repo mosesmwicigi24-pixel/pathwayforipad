@@ -116,32 +116,58 @@ struct FinALegsTable<Leg: FinLeg & Identifiable>: View {
     let legs: [Leg]
     var fundNames: [String: String] = [:]
     var isReversal: (Leg) -> Bool = { _ in false }
+    /// Narrower than the four columns (a sheet, an expanded row): the posting
+    /// date folds under the account.
+    @State private var width: CGFloat = 0
 
-    private var cols: [FinanceColumn] { [
-        FinanceColumn("Posted", width: 92),
-        FinanceColumn("Account", minWidth: 150),
-        FinanceColumn("Debit", width: 118, align: .trailing),
-        FinanceColumn("Credit", width: 118, align: .trailing),
-    ] }
+    init(legs: [Leg], fundNames: [String: String] = [:], isReversal: @escaping (Leg) -> Bool = { _ in false }) {
+        self.legs = legs
+        self.fundNames = fundNames
+        self.isReversal = isReversal
+    }
+
+    private var narrow: Bool { width > 0 && width < 520 }
+
+    private var cols: [FinanceColumn] {
+        if narrow {
+            return [
+                FinanceColumn("Account", minWidth: 130),
+                FinanceColumn("Debit", width: 112, align: .trailing),
+                FinanceColumn("Credit", width: 112, align: .trailing),
+            ]
+        }
+        return [
+            FinanceColumn("Posted", width: 86),
+            FinanceColumn("Account", minWidth: 140),
+            FinanceColumn("Debit", width: 112, align: .trailing),
+            FinanceColumn("Credit", width: 112, align: .trailing),
+        ]
+    }
 
     var body: some View {
         let cols = self.cols
+        let narrow = self.narrow
+        let offset = narrow ? 0 : 1
         return VStack(alignment: .leading, spacing: 8) {
             FinanceTable(rows: legs, columns: cols, emptyIcon: "book.closed", emptyMessage: "No postings.") { leg in
-                Text(FinanceATime.day(leg.createdAt)).font(.inter(12.5)).foregroundStyle(Nuru.ink600).financeCell(cols[0])
+                if !narrow {
+                    Text(FinanceATime.day(leg.createdAt)).font(.inter(12.5)).foregroundStyle(Nuru.ink600).financeCell(cols[0])
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(leg.account).font(.nMono(12.5)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.8)
                     HStack(spacing: 6) {
-                        Text(FinanceARules.accountLabel(leg.account, fundNames: fundNames)).font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
+                        Text(FinanceARules.accountLabel(leg.account, fundNames: fundNames) + (narrow ? " · \(FinanceATime.day(leg.createdAt))" : ""))
+                            .font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
                         if isReversal(leg) { FinATag(text: "Reversal", tone: FinanceStatus.violet) }
                     }
                 }
-                .financeCell(cols[1])
+                .financeCell(cols[offset])
                 Text(leg.side == "debit" ? FinanceMoney.format(leg.amountMinor, leg.currency) : "")
-                    .font(.nMono(12.5)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[2])
+                    .font(.nMono(12.5)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[offset + 1])
                 Text(leg.side == "credit" ? FinanceMoney.format(leg.amountMinor, leg.currency) : "")
-                    .font(.nMono(12.5)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[3])
+                    .font(.nMono(12.5)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[offset + 2])
             }
+            .measureWidth($width)
             ForEach(FinALegCheck.of(legs)) { c in
                 HStack(spacing: 6) {
                     Image(systemName: c.balanced ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
@@ -154,7 +180,6 @@ struct FinALegsTable<Leg: FinLeg & Identifiable>: View {
             }
         }
     }
-
 }
 
 /// Σ debit and Σ credit of some legs, per currency (never across currencies).

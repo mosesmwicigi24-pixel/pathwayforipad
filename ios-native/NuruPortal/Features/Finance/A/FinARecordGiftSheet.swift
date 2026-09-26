@@ -356,15 +356,10 @@ struct FinARecordGiftSheet: View {
     }
 
     #if DEBUG
-    /// DEBUG: NURU_FINANCE_GIFT_PREFILL="q=Mary&amount=1500&channel=mpesa&reference=QJK4ABC123&fund=tithe&submit=1"
+    /// DEBUG: NURU_FINANCE_FORM="q=Mary&amount=1500&channel=mpesa&reference=QJK4ABC123&fund=tithe&submit=1"
     /// fills (and optionally submits) the form — headless checks of its paths.
     private func debugPrefill() async {
-        guard let raw = ProcessInfo.processInfo.environment["NURU_FINANCE_GIFT_PREFILL"], !raw.isEmpty else { return }
-        var p: [String: String] = [:]
-        for pair in raw.split(separator: "&") {
-            let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
-            if kv.count == 2 { p[kv[0]] = kv[1].replacingOccurrences(of: "+", with: " ") }
-        }
+        guard let p = FinanceAFixtures.formValues() else { return }
         if p["giver"] == "walkin" { vm.giver = .walkIn; vm.walkInName = p["name"] ?? "" }
         if p["giver"] == "anonymous" { vm.giver = .anonymous }
         if let q = p["q"] {

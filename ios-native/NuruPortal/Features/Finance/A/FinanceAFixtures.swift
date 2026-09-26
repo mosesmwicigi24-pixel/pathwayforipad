@@ -79,6 +79,20 @@ enum FinanceAFixtures {
     }
     nonisolated(unsafe) private static var consumed = false
 
+    /// DEBUG: NURU_FINANCE_FORM="amount=80000&from=tithe&submit=1" — the values the
+    /// first A write sheet to appear fills in (and submits when submit=1). Once.
+    static func formValues() -> [String: String]? {
+        guard !formConsumed, let raw = ProcessInfo.processInfo.environment["NURU_FINANCE_FORM"], !raw.isEmpty else { return nil }
+        formConsumed = true
+        var out: [String: String] = [:]
+        for pair in raw.split(separator: "&") {
+            let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
+            if kv.count == 2 { out[kv[0]] = kv[1].replacingOccurrences(of: "+", with: " ") }
+        }
+        return out
+    }
+    nonisolated(unsafe) private static var formConsumed = false
+
     // MARK: Routing
 
     static func respond(method: String, path: String, query: [String: String], body: [String: Any]) -> (Int, String) {

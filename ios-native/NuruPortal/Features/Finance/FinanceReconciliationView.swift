@@ -71,6 +71,8 @@ final class FinanceReconciliationModel: ObservableObject {
 struct FinanceReconciliationView: View {
     @EnvironmentObject private var router: NavRouter
     @StateObject private var vm = FinanceReconciliationModel()
+    @State private var width: CGFloat = 0
+    private var narrow: Bool { width > 0 && width < 700 }
 
     var body: some View {
         FinancePageScaffold(title: Section.financeReconciliation.title,
@@ -81,7 +83,8 @@ struct FinanceReconciliationView: View {
             FinanceTabs(tabs: FinAReconTab.allCases, selection: $vm.tab, label: \.title,
                         badge: { $0 == .exceptions ? vm.totalExceptions : nil })
         } content: {
-            FinanceFilterBar(period: $vm.period)
+            // Integrity is over the whole ledger (all time) — no period there.
+            if vm.tab != .integrity { FinanceFilterBar(period: $vm.period) }
             if let d = vm.data {
                 Group {
                     switch vm.tab {
@@ -105,14 +108,26 @@ struct FinanceReconciliationView: View {
 
     // MARK: Settlement
 
-    private var settlementColumns: [FinanceColumn] { [
-        FinanceColumn("Day", width: 92),
-        FinanceColumn("Channel", minWidth: 130),
-        FinanceColumn("Gifts", width: 64, align: .trailing),
-        FinanceColumn("Received", width: 116, align: .trailing),
-        FinanceColumn("Reversed", width: 108, align: .trailing),
-        FinanceColumn("Net", width: 116, align: .trailing),
-    ] }
+    private var settlementColumns: [FinanceColumn] {
+        if narrow {
+            return [
+                FinanceColumn("Day", width: 84),
+                FinanceColumn("Channel", minWidth: 110),
+                FinanceColumn("Received", width: 128, align: .trailing),
+                FinanceColumn("Net", width: 128, align: .trailing),
+            ]
+        }
+        return [
+            FinanceColumn("Day", width: 92),
+            FinanceColumn("Channel", minWidth: 130),
+            FinanceColumn("Gifts", width: 64, align: .trailing),
+            FinanceColumn("Received", width: 116, align: .trailing),
+            FinanceColumn("Reversed", width: 108, align: .trailing),
+            FinanceColumn("Net", width: 116, align: .trailing),
+        ]
+    }
+
+    private func gifts(_ n: Int) -> String { "\(n) \(n == 1 ? "gift" : "gifts")" }
 
     @ViewBuilder private func settlement(_ d: FinReconciliation) -> some View {
         let byCurrency = Dictionary(grouping: d.settlement, by: \.currency)
@@ -125,12 +140,13 @@ struct FinanceReconciliationView: View {
                     let reversed = rows.reduce(0) { $0 + $1.reversedMinor }
                     FinanceKpiTile(label: "\(c) net in period", icon: "arrow.down.to.line", tint: Nuru.brandTint(0),
                                    values: [FinanceMoney.format(received - reversed, c)],
-                                   hint: "Received \(FinanceMoney.format(received, c)) · reversed \(FinanceMoney.format(reversed, c)) · \(rows.reduce(0) { $0 + $1.count }) gifts")
+                                   hint: "Received \(FinanceMoney.format(received, c)) · reversed \(FinanceMoney.format(reversed, c)) · \(gifts(rows.reduce(0) { $0 + $1.count }))")
                 }
             }
         }
         let cols = settlementColumns
         let rows = d.settlement
+        let narrow = self.narrow
         FinanceTable(rows: rows, columns: cols, emptyIcon: "calendar", emptyMessage: "No money came in during this period.") { s in
             let firstOfDay = rows.first { $0.day == s.day }?.id == s.id
             Text(firstOfDay ? FinanceDates.display(s.day) : "").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.ink).lineLimit(1)
@@ -140,18 +156,36 @@ struct FinanceReconciliationView: View {
                 Text("\(s.account) · \(s.currency)").font(.nMono(10.5)).foregroundStyle(Nuru.ink400).lineLimit(1)
             }
             .financeCell(cols[1])
-            VStack(alignment: .trailing, spacing: 1) {
-                Text("\(s.count)").font(.nMono(12.5))
-                if s.reversedCount > 0 { Text("−\(s.reversedCount)").font(.nMono(10.5)).foregroundStyle(FinanceStatus.violet.fg) }
+            if narrow {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(FinanceMoney.format(s.receivedMinor, s.currency)).font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7)
+                    Text(gifts(s.count)).font(.nMicro).foregroundStyle(Nuru.ink400)
+                }
+                .financeCell(cols[2])
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(FinanceMoney.format(s.amountMinor, s.currency)).font(.nMono(12.5, .medium)).foregroundStyle(Nuru.navy)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    if s.reversedMinor != 0 {
+                        Text("\(FinanceMoney.format(-s.reversedMinor, s.currency)) · \(s.reversedCount) rev.").font(.nMono(10.5))
+                            .foregroundStyle(FinanceStatus.violet.fg).lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                }
+                .financeCell(cols[3])
+            } else {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("\(s.count)").font(.nMono(12.5))
+                    if s.reversedCount > 0 { Text("−\(s.reversedCount)").font(.nMono(10.5)).foregroundStyle(FinanceStatus.violet.fg) }
+                }
+                .financeCell(cols[2])
+                Text(FinanceMoney.format(s.receivedMinor, s.currency)).font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[3])
+                Text(s.reversedMinor == 0 ? "—" : FinanceMoney.format(-s.reversedMinor, s.currency)).font(.nMono(12.5))
+                    .foregroundStyle(s.reversedMinor == 0 ? Nuru.ink400 : FinanceStatus.violet.fg)
+                    .lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[4])
+                Text(FinanceMoney.format(s.amountMinor, s.currency)).font(.nMono(12.5, .medium)).foregroundStyle(Nuru.navy)
+                    .lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[5])
             }
-            .financeCell(cols[2])
-            Text(FinanceMoney.format(s.receivedMinor, s.currency)).font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[3])
-            Text(s.reversedMinor == 0 ? "—" : FinanceMoney.format(-s.reversedMinor, s.currency)).font(.nMono(12.5))
-                .foregroundStyle(s.reversedMinor == 0 ? Nuru.ink400 : FinanceStatus.violet.fg)
-                .lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[4])
-            Text(FinanceMoney.format(s.amountMinor, s.currency)).font(.nMono(12.5, .medium)).foregroundStyle(Nuru.navy)
-                .lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[5])
         }
+        .measureWidth($width)
         FinAExplain("What each cash account received per day (the posting's date, EAT), less reversals — a reversal is dated on the gift it corrects, so a day's net is what that day really kept. Compare a day's M-Pesa net with the till statement, cash on hand with the count.")
     }
 
@@ -212,6 +246,10 @@ struct FinanceReconciliationView: View {
                 if rows.isEmpty {
                     Text("Counted by the server; none listed in this period.").font(.nCaption).foregroundStyle(Nuru.ink400)
                         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                } else if rows.count < n {
+                    Text("Showing \(rows.count) of \(n).").font(.nCaption).foregroundStyle(Nuru.ink400)
+                        .padding(.horizontal, 12).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(alignment: .top) { Rectangle().fill(Nuru.border).frame(height: 1) }
                 }
             }
             .background(Nuru.surface)
@@ -246,10 +284,10 @@ struct FinanceReconciliationView: View {
                         FinAFact("Debits", FinanceMoney.format(i.debitMinor, i.currency)),
                         FinAFact("Credits", FinanceMoney.format(i.creditMinor, i.currency)),
                         FinAFact("Difference", FinanceMoney.format(i.debitMinor - i.creditMinor, i.currency)),
-                    ], minimum: 110)
+                    ], minimum: 140)
                 }
             }
         }
-        FinAExplain("Σ debits and Σ credits over every posting ever made (not just this period), per currency. Double entry means they are always equal; a difference means a posting is missing its other half.")
+        FinAExplain("All time: Σ debits and Σ credits over every posting ever made, per currency. Double entry means they are always equal; a difference means a posting is missing its other half.")
     }
 }

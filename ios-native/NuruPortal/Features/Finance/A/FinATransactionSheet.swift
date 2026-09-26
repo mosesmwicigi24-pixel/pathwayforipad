@@ -13,6 +13,8 @@ struct FinATransactionSheet: View {
     var onChanged: () -> Void = {}
     /// Open the member's profile (the sheet dismisses first).
     var onOpenMember: ((String, String) -> Void)? = nil
+    /// Open the member's partner record (Partners, member=<user_id>) — for a gift toward a pledge.
+    var onOpenPartner: ((String) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var detail: FinTransactionDetail?
@@ -21,12 +23,14 @@ struct FinATransactionSheet: View {
     @State private var toast: ToastData?
 
     init(transactionId: String, caps: FinanceCaps, fundNames: [String: String] = [:],
-         onChanged: @escaping () -> Void = {}, onOpenMember: ((String, String) -> Void)? = nil) {
+         onChanged: @escaping () -> Void = {}, onOpenMember: ((String, String) -> Void)? = nil,
+         onOpenPartner: ((String) -> Void)? = nil) {
         self.transactionId = transactionId
         self.caps = caps
         self.fundNames = fundNames
         self.onChanged = onChanged
         self.onOpenMember = onOpenMember
+        self.onOpenPartner = onOpenPartner
     }
 
     var body: some View {
@@ -160,6 +164,12 @@ struct FinATransactionSheet: View {
                     FinanceButton(title: "Member profile", icon: "person.crop.circle") {
                         dismiss()
                         open(userId, name)
+                    }
+                }
+                if let userId = t.userId, t.pledgeId != nil, let open = onOpenPartner {
+                    FinanceButton(title: "Partner record", icon: "signature") {
+                        dismiss()
+                        open(userId)
                     }
                 }
             }

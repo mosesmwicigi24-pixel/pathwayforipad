@@ -33,13 +33,25 @@ final class FinanceAuditModel: ObservableObject {
 struct FinanceAuditView: View {
     @EnvironmentObject private var router: NavRouter
     @StateObject private var vm = FinanceAuditModel()
+    @State private var width: CGFloat = 0
+    /// Below 700 (11" portrait, split view) the record folds under the details.
+    private var narrow: Bool { width > 0 && width < 700 }
 
-    private var columns: [FinanceColumn] { [
-        FinanceColumn("When (EAT)", width: 104),
-        FinanceColumn("Actor", width: 130),
-        FinanceColumn("What happened", minWidth: 190),
-        FinanceColumn("Record", width: 120),
-    ] }
+    private var columns: [FinanceColumn] {
+        if narrow {
+            return [
+                FinanceColumn("When (EAT)", width: 96),
+                FinanceColumn("Actor", width: 112),
+                FinanceColumn("What happened", minWidth: 190),
+            ]
+        }
+        return [
+            FinanceColumn("When (EAT)", width: 104),
+            FinanceColumn("Actor", width: 130),
+            FinanceColumn("What happened", minWidth: 190),
+            FinanceColumn("Record", width: 120),
+        ]
+    }
 
     var body: some View {
         FinancePageScaffold(title: Section.financeAudit.title,
@@ -54,6 +66,7 @@ struct FinanceAuditView: View {
                                   options: [.all("Anyone"), FinanceFilterOption("System", "System"), FinanceFilterOption("Admin", "Staff (signed in)")])
             }
             let cols = columns
+            let narrow = self.narrow
             FinancePagedTable(pager: vm.pager, columns: cols, emptyIcon: "checkmark.shield",
                               emptyMessage: "Nothing in the trail matches these filters.",
                               onSelect: { vm.open = $0 }) { a in
@@ -74,14 +87,21 @@ struct FinanceAuditView: View {
                     if !details.isEmpty {
                         Text(details).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(2)
                     }
+                    if narrow {
+                        Text(FinanceARules.entityLabel(a.entity) + (a.entityId.map { " · \($0.prefix(8))" } ?? ""))
+                            .font(.nMono(10.5)).foregroundStyle(Nuru.ink400).lineLimit(1)
+                    }
                 }
                 .financeCell(cols[2])
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(a.entity.replacingOccurrences(of: "_", with: " ")).font(.inter(12.5)).foregroundStyle(Nuru.ink).lineLimit(1)
-                    if let id = a.entityId { Text(String(id.prefix(8))).font(.nMono(10.5)).foregroundStyle(Nuru.ink400).lineLimit(1) }
+                if !narrow {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(FinanceARules.entityLabel(a.entity)).font(.inter(12.5)).foregroundStyle(Nuru.ink).lineLimit(1)
+                        if let id = a.entityId { Text(String(id.prefix(8))).font(.nMono(10.5)).foregroundStyle(Nuru.ink400).lineLimit(1) }
+                    }
+                    .financeCell(cols[3])
                 }
-                .financeCell(cols[3])
             }
+            .measureWidth($width)
         }
         .task(id: vm.filter) {
             let filter = vm.filter
@@ -122,38 +142,21 @@ struct FinAAuditSheet: View {
                 FinAFact("Actor", row.actorName ?? row.actorType),
                 FinAFact("Actor id", row.actorId, mono: true),
                 FinAFact("Action", row.action, mono: true),
-                FinAFact("Record", row.entity),
+                FinAFact("Record", FinanceARules.entityLabel(row.entity)),
                 FinAFact("Record id", row.entityId, mono: true),
                 FinAFact("Audit #", String(row.auditId), mono: true),
             ], minimum: 180)
             if let l = link {
                 FinanceButton(title: l.label, icon: "arrow.up.right.square", style: .primary) { onOpen(l.section, l.params) }
             }
-            FinACard(icon: "curlybraces", title: "Details", caption: "exactly as recorded") {
-                let meta = row.metadata ?? [:]
-                if meta.isEmpty {
+            FinACard(icon: "curlybraces", title: "Details", caption: "as recorded") {
+                let facts = FinanceARules.auditMetadataFacts(row.metadata)
+                if facts.isEmpty {
                     Text("No details were recorded.").font(.nCaption).foregroundStyle(Nuru.ink400)
                 } else {
-                    FinAFacts(facts: meta.keys.sorted().map { k in
-                        FinAFact(k.replacingOccurrences(of: "_", with: " "), FinAAuditSheet.value(k, meta[k] ?? .null, meta),
-                                 mono: k.hasSuffix("_id") || k == "reference" || k == "receipt_code")
-                    }, minimum: 180)
+                    FinAFacts(facts: facts, minimum: 180)
                 }
             }
         }
-    }
-
-    /// Money keys read as money (amount_minor + currency), everything else as text.
-    static func value(_ key: String, _ v: FinJSON, _ all: [String: FinJSON]) -> String {
-        if key.hasSuffix("_minor") {
-            var cur = ""
-            if case .string(let c)? = all["currency"] { cur = c }
-            switch v {
-            case .number(let n) where n.isFinite: return FinanceMoney.format(Int(n.rounded()), cur)
-            case .string(let s): if let i = Int(s) { return FinanceMoney.format(i, cur) }
-            default: break
-            }
-        }
-        return v.text
     }
 }

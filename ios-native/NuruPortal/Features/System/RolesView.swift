@@ -34,7 +34,9 @@ struct RolesView: View {
         .id(reloadToken)
         .portalPage("Roles & Permissions")
         .sheet(item: $openRole) { role in
+            // The catalog's 8 capability columns want more than a form sheet.
             PermissionsMatrixSheet(role: role) { refresh() }
+                .rolesMatrixSizing()
         }
         .sheet(item: $editRole) { role in
             RoleForm(mode: .edit(role), allRoles: [], onSaved: { _ in refresh() })
@@ -749,11 +751,12 @@ private struct PermissionsMatrixSheet: View {
             // Column header row — tapping a capability label toggles the whole column.
             HStack(spacing: 0) {
                 Text("MODULE").font(.inter(10.5, .bold)).tracking(0.5).foregroundStyle(Nuru.ink600)
-                    .frame(width: 190, alignment: .leading).padding(.vertical, 8)
+                    .frame(width: 176, alignment: .leading).padding(.vertical, 8)
                 ForEach(capabilities) { cap in
                     Button { toggleColumn(cap.key) } label: {
                         Text(cap.label.uppercased()).font(.inter(10.5, .bold)).tracking(0.3).foregroundStyle(Nuru.navy)
-                            .frame(width: 60).padding(.vertical, 8)
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                            .frame(width: 56).padding(.vertical, 8)
                     }
                     .buttonStyle(.plain).disabled(locked)
                 }
@@ -770,13 +773,14 @@ private struct PermissionsMatrixSheet: View {
                         // Tapping the module label toggles the whole row.
                         Button { toggleRow(mod.id) } label: {
                             Text(mod.label).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
-                                .frame(width: 190, alignment: .leading).padding(.vertical, 5)
+                                .lineLimit(2).minimumScaleFactor(0.85)
+                                .frame(width: 176, alignment: .leading).padding(.vertical, 5)
                         }
                         .buttonStyle(.plain).disabled(locked)
                         ForEach(capabilities) { cap in
                             Button { toggleCell(mod.id, cap.key) } label: {
                                 MatrixBox(on: working.contains(cellKey(mod.id, cap.key)))
-                                    .frame(width: 60).padding(.vertical, 4)
+                                    .frame(width: 56).padding(.vertical, 4)
                             }
                             .buttonStyle(.plain).disabled(locked)
                         }
@@ -825,6 +829,17 @@ private struct PermissionsMatrixSheet: View {
         .frame(maxWidth: .infinity)
         .background(Nuru.surface)
         .overlay(Rectangle().fill(Nuru.border).frame(height: 1), alignment: .top)
+    }
+}
+
+private extension View {
+    /// Page-sized sheet where the OS has it (iOS 18+), so every catalog column shows.
+    @ViewBuilder func rolesMatrixSizing() -> some View {
+        if #available(iOS 18.0, macCatalyst 18.0, *) {
+            presentationSizing(.page)
+        } else {
+            self
+        }
     }
 }
 

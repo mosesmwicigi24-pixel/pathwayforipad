@@ -106,6 +106,7 @@ final class FinanceLedgerModel: ObservableObject {
                 if let period { trialPeriod = period }
             }
         }
+        if let id = p["expand"], !id.isEmpty { tab = .journals; expanded.insert(id) }
         if let id = p["journal"], !id.isEmpty { sheet = .journal(id) }
         else if let id = p["tx"], !id.isEmpty { sheet = .transaction(id) }
     }
@@ -115,6 +116,10 @@ struct FinanceLedgerView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var router: NavRouter
     @StateObject private var vm = FinanceLedgerModel()
+    /// The width the tables get: below 700 (11" portrait, split view) each
+    /// table folds columns together so the amounts never scroll out of sight.
+    @State private var width: CGFloat = 0
+    private var narrow: Bool { width > 0 && width < 700 }
 
     var body: some View {
         let caps = auth.financeCaps
@@ -143,6 +148,9 @@ struct FinanceLedgerView: View {
                                      onChanged: { Task { await refresh() } },
                                      onOpenMember: { userId, name in
                                          DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { router.member(userId, name) }
+                                     },
+                                     onOpenPartner: { userId in
+                                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { router.openFinance(.partners, ["member": userId]) }
                                      })
             case .journal(let id):
                 FinAJournalSheet(journalId: id, caps: caps, fundNames: vm.fundNames, onChanged: { Task { await refresh() } })
@@ -174,13 +182,38 @@ struct FinanceLedgerView: View {
         return o
     }
 
-    private var postingColumns: [FinanceColumn] { [
-        FinanceColumn("Posted", width: 84),
-        FinanceColumn("Account", width: 150),
-        FinanceColumn("Source", minWidth: 170),
-        FinanceColumn("Debit", width: 110, align: .trailing),
-        FinanceColumn("Credit", width: 110, align: .trailing),
-    ] }
+    private var postingColumns: [FinanceColumn] {
+        if narrow {
+            return [
+                FinanceColumn("Posted", width: 80),
+                FinanceColumn("Account · source", minWidth: 170),
+                FinanceColumn("Amount", width: 136, align: .trailing),
+            ]
+        }
+        return [
+            FinanceColumn("Posted", width: 84),
+            FinanceColumn("Account", width: 150),
+            FinanceColumn("Source", minWidth: 170),
+            FinanceColumn("Debit", width: 110, align: .trailing),
+            FinanceColumn("Credit", width: 110, align: .trailing),
+        ]
+    }
+
+    /// A posting's source in words: journal kind + memo, or receipt + giver (+ status).
+    @ViewBuilder private func postingSource(_ p: FinLedgerRow) -> some View {
+        if p.kind == "journal" {
+            FinATag(text: FinWords.journalKind(p.journalKind), tone: FinAJournalDetail.tone(p.journalKind ?? ""))
+            Text(p.memo ?? "—").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+        } else {
+            Text(p.receiptCode ?? "Gift").font(.nMono(12)).foregroundStyle(Nuru.ink).lineLimit(1).minimumScaleFactor(0.8)
+            HStack(spacing: 6) {
+                Text(p.memberName ?? "—").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                if let s = p.transactionStatus, s != "succeeded" {
+                    FinATag(text: FinanceStatus.tone(s).label, tone: (FinanceStatus.tone(s).fg, FinanceStatus.tone(s).bg))
+                }
+            }
+        }
+    }
 
     @ViewBuilder private var postingsTab: some View {
         let filtered = vm.postingsFilter != FinLedgerFilter()
@@ -195,6 +228,7 @@ struct FinanceLedgerView: View {
             FinAExplain("Each posting is dated at the day it records (a gift's received day; an expense's spent day; a reversal restates the day it corrects), in EAT. Over the whole ledger debits equal credits in every currency.")
         }
         let cols = postingColumns
+        let narrow = self.narrow
         FinancePagedTable(pager: vm.postings, columns: cols, emptyIcon: "book.closed",
                           emptyMessage: "No postings match these filters.",
                           totalCount: vm.postings.totals.isEmpty ? nil : vm.postings.totals.reduce(0) { $0 + $1.count },
@@ -204,33 +238,35 @@ struct FinanceLedgerView: View {
                           }) { p in
             Text(FinanceDates.display(p.postedOn)).font(.inter(12.5)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.8)
                 .financeCell(cols[0])
-            VStack(alignment: .leading, spacing: 1) {
-                Text(p.account).font(.nMono(12)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.75)
-                Text(FinanceARules.accountLabel(p.account, fundNames: vm.fundNames)).font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
-            }
-            .financeCell(cols[1])
-            VStack(alignment: .leading, spacing: 2) {
-                if p.kind == "journal" {
+            if narrow {
+                VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        FinATag(text: FinWords.journalKind(p.journalKind), tone: FinAJournalDetail.tone(p.journalKind ?? ""))
+                        Text(p.account).font(.nMono(12)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.75)
+                        Text(FinanceARules.accountLabel(p.account, fundNames: vm.fundNames)).font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
                     }
-                    Text(p.memo ?? "—").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
-                } else {
-                    HStack(spacing: 6) {
-                        Text(p.receiptCode ?? "Gift").font(.nMono(12)).foregroundStyle(Nuru.ink).lineLimit(1)
-                        if let s = p.transactionStatus, s != "succeeded" {
-                            FinanceStatusChip(status: s)
-                        }
-                    }
-                    Text(p.memberName ?? "—").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                    postingSource(p)
                 }
+                .financeCell(cols[1])
+                HStack(spacing: 4) {
+                    Text(p.side == "debit" ? "Dr" : "Cr").font(.nMicro).foregroundStyle(Nuru.ink400)
+                    Text(FinanceMoney.format(p.amountMinor, p.currency)).font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7)
+                }
+                .financeCell(cols[2])
+            } else {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(p.account).font(.nMono(12)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.75)
+                    Text(FinanceARules.accountLabel(p.account, fundNames: vm.fundNames)).font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
+                }
+                .financeCell(cols[1])
+                VStack(alignment: .leading, spacing: 2) { postingSource(p) }
+                    .financeCell(cols[2])
+                Text(p.side == "debit" ? FinanceMoney.format(p.amountMinor, p.currency) : "")
+                    .font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[3])
+                Text(p.side == "credit" ? FinanceMoney.format(p.amountMinor, p.currency) : "")
+                    .font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[4])
             }
-            .financeCell(cols[2])
-            Text(p.side == "debit" ? FinanceMoney.format(p.amountMinor, p.currency) : "")
-                .font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[3])
-            Text(p.side == "credit" ? FinanceMoney.format(p.amountMinor, p.currency) : "")
-                .font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[4])
         }
+        .measureWidth($width)
         .task(id: vm.postingsFilter) {
             let filter = vm.postingsFilter
             await vm.postings.load { cursor in try await FinanceERPAPI.ledger(filter, cursor: cursor) }
@@ -245,14 +281,24 @@ struct FinanceLedgerView: View {
         FinanceFilterOption("opening", "Opening balance"), FinanceFilterOption("reversal", "Reversal"),
     ]
 
-    private var journalColumns: [FinanceColumn] { [
-        FinanceColumn("Dated", width: 80),
-        FinanceColumn("Kind", width: 104),
-        FinanceColumn("Memo", minWidth: 180),
-        FinanceColumn("Amount", width: 120, align: .trailing),
-        FinanceColumn("", width: 100),
-        FinanceColumn("", width: 28),
-    ] }
+    private var journalColumns: [FinanceColumn] {
+        if narrow {
+            return [
+                FinanceColumn("Dated · kind", width: 104),
+                FinanceColumn("Memo", minWidth: 150),
+                FinanceColumn("Amount", width: 118, align: .trailing),
+                FinanceColumn("", width: 28),
+            ]
+        }
+        return [
+            FinanceColumn("Dated", width: 80),
+            FinanceColumn("Kind", width: 104),
+            FinanceColumn("Memo", minWidth: 180),
+            FinanceColumn("Amount", width: 120, align: .trailing),
+            FinanceColumn("", width: 100),
+            FinanceColumn("", width: 28),
+        ]
+    }
 
     @ViewBuilder private func journalsTab(_ caps: FinanceCaps) -> some View {
         let filtered = vm.journalsFilter != FinJournalFilter()
@@ -265,37 +311,51 @@ struct FinanceLedgerView: View {
             FinAExplain("Postings that are not giving: approved expenses and their voids, transfers between funds, opening balances and reversals. The amount is each journal's debits, per currency. Open a row for its legs.")
         }
         let cols = journalColumns
+        let narrow = self.narrow
         FinancePagedTable(pager: vm.journals, columns: cols, emptyIcon: "books.vertical",
                           emptyMessage: "No journals match these filters.") { j in
             let open = vm.expanded.contains(j.journalId)
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 12) {
-                    Text(FinanceDates.display(j.occurredOn)).font(.inter(12.5)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.8)
-                        .financeCell(cols[0])
-                    FinATag(text: FinWords.journalKind(j.kind), tone: FinAJournalDetail.tone(j.kind)).financeCell(cols[1])
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(j.memo?.isEmpty == false ? (j.memo ?? "") : "—").font(.inter(13, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
-                        Text("by \(j.createdByName ?? "—") · entered \(FinanceATime.day(j.createdAt))").font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(FinanceDates.display(j.occurredOn)).font(.inter(12.5)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.8)
+                        if narrow { FinATag(text: FinWords.journalKind(j.kind), tone: FinAJournalDetail.tone(j.kind)) }
                     }
-                    .financeCell(cols[2])
+                    .financeCell(cols[0])
+                    if !narrow {
+                        FinATag(text: FinWords.journalKind(j.kind), tone: FinAJournalDetail.tone(j.kind)).financeCell(cols[1])
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(j.memo?.isEmpty == false ? (j.memo ?? "") : "—").font(.inter(13, .medium)).foregroundStyle(Nuru.navy).lineLimit(narrow ? 2 : 1)
+                        Text("by \(j.createdByName ?? "—") · entered \(FinanceATime.day(j.createdAt))").font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
+                        if narrow && (j.reversedByJournalId != nil || j.reversalOf != nil) {
+                            HStack(spacing: 5) {
+                                if j.reversedByJournalId != nil { FinATag(text: "Reversed", tone: FinanceStatus.violet, icon: "arrow.uturn.backward") }
+                                if j.reversalOf != nil { FinATag(text: "Reversal of…", tone: FinanceStatus.violet) }
+                            }
+                        }
+                    }
+                    .financeCell(cols[narrow ? 1 : 2])
                     VStack(alignment: .trailing, spacing: 1) {
                         ForEach(j.totals, id: \.currency) { t in
                             Text(FinanceMoney.format(t.amountMinor, t.currency)).font(.nMono(12.5, .medium)).lineLimit(1).minimumScaleFactor(0.7)
                         }
                     }
-                    .financeCell(cols[3])
-                    VStack(alignment: .leading, spacing: 3) {
-                        if j.reversedByJournalId != nil { FinATag(text: "Reversed", tone: FinanceStatus.violet, icon: "arrow.uturn.backward") }
-                        if j.reversalOf != nil { FinATag(text: "Reversal of…", tone: FinanceStatus.violet) }
+                    .financeCell(cols[narrow ? 2 : 3])
+                    if !narrow {
+                        VStack(alignment: .leading, spacing: 3) {
+                            if j.reversedByJournalId != nil { FinATag(text: "Reversed", tone: FinanceStatus.violet, icon: "arrow.uturn.backward") }
+                            if j.reversalOf != nil { FinATag(text: "Reversal of…", tone: FinanceStatus.violet) }
+                        }
+                        .financeCell(cols[4])
                     }
-                    .financeCell(cols[4])
                     Button { vm.toggle(j.journalId) } label: {
                         Image(systemName: open ? "chevron.up" : "chevron.down").font(.system(size: 11, weight: .bold)).foregroundStyle(Nuru.ink600)
                             .frame(width: 28, height: 28).background(Nuru.surface).clipShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(open ? "Hide the legs" : "Show the legs")
-                    .financeCell(cols[5])
+                    .financeCell(cols[cols.count - 1])
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { vm.toggle(j.journalId) }
@@ -310,6 +370,7 @@ struct FinanceLedgerView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .measureWidth($width)
         .task(id: vm.journalsFilter) {
             let filter = vm.journalsFilter
             await vm.journals.load { cursor in try await FinanceERPAPI.journals(filter, cursor: cursor) }
@@ -318,12 +379,21 @@ struct FinanceLedgerView: View {
 
     // MARK: Trial balance
 
-    private var trialColumns: [FinanceColumn] { [
-        FinanceColumn("Account", minWidth: 190),
-        FinanceColumn("Debits", width: 124, align: .trailing),
-        FinanceColumn("Credits", width: 124, align: .trailing),
-        FinanceColumn("Balance", width: 156, align: .trailing),
-    ] }
+    private var trialColumns: [FinanceColumn] {
+        if narrow {
+            return [
+                FinanceColumn("Account", minWidth: 150),
+                FinanceColumn("Debits · credits", width: 140, align: .trailing),
+                FinanceColumn("Balance", width: 142, align: .trailing),
+            ]
+        }
+        return [
+            FinanceColumn("Account", minWidth: 190),
+            FinanceColumn("Debits", width: 124, align: .trailing),
+            FinanceColumn("Credits", width: 124, align: .trailing),
+            FinanceColumn("Balance", width: 156, align: .trailing),
+        ]
+    }
 
     @ViewBuilder private var trialTab: some View {
         FinanceFilterBar(isFiltered: vm.trialPeriod != nil, onClear: { vm.trialPeriod = nil }) {
@@ -362,22 +432,32 @@ struct FinanceLedgerView: View {
             return ga != gb ? ga < gb : a.account < b.account
         }
         let cols = trialColumns
+        let narrow = self.narrow
         FinanceTable(rows: rows, columns: cols, emptyIcon: "book.closed", emptyMessage: "No postings in this period.") { r in
             VStack(alignment: .leading, spacing: 1) {
-                Text(r.account).font(.nMono(12.5)).foregroundStyle(Nuru.navy).lineLimit(1)
+                Text(r.account).font(.nMono(12.5)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.8)
                 Text("\(FinanceARules.accountLabel(r.account, fundNames: vm.fundNames)) · \(r.currency)").font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
             }
             .financeCell(cols[0])
-            Text(FinanceMoney.format(r.debitMinor, r.currency)).font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[1])
-            Text(FinanceMoney.format(r.creditMinor, r.currency)).font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[2])
+            if narrow {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("Dr " + FinanceMoney.format(r.debitMinor, r.currency)).font(.nMono(11.5)).lineLimit(1).minimumScaleFactor(0.7)
+                    Text("Cr " + FinanceMoney.format(r.creditMinor, r.currency)).font(.nMono(11.5)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.7)
+                }
+                .financeCell(cols[1])
+            } else {
+                Text(FinanceMoney.format(r.debitMinor, r.currency)).font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[1])
+                Text(FinanceMoney.format(r.creditMinor, r.currency)).font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[2])
+            }
             HStack(spacing: 4) {
                 Text(FinanceMoney.format(r.balanceMinor, r.currency)).font(.nMono(12.5, .medium))
                     .foregroundStyle(r.balanceMinor < 0 ? FinanceStatus.red.fg : Nuru.navy)
                     .lineLimit(1).minimumScaleFactor(0.7)
                 Text(r.normalSide == "debit" ? "Dr" : "Cr").font(.nMicro).foregroundStyle(Nuru.ink400)
             }
-            .financeCell(cols[3])
+            .financeCell(cols[cols.count - 1])
         }
+        .measureWidth($width)
         VStack(alignment: .leading, spacing: 4) {
             ForEach(t.totals.sorted { FinanceMoney.currencyPrecedes($0.currency, $1.currency) }) { tot in
                 HStack(spacing: 6) {

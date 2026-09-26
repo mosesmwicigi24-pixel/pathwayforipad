@@ -84,6 +84,8 @@ struct FinanceSettingsView: View {
     @EnvironmentObject private var router: NavRouter
     @StateObject private var vm = FinanceSettingsModel()
     @State private var sheet: FinACategorySheet?
+    @State private var width: CGFloat = 0
+    private var narrow: Bool { width > 0 && width < 700 }
 
     var body: some View {
         let caps = auth.financeCaps
@@ -111,12 +113,21 @@ struct FinanceSettingsView: View {
 
     // MARK: Expense categories
 
-    private var categoryColumns: [FinanceColumn] { [
-        FinanceColumn("Category", minWidth: 170),
-        FinanceColumn("Code", width: 170),
-        FinanceColumn("Status", width: 86),
-        FinanceColumn("", width: 150, align: .trailing),
-    ] }
+    private var categoryColumns: [FinanceColumn] {
+        if narrow {
+            return [
+                FinanceColumn("Category · code", minWidth: 160),
+                FinanceColumn("Status", width: 86),
+                FinanceColumn("", width: 150, align: .trailing),
+            ]
+        }
+        return [
+            FinanceColumn("Category", minWidth: 170),
+            FinanceColumn("Code", width: 170),
+            FinanceColumn("Status", width: 86),
+            FinanceColumn("", width: 150, align: .trailing),
+        ]
+    }
 
     @ViewBuilder private func categoriesSection(_ caps: FinanceCaps) -> some View {
         FinASectionTitle(icon: "tag", title: "Expense categories", caption: "what spending is for") {
@@ -131,10 +142,18 @@ struct FinanceSettingsView: View {
         } else {
             let cols = categoryColumns
             let list = vm.sorted
+            let narrow = self.narrow
+            let o = narrow ? 0 : 1
             FinanceTable(rows: list, columns: cols, emptyIcon: "tag", emptyMessage: "No categories yet.") { c in
-                Text(c.name).font(.inter(13.5, .semibold)).foregroundStyle(c.isActive ? Nuru.navy : Nuru.ink600).lineLimit(1).financeCell(cols[0])
-                Text(c.code).font(.nMono(12)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.8).financeCell(cols[1])
-                FinanceStatusChip(status: c.isActive ? "active" : "inactive", label: c.isActive ? "Active" : "Inactive").financeCell(cols[2])
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(c.name).font(.inter(13.5, .semibold)).foregroundStyle(c.isActive ? Nuru.navy : Nuru.ink600).lineLimit(1)
+                    if narrow { Text(c.code).font(.nMono(10.5)).foregroundStyle(Nuru.ink400).lineLimit(1) }
+                }
+                .financeCell(cols[0])
+                if !narrow {
+                    Text(c.code).font(.nMono(12)).foregroundStyle(Nuru.ink600).lineLimit(1).minimumScaleFactor(0.8).financeCell(cols[1])
+                }
+                FinanceStatusChip(status: c.isActive ? "active" : "inactive", label: c.isActive ? "Active" : "Inactive").financeCell(cols[1 + o])
                 HStack(spacing: 6) {
                     if caps.manage {
                         iconButton("arrow.up", "Move up", disabled: c.id == list.first?.id) { Task { await vm.move(c, by: -1) } }
@@ -145,8 +164,9 @@ struct FinanceSettingsView: View {
                         }
                     }
                 }
-                .financeCell(cols[3])
+                .financeCell(cols[2 + o])
             }
+            .measureWidth($width)
             FinAExplain("A category's code is permanent — it names the category on every expense and in the reports. Rename or reorder freely; deactivate a category you no longer use (its past expenses keep it).")
         }
     }
