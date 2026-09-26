@@ -170,13 +170,13 @@ struct FinanceBudgetsView: View {
         let caps = auth.financeCaps
         FinancePageScaffold(title: Section.financeBudgets.title,
                             subtitle: "The year's plan in KES — income per fund and spending per category, month by month — and, once approved, how the year is tracking against it.",
-                            stats: stats,
                             onRefresh: { await vm.load() }) {
             FinanceYearMenu(year: Binding(get: { vm.year }, set: { y in
                 if vm.dirty { ask = .leave(y) } else { vm.choose(year: y) }
             }), years: vm.years)
         } content: {
             if let n = vm.notice { FinanceNoticeBar(notice: n) { vm.notice = nil } }
+            kpis
             if vm.dirty { FinanceNoticeBar(notice: .warn("Unsaved changes to the lines — save them before approving or leaving this year.")) }
             switch vm.phase {
             case .loading:
@@ -204,17 +204,23 @@ struct FinanceBudgetsView: View {
         .sheet(item: $ask) { a in sheet(a) }
     }
 
-    private var stats: [HeroStat] {
-        guard vm.phase != .loading else { return [] }
+    /// The year's budget at a glance (web hero KPIs): status, income and
+    /// spending budgeted (saved lines), and the budgeted surplus.
+    private var kpis: some View {
         let s = vm.summary
-        return [
-            HeroStat(label: "\(String(vm.year)) budget", value: s.map { FinanceStatus.tone($0.status).label } ?? "None yet",
-                     hint: s.map { "\($0.lineCount) \($0.lineCount == 1 ? "line" : "lines")" } ?? "one budget per year"),
-            HeroStat(label: "Income budgeted", value: s.map { FinanceMoney.format($0.incomeTotalMinor, "KES") } ?? "—", hint: "saved lines, KES"),
-            HeroStat(label: "Spending budgeted", value: s.map { FinanceMoney.format($0.expenseTotalMinor, "KES") } ?? "—", hint: "saved lines, KES"),
-            HeroStat(label: "Budgeted surplus", value: s.map { FinanceMoney.format($0.incomeTotalMinor - $0.expenseTotalMinor, "KES") } ?? "—",
-                     hint: "income − spending"),
-        ]
+        let loading = vm.phase == .loading
+        return FinanceKpiGrid(minimum: 200) {
+            FinanceKpiTile(label: "\(String(vm.year)) budget", icon: "doc.text", tint: Nuru.brandTint(2),
+                           values: loading ? [] : [s.map { FinanceStatus.tone($0.status).label } ?? "None yet"],
+                           hint: s.map { "\($0.lineCount) \($0.lineCount == 1 ? "line" : "lines")" } ?? "one budget per year", loading: loading)
+            FinanceKpiTile(label: "Income budgeted", icon: "arrow.down.circle", tint: Nuru.brandTint(0),
+                           values: s.map { [FinanceMoney.format($0.incomeTotalMinor, "KES")] } ?? [], hint: "saved lines, KES", loading: loading)
+            FinanceKpiTile(label: "Spending budgeted", icon: "arrow.up.circle", tint: Nuru.brandTint(3),
+                           values: s.map { [FinanceMoney.format($0.expenseTotalMinor, "KES")] } ?? [], hint: "saved lines, KES", loading: loading)
+            FinanceKpiTile(label: "Budgeted surplus", icon: "equal.circle", tint: Nuru.brandTint(1),
+                           values: s.map { [FinanceMoney.format($0.incomeTotalMinor - $0.expenseTotalMinor, "KES")] } ?? [],
+                           hint: "income − spending", loading: loading)
+        }
     }
 
     private func draft(_ d: FinBudgetDetail, caps: FinanceCaps) -> some View {
@@ -328,7 +334,7 @@ struct FinanceBudgetActualsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 FinBChoiceChips(options: [.init("summary", "Year to date"), .init("months", "Month by month")], selection: $view)
-                Text("All figures KES. Variance = actual − budget; amber is income below budget or spending above it.")
+                Text("All figures KES. \(ytd == 12 || ytd == 0 ? "" : "Year to date = \(ytdLabel.replacingOccurrences(of: "YTD (", with: "").replacingOccurrences(of: ")", with: "")). ")Variance = actual − budget; amber is income below budget or spending above it.")
                     .font(.nMicro).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
             }
             ScrollView(.horizontal, showsIndicators: true) {
@@ -373,7 +379,8 @@ struct FinanceBudgetActualsView: View {
         HStack(spacing: 0) {
             Text("LINE").frame(width: Self.labelWidth, alignment: .leading).padding(.leading, 12)
             if view == "summary" {
-                ForEach(["Budget \(ytdLabel)", "Actual \(ytdLabel)", "Variance", "Budget year", "Actual year", "Variance"], id: \.self) { h in
+                ForEach(Array([ytd == 12 ? "Budget · year" : "Budget · YTD", ytd == 12 ? "Actual · year" : "Actual · YTD", "Variance",
+                                "Budget · year", "Actual · year", "Variance · year"].enumerated()), id: \.offset) { _, h in
                     Text(h.uppercased()).frame(width: Self.cellWidth, alignment: .trailing)
                 }
             } else {

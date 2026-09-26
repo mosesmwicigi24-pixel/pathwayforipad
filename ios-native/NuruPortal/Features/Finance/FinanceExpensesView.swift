@@ -49,10 +49,11 @@ final class FinanceExpensesModel: ObservableObject {
         _ = await (a, b)
     }
 
-    /// A deep link replaces the filters. status=recorded without dates means
-    /// "everything awaiting approval" — so the period opens to all dates.
+    /// A deep link replaces the filters, starting from the page's defaults
+    /// (a link with no params is just "open Expenses"). status=… without
+    /// dates means every date — "everything awaiting approval" (web parity).
     func apply(link params: [String: String]) {
-        var f = FinExpenseFilter()
+        var f = Self.defaultFilter
         let allowed = ["recorded", "approved", "void"]
         if let s = params["status"] {
             let parts = s.split(separator: ",").map(String.init).filter(allowed.contains)
@@ -154,9 +155,9 @@ struct FinanceExpensesView: View {
     // Floors ≈ 690 pt: fits portrait on the 13-inch; scrolls sideways narrower.
     private static let columns: [FinanceColumn] = [
         FinanceColumn("Spent on", width: 84),
-        FinanceColumn("Payee · category · fund", minWidth: 190),
+        FinanceColumn("Payee · category · fund", minWidth: 170),
         FinanceColumn("Amount · via", width: 120, align: .trailing),
-        FinanceColumn("Status", width: 96),
+        FinanceColumn("Status", width: 124),
         FinanceColumn("Recorded · approved", minWidth: 120),
     ]
 
