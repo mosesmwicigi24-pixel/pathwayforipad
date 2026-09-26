@@ -917,7 +917,10 @@ private struct PartnerDetailPanel: View {
                         ChipPill(chip: prog)
                     }
                     Text(pledgeTerms(p)).font(.nCaption).foregroundStyle(Nuru.foreground)
-                    Text(pledgeTarget(p)).font(.nMicro).foregroundStyle(Nuru.ink600)
+                    // The target, then where its money is booked (PledgePaysTo —
+                    // the contract says clients show this for pledge money).
+                    Text(pledgeTarget(p) + (p.paysTo.map { " · pays to \($0.name.isEmpty ? $0.code : $0.name)" } ?? ""))
+                        .font(.nMicro).foregroundStyle(Nuru.ink600)
                 }
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 3) {

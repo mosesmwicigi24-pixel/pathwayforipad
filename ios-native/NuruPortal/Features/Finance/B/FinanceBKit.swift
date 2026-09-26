@@ -650,6 +650,8 @@ struct FinBCurrencyFigures: View {
         let currency: String
         let figures: [Figure]
         var count: Int? = nil
+        /// A quiet trailing remark for this currency ("of 14 listed").
+        var note: String? = nil
         var id: String { currency }
     }
     let title: String
@@ -686,6 +688,9 @@ struct FinBCurrencyFigures: View {
                             }
                             if let n = r.count {
                                 Text("· \(n) \(n == 1 ? noun.one : noun.many)").font(.nCaption).foregroundStyle(Nuru.ink600).fixedSize()
+                            }
+                            if let note = r.note {
+                                Text(note).font(.nCaption).foregroundStyle(Nuru.ink400).fixedSize()
                             }
                         }
                     }

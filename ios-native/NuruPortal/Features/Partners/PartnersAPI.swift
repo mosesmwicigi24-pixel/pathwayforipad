@@ -89,6 +89,10 @@ struct PartnerPledge: Codable, Identifiable {
     let note: String?
     let createdAt: String?
     let title: String?
+    /// Where this pledge's money is booked (PledgePaysTo — FinancialService
+    /// .pledgeFundCode's one rule); null only when no fund is active at all.
+    /// Additive, 2026-09-26 (Finance → Claims states it before confirming).
+    let paysTo: FinFundRef?
     var id: String { pledgeId }
     var isMonthly: Bool { shape == "monthly" }
 }
