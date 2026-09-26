@@ -447,7 +447,7 @@ struct PartnersView: View {
                 HeroStat(label: "Committed / month", value: s.map { money($0.committedMonthlyMinor, nil) } ?? "—", hint: "across monthly pledges"),
                 HeroStat(label: "Behind", value: s.map { String($0.behind) } ?? "—", hint: "partners past due",
                          tint: behind > 0 ? Color(hex: 0xF5C77E) : nil),
-                HeroStat(label: "Given this year", value: s.map { money($0.givenYearMinor, nil) } ?? "—", hint: "attributed to pledges"),
+                HeroStat(label: "Given this year", value: s.map { partnerGivenText($0.givenYear, kesMinor: $0.givenYearMinor, separator: "\n") } ?? "—", hint: "every gift, any fund"),
             ]
         ) {
             HStack(spacing: 8) {
@@ -591,7 +591,7 @@ struct PartnersView: View {
                 }
                 Spacer(minLength: 6)
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(money(r.givenYearMinor, nil)).font(.nMono(12.5, .medium))
+                    Text(partnerGivenText(r.givenYear, kesMinor: r.givenYearMinor)).font(.nMono(12.5, .medium))
                         .foregroundStyle(active ? .white : Nuru.navy).lineLimit(1)
                     Text("this year").font(.nMicro).foregroundStyle(dim)
                 }
@@ -731,7 +731,7 @@ private struct PartnerDetailPanel: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                     statCell("Partner since", FinBTime.day(m.membership?.joinedAt))
                     statCell("Committed / month", money(m.committedMonthlyMinor, cur), bold: true)
-                    statCell("Given this year", money(m.givenYearMinor, cur), bold: true)
+                    statCell("Given this year", partnerGivenText(m.givenYear, kesMinor: m.givenYearMinor), bold: true)
                     statCell("Active pledges", "\(m.pledgesActive)")
                     statCell("Last gift", FinBTime.day(m.lastGiftAt))
                     statCell("Next due", FinBTime.day(m.nextDueOn), tint: m.behind ? Color(hex: 0xA87616) : nil)
