@@ -1,10 +1,12 @@
 // Finance → Transactions → Record a gift (finance:manage; POST
 // /admin/finance/gifts — docs/FINANCE_ERP.md §2, §4). The office books money it
-// received by hand: a member (search-as-you-type), a walk-in or an anonymous
-// loose offering; amount + currency; the channel and its reference; the day it
-// was received (EAT, within the last 366 days); optionally a pledge or a
-// department need, which then decide the fund. One idempotency key per form,
-// reused on every retry — a retry never books twice or takes a second receipt.
+// received: a member (search-as-you-type), a walk-in or an anonymous loose
+// offering; amount + currency; the channel and its reference; the day it was
+// received (EAT, within the last 366 days); optionally a pledge — or, without
+// one, a department need — which then decides the fund. ONE idempotency key
+// per form, reused on every retry (a retry never books twice or takes a second
+// receipt); "Record another" renews it. Same rules and words as the web's
+// RecordGiftDrawer.
 import SwiftUI
 
 @MainActor
@@ -19,37 +21,35 @@ final class FinARecordGiftModel: ObservableObject {
             switch self { case .member: "person.crop.circle"; case .walkIn: "figure.walk"; case .anonymous: "questionmark.circle" }
         }
     }
-    /// Where the money is booked — the server's rule (pledge > need's department fund > chosen fund).
+    /// Who decides the fund — the server's order: pledge → need's department fund → the picker.
     enum FundDecision: Equatable {
-        case pledge(String)
-        case need(String)
+        case pledge(code: String?, name: String?)
+        case need(code: String, name: String)
         case choose
     }
     struct Failure: Equatable {
         let text: String
         var existingTransactionId: String? = nil
     }
+    enum PendingCheck { case idle, checking, failed }
 
     let today: String
 
-    @Published var giver: Giver = .member
+    @Published var giver: Giver = .member { didSet { if giver != .member { pledgeId = "" }; failure = nil } }
     @Published var query = ""
     @Published private(set) var results: [FinGiver] = []
     @Published private(set) var searching = false
     @Published private(set) var searchError: String?
-    @Published var member: FinGiver? {
-        didSet { if member?.userId != oldValue?.userId { pledgeId = "" } }
-    }
+    @Published var member: FinGiver? { didSet { if member?.userId != oldValue?.userId { pledgeId = "" } } }
     @Published var walkInName = ""
     @Published var walkInPhone = ""
     @Published var amountText = ""
     @Published var currency = FinanceMoney.homeCurrency {
-        didSet {
-            if let p = selectedPledge, p.currency != currency { pledgeId = "" }
-            if let n = selectedNeed, n.currency != currency { needId = "" }
-        }
+        didSet { if currency != oldValue { pledgeId = ""; needId = "" } }
     }
-    @Published var channel: FinOfficeChannel = .onhand
+    @Published var channel: FinOfficeChannel = .onhand {
+        didSet { reference = FinanceARules.normalizeReferenceInput(reference, channel: channel) }
+    }
     @Published var reference = ""
     @Published var receivedOn: String
     @Published var fund = ""
@@ -58,21 +58,22 @@ final class FinARecordGiftModel: ObservableObject {
     @Published var note = ""
 
     @Published private(set) var funds: [FundOption] = []
+    @Published private(set) var fundsLoading = true
     @Published private(set) var fundsError: String?
     @Published private(set) var needs: [FinNeedRow] = []
     @Published private(set) var needsError: String?
 
+    /// The chosen member's own payments still in flight (newest first).
+    @Published private(set) var pending: [FinTransactionRow] = []
+    @Published private(set) var pendingCheck: PendingCheck = .idle
+
     @Published private(set) var busy = false
     @Published var failure: Failure?
-    /// Payments of this member still in flight — non-empty shows the "count it twice?" question.
-    @Published var inFlight: [FinTransactionRow] = []
-    @Published private(set) var inFlightCheckFailed = false
     @Published private(set) var result: FinGiftResult?
-    @Published var showProblems = false
+    @Published var attempted = false
 
     /// ONE key per recording; reused on every retry of it.
     private(set) var idempotencyKey = UUID().uuidString
-    private var inFlightAcknowledged = false
 
     init(today: String = FinanceDates.today()) {
         self.today = today
@@ -83,12 +84,18 @@ final class FinARecordGiftModel: ObservableObject {
 
     func loadChoices() async {
         if funds.isEmpty {
+            fundsLoading = true
             do { funds = try await FinanceERPAPI.config().funds; fundsError = nil }
             catch { if !Task.isCancelled { fundsError = FinanceARules.message(error) } }
+            fundsLoading = false
         }
         if needs.isEmpty {
-            do { needs = try await FinanceERPAPI.needs(status: "approved", limit: 100).data; needsError = nil }
-            catch { if !Task.isCancelled { needsError = FinanceARules.message(error) } }
+            do { needs = try await FinanceERPAPI.needs(status: "approved", limit: 200).data; needsError = nil }
+            catch {
+                if !Task.isCancelled {
+                    needsError = FinanceARules.message(error, fallback: "Could not load the department needs — a gift can still be recorded without one.")
+                }
+            }
         }
     }
 
@@ -102,7 +109,7 @@ final class FinARecordGiftModel: ObservableObject {
             let found = try await FinanceERPAPI.givers(q: q)
             if query.trimmingCharacters(in: .whitespacesAndNewlines) == q { results = found; searchError = nil }
         } catch {
-            if !Task.isCancelled { searchError = FinanceARules.message(error) }
+            if !Task.isCancelled { searchError = FinanceARules.message(error, fallback: "Could not search members.") }
         }
     }
 
@@ -112,21 +119,55 @@ final class FinARecordGiftModel: ObservableObject {
         results = []
     }
 
+    /// Is one of this member's own payments still in flight? The office may be
+    /// about to record the same M-Pesa payment by hand. The register has no
+    /// member filter, so it searches by their phone (else name) over the last
+    /// three EAT days and keeps their own processing / awaiting rows of 48 h.
+    func checkPending(now: Date = Date()) async {
+        guard giver == .member, let m = member else { pending = []; pendingCheck = .idle; return }
+        pendingCheck = .checking
+        let today = FinanceDates.today(now: now)
+        let phone = m.phone?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var f = FinTransactionFilter(period: .custom(from: FinanceARules.day(today, minus: 2) ?? today, to: today))
+        f.q = phone.isEmpty ? m.fullName : phone
+        do {
+            let rows = try await FinanceERPAPI.transactions(f, limit: 50).data
+            guard member?.userId == m.userId else { return }
+            pending = rows
+                .filter { $0.userId == m.userId && FinanceARules.isRecentInFlight(status: $0.status, createdAt: $0.createdAt, now: now) }
+                .sorted { $0.createdAt > $1.createdAt }
+            pendingCheck = .idle
+        } catch {
+            guard member?.userId == m.userId, !Task.isCancelled else { return }
+            pending = []
+            pendingCheck = .failed
+        }
+    }
+
     var activeFunds: [FundOption] { funds.filter(\.isActive) }
-    func fundName(_ code: String) -> String { funds.first { $0.code == code }?.name ?? code }
-    var selectedPledge: FinGiverPledge? { giver == .member ? member?.openPledges.first { $0.pledgeId == pledgeId } : nil }
-    var selectedNeed: FinNeedRow? { needs.first { $0.needId == needId } }
+    func fundName(_ code: String) -> String? { funds.first { $0.code == code }?.name }
+    var memberPledges: [FinGiverPledge] { giver == .member ? member?.openPledges ?? [] : [] }
     /// The member's open pledges in the gift's currency.
-    var pledgeChoices: [FinGiverPledge] { member?.openPledges.filter { $0.currency == currency } ?? [] }
-    /// The member's open pledges in OTHER currencies (hinted, not offered).
-    var otherCurrencyPledges: Int { (member?.openPledges.count ?? 0) - pledgeChoices.count }
+    var pledgesHere: [FinGiverPledge] { memberPledges.filter { $0.currency == currency } }
+    var pledgesElsewhere: [FinGiverPledge] { memberPledges.filter { $0.currency != currency } }
+    var selectedPledge: FinGiverPledge? { pledgesHere.first { $0.pledgeId == pledgeId } }
     /// Approved needs in the gift's currency.
-    var needChoices: [FinNeedRow] { needs.filter { $0.currency == currency && $0.status == "approved" } }
+    var needsHere: [FinNeedRow] { needs.filter { $0.currency == currency } }
+    /// A pledge goes where the pledge goes, so a need only counts without one.
+    var selectedNeed: FinNeedRow? { selectedPledge == nil ? needsHere.first { $0.needId == needId } : nil }
 
     var fundDecision: FundDecision {
-        if let p = selectedPledge { return .pledge(p.paysTo?.name ?? "the pledge's fund") }
-        if let n = selectedNeed, let code = n.fundCode, !code.isEmpty { return .need(fundName(code)) }
+        if let p = selectedPledge { return .pledge(code: p.paysTo?.code, name: p.paysTo?.name) }
+        if let n = selectedNeed, let code = n.fundCode, !code.isEmpty { return .need(code: code, name: fundName(code) ?? code) }
         return .choose
+    }
+
+    var fundDecisionText: String? {
+        switch fundDecision {
+        case .pledge(_, let name): FinanceARules.fundDecisionText(byPledge: true, name: name)
+        case .need(_, let name): FinanceARules.fundDecisionText(byPledge: false, name: name)
+        case .choose: nil
+        }
     }
 
     // MARK: Validation
@@ -136,91 +177,87 @@ final class FinARecordGiftModel: ObservableObject {
         return nil
     }
 
-    /// Field → why it can't be sent (empty = ready).
+    /// Field → why it can't be sent (empty = ready). The web's validateGift.
     var problems: [String: String] {
         var p: [String: String] = [:]
         switch giver {
         case .member:
-            if member == nil { p["giver"] = "Choose the member who gave." }
+            if member == nil { p["giver"] = "Choose the member who gave, or switch to Walk-in or Anonymous." }
         case .walkIn:
             if let e = FinanceARules.walkInNameProblem(walkInName) { p["name"] = e }
             if let e = FinanceARules.phoneProblem(walkInPhone) { p["phone"] = e }
         case .anonymous:
             break
         }
-        if case .failure(let e) = FinanceMoney.parseMajor(amountText) { p["amount"] = e.message }
-        if fundDecision == .choose, !activeFunds.contains(where: { $0.code == fund }) { p["fund"] = "Choose the fund this gift goes to." }
+        if amountMinor == nil { p["amount"] = "Enter the amount received." }
         if let e = FinanceARules.referenceProblem(reference, channel: channel) { p["reference"] = e }
+        if let e = FinanceARules.dayProblem(receivedOn, today: today, daysBack: 366, what: "day the money was received") { p["date"] = e }
+        if fundDecision == .choose, !activeFunds.contains(where: { $0.code == fund }) { p["fund"] = "Choose the fund this gift goes to." }
         if let e = FinanceARules.noteProblem(note) { p["note"] = e }
-        if let r = FinanceARules.allowedDays(today: today, daysBack: 366), !r.contains(receivedOn) {
-            p["date"] = FinanceARules.dateRangeSentence("The received date", today: today, daysBack: 366)
-        }
         return p
     }
 
-    func problem(_ field: String) -> String? { showProblems ? problems[field] : nil }
+    func problem(_ field: String) -> String? { attempted ? problems[field] : nil }
 
-    /// The request body, or nil while something is missing.
+    /// The POST /gifts body (the web's buildGiftInput): exactly one giver
+    /// mode; the fund is the decided one when a pledge or need decides it.
     func body() -> FinGiftInput? {
         guard let minor = amountMinor, problems.isEmpty else { return nil }
         var input = FinGiftInput(idempotencyKey: idempotencyKey, amountMinor: minor, currency: currency,
                                  channel: channel, receivedOn: receivedOn)
+        switch fundDecision {
+        case .pledge(let code, _): input.fund = code
+        case .need(let code, _): input.fund = code
+        case .choose: input.fund = fund.isEmpty ? nil : fund
+        }
+        let ref = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        input.reference = ref.isEmpty ? nil : (channel == .mpesa ? ref.uppercased() : ref)
+        let n = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        input.note = n.isEmpty ? nil : n
         switch giver {
-        case .member: input.userId = member?.userId
+        case .member:
+            input.userId = member?.userId
+            if let p = selectedPledge { input.pledgeId = p.pledgeId }
         case .walkIn:
             input.giverName = walkInName.trimmingCharacters(in: .whitespacesAndNewlines)
             let phone = walkInPhone.trimmingCharacters(in: .whitespacesAndNewlines)
             input.giverPhone = phone.isEmpty ? nil : phone
-        case .anonymous: input.anonymous = true
+        case .anonymous:
+            input.anonymous = true
         }
-        if fundDecision == .choose { input.fund = fund }
-        input.reference = FinanceARules.normalizedReference(reference, channel: channel)
-        if selectedPledge != nil { input.pledgeId = pledgeId }
-        if selectedNeed != nil { input.needId = needId }
-        let n = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        input.note = n.isEmpty ? nil : n
+        if let need = selectedNeed { input.needId = need.needId }
         return input
     }
 
-    /// "Records KES 1,500.00 from Mary Wanjiku to Tithe, received 26 Sep 2026, cash on hand."
+    /// "On Record: KES 1,500.00 from Mary Wanjiku is posted to Tithe as received …"
     var summary: String? {
         guard let minor = amountMinor else { return nil }
         let who: String
         switch giver {
         case .member: who = member?.fullName ?? "the member"
-        case .walkIn: who = walkInName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "a walk-in" : walkInName.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .walkIn:
+            let n = walkInName.trimmingCharacters(in: .whitespacesAndNewlines)
+            who = n.isEmpty ? "the walk-in giver" : n
         case .anonymous: who = "an anonymous giver"
         }
         let to: String
         switch fundDecision {
-        case .pledge(let name): to = name
-        case .need(let name): to = name
-        case .choose: to = fund.isEmpty ? "the fund you choose" : fundName(fund)
+        case .pledge(_, let name): to = name ?? "the fund"
+        case .need(_, let name): to = name
+        case .choose: to = fund.isEmpty ? "the fund" : (fundName(fund) ?? fund)
         }
-        var s = "Records \(FinanceMoney.format(minor, currency)) from \(who) to \(to), received \(FinanceDates.display(receivedOn)), \(FinanceARules.giftChannelLabel(channel).lowercased())"
-        if let ref = FinanceARules.normalizedReference(reference, channel: channel) { s += " \(ref)" }
-        return s + ". The receipt is the next office number (OR-…)."
+        let cash = FinanceARules.accountLabel(FinanceARules.cashAccount(for: channel))
+        return "On Record: \(FinanceMoney.format(minor, currency)) from \(who) is posted to \(to) as received \(FinanceDates.display(receivedOn)) — debit \(cash), credit the fund — and takes the next office receipt number (OR-\(receivedOn.prefix(4))-…). Corrections are reversals, never deletions."
     }
 
     // MARK: Submit
 
     func submit() async {
-        showProblems = true
-        failure = nil
-        guard let input = body() else { return }
+        attempted = true
+        guard !busy, let input = body() else { return }
         busy = true
+        failure = nil
         defer { busy = false }
-        if giver == .member, let m = member, !inFlightAcknowledged {
-            switch await Self.recentInFlight(for: m) {
-            case .success(let rows) where !rows.isEmpty:
-                inFlight = rows
-                return
-            case .failure:
-                inFlightCheckFailed = true
-            default:
-                break
-            }
-        }
         do {
             result = try await FinanceERPAPI.recordGift(input)
         } catch {
@@ -228,89 +265,58 @@ final class FinARecordGiftModel: ObservableObject {
         }
     }
 
-    /// The "count it twice?" question was answered: record anyway.
-    func recordAnyway() async {
-        inFlightAcknowledged = true
-        inFlight = []
-        await submit()
-    }
-
-    /// A new recording: a NEW key; keeps the giver mode, channel, date, currency and fund.
+    /// A fresh form for the next envelope: a NEW key; channel, date, currency
+    /// and giver mode stay.
     func recordAnother() {
         idempotencyKey = UUID().uuidString
         result = nil
         failure = nil
-        showProblems = false
-        inFlight = []
-        inFlightAcknowledged = false
-        inFlightCheckFailed = false
+        attempted = false
         member = nil
         query = ""
         results = []
+        pending = []
+        pendingCheck = .idle
         walkInName = ""
         walkInPhone = ""
         amountText = ""
         reference = ""
-        note = ""
         pledgeId = ""
         needId = ""
+        fund = ""
+        note = ""
     }
 
-    /// Plain sentences per error code (the books contract's named codes).
+    /// A failed POST /gifts as plain sentences (the web's giftErrorView).
     func describe(_ error: Error) -> Failure {
-        let message = FinanceARules.message(error)
         switch error.apiCode {
         case "DUPLICATE_RECEIPT":
-            let code = FinanceARules.normalizedReference(reference, channel: channel) ?? "This M-Pesa code"
-            return Failure(text: "\(code) is already in the books — it is the receipt of a payment that settled, or of another office entry. Nothing was recorded.",
+            return Failure(text: "That M-Pesa code is already in the books — the payment also arrived online, or the office recorded it before. Open the existing entry before recording anything.",
                            existingTransactionId: error.apiDetail("transaction_id"))
         case "INVALID_DATE":
-            return Failure(text: FinanceARules.dateRangeSentence("The received date", today: today, daysBack: 366) + " Nothing was recorded.")
+            return Failure(text: "The received date must be today or within the last 366 days.")
         case "INVALID_REFERENCE":
-            return Failure(text: "That M-Pesa code isn't valid — an M-Pesa code is 8–12 letters and digits, like QJK4ABC123. Nothing was recorded.")
+            return Failure(text: "That is not an M-Pesa code — it is 8–12 letters and digits, like SJK4H7T2QX.")
         case "CURRENCY_MISMATCH":
-            let want = selectedPledge?.currency ?? selectedNeed?.currency
-            return Failure(text: "A gift toward a pledge or a department need must be in that pledge's or need's currency\(want.map { " (\($0))" } ?? ""). Change the currency or the choice. Nothing was recorded.")
+            return Failure(text: "The gift must be in the same currency as the pledge or need it pays toward.")
         case "UNPROCESSABLE":
-            return Failure(text: "This gift can't be booked as it stands: \(message) Check the member, fund, pledge and need, then try again.")
+            return Failure(text: FinanceARules.message(error, fallback: "Something in this gift can't be used — check the member, the fund, and the pledge or need."))
         case "CONFLICT":
             idempotencyKey = UUID().uuidString
-            return Failure(text: "This form's key belongs to another payment, so it was given a fresh one. Press Record gift again.")
-        case "FORBIDDEN_SCOPE":
-            return Failure(text: "Recording gifts needs the finance:manage permission. Nothing was recorded.")
+            return Failure(text: "This form's key belongs to another payment, so it was given a fresh one. Press Record again.")
         default:
             if error.apiStatus == nil {
-                return Failure(text: "Couldn't confirm with the server (\(message)). The gift may or may not be booked — press Record gift again: this form never records the same gift twice.")
+                // Nothing came back: the gift may or may not be booked. The same
+                // key makes a retry safe — a replay returns the booked entry.
+                return Failure(text: "\(FinanceARules.message(error)) This form never records the same gift twice, so pressing Record again is safe.")
             }
-            return Failure(text: message)
+            return Failure(text: FinanceARules.message(error, fallback: "The gift was not recorded — try again."))
         }
-    }
-
-    /// This member's payments still processing / awaiting action in the last
-    /// 48 h. The register has no member filter, so it searches by their phone
-    /// (else name) over the last three EAT days and keeps their own rows.
-    static func recentInFlight(for m: FinGiver, now: Date = Date()) async -> Result<[FinTransactionRow], Error> {
-        let today = FinanceDates.today(now: now)
-        guard let from = FinanceARules.day(today, minus: 2) else { return .success([]) }
-        let phone = m.phone?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let term = phone.isEmpty ? m.fullName : phone
-        var rows: [FinTransactionRow] = []
-        do {
-            for status in ["processing", "requires_action"] {
-                var f = FinTransactionFilter(period: .custom(from: from, to: today))
-                f.status = status
-                f.q = term
-                rows += try await FinanceERPAPI.transactions(f, limit: 20).data
-            }
-        } catch {
-            return .failure(error)
-        }
-        return .success(rows.filter { $0.userId == m.userId && FinanceARules.isRecentInFlight(status: $0.status, createdAt: $0.createdAt, now: now) })
     }
 }
 
 struct FinARecordGiftSheet: View {
-    /// Open a transaction (the result, or the one a duplicate code belongs to).
+    /// Open a transaction (the result, one in flight, or the one a duplicate code belongs to).
     var onOpenTransaction: (String) -> Void = { _ in }
     /// A gift was booked — refresh the register.
     var onRecorded: () -> Void = {}
@@ -324,8 +330,10 @@ struct FinARecordGiftSheet: View {
     }
 
     var body: some View {
-        FinAFormSheet(title: "Record a gift",
-                      subtitle: vm.result == nil ? "Money the office received by hand — cash, bank, cheque or an M-Pesa payment made outside the app. It is booked at once and gets the next office receipt number." : nil,
+        FinAFormSheet(title: vm.result == nil ? "Record a gift" : "Gift recorded",
+                      subtitle: vm.result == nil
+                        ? "Money the office received — cash, bank, cheque, or an M-Pesa payment to the till. It posts at once and takes the next office receipt number."
+                        : "Posted to the books and numbered.",
                       confirmTitle: vm.result == nil ? "Record" : nil,
                       confirmEnabled: !vm.busy,
                       busy: vm.busy,
@@ -346,13 +354,8 @@ struct FinARecordGiftSheet: View {
             try? await Task.sleep(nanoseconds: 300_000_000)
             if !Task.isCancelled { await vm.search() }
         }
+        .task(id: "\(vm.giver.rawValue)|\(vm.member?.userId ?? "")") { await vm.checkPending() }
         .onChange(of: vm.result?.transactionId) { _, id in if id != nil { onRecorded() } }
-        .alert("A payment is still processing", isPresented: Binding(get: { !vm.inFlight.isEmpty }, set: { if !$0 { vm.inFlight = [] } })) {
-            Button("Record anyway") { Task { await vm.recordAnyway() } }
-            Button("Go back", role: .cancel) { vm.inFlight = [] }
-        } message: {
-            Text(inFlightMessage)
-        }
     }
 
     #if DEBUG
@@ -366,11 +369,12 @@ struct FinARecordGiftSheet: View {
             vm.query = q
             await vm.search()
             if let g = vm.results.first { vm.choose(g) }
+            await vm.checkPending()
         }
         if let c = p["currency"] { vm.currency = c }
         if let a = p["amount"] { vm.amountText = a }
         if let ch = p["channel"], let c = FinOfficeChannel(rawValue: ch) { vm.channel = c }
-        if let r = p["reference"] { vm.reference = r }
+        if let r = p["reference"] { vm.reference = FinanceARules.normalizeReferenceInput(r, channel: vm.channel) }
         if let f = p["fund"] { vm.fund = f }
         if let pl = p["pledge"] { vm.pledgeId = pl }
         if let n = p["need"] { vm.needId = n }
@@ -379,18 +383,9 @@ struct FinARecordGiftSheet: View {
     }
     #endif
 
-    private var inFlightMessage: String {
-        let name = vm.member?.fullName ?? "This member"
-        let lines = vm.inFlight.prefix(3).map {
-            "\(FinanceMoney.format($0.amountMinor, $0.currency)) by \(FinWords.channel($0.channel)), started \(FinanceATime.dayTime($0.createdAt))"
-        }
-        return "\(name) has \(vm.inFlight.count == 1 ? "a payment" : "\(vm.inFlight.count) payments") that hasn't finished: \(lines.joined(separator: "; ")). If this is the same money, recording it here would count it twice."
-    }
-
     // MARK: Form
 
     @ViewBuilder private var form: some View {
-        if let f = vm.failure { failureBar(f) }
         section("Who gave") {
             FinAChoiceChips(options: FinARecordGiftModel.Giver.allCases, selection: $vm.giver, label: \.label, icon: { $0.icon })
             switch vm.giver {
@@ -398,69 +393,61 @@ struct FinARecordGiftSheet: View {
             case .walkIn:
                 FinAFieldRow {
                     FinAFormField(label: "Name", error: vm.problem("name")) {
-                        TextField("Full name", text: $vm.walkInName).textContentType(.name).finAInput(error: vm.problem("name") != nil)
+                        TextField("As they gave it", text: $vm.walkInName).textContentType(.name).finAInput(error: vm.problem("name") != nil)
                     }
-                    FinAFormField(label: "Phone (optional)", hint: "For the receipt SMS — leave blank if they'd rather not.", error: vm.problem("phone")) {
-                        TextField("+254…", text: $vm.walkInPhone).keyboardType(.phonePad).finAInput(error: vm.problem("phone") != nil)
+                    FinAFormField(label: "Phone", hint: "Optional — printed nowhere; helps find the gift later.", error: vm.problem("phone")) {
+                        TextField("+2547…", text: $vm.walkInPhone).keyboardType(.phonePad).font(.nMono(15)).finAInput(error: vm.problem("phone") != nil)
                     }
                 }
             case .anonymous:
-                FinAExplain("No name and no phone — a loose offering. It is booked to the fund and appears on no one's statement.")
+                FinAExplain("A loose offering — no name, no phone. It is in the books and the fund, but on no one's statement.")
             }
+            pendingNotice
         }
-        section("The gift") {
+        section("The money") {
             FinAFieldRow {
-                FinanceMoneyField(label: "Amount", text: $vm.amountText, currency: $vm.currency)
-                FinAFormField(label: "Received on", hint: "East Africa Time — up to 366 days back. The books date it that day.", error: vm.problem("date")) {
+                VStack(alignment: .leading, spacing: 4) {
+                    FinanceMoneyField(label: "Amount", text: $vm.amountText, currency: $vm.currency)
+                    if let e = vm.problem("amount"), vm.amountText.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Text(e).font(.nCaption).foregroundStyle(Nuru.danger)
+                    }
+                }
+                FinAFormField(label: "Received on", hint: "Today or up to 366 days back (East Africa Time).", error: vm.problem("date")) {
                     FinADayField(ymd: $vm.receivedOn, range: FinanceARules.allowedDays(today: vm.today, daysBack: 366) ?? vm.today...vm.today)
                         .finAInput()
                 }
             }
-            if let e = vm.problem("amount"), vm.amountText.isEmpty { Text(e).font(.nCaption).foregroundStyle(Nuru.danger) }
-            FinAFormField(label: "Channel", hint: channelHint) {
+            FinAFormField(label: "Channel") {
                 FinAChoiceChips(options: FinOfficeChannel.allCases, selection: $vm.channel, label: FinanceARules.giftChannelLabel)
             }
-            FinAFormField(label: FinanceARules.referenceLabel(vm.channel), error: vm.problem("reference")) {
-                TextField(FinanceARules.referencePrompt(vm.channel), text: Binding(
+            let rule = FinanceARules.referenceRule(vm.channel)
+            FinAFormField(label: rule.label + (rule.required ? "" : " (optional)"), hint: rule.hint, error: vm.problem("reference")) {
+                TextField(rule.placeholder, text: Binding(
                     get: { vm.reference },
-                    set: { vm.reference = vm.channel == .mpesa ? $0.uppercased() : $0 }
+                    set: { vm.reference = FinanceARules.normalizeReferenceInput($0, channel: vm.channel) }
                 ))
                 .textInputAutocapitalization(vm.channel == .mpesa ? .characters : .never)
                 .autocorrectionDisabled()
-                .font(vm.channel == .mpesa ? .nMono(15) : .inter(15))
+                .font(.nMono(15))
                 .finAInput(error: vm.problem("reference") != nil)
             }
         }
         section("Where it goes") { destination }
-        section("Receipt") {
-            FinAFormField(label: "Note (optional)", hint: "\(vm.note.trimmingCharacters(in: .whitespacesAndNewlines).utf16.count)/60 — printed on the receipt, e.g. “Thanksgiving”.", error: vm.problem("note")) {
-                TextField("A few words for the receipt", text: $vm.note).finAInput(error: vm.problem("note") != nil)
-            }
-        }
         VStack(alignment: .leading, spacing: 12) {
-            if let s = vm.summary { Text(s).font(.nCaption).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true) }
-            if vm.showProblems, !vm.problems.isEmpty {
+            if let f = vm.failure { failureBar(f) }
+            if vm.attempted, !vm.problems.isEmpty {
                 FinanceNoticeBar(notice: .warn("Check the highlighted fields — \(vm.problems.count == 1 ? "one thing is" : "\(vm.problems.count) things are") missing."))
             }
-            // The refusal again beside the button — the form is long, and the
-            // office is usually scrolled down here when it presses Record.
-            if let f = vm.failure { failureBar(f) }
+            if let s = vm.summary {
+                Text(s).font(.nCaption).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Spacer()
-                FinanceButton(title: vm.busy ? "Recording…" : "Record gift", icon: "checkmark", style: .gold, busy: vm.busy) {
+                FinanceButton(title: vm.busy ? "Recording…" : (vm.amountMinor.map { "Record \(FinanceMoney.format($0, vm.currency))" } ?? "Record gift"),
+                              icon: "checkmark", style: .gold, busy: vm.busy) {
                     Task { await vm.submit() }
                 }
             }
-        }
-    }
-
-    private var channelHint: String {
-        switch vm.channel {
-        case .onhand: "Physical cash counted by the office — booked to cash on hand."
-        case .bank: "Deposited or transferred into the church's bank account."
-        case .cheque: "A cheque received — booked to cheques until it clears."
-        case .mpesa: "Paid to the church's till or paybill but not through the app — same statement as online M-Pesa."
-        case .other: "Anything else — say what in the reference."
         }
     }
 
@@ -484,10 +471,9 @@ struct FinARecordGiftSheet: View {
                 Monogram(name: m.fullName, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(m.fullName).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
-                    Text([m.phone, m.congregationName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                    let contact = [m.phone, m.email, m.congregationName].compactMap { $0 }.filter { !$0.isEmpty }
+                    Text(contact.isEmpty ? "No contact details" : contact.joined(separator: " · "))
                         .font(.nCaption).foregroundStyle(Nuru.ink600).lineLimit(1)
-                    Text(m.openPledges.isEmpty ? "No open pledges" : "\(m.openPledges.count) open \(m.openPledges.count == 1 ? "pledge" : "pledges")")
-                        .font(.nMicro).foregroundStyle(Nuru.ink400)
                 }
                 Spacer(minLength: 8)
                 FinanceButton(title: "Change", icon: "arrow.left.arrow.right") { vm.member = nil }
@@ -496,17 +482,17 @@ struct FinARecordGiftSheet: View {
             .background(Nuru.surface)
             .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
         } else {
-            FinAFormField(label: "Find the member", hint: "Name, phone or email — at least 2 characters.", error: vm.problem("giver")) {
+            FinAFormField(label: "Member", hint: "Type at least two letters of a name, a phone number or an email.", error: vm.problem("giver")) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Nuru.ink400)
-                    TextField("Search members", text: $vm.query)
+                    TextField("Search members…", text: $vm.query)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                     if vm.searching { ProgressView().controlSize(.small) }
                 }
                 .finAInput(error: vm.problem("giver") != nil)
             }
             if let e = vm.searchError {
-                FinanceNoticeBar(notice: .error("Couldn't search — \(e)"))
+                FinanceNoticeBar(notice: .error(e))
             } else if !vm.results.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(Array(vm.results.enumerated()), id: \.element.id) { i, g in
@@ -520,7 +506,8 @@ struct FinARecordGiftSheet: View {
                                 }
                                 Spacer(minLength: 8)
                                 if !g.openPledges.isEmpty {
-                                    FinATag(text: "\(g.openPledges.count) open \(g.openPledges.count == 1 ? "pledge" : "pledges")", tone: FinanceStatus.navy)
+                                    Text(FinanceARules.plural(g.openPledges.count, "open pledge"))
+                                        .font(.inter(11, .bold)).foregroundStyle(FinanceStatus.amber.fg).lineLimit(1)
                                 }
                             }
                             .padding(.horizontal, 12).padding(.vertical, 9)
@@ -540,58 +527,87 @@ struct FinARecordGiftSheet: View {
         }
     }
 
-    // MARK: Destination (pledge · need · fund)
+    /// One of the member's own payments may still land — say so before Record.
+    @ViewBuilder private var pendingNotice: some View {
+        if vm.giver == .member, let m = vm.member {
+            if let first = vm.pending.first {
+                VStack(alignment: .leading, spacing: 8) {
+                    FinanceNoticeBar(notice: .warn(FinanceARules.pendingNotice(first)
+                        + (vm.pending.count > 1 ? " (\(FinanceARules.plural(vm.pending.count - 1, "other")) too.)" : "")))
+                    FinanceButton(title: "Open", icon: "arrow.up.right.square") { onOpenTransaction(first.transactionId) }
+                }
+            } else if vm.pendingCheck == .failed {
+                FinAExplain("Couldn't check whether one of \(m.fullName)'s payments is still processing — look at Transactions before recording an M-Pesa payment.")
+            }
+        }
+    }
+
+    // MARK: Destination (pledge · need · fund · note)
 
     @ViewBuilder private var destination: some View {
         if vm.giver == .member, let m = vm.member {
-            FinAFormField(label: "Toward a pledge (optional)",
-                          hint: vm.otherCurrencyPledges > 0 ? "\(m.fullName)'s pledges in other currencies show when the gift is in that currency." : (m.openPledges.isEmpty ? "\(m.fullName) has no open pledge." : "The gift counts toward this pledge's instalment.")) {
+            FinAFormField(label: "Pledge", hint: pledgeHint(m)) {
                 FinAMenuField(placeholder: "No pledge", selection: $vm.pledgeId,
-                              options: [FinanceFilterOption("", "No pledge")] + vm.pledgeChoices.map { p in
-                                  FinanceFilterOption(p.pledgeId, pledgeLabel(p))
-                              })
+                              options: [FinanceFilterOption("", "No pledge")] + vm.pledgesHere.map { p in FinanceFilterOption(p.pledgeId, pledgeLabel(p)) })
+                    .disabled(vm.pledgesHere.isEmpty)
             }
         }
-        FinAFormField(label: "Toward a department need (optional)",
-                      hint: vm.needsError.map { "Couldn't load department needs (\($0)) — you can still record without one." }) {
-            FinAMenuField(placeholder: "No department need", selection: $vm.needId,
-                          options: [FinanceFilterOption("", "No department need")] + vm.needChoices.map { n in
-                              FinanceFilterOption(n.needId, "\(n.title) — \(n.departmentName) (\(FinanceMoney.format(n.raisedMinor, n.currency)) of \(FinanceMoney.format(n.targetMinor, n.currency)))")
-                          })
+        if vm.selectedPledge != nil {
+            FinAExplain("A gift toward a pledge goes where the pledge goes, so no department need is asked for.")
+        } else {
+            FinAFormField(label: "Department need", hint: needHint) {
+                FinAMenuField(placeholder: "No department need", selection: $vm.needId,
+                              options: [FinanceFilterOption("", "No department need")] + vm.needsHere.map { n in
+                                  FinanceFilterOption(n.needId, "\(n.title) · \(n.departmentName)")
+                              })
+                    .disabled(vm.needsHere.isEmpty)
+            }
         }
-        switch vm.fundDecision {
-        case .pledge(let name):
-            decided("Booked to \(name) (the pledge's fund).")
-        case .need(let name):
-            decided("Booked to \(name) — the department's fund.")
-        case .choose:
-            FinAFormField(label: "Fund",
-                          hint: vm.selectedNeed != nil ? "This department has no active fund of its own — choose where the gift is booked." : nil,
-                          error: vm.fundsError.map { "Couldn't load the funds — \($0)" } ?? vm.problem("fund")) {
-                FinAMenuField(placeholder: "Choose a fund", selection: $vm.fund,
+        if let text = vm.fundDecisionText {
+            Text(text).font(.inter(13.5, .medium)).foregroundStyle(Nuru.navy)
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Nuru.surface)
+                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        } else {
+            FinAFormField(label: "Fund", hint: vm.fundsLoading ? "Loading funds…" : "Active funds only.",
+                          error: vm.problem("fund") ?? ((vm.fundsError != nil && vm.funds.isEmpty) ? "\(vm.fundsError ?? "") Close and reopen the form to try again." : nil)) {
+                FinAMenuField(placeholder: "Choose a fund…", selection: $vm.fund,
                               options: vm.activeFunds.map { FinanceFilterOption($0.code, $0.name) },
                               error: vm.problem("fund") != nil)
             }
         }
+        FinAFormField(label: "Note",
+                      hint: "Optional — printed on the receipt as the gift's name. \(vm.note.trimmingCharacters(in: .whitespacesAndNewlines).count) / 60",
+                      error: vm.problem("note")) {
+            TextField("e.g. Thanksgiving — Kamau family", text: $vm.note).finAInput(error: vm.problem("note") != nil)
+        }
+    }
+
+    private func pledgeHint(_ m: FinGiver) -> String {
+        let elsewhere = vm.pledgesElsewhere
+        var elsewhereText: String?
+        if !elsewhere.isEmpty {
+            let currencies = Array(Set(elsewhere.map(\.currency))).sorted(by: FinanceMoney.currencyPrecedes).joined(separator: ", ")
+            elsewhereText = "\(FinanceARules.plural(elsewhere.count, "open pledge")) in \(currencies) — switch the currency to pay toward \(elsewhere.count == 1 ? "it" : "them")."
+        }
+        if !vm.pledgesHere.isEmpty {
+            return "Optional — the gift then counts toward the pledge's instalments." + (elsewhereText.map { " Also \($0)" } ?? "")
+        }
+        return elsewhereText ?? "\(m.fullName) has no open pledge."
+    }
+
+    private var needHint: String {
+        if let e = vm.needsError { return e }
+        if let n = vm.selectedNeed, n.fundCode == nil { return "This department has no fund of its own — the gift goes to the fund you choose below." }
+        if vm.needsHere.isEmpty { return "No approved need in \(vm.currency)." }
+        return "Optional — counts toward the need's target."
     }
 
     private func pledgeLabel(_ p: FinGiverPledge) -> String {
-        let size: String
-        if p.shape == "monthly", let a = p.amountMinor { size = "\(FinanceMoney.format(a, p.currency)) a month" }
-        else if let t = p.targetMinor { size = "\(FinanceMoney.format(t, p.currency)) in total" }
-        else { size = p.shape }
-        return "\(p.title) — \(size)"
-    }
-
-    private func decided(_ text: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "arrow.turn.down.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(FinanceStatus.green.fg)
-            Text(text).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(FinanceStatus.green.bg)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+        if p.shape == "monthly" { return "\(p.title) — \(FinanceMoney.format(p.amountMinor ?? 0, p.currency)) a month" }
+        return "\(p.title) — target \(FinanceMoney.format(p.targetMinor ?? 0, p.currency))"
     }
 
     // MARK: Failure + success
@@ -600,48 +616,43 @@ struct FinARecordGiftSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             FinanceNoticeBar(notice: .error(f.text)) { vm.failure = nil }
             if let id = f.existingTransactionId, !id.isEmpty {
-                FinanceButton(title: "Open the existing transaction", icon: "arrow.up.right.square") { onOpenTransaction(id) }
+                FinanceButton(title: "Open the existing entry", icon: "arrow.up.right.square") { onOpenTransaction(id) }
             }
         }
     }
 
     private func success(_ r: FinGiftResult) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 14) {
-                Image(systemName: "checkmark.circle.fill").font(.system(size: 34)).foregroundStyle(Nuru.lumGreen)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(r.reused ? "Already recorded" : "Recorded").font(.inter(20, .bold)).foregroundStyle(Nuru.navy)
-                    Text(r.receiptCode ?? "—").font(.nMono(22, .medium)).foregroundStyle(Nuru.goldLo).textSelection(.enabled)
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 22)).foregroundStyle(FinanceStatus.green.fg)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("OFFICE RECEIPT").font(.inter(12, .bold)).tracking(0.6).foregroundStyle(FinanceStatus.green.fg)
+                    Text(r.receiptCode ?? "—").font(.nMono(22, .medium)).foregroundStyle(Nuru.navy).textSelection(.enabled)
                 }
             }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(hex: 0xE8F6EC))
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Color(hex: 0xBFE3CB), lineWidth: 1))
             if r.reused {
-                FinanceNoticeBar(notice: .warn("This form had already booked the gift — nothing new was posted and no second receipt was taken. The details below are the gift as it was booked."))
+                FinanceNoticeBar(notice: .warn("This gift had already been recorded — the same form reached the server twice. Nothing new was posted; this is the entry as it was booked."))
             }
             FinAFacts(facts: [
                 FinAFact("Amount", FinanceMoney.format(r.amountMinor, r.currency)),
-                FinAFact("Fund", r.fund.map { "\($0.name) (\($0.code))" }),
-                FinAFact("Giver", r.memberName ?? r.giverName ?? (r.anonymous ? "Anonymous" : nil)),
-                FinAFact("Received", FinanceDates.display(r.receivedOn)),
-                FinAFact("Channel", FinWords.channel(r.channel)),
-                FinAFact("Reference", r.reference, mono: true),
-                FinAFact("Pledge", r.pledge?.title),
-                FinAFact("Department need", r.need?.title),
-            ])
-            if vm.inFlightCheckFailed {
-                FinanceNoticeBar(notice: .warn("Couldn't check whether a payment from this member was still processing — look at Transactions with status Processing."))
-            }
-            if r.userId != nil { FinAExplain("The member's receipt (email and SMS) is on its way.") }
+                FinAFact("From", r.memberName ?? r.giverName ?? r.giverPhone ?? "Anonymous"),
+                FinAFact("Fund", r.fund?.name),
+                FinAFact("Received", FinanceDates.display(r.receivedOn) + (r.channel.map { " · \(FinWords.channel($0))" } ?? "") + (r.reference.map { " \($0)" } ?? "")),
+            ] + (r.pledge.map { [FinAFact("Pledge", $0.title)] } ?? [])
+              + (r.need.map { [FinAFact("Department need", $0.title)] } ?? [])
+              + (r.note.map { [FinAFact("On the receipt", $0)] } ?? []))
+            FinAExplain((r.userId != nil ? "The member's usual giving receipt has been queued. " : "") + "A mistake is corrected by reversing this entry — its receipt number is never reused.")
             HStack(spacing: 10) {
-                FinanceButton(title: "Record another", icon: "plus", style: .gold) { vm.recordAnother() }
-                FinanceButton(title: "View", icon: "doc.text.magnifyingglass") { onOpenTransaction(r.transactionId) }
+                FinanceButton(title: "Close") { dismiss() }
+                FinanceButton(title: "View", icon: "arrow.up.right.square") { onOpenTransaction(r.transactionId) }
                 Spacer()
-                FinanceButton(title: "Done") { dismiss() }
+                FinanceButton(title: "Record another", icon: "plus", style: .gold) { vm.recordAnother() }
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Nuru.white)
-        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 }

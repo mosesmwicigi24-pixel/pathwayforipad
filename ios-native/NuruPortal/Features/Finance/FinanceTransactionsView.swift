@@ -38,17 +38,14 @@ final class FinanceTransactionsModel: ObservableObject {
     var isFiltered: Bool { filter != FinTransactionFilter() }
     func clearFilters() { filter = FinTransactionFilter() }
 
-    private static let filterKeys: Set<String> = ["from", "to", "fund", "status", "channel", "source", "q", "pledged", "need"]
+    private static let filterKeys: Set<String> = ["from", "to", "period", "fund", "status", "channel", "source", "q", "pledged", "need"]
 
     /// A deep link: filter keys replace the filters; tx=<id> opens that
     /// transaction; record=gift opens the form (only with finance:manage).
     func apply(_ p: [String: String], caps: FinanceCaps) {
         if !Self.filterKeys.isDisjoint(with: p.keys) {
             var f = FinTransactionFilter()
-            if let from = p["from"], let to = p["to"],
-               FinanceDates.date(fromYMD: from) != nil, FinanceDates.date(fromYMD: to) != nil {
-                f.period = .custom(from: from, to: to)
-            }
+            if let period = FinanceARules.period(fromParams: p) { f.period = period }
             f.fund = p["fund"] ?? ""
             f.status = p["status"] ?? ""
             f.channel = p["channel"] ?? ""
@@ -79,17 +76,17 @@ struct FinanceTransactionsView: View {
         FinanceFilterOption("airtel", "Airtel"), FinanceFilterOption("paypal", "PayPal"),
         FinanceFilterOption("onhand", "Cash on hand"), FinanceFilterOption("bank", "Bank"),
         FinanceFilterOption("cheque", "Cheque"), FinanceFilterOption("other", "Other (office)"),
-        FinanceFilterOption("manual", "Claim (paid another way)"),
+        FinanceFilterOption("manual", "Confirmed claims"),
     ]
     private static let sourceOptions = [
-        FinanceFilterOption.all("Any"), FinanceFilterOption("app", "App"),
+        FinanceFilterOption.all("Any"), FinanceFilterOption("app", "Member app"),
         FinanceFilterOption("website", "Website"), FinanceFilterOption("admin", "Office"),
     ]
 
     var body: some View {
         let caps = auth.financeCaps
         FinancePageScaffold(title: Section.financeTransactions.title,
-                            subtitle: "Every gift and purchase — online and recorded by the office.",
+                            subtitle: "Every gift and payment — online and recorded by the office. Dates are East Africa Time; an office gift is dated the day the money was received. Tap a row for its ledger postings.",
                             onRefresh: { await vm.pager.reload() }) {
             HStack(spacing: 8) {
                 FinanceExportButton(caps: caps, path: FinanceERPAPI.transactionsCSV, query: vm.filter.query, placement: .hero)
@@ -100,9 +97,9 @@ struct FinanceTransactionsView: View {
         } content: {
             filters
             VStack(alignment: .leading, spacing: 6) {
-                FinanceTotalsStrip(totals: vm.pager.totals, title: "Succeeded", noun: ("transaction", "transactions"),
+                FinanceTotalsStrip(totals: vm.pager.totals, title: "Total", noun: ("transaction", "transactions"),
                                    loading: vm.pager.isLoadingFirstPage)
-                FinAExplain("Amounts add up succeeded gifts only, per currency; the count is every transaction that matches, whatever its status.")
+                FinAExplain("Amount = succeeded gifts only · count = every row in this filter, any status")
             }
             table
         }
@@ -123,6 +120,9 @@ struct FinanceTransactionsView: View {
                                      },
                                      onOpenPartner: { userId in
                                          DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { router.openFinance(.partners, ["member": userId]) }
+                                     },
+                                     onOpenNeed: { needId in
+                                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { router.openFinance(.financeNeeds, ["need": needId]) }
                                      })
             case .gift:
                 FinARecordGiftSheet(onOpenTransaction: { id in vm.sheet = .detail(id) },
@@ -146,9 +146,9 @@ struct FinanceTransactionsView: View {
             FinanceFilterMenu(title: "Channel", selection: $vm.filter.channel, options: Self.channelOptions)
             FinanceFilterMenu(title: "Source", selection: $vm.filter.source, options: Self.sourceOptions)
             FinanceFilterMenu(title: "Pledge", selection: anyBinding(\.pledged),
-                              options: [.all("Any"), FinanceFilterOption("yes", "Toward a pledge"), FinanceFilterOption("no", "Not pledged")])
+                              options: [.all("Any"), FinanceFilterOption("yes", "Yes"), FinanceFilterOption("no", "No")])
             FinanceFilterMenu(title: "Need", selection: anyBinding(\.need),
-                              options: [.all("Any"), FinanceFilterOption("yes", "Toward a need"), FinanceFilterOption("no", "Not for a need")])
+                              options: [.all("Any"), FinanceFilterOption("yes", "Yes"), FinanceFilterOption("no", "No")])
         }
     }
 
@@ -196,7 +196,7 @@ struct FinanceTransactionsView: View {
         let cols = columns(layout)
         return FinancePagedTable(pager: vm.pager, columns: cols,
                                  emptyIcon: "arrow.left.arrow.right",
-                                 emptyMessage: vm.isFiltered ? "No transaction matches these filters." : "No transactions in this period.",
+                                 emptyMessage: vm.isFiltered ? "No transactions match these filters." : "No transactions in this period yet.",
                                  totalCount: vm.pager.totals.isEmpty ? nil : vm.pager.totals.reduce(0) { $0 + $1.count },
                                  onSelect: { vm.sheet = .detail($0.transactionId) }) { t in
             let reversed = t.reversedAt != nil

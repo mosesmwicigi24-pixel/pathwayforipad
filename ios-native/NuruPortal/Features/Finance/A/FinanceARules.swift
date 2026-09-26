@@ -53,12 +53,22 @@ enum FinanceATime {
 }
 
 // MARK: - Rules
+//
+// Every sentence here matches the web's Finance A helpers
+// (admin-web src/components/finance/a/helpers.ts) — web and iPad say the same
+// thing the same way.
 
 enum FinanceARules {
 
-    // MARK: Record a gift — channel, reference, giver, note, dates
+    /// "1 gift" / "3 gifts".
+    static func plural(_ n: Int, _ one: String, _ many: String? = nil) -> String {
+        "\(n) \(n == 1 ? one : (many ?? one + "s"))"
+    }
 
-    /// The Record-a-gift channel picker's words (spec §5; web parity).
+    // MARK: Record a gift — channels, references, giver, note, dates
+
+    /// How the office received a gift (onhand = physical cash; mpesa = a
+    /// payment made to the till/paybill and recorded here by hand).
     static func giftChannelLabel(_ c: FinOfficeChannel) -> String {
         switch c {
         case .onhand: "Cash on hand"
@@ -69,24 +79,42 @@ enum FinanceARules {
         }
     }
 
-    /// The reference field's label for a channel.
-    static func referenceLabel(_ c: FinOfficeChannel) -> String {
+    /// Where money sits (opening balances).
+    static func holdingChannelLabel(_ c: FinOfficeChannel) -> String {
         switch c {
-        case .mpesa: "M-Pesa code"
-        case .cheque: "Cheque number"
-        case .bank: "Bank reference"
-        case .onhand, .other: "Reference (optional)"
+        case .onhand: "Cash on hand (cash box / safe)"
+        case .bank: "Bank account"
+        case .cheque: "Cheques not yet banked"
+        case .mpesa: "M-Pesa till / paybill"
+        case .other: "Other"
         }
     }
 
-    /// The reference field's placeholder.
-    static func referencePrompt(_ c: FinOfficeChannel) -> String {
+    /// The cash account an office channel posts to (other → cash:manual).
+    static func cashAccount(for c: FinOfficeChannel) -> String { c == .other ? "cash:manual" : "cash:\(c.rawValue)" }
+
+    struct ReferenceRule: Equatable {
+        let label: String
+        let required: Bool
+        let placeholder: String
+        let hint: String
+    }
+
+    /// What the reference field is called and whether the books require it.
+    static func referenceRule(_ c: FinOfficeChannel) -> ReferenceRule {
         switch c {
-        case .mpesa: "e.g. QJK4ABC123"
-        case .cheque: "e.g. 000451"
-        case .bank: "Deposit slip or statement reference"
-        case .onhand, .other: "Envelope number, note…"
+        case .mpesa: ReferenceRule(label: "M-Pesa code", required: true, placeholder: "SJK4H7T2QX", hint: "The 10-character code from the M-Pesa message.")
+        case .cheque: ReferenceRule(label: "Cheque number", required: true, placeholder: "e.g. 004512", hint: "As printed on the cheque.")
+        case .bank: ReferenceRule(label: "Bank reference", required: true, placeholder: "e.g. FT26269ABCD", hint: "The reference on the bank statement or deposit slip.")
+        case .onhand: ReferenceRule(label: "Reference", required: false, placeholder: "Optional — envelope or register number", hint: "Optional.")
+        case .other: ReferenceRule(label: "Reference", required: false, placeholder: "Optional", hint: "Optional — anything that helps find it later.")
         }
+    }
+
+    /// The field's text as it is typed: an M-Pesa code is upper-cased and
+    /// loses its spaces on the way in (the books store it that way).
+    static func normalizeReferenceInput(_ raw: String, channel: FinOfficeChannel) -> String {
+        channel == .mpesa ? raw.uppercased().filter { !$0.isWhitespace } : raw
     }
 
     /// `^[A-Z0-9]{8,12}$` — what an M-Pesa code looks like once trimmed and upper-cased.
@@ -95,60 +123,58 @@ enum FinanceARules {
     }
 
     /// What the server stores as office_reference: trimmed, M-Pesa codes
-    /// upper-cased (the server does the same); nil when blank.
+    /// upper-cased; nil when blank.
     static func normalizedReference(_ raw: String, channel: FinOfficeChannel) -> String? {
         let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty { return nil }
         return channel == .mpesa ? t.uppercased() : t
     }
 
-    /// Why this reference can't be sent for this channel, or nil. Required for
-    /// M-Pesa (8–12 letters/digits), cheque and bank; ≤ 80 characters always.
+    /// Why this reference can't be sent for this channel, or nil.
     static func referenceProblem(_ raw: String, channel: FinOfficeChannel) -> String? {
-        let ref = normalizedReference(raw, channel: channel)
-        switch channel {
-        case .mpesa:
-            guard let ref else { return "Enter the M-Pesa code from the payment message." }
-            if !isMpesaCode(ref) { return "An M-Pesa code is 8–12 letters and digits, like QJK4ABC123." }
-        case .cheque:
-            if ref == nil { return "Enter the cheque number." }
-        case .bank:
-            if ref == nil { return "Enter the bank reference from the deposit slip or statement." }
-        case .onhand, .other:
-            break
+        let v = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rule = referenceRule(channel)
+        if v.isEmpty {
+            guard rule.required else { return nil }
+            let what = channel == .mpesa ? "an M-Pesa payment" : channel == .cheque ? "a cheque" : "a bank payment"
+            let label = channel == .mpesa ? rule.label : rule.label.lowercased()
+            return "Enter the \(label) — it is required for \(what)."
         }
-        if let ref, ref.utf16.count > 80 { return "Keep the reference to 80 characters." }
+        if v.utf16.count > 80 { return "At most 80 characters." }
+        if channel == .mpesa && !isMpesaCode(v.uppercased()) { return "An M-Pesa code is 8–12 letters and digits, like SJK4H7T2QX." }
         return nil
     }
 
     /// A walk-in giver's name: 2–120 characters (trimmed).
     static func walkInNameProblem(_ raw: String) -> String? {
         let n = raw.trimmingCharacters(in: .whitespacesAndNewlines).utf16.count
-        if n == 0 { return "Enter the giver's name." }
-        if n < 2 { return "A name has at least 2 characters." }
-        if n > 120 { return "Keep the name to 120 characters." }
+        if n < 2 { return "Enter the giver's name (at least 2 characters)." }
+        if n > 120 { return "At most 120 characters." }
         return nil
     }
 
     /// An optional phone: blank, or 7–32 characters (trimmed).
     static func phoneProblem(_ raw: String) -> String? {
         let n = raw.trimmingCharacters(in: .whitespacesAndNewlines).utf16.count
-        if n == 0 { return nil }
-        if n < 7 { return "A phone number has at least 7 characters." }
-        if n > 32 { return "Keep the phone number to 32 characters." }
-        return nil
+        return n == 0 || (7...32).contains(n) ? nil : "A phone number is 7–32 characters."
     }
 
-    /// The receipt note: ≤ 60 characters (it is printed on the receipt).
+    /// The receipt note: ≤ 60 characters.
     static func noteProblem(_ raw: String) -> String? {
-        raw.trimmingCharacters(in: .whitespacesAndNewlines).utf16.count > 60 ? "Keep the note to 60 characters — it is printed on the receipt." : nil
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).utf16.count > 60 ? "At most 60 characters." : nil
     }
 
-    /// A free-text bound: `min`…`max` characters once trimmed (memo, reason).
+    /// Trimmed length within min…max, or why not. `what` names it with its
+    /// article ("a reason", "the name").
     static func lengthProblem(_ raw: String, min: Int, max: Int, what: String) -> String? {
         let n = raw.trimmingCharacters(in: .whitespacesAndNewlines).utf16.count
-        if n < min { return "\(what) needs at least \(min) characters." }
-        if n > max { return "Keep \(what.lowercased()) to \(max) characters." }
+        if n < min {
+            if n == 0 { return "Enter \(what)." }
+            var bare = what
+            for a in ["a ", "an ", "the "] where bare.lowercased().hasPrefix(a) { bare = String(bare.dropFirst(a.count)) }
+            return (bare.prefix(1).uppercased() + bare.dropFirst()) + " needs at least \(min) characters."
+        }
+        if n > max { return "At most \(max) characters." }
         return nil
     }
 
@@ -166,14 +192,19 @@ enum FinanceARules {
         return first...today
     }
 
-    /// "The received date must be between 25 Sep 2025 and today (East Africa Time)."
-    static func dateRangeSentence(_ what: String, today: String, daysBack: Int) -> String {
-        let first = day(today, minus: daysBack).map(FinanceDates.display) ?? "a year ago"
-        return "\(what) must be between \(first) and today (East Africa Time)."
+    /// Why a picked day can't be used, or nil. `what` names it in the sentence.
+    static func dayProblem(_ ymd: String, today: String, daysBack: Int, what: String) -> String? {
+        if ymd.isEmpty { return "Pick the \(what)." }
+        guard FinanceDates.date(fromYMD: ymd) != nil, let first = day(today, minus: daysBack) else {
+            return "That is not a date — pick the \(what) from the calendar."
+        }
+        if ymd > today { return "The \(what) can't be in the future." }
+        if ymd < first { return "The books take dates from \(FinanceDates.display(first)) onwards — this one is older." }
+        return nil
     }
 
     /// A payment that may still land: processing or requires_action, started
-    /// within the last 48 hours (Record a gift warns before counting it twice).
+    /// within the last 48 hours.
     static func isRecentInFlight(status: String, createdAt: String, now: Date = Date()) -> Bool {
         guard status == "processing" || status == "requires_action",
               let at = FinanceATime.instant(createdAt) else { return false }
@@ -181,36 +212,70 @@ enum FinanceARules {
         return age >= -300 && age <= 48 * 3600
     }
 
-    // MARK: Numbers
-
-    /// "+12.4%", "-5.0%", "0%"; "new" when there was nothing before; "—" when
-    /// both are zero. Exact integer math, rounded half away from zero.
-    static func percentChange(current: Int, previous: Int) -> String {
-        if previous == 0 { return current > 0 ? "new" : "—" }
-        let num = (current - previous) * 1000
-        let den = previous.magnitude
-        var q = num / Int(den)
-        let r = num % Int(den)
-        if r.magnitude * 2 >= den { q += num >= 0 ? 1 : -1 }
-        if q == 0 { return "0%" }
-        let m = q.magnitude
-        return (q > 0 ? "+" : "-") + "\(m / 10).\(m % 10)%"
+    /// "a" / "an" by sound: an Airtel…, an M-Pesa… (a letter said "em"), a Card….
+    static func article(_ word: String) -> String {
+        guard let first = word.first else { return "a" }
+        if "aeiouAEIOU".contains(first) { return "an" }
+        let chars = Array(word)
+        if "FHLMNRSX".contains(first), chars.count > 1, chars[1] == "-" || (chars[1].isUppercase && chars[1].isLetter) { return "an" }
+        return "a"
     }
 
-    /// "12 of 46" style share, or "—" when nothing is counted.
-    static func share(_ part: Int, of whole: Int) -> String { whole > 0 ? "\(part) of \(whole)" : "—" }
+    /// "10:42" when it was today (EAT), else "25 Sep 2026, 10:42".
+    static func sinceEAT(_ iso: String, now: Date = Date()) -> String {
+        guard let at = FinanceATime.instant(iso) else { return "—" }
+        return FinanceDates.ymd(at) == FinanceDates.ymd(now) ? FinanceATime.time(iso) : FinanceATime.dayTime(iso)
+    }
+
+    /// "An M-Pesa payment of KES 1,000.00 from Grace is still processing since 10:42 — it may be this same payment."
+    static func pendingNotice(_ r: FinTransactionRow, now: Date = Date()) -> String {
+        let name = (r.fullName ?? r.displayName).trimmingCharacters(in: .whitespaces)
+        let who = name.split(separator: " ").first.map(String.init) ?? "this member"
+        let label = FinWords.channel(r.channel)
+        let art = article(label)
+        let state = r.status == "requires_action" ? "is waiting for them to confirm" : "is still processing"
+        return "\(art == "an" ? "An" : "A") \(label) payment of \(FinanceMoney.format(r.amountMinor, r.currency)) from \(who) \(state) since \(sinceEAT(r.createdAt, now: now)) — it may be this same payment."
+    }
+
+    /// Who decides the fund — the server's order: pledge → need's department fund → the picker.
+    static func fundDecisionText(byPledge: Bool, name: String?) -> String {
+        byPledge ? "Booked to \(name ?? "the pledge's fund") (the pledge's fund)."
+                 : "Booked to \(name ?? "the department's fund") (the department's fund)."
+    }
+
+    // MARK: Numbers
+
+    /// Whole-percent change, or nil when there is nothing to compare with
+    /// (previous ≤ 0 — the figure is new). A display ratio, never money.
+    static func pctChange(current: Int, previous: Int) -> Int? {
+        guard previous > 0 else { return nil }
+        return Int((Double(current - previous) / Double(previous) * 100).rounded())
+    }
+
+    /// "+12%" / "−8%" / "0%" / "—" (a true minus sign).
+    static func fmtPct(_ p: Int?) -> String {
+        guard let p else { return "—" }
+        if p == 0 { return "0%" }
+        return p > 0 ? "+\(p)%" : "−\(abs(p))%"
+    }
+
+    /// The income tile's comparison line for one currency.
+    static func incomeComparison(current: Int, previous: Int, currency: String) -> String {
+        if let p = pctChange(current: current, previous: previous) {
+            return "\(fmtPct(p)) vs \(FinanceMoney.format(previous, currency)) last year"
+        }
+        return previous == 0 && current > 0 ? "new — nothing this time last year" : "nothing to compare"
+    }
 
     // MARK: Funds
 
     /// Why a fund / category code is refused (`^[a-z][a-z0-9-]{1,39}$`), or nil.
     static func slugProblem(_ code: String) -> String? {
         if code.isEmpty { return "Enter a code." }
-        guard let first = code.first, first.isASCII, first.isLowercase else { return "Start the code with a lowercase letter (a–z)." }
-        if !code.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "-") }) {
-            return "Use only lowercase letters, digits and hyphens."
-        }
-        if code.count < 2 || code.count > 40 { return "A code is 2–40 characters." }
-        return nil
+        let ok = (2...40).contains(code.count)
+            && (code.first.map { $0.isASCII && $0.isLowercase } ?? false)
+            && code.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "-") }
+        return ok ? nil : "Lowercase letters, digits and hyphens, starting with a letter — 2 to 40 characters."
     }
 
     /// A code suggested from a name: "Building Fund 2026" → "building-fund-2026".
@@ -233,96 +298,121 @@ enum FinanceARules {
         return out
     }
 
+    /// "a, b and c".
+    static func joinAnd(_ parts: [String]) -> String {
+        parts.count <= 1 ? (parts.first ?? "") : parts.dropLast().joined(separator: ", ") + " and " + (parts.last ?? "")
+    }
+
     /// The FUND_IN_USE sentence: "12 active pledges, 3 recurring gifts and 1
     /// department still send money to Building fund — their payments will fail
-    /// while it is inactive."
-    static func fundInUseSentence(fund: String, pledges: Int, schedules: Int, departments: Int, campaigns: Int) -> String {
-        func n(_ count: Int, _ one: String, _ many: String) -> String? { count > 0 ? "\(count) \(count == 1 ? one : many)" : nil }
-        let parts = [n(pledges, "active pledge", "active pledges"), n(schedules, "recurring gift", "recurring gifts"),
-                     n(departments, "department", "departments"), n(campaigns, "live campaign", "live campaigns")].compactMap { $0 }
-        guard !parts.isEmpty else {
-            return "Money still routes to \(fund) — payments to it will fail while it is inactive."
+    /// while it is inactive." (`serverMessage` when no count came back.)
+    static func fundInUseSentence(fund: String, pledges: Int, schedules: Int, departments: Int, campaigns: Int, serverMessage: String = "") -> String {
+        var parts: [String] = []
+        if pledges > 0 { parts.append(plural(pledges, "active pledge")) }
+        if schedules > 0 { parts.append(plural(schedules, "recurring gift")) }
+        if departments > 0 { parts.append(plural(departments, "department")) }
+        if campaigns > 0 { parts.append(plural(campaigns, "live campaign")) }
+        if parts.isEmpty {
+            return serverMessage.isEmpty ? "Money still routes to \(fund) — payments to it will fail while it is inactive." : serverMessage
         }
-        let list = parts.count == 1 ? parts[0] : parts.dropLast().joined(separator: ", ") + " and " + (parts.last ?? "")
-        let single = parts.count == 1 && [pledges, schedules, departments, campaigns].filter { $0 > 0 } == [1]
-        return "\(list) still \(single ? "sends" : "send") money to \(fund) — their payments will fail while it is inactive."
+        let single = parts.count == 1 && pledges + schedules + departments + campaigns == 1
+        return "\(joinAnd(parts)) still \(single ? "sends" : "send") money to \(fund) — \(single ? "its" : "their") payments will fail while it is inactive."
+    }
+
+    /// Funds below zero: "2 funds are below zero — more has left them than came in (A, B). Usually an opening balance is missing — post one, or transfer money in."
+    static func negativeFundsSentence(_ names: [String], canApprove: Bool) -> String? {
+        guard !names.isEmpty else { return nil }
+        let one = names.count == 1
+        let listed = names.prefix(3).joined(separator: ", ") + (names.count > 3 ? "…" : "")
+        return "\(plural(names.count, "fund")) \(one ? "is" : "are") below zero — more has left \(one ? "it" : "them") than came in (\(listed)). Usually an opening balance is missing\(canApprove ? " — post one, or transfer money in" : "")."
     }
 
     // MARK: Reversal wording
 
-    /// The Reverse sheet's consequence line (spec §5): "Posts KES 1,500.00 back
-    /// out of Tithe; the gift leaves Mary Wanjiku's statement and re-opens
-    /// their instalment."
-    static func reversalConsequence(amountMinor: Int, currency: String, fundName: String?, memberName: String?, pledged: Bool) -> String {
+    /// The Reverse sheet's consequence for a gift.
+    static func reversalConsequence(amountMinor: Int, currency: String, fundName: String?, memberName: String?,
+                                    pledgeTitle: String?, receiptCode: String?) -> String {
         var s = "Posts \(FinanceMoney.format(amountMinor, currency)) back out of \(fundName.flatMap { $0.isEmpty ? nil : $0 } ?? "its fund")"
         if let m = memberName, !m.isEmpty {
             s += "; the gift leaves \(m)'s statement"
-            if pledged { s += " and re-opens their instalment" }
-        } else if pledged {
-            s += "; the pledge's instalment re-opens"
+            s += pledgeTitle.map { " and re-opens their instalment on “\($0)”." } ?? "."
+        } else {
+            s += ". It was not on any member's statement."
         }
-        return s + "."
+        if let r = receiptCode, !r.isEmpty { s += " The receipt number \(r) stays on the reversed entry and is never reused." }
+        return s + " Nothing is deleted: the gift and its reversal both stay in the ledger."
     }
 
     // MARK: Ledger words
 
-    /// "cash:mpesa" → "M-Pesa" (the settlement channel is the account without
-    /// its cash: prefix; stripe = card; manual = office "other" + claims).
-    static func cashChannelLabel(_ channel: String) -> String {
-        switch channel {
-        case "onhand": "Cash on hand"
-        case "bank": "Bank"
-        case "cheque": "Cheque"
-        case "mpesa": "M-Pesa"
-        case "airtel": "Airtel"
-        case "stripe", "card": "Card"
-        case "paypal": "PayPal"
-        case "manual": "Other & claims"
-        case "": "—"
-        default: channel.capitalized
+    /// A ledger account in words: cash:mpesa → "M-Pesa", fund:tithe → the fund's name.
+    static func accountLabel(_ account: String, fundNames: [String: String] = [:]) -> String {
+        switch account {
+        case "cash:": return "All cash accounts"
+        case "fund:": return "All funds"
+        case "cash:onhand": return "Cash on hand"
+        case "cash:bank": return "Bank"
+        case "cash:cheque": return "Cheques"
+        case "cash:mpesa": return "M-Pesa"
+        case "cash:manual": return "Manual / other"
+        case "cash:stripe": return "Card (Stripe)"
+        case "cash:airtel": return "Airtel Money"
+        case "cash:paypal": return "PayPal"
+        case "sales:media": return "Media sales"
+        default:
+            if account.hasPrefix("fund:") { let code = String(account.dropFirst(5)); return fundNames[code] ?? code }
+            if account.hasPrefix("cash:") { return FinWords.channel(String(account.dropFirst(5))) }
+            return account
         }
     }
 
-    /// A ledger account in words: "cash:onhand" → "Cash on hand", "fund:tithe"
-    /// → the fund's name when known, "sales:media" → "Media sales".
-    static func accountLabel(_ account: String, fundNames: [String: String] = [:]) -> String {
-        let parts = account.split(separator: ":", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else { return account }
-        switch parts[0] {
-        case "cash": return cashChannelLabel(parts[1])
-        case "fund": return fundNames[parts[1]] ?? parts[1]
-        case "sales": return parts[1] == "media" ? "Media sales" : "Sales · \(parts[1])"
-        default: return account
-        }
+    /// A settlement / channel-total row's channel ("stripe" settles as card).
+    static func cashChannelLabel(_ channel: String) -> String {
+        channel.isEmpty ? "—" : accountLabel("cash:\(channel)")
     }
 
     // MARK: Overview alerts
 
-    /// An alert's words: "3 claims waiting", "1 expense to approve".
-    static func alertTitle(kind: String, count: Int) -> String {
-        func p(_ one: String, _ many: String) -> String { "\(count) \(count == 1 ? one : many)" }
+    enum Tone { case warn, error, info }
+
+    struct AlertCopy {
+        let title: (Int) -> String
+        let hint: String
+        let fallbackLink: String
+        let tone: Tone
+    }
+
+    static func alertCopy(_ kind: String) -> AlertCopy {
         switch kind {
-        case "pending_claims": return p("claim waiting", "claims waiting")
-        case "expenses_awaiting_approval": return p("expense to approve", "expenses to approve")
-        case "failing_schedules": return p("recurring gift needs attention", "recurring gifts need attention")
-        case "stale_processing": return p("payment stuck processing", "payments stuck processing")
-        case "integrity_issues": return p("integrity issue", "integrity issues")
-        case "partners_behind": return p("partner behind", "partners behind")
-        default: return "\(count) × " + kind.replacingOccurrences(of: "_", with: " ")
+        case "pending_claims":
+            AlertCopy(title: { "\(plural($0, "claim")) waiting" }, hint: "Members who say they paid another way — confirm or reject each one.",
+                      fallbackLink: "/finance/claims", tone: .warn)
+        case "expenses_awaiting_approval":
+            AlertCopy(title: { "\(plural($0, "expense")) to approve" }, hint: "Recorded but not posted — someone other than the recorder approves them.",
+                      fallbackLink: "/finance/expenses?status=recorded", tone: .warn)
+        case "failing_schedules":
+            AlertCopy(title: { "\(plural($0, "recurring gift")) \($0 == 1 ? "needs" : "need") attention" }, hint: "Paused, or the last collection failed.",
+                      fallbackLink: "/finance/recurring?attention=true", tone: .warn)
+        case "stale_processing":
+            AlertCopy(title: { "\(plural($0, "payment")) stuck processing" }, hint: "An M-Pesa prompt older than 30 minutes, or a card payment older than a day.",
+                      fallbackLink: "/finance/reconciliation?tab=exceptions", tone: .warn)
+        case "integrity_issues":
+            AlertCopy(title: { "\(plural($0, "issue")) in the books" }, hint: "Postings that are missing or don't balance — tell the developer; don't re-record.",
+                      fallbackLink: "/finance/reconciliation?tab=exceptions", tone: .error)
+        case "partners_behind":
+            AlertCopy(title: { "\(plural($0, "partner")) behind" }, hint: "A pledge instalment is overdue.",
+                      fallbackLink: "/finance/partners?status=behind", tone: .info)
+        default:
+            AlertCopy(title: { "\($0) × " + kind.replacingOccurrences(of: "_", with: " ") }, hint: "", fallbackLink: "/finance", tone: .info)
         }
     }
 
-    /// What an alert means, in one line.
-    static func alertHint(kind: String) -> String {
-        switch kind {
-        case "pending_claims": "Members say they paid another way — confirm or reject."
-        case "expenses_awaiting_approval": "Recorded, not yet posted — a second person approves."
-        case "failing_schedules": "Paused, or the last charge failed."
-        case "stale_processing": "Started but never confirmed by the provider."
-        case "integrity_issues": "Postings that do not balance or are missing."
-        case "partners_behind": "A pledge instalment is overdue."
-        default: ""
-        }
+    /// Only an in-app path is followed; anything else falls back to the kind's
+    /// own route. Integrity always opens the exceptions.
+    static func alertLink(kind: String, link: String?) -> String {
+        if kind == "integrity_issues" { return "/finance/reconciliation?tab=exceptions" }
+        if let l = link, l.hasPrefix("/"), !l.hasPrefix("//") { return l }
+        return alertCopy(kind).fallbackLink
     }
 
     static func alertIcon(kind: String) -> String {
@@ -339,175 +429,145 @@ enum FinanceARules {
 
     // MARK: Reconciliation exceptions
 
-    /// The Reconciliation exception kinds in the order the page lists them
-    /// (the books-breaking ones first).
-    static let exceptionKinds = ["succeeded_without_ledger", "unbalanced_transaction", "unbalanced_journal",
-                                 "refunded_without_reversal", "duplicate_receipt", "stale_processing", "failed"]
+    /// Most serious first: money counted twice, then books that don't foot,
+    /// then work in flight.
+    static let exceptionKinds = ["duplicate_receipt", "succeeded_without_ledger", "unbalanced_transaction", "unbalanced_journal",
+                                 "refunded_without_reversal", "stale_processing", "failed"]
 
-    static func exceptionTitle(_ kind: String) -> String {
-        switch kind {
-        case "stale_processing": "Stuck processing"
-        case "failed": "Failed payments"
-        case "succeeded_without_ledger": "Succeeded, not in the books"
-        case "unbalanced_transaction": "Unbalanced transaction"
-        case "refunded_without_reversal": "Refunded, never reversed"
-        case "duplicate_receipt": "Duplicate receipt"
-        case "unbalanced_journal": "Unbalanced journal"
-        default: kind.replacingOccurrences(of: "_", with: " ").capitalized
-        }
+    struct ExceptionCopy {
+        let title: String
+        let explain: String
+        let todo: String
+        let tone: Tone
     }
 
-    /// What the kind means, in one line.
-    static func exceptionExplanation(_ kind: String) -> String {
+    static func exceptionCopy(_ kind: String) -> ExceptionCopy {
         switch kind {
-        case "stale_processing": "Started but never confirmed — M-Pesa or Airtel for more than 30 minutes, card or PayPal for more than 24 hours."
-        case "failed": "Payments that failed in this period. No money moved and nothing was posted."
-        case "succeeded_without_ledger": "Marked succeeded but with no ledger postings — the books are missing this money."
-        case "unbalanced_transaction": "Its postings' debits and credits are not equal."
-        case "refunded_without_reversal": "Marked refunded, but no reversing entry took the money back out of the books."
-        case "duplicate_receipt": "One receipt code on more than one payment — usually the office recorded an M-Pesa payment that also settled online."
-        case "unbalanced_journal": "A journal whose debits and credits differ, or that has no postings."
-        default: "An exception the books flagged."
-        }
-    }
-
-    /// What the treasurer does about it, in one line.
-    static func exceptionAction(_ kind: String) -> String {
-        switch kind {
-        case "stale_processing": "Look the payment up on the provider's statement. If the money arrived, report it so the confirmation can be replayed; if not, nothing is owed."
-        case "failed": "Nothing to correct. If the giver says they paid, check the provider's statement."
-        case "succeeded_without_ledger": "Report it — its postings have to be written before the books foot."
-        case "unbalanced_transaction": "Report it. It cannot be reversed here until its postings are one balanced pair."
-        case "refunded_without_reversal": "Report it so the reversing entry can be posted."
-        case "duplicate_receipt": "Open the office entry and reverse it (Transactions → Reverse). The online payment stays."
-        case "unbalanced_journal": "Report it — a journal must post equal debits and credits."
-        default: "Open it and check."
+        case "duplicate_receipt":
+            ExceptionCopy(title: "Recorded twice",
+                          explain: "The same receipt is on two entries — usually the office recorded an M-Pesa payment that also arrived online.",
+                          todo: "Open the office entry and reverse it (reason: “Also received online”). The online payment stays.", tone: .error)
+        case "succeeded_without_ledger":
+            ExceptionCopy(title: "Succeeded, but not in the books",
+                          explain: "The payment is marked succeeded but has no ledger postings, so no fund shows the money.",
+                          todo: "Tell the developer. Do not record the gift again by hand — it would be counted twice once fixed.", tone: .error)
+        case "unbalanced_transaction":
+            ExceptionCopy(title: "Gift postings don't balance", explain: "The gift's debits and credits differ, so the ledger no longer foots.",
+                          todo: "Tell the developer. Don't reverse or re-record it yourself.", tone: .error)
+        case "unbalanced_journal":
+            ExceptionCopy(title: "Journal doesn't balance", explain: "A journal whose debits and credits differ, or that has no postings at all.",
+                          todo: "Tell the developer. Don't post a correcting journal by hand.", tone: .error)
+        case "refunded_without_reversal":
+            ExceptionCopy(title: "Refunded without a reversal",
+                          explain: "Marked refunded, but nothing was taken back out of the books — the fund still counts the money.",
+                          todo: "Tell the developer so the reversing entry is posted. Don't record anything by hand.", tone: .error)
+        case "stale_processing":
+            ExceptionCopy(title: "Stuck processing",
+                          explain: "An M-Pesa or Airtel prompt older than 30 minutes, or a card / PayPal payment older than 24 hours, that never settled.",
+                          todo: "Check the M-Pesa statement (or the card dashboard). If the money arrived, wait — the confirmation usually lands. Don't record it by hand while it is processing.",
+                          tone: .warn)
+        case "failed":
+            ExceptionCopy(title: "Failed in the period",
+                          explain: "The payer cancelled, had too little balance, or the provider refused. Nothing was posted.",
+                          todo: "Nothing to fix in the books. If the member says they paid, look for the code on the statement.", tone: .info)
+        default:
+            ExceptionCopy(title: kind.replacingOccurrences(of: "_", with: " ").capitalized, explain: "An exception the books flagged.",
+                          todo: "Tell the developer.", tone: .warn)
         }
     }
 
     // MARK: Audit words
 
-    /// "finance.gift_recorded" → "Gift recorded". Unknown actions read their
-    /// verb part in plain words ("webhook.stripe_received" → "Stripe received").
+    /// "expense.approved" → "Approved an expense"; unknown actions read as
+    /// "Pledge · claim confirmed" (module · what happened).
     static func humanAction(_ action: String) -> String {
         let known: [String: String] = [
-            "finance.gift_recorded": "Gift recorded",
-            "finance.gift_reversed": "Gift reversed",
-            "finance.category_created": "Expense category added",
-            "finance.category_updated": "Expense category changed",
-            "fund.created": "Fund created",
-            "fund.updated": "Fund updated",
-            "journal.transfer_posted": "Transfer posted",
-            "journal.opening_posted": "Opening balance posted",
-            "journal.reversed": "Journal reversed",
-            "expense.recorded": "Expense recorded",
-            "expense.updated": "Expense edited",
-            "expense.approved": "Expense approved",
-            "expense.voided": "Expense voided",
-            "budget.created": "Budget started",
-            "budget.updated": "Budget renamed",
-            "budget.lines_replaced": "Budget lines saved",
-            "budget.approved": "Budget approved",
-            "giving.intent_created": "Gift started in the app",
-            "giving.website_intent_created": "Gift started on the website",
-            "giving.schedule_created": "Recurring gift set up",
-            "giving.schedule_cancelled": "Recurring gift cancelled",
-            "giving.schedule_resumed": "Recurring gift resumed",
-            "purchase.intent_created": "Purchase started",
-            "pledge.created": "Pledge made",
-            "pledge.updated": "Pledge changed",
-            "pledge.fulfilled": "Pledge fulfilled",
-            "pledge.reminded": "Pledge reminder sent",
-            "pledge.claim_created": "Payment claim submitted",
-            "pledge.claim_confirmed": "Payment claim confirmed",
-            "pledge.claim_rejected": "Payment claim rejected",
-            "department.need_submitted": "Department need submitted",
-            "department.need_approved": "Department need approved",
-            "department.need_rejected": "Department need rejected",
-            "department.need_closed": "Department need closed",
+            "finance.gift_recorded": "Recorded a gift",
+            "finance.gift_reversed": "Reversed a gift",
+            "finance.category_created": "Added an expense category",
+            "finance.category_updated": "Changed an expense category",
+            "fund.created": "Created a fund",
+            "fund.updated": "Changed a fund",
+            "journal.transfer_posted": "Moved money between funds",
+            "journal.opening_posted": "Posted an opening balance",
+            "journal.reversed": "Reversed a journal",
+            "expense.recorded": "Recorded an expense",
+            "expense.updated": "Corrected an expense",
+            "expense.approved": "Approved an expense",
+            "expense.voided": "Voided an expense",
+            "budget.created": "Started a budget",
+            "budget.updated": "Changed a budget",
+            "budget.lines_replaced": "Replaced the budget lines",
+            "budget.approved": "Approved a budget",
         ]
         if let k = known[action] { return k }
-        let verb = action.split(separator: ".", maxSplits: 1).dropFirst().first.map(String.init) ?? action
-        let words = verb.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: ".", with: " ")
-            .split(separator: " ").map { w -> String in
-                switch w.lowercased() {
-                case "mpesa": "M-Pesa"
-                case "paypal": "PayPal"
-                case "stripe": "Stripe"
-                case "airtel": "Airtel"
-                case "sms": "SMS"
-                default: String(w)
-                }
-            }.joined(separator: " ")
-        guard let f = words.first else { return action }
-        return f.uppercased() + words.dropFirst()
-    }
-
-    /// An audit row's record in words: "transactions" → "Transaction".
-    static func entityLabel(_ entity: String) -> String {
-        switch entity {
-        case "transactions": "Transaction"
-        case "journals": "Journal"
-        case "expenses": "Expense"
-        case "funds": "Fund"
-        case "expense_categories": "Expense category"
-        case "budgets": "Budget"
-        case "pledges": "Pledge"
-        case "pledge_claims": "Payment claim"
-        case "department_needs": "Department need"
-        case "giving_schedules": "Recurring gift"
-        case "products": "Product"
-        case "": "—"
-        default:
-            entity.replacingOccurrences(of: "_", with: " ").prefix(1).uppercased()
-                + entity.replacingOccurrences(of: "_", with: " ").dropFirst()
-        }
+        guard let dot = action.firstIndex(of: "."), dot != action.startIndex else { return action.replacingOccurrences(of: "_", with: " ") }
+        let head = String(action[..<dot])
+        let rest = action[action.index(after: dot)...]
+            .replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: ".", with: " ")
+            .split(separator: " ").joined(separator: " ")
+        return (head.prefix(1).uppercased() + head.dropFirst()) + " · " + (rest.isEmpty ? head : rest)
     }
 
     /// The audit filter's action prefixes (the finance slice, spec §4).
     static let auditPrefixes: [(value: String, label: String)] = [
-        ("", "All finance"), ("giving.", "Giving"), ("finance.", "Office gifts & categories"),
+        ("", "All finance"), ("giving.", "Giving"), ("finance.", "Office (gifts, categories)"),
         ("pledge.", "Pledges & claims"), ("department.need", "Department needs"), ("expense.", "Expenses"),
         ("budget.", "Budgets"), ("journal.", "Journals"), ("fund.", "Funds"),
         ("webhook.", "Webhooks"), ("purchase.", "Purchases"),
     ]
 
-    /// The key details of an audit row's metadata, one line: amount, receipt,
-    /// fund (or from → to), channel + reference, payee, reason… in that order.
-    static func auditDetails(_ metadata: [String: FinJSON]?) -> String {
-        guard let m = metadata, !m.isEmpty else { return "" }
-        func str(_ key: String) -> String? {
-            guard let v = m[key] else { return nil }
-            switch v {
-            case .null: return nil
-            case .string(let s): return s.isEmpty ? nil : s
-            default: return v.text
-            }
-        }
-        func int(_ key: String) -> Int? {
+    /// The few facts from an audit row's metadata worth a column (at most
+    /// `max`): money first, then receipt / reference / funds / reason, then any
+    /// other plain values. Money keys (…_minor) read as money in the row's
+    /// currency (metadata.currency, else KES), labelled without the suffix.
+    static func auditDetails(_ metadata: [String: FinJSON]?, max: Int = 4) -> [String] {
+        guard let m = metadata, !m.isEmpty else { return [] }
+        var currency = FinanceMoney.homeCurrency
+        if case .string(let c)? = m["currency"], !c.trimmingCharacters(in: .whitespaces).isEmpty { currency = c }
+        func scalar(_ key: String) -> String? {
             switch m[key] {
-            case .number(let n)?: return n.isFinite ? Int(n.rounded()) : nil
-            case .string(let s)?: return Int(s)
+            case .string(let s)?: let t = s.trimmingCharacters(in: .whitespaces); return t.isEmpty ? nil : t
+            case .number(let n)?: return n.isFinite ? FinJSON.number(n).text : nil
+            case .bool(let b)?: return b ? "yes" : "no"
             default: return nil
             }
         }
-        var parts: [String] = []
-        if let amount = int("amount_minor") { parts.append(FinanceMoney.format(amount, str("currency") ?? FinanceMoney.homeCurrency)) }
-        if let r = str("receipt_code") { parts.append(r) }
-        if let from = str("from"), let to = str("to") { parts.append("\(from) → \(to)") }
-        else if let fund = str("fund") { parts.append(fund) }
-        if let ch = str("channel") {
-            parts.append([FinWords.channel(ch), str("reference")].compactMap { $0 }.joined(separator: " "))
+        func clip(_ s: String, _ n: Int) -> String { s.count > n ? String(s.prefix(n - 1)) + "…" : s }
+        var out: [String] = []
+        var used: Set<String> = []
+        func take(_ key: String, _ render: (String) -> String) {
+            guard out.count < max, !used.contains(key) else { return }
+            used.insert(key)
+            if let v = scalar(key) { out.append(render(v)) }
         }
-        if let payee = str("payee") { parts.append(payee) }
-        if let code = str("code"), str("fund") == nil { parts.append(code) }
-        if let name = str("name"), str("payee") == nil { parts.append(name) }
-        if let kind = str("kind") { parts.append(FinWords.journalKind(kind)) }
-        if let was = str("was") { parts.append("was \(was)") }
-        if let reason = str("reason") {
-            parts.append("“" + (reason.count > 60 ? String(reason.prefix(59)) + "…" : reason) + "”")
+        if let raw = scalar("amount_minor"), let minor = Int(raw) {
+            out.append(FinanceMoney.format(minor, currency))
+            used.insert("amount_minor")
         }
-        return parts.joined(separator: " · ")
+        // A money line carries the currency — no bare "currency: USD" beside it.
+        if m.keys.contains(where: { $0.hasSuffix("_minor") }) { used.insert("currency") }
+        take("receipt_code") { "Receipt \($0)" }
+        take("reference") { "Ref \($0)" }
+        for (fromKey, toKey) in [("from_fund", "to_fund"), ("from", "to")] {
+            if let from = scalar(fromKey), let to = scalar(toKey), out.count < max {
+                out.append("\(from) → \(to)")
+                used.formUnion([fromKey, toKey])
+            }
+        }
+        take("fund") { "Fund \($0)" }
+        take("reason") { "“\(clip($0, 80))”" }
+        for k in m.keys.sorted() {
+            if out.count >= max { break }
+            if used.contains(k) || k.hasSuffix("_id") || k == "idempotency_key" { continue }
+            used.insert(k)
+            if k.hasSuffix("_minor"), let raw = scalar(k), let minor = Int(raw) {
+                out.append("\(auditLabel(k)): \(FinanceMoney.format(minor, currency))")
+            } else if let v = scalar(k) {
+                out.append("\(auditLabel(k)): \(clip(v, 40))")
+            }
+        }
+        return out
     }
 
     /// The audit detail's lines — every metadata key as recorded, except that a
@@ -560,13 +620,35 @@ enum FinanceARules {
         }
     }
 
+    // MARK: Period deep links
+
+    /// A web period param ("this_month" …) → the preset.
+    static func periodPreset(fromParam p: String) -> FinancePeriodPreset? {
+        switch p {
+        case "this_month": .thisMonth
+        case "last_month": .lastMonth
+        case "this_quarter": .thisQuarter
+        case "this_year": .thisYear
+        case "last_12_months": .last12Months
+        default: nil
+        }
+    }
+
+    /// A deep link's period: from/to (valid EAT days) or period=<preset>, else nil.
+    static func period(fromParams p: [String: String]) -> FinancePeriod? {
+        if let from = p["from"], let to = p["to"], FinanceDates.date(fromYMD: from) != nil, FinanceDates.date(fromYMD: to) != nil {
+            return .custom(from: from, to: to)
+        }
+        return p["period"].flatMap(periodPreset(fromParam:)).map { FinancePeriod.preset($0) }
+    }
+
     // MARK: Who can do what (spec §6)
 
     static let capabilityHelp: [(key: String, label: String, detail: String)] = [
-        ("view", "finance:view", "Open every Finance page and read its figures."),
-        ("export", "finance:export", "Download the CSV exports."),
-        ("manage", "finance:manage", "Record and reverse office gifts; create and edit funds and expense categories; record and void expenses; draft budgets; campaigns, claims and reminders."),
-        ("approve", "finance:approve", "Approve expenses and budgets; post fund transfers and opening balances; reverse journals."),
+        ("view", "finance:view", "See every Finance page — registers, the ledger, reconciliation, reports, statements and this page."),
+        ("export", "finance:export", "Download the CSV exports of registers and reports."),
+        ("manage", "finance:manage", "Record and reverse office gifts; create and edit funds and expense categories; record and void expenses; draft budgets; run campaigns; confirm or reject claims; send reminders."),
+        ("approve", "finance:approve", "Approve expenses (never one they recorded or edited — maker-checker) and budgets; post fund transfers and opening balances; reverse journals."),
     ]
 }
 
@@ -575,7 +657,8 @@ enum FinanceARules {
 #if DEBUG
 /// The A pages' pure helpers, asserted at launch in Debug builds through
 /// FinanceSelfCheck.run() (FinanceKit.swift) — fixed dates only, so nothing
-/// depends on the device's zone or today's date.
+/// depends on the device's zone or today's date. The sentences are the web's
+/// (financeAHelpers.test.ts checks the same ones on that side).
 enum FinanceASelfCheck {
     static func run() -> (checks: Int, failures: [String]) {
         var checks = 0
@@ -587,6 +670,10 @@ enum FinanceASelfCheck {
         func expectEqual<T: Equatable>(_ got: T, _ want: T, _ what: String) {
             expect(got == want, "\(what): got \(got), want \(want)")
         }
+        let dec = JSONDecoder()
+        dec.keyDecodingStrategy = .convertFromSnakeCase
+        let iso = ISO8601DateFormatter()
+        func at(_ s: String) -> Date { iso.date(from: s) ?? Date(timeIntervalSince1970: 0) }
 
         // Instants → EAT.
         expectEqual(FinanceATime.day("2026-09-25T22:30:00Z"), "26 Sep 2026", "22:30Z is the next day in EAT")
@@ -596,32 +683,40 @@ enum FinanceASelfCheck {
         expectEqual(FinanceATime.ymd("2026-09-26"), "2026-09-26", "a bare date passes through")
         expectEqual(FinanceATime.day("not a date"), "—", "garbage reads —")
 
-        // Record a gift — channel words, references, giver fields.
+        // Record a gift — channels, references, giver fields.
         expectEqual(FinanceARules.giftChannelLabel(.mpesa), "M-Pesa (paid by M-Pesa, recorded here)", "M-Pesa channel label")
-        expectEqual(FinanceARules.giftChannelLabel(.onhand), "Cash on hand", "cash channel label")
-        expectEqual(FinanceARules.referenceLabel(.cheque), "Cheque number", "cheque reference label")
+        expectEqual(FinanceARules.holdingChannelLabel(.cheque), "Cheques not yet banked", "holding channel label")
+        expectEqual(FinanceARules.cashAccount(for: .other), "cash:manual", "other posts to cash:manual")
+        expectEqual(FinanceARules.referenceRule(.cheque).label, "Cheque number", "cheque reference label")
+        expect(FinanceARules.referenceRule(.bank).required && !FinanceARules.referenceRule(.onhand).required, "bank needs a reference, cash doesn't")
+        expectEqual(FinanceARules.normalizeReferenceInput("sjk4 h7t2qx", channel: .mpesa), "SJK4H7T2QX", "M-Pesa typed: upper-cased, no spaces")
+        expectEqual(FinanceARules.normalizeReferenceInput("ab 12", channel: .cheque), "ab 12", "cheque typed as is")
         expectEqual(FinanceARules.normalizedReference("  qjk4abc123 ", channel: .mpesa), "QJK4ABC123", "M-Pesa code upper-cased")
-        expectEqual(FinanceARules.normalizedReference(" 000451 ", channel: .cheque), "000451", "cheque trimmed, case kept")
         expectEqual(FinanceARules.normalizedReference("   ", channel: .onhand), nil, "blank reference is absent")
-        expect(FinanceARules.referenceProblem("qjk4abc123", channel: .mpesa) == nil, "lower-case M-Pesa code is accepted")
-        expect(FinanceARules.referenceProblem("QJK4", channel: .mpesa) != nil, "short M-Pesa code refused")
+        expectEqual(FinanceARules.referenceProblem("", channel: .mpesa), "Enter the M-Pesa code — it is required for an M-Pesa payment.", "M-Pesa needs a code")
+        expectEqual(FinanceARules.referenceProblem("", channel: .cheque), "Enter the cheque number — it is required for a cheque.", "cheque needs a number")
+        expectEqual(FinanceARules.referenceProblem("", channel: .bank), "Enter the bank reference — it is required for a bank payment.", "bank needs a reference")
+        expectEqual(FinanceARules.referenceProblem("QJK4", channel: .mpesa), "An M-Pesa code is 8–12 letters and digits, like SJK4H7T2QX.", "short M-Pesa code refused")
+        expect(FinanceARules.referenceProblem("qjk4abc123", channel: .mpesa) == nil, "lower-case M-Pesa code accepted")
         expect(FinanceARules.referenceProblem("QJK4-ABC123", channel: .mpesa) != nil, "M-Pesa code with a hyphen refused")
-        expect(FinanceARules.referenceProblem("QJK4ABC123XYZ", channel: .mpesa) != nil, "13-character M-Pesa code refused")
-        expect(FinanceARules.referenceProblem("", channel: .mpesa) != nil, "M-Pesa needs a code")
-        expect(FinanceARules.referenceProblem("", channel: .bank) != nil, "bank needs a reference")
-        expect(FinanceARules.referenceProblem("", channel: .cheque) != nil, "cheque needs a number")
         expect(FinanceARules.referenceProblem("", channel: .onhand) == nil, "cash needs no reference")
-        expect(FinanceARules.referenceProblem(String(repeating: "x", count: 81), channel: .other) != nil, "81-character reference refused")
-        expect(FinanceARules.walkInNameProblem(" A ") != nil, "one-letter walk-in name refused")
+        expectEqual(FinanceARules.referenceProblem(String(repeating: "x", count: 81), channel: .other), "At most 80 characters.", "81-character reference refused")
+        expectEqual(FinanceARules.walkInNameProblem(" A "), "Enter the giver's name (at least 2 characters).", "one-letter walk-in name refused")
         expect(FinanceARules.walkInNameProblem("Jo") == nil, "two-letter walk-in name accepted")
-        expect(FinanceARules.walkInNameProblem(String(repeating: "n", count: 121)) != nil, "121-character name refused")
+        expectEqual(FinanceARules.walkInNameProblem(String(repeating: "n", count: 121)), "At most 120 characters.", "121-character name refused")
         expect(FinanceARules.phoneProblem("") == nil, "phone is optional")
-        expect(FinanceARules.phoneProblem("07123") != nil, "5-digit phone refused")
+        expectEqual(FinanceARules.phoneProblem("07123"), "A phone number is 7–32 characters.", "5-digit phone refused")
         expect(FinanceARules.phoneProblem("+254712345678") == nil, "E.164 phone accepted")
         expect(FinanceARules.noteProblem(String(repeating: "n", count: 60)) == nil, "60-character note accepted")
-        expect(FinanceARules.noteProblem(String(repeating: "n", count: 61)) != nil, "61-character note refused")
-        expect(FinanceARules.lengthProblem("ab", min: 3, max: 300, what: "The memo") != nil, "memo under 3 refused")
-        expect(FinanceARules.lengthProblem("abc", min: 3, max: 300, what: "The memo") == nil, "3-character memo accepted")
+        expectEqual(FinanceARules.noteProblem(String(repeating: "n", count: 61)), "At most 60 characters.", "61-character note refused")
+        expectEqual(FinanceARules.lengthProblem("", min: 3, max: 300, what: "a reason"), "Enter a reason.", "empty text")
+        expectEqual(FinanceARules.lengthProblem("ab", min: 3, max: 300, what: "a reason"), "Reason needs at least 3 characters.", "short text")
+        expect(FinanceARules.lengthProblem("abc", min: 3, max: 300, what: "a reason") == nil, "3-character reason accepted")
+        expectEqual(FinanceARules.article("M-Pesa"), "an", "an M-Pesa")
+        expectEqual(FinanceARules.article("Airtel"), "an", "an Airtel")
+        expectEqual(FinanceARules.article("Card"), "a", "a Card")
+        expectEqual(FinanceARules.fundDecisionText(byPledge: true, name: "Building fund"), "Booked to Building fund (the pledge's fund).", "pledge decides the fund")
+        expectEqual(FinanceARules.fundDecisionText(byPledge: false, name: "Offering"), "Booked to Offering (the department's fund).", "need decides the fund")
 
         // Dates — the books' window.
         expectEqual(FinanceARules.day("2026-09-26", minus: 366), "2025-09-25", "today − 366")
@@ -631,31 +726,37 @@ enum FinanceASelfCheck {
             expect(r.contains("2025-09-25") && r.contains("2026-09-26") && !r.contains("2025-09-24") && !r.contains("2026-09-27"),
                    "allowed days are inclusive at both ends")
         } else { expect(false, "allowedDays returned nil") }
-        let at = ISO8601DateFormatter().date(from: "2026-09-26T09:00:00Z") ?? Date(timeIntervalSince1970: 0)
-        expect(FinanceARules.isRecentInFlight(status: "processing", createdAt: "2026-09-25T10:00:00Z", now: at), "processing 23 h ago is in flight")
-        expect(FinanceARules.isRecentInFlight(status: "requires_action", createdAt: "2026-09-24T09:30:00Z", now: at), "requires_action 47.5 h ago is in flight")
-        expect(!FinanceARules.isRecentInFlight(status: "processing", createdAt: "2026-09-24T08:00:00Z", now: at), "49 h ago is not recent")
-        expect(!FinanceARules.isRecentInFlight(status: "succeeded", createdAt: "2026-09-26T08:00:00Z", now: at), "succeeded is not in flight")
+        expectEqual(FinanceARules.dayProblem("2026-09-27", today: "2026-09-26", daysBack: 366, what: "day the money was received"),
+                    "The day the money was received can't be in the future.", "future day refused")
+        expectEqual(FinanceARules.dayProblem("2025-09-24", today: "2026-09-26", daysBack: 366, what: "day the money was received"),
+                    "The books take dates from 25 Sep 2025 onwards — this one is older.", "too-old day refused")
+        expect(FinanceARules.dayProblem("2025-09-25", today: "2026-09-26", daysBack: 366, what: "x") == nil, "first allowed day accepted")
+        let now = at("2026-09-26T09:00:00Z")
+        expect(FinanceARules.isRecentInFlight(status: "processing", createdAt: "2026-09-25T10:00:00Z", now: now), "processing 23 h ago is in flight")
+        expect(FinanceARules.isRecentInFlight(status: "requires_action", createdAt: "2026-09-24T09:30:00Z", now: now), "requires_action 47.5 h ago is in flight")
+        expect(!FinanceARules.isRecentInFlight(status: "processing", createdAt: "2026-09-24T08:00:00Z", now: now), "49 h ago is not recent")
+        expect(!FinanceARules.isRecentInFlight(status: "succeeded", createdAt: "2026-09-26T08:00:00Z", now: now), "succeeded is not in flight")
+        expectEqual(FinanceARules.sinceEAT("2026-09-26T07:42:00Z", now: now), "10:42", "since: today shows the time")
+        expectEqual(FinanceARules.sinceEAT("2026-09-25T07:42:00Z", now: now), "25 Sep 2026, 10:42", "since: earlier shows the day")
 
         // Numbers.
-        expectEqual(FinanceARules.percentChange(current: 1124, previous: 1000), "+12.4%", "+12.4%")
-        expectEqual(FinanceARules.percentChange(current: 950, previous: 1000), "-5.0%", "-5.0%")
-        expectEqual(FinanceARules.percentChange(current: 1000, previous: 1000), "0%", "no change")
-        expectEqual(FinanceARules.percentChange(current: 500, previous: 0), "new", "nothing last year")
-        expectEqual(FinanceARules.percentChange(current: 0, previous: 0), "—", "nothing either year")
-        expectEqual(FinanceARules.percentChange(current: 0, previous: 1000), "-100.0%", "fell to zero")
-        expectEqual(FinanceARules.percentChange(current: 1, previous: 3), "-66.7%", "rounds half away from zero")
-        expectEqual(FinanceARules.percentChange(current: 10_005, previous: 10_000), "+0.1%", "0.05% rounds up")
-        expectEqual(FinanceARules.percentChange(current: 250_000_000_000, previous: 100_000_000_000), "+150.0%", "large amounts, no overflow")
-        expectEqual(FinanceARules.share(12, of: 46), "12 of 46", "share")
+        expectEqual(FinanceARules.pctChange(current: 1124, previous: 1000), 12, "12%")
+        expectEqual(FinanceARules.fmtPct(FinanceARules.pctChange(current: 950, previous: 1000)), "−5%", "true minus")
+        expectEqual(FinanceARules.fmtPct(FinanceARules.pctChange(current: 1000, previous: 1000)), "0%", "no change")
+        expectEqual(FinanceARules.pctChange(current: 500, previous: 0), nil, "nothing last year")
+        expectEqual(FinanceARules.fmtPct(nil), "—", "no comparison")
+        expectEqual(FinanceARules.pctChange(current: 250_000_000_000, previous: 100_000_000_000), 150, "large amounts")
+        expectEqual(FinanceARules.incomeComparison(current: 184_250_000, previous: 163_900_000, currency: "KES"),
+                    "+12% vs KES 1,639,000.00 last year", "income comparison")
+        expectEqual(FinanceARules.incomeComparison(current: 124_000, previous: 0, currency: "USD"), "new — nothing this time last year", "new income")
+        expectEqual(FinanceARules.incomeComparison(current: 0, previous: 0, currency: "USD"), "nothing to compare", "no income either year")
 
-        // Funds — codes and the FUND_IN_USE sentence.
+        // Funds — codes and the in-use / below-zero sentences.
         expect(FinanceARules.slugProblem("building-fund") == nil, "valid slug")
-        expect(FinanceARules.slugProblem("Building") != nil, "upper-case slug refused")
-        expect(FinanceARules.slugProblem("2026-harvest") != nil, "slug starting with a digit refused")
-        expect(FinanceARules.slugProblem("b") != nil, "1-character slug refused")
-        expect(FinanceARules.slugProblem(String(repeating: "a", count: 41)) != nil, "41-character slug refused")
-        expect(FinanceARules.slugProblem("tithe_2026") != nil, "underscore refused")
+        for bad in ["Building", "2026-harvest", "b", String(repeating: "a", count: 41), "tithe_2026"] {
+            expectEqual(FinanceARules.slugProblem(bad), "Lowercase letters, digits and hyphens, starting with a letter — 2 to 40 characters.", "slug \(bad) refused")
+        }
+        expectEqual(FinanceARules.slugProblem(""), "Enter a code.", "empty slug")
         expectEqual(FinanceARules.suggestedSlug(from: "Building Fund 2026"), "building-fund-2026", "slug from name")
         expectEqual(FinanceARules.suggestedSlug(from: "  Missions & Outreach "), "missions-outreach", "slug collapses symbols")
         expectEqual(FinanceARules.suggestedSlug(from: "Église Fund"), "eglise-fund", "slug folds accents")
@@ -664,44 +765,62 @@ enum FinanceASelfCheck {
                     "12 active pledges, 3 recurring gifts and 1 department still send money to Building fund — their payments will fail while it is inactive.",
                     "fund in use — three kinds")
         expectEqual(FinanceARules.fundInUseSentence(fund: "Tithe", pledges: 1, schedules: 0, departments: 0, campaigns: 0),
-                    "1 active pledge still sends money to Tithe — their payments will fail while it is inactive.", "fund in use — one")
-        expectEqual(FinanceARules.fundInUseSentence(fund: "Tithe", pledges: 0, schedules: 2, departments: 0, campaigns: 1),
-                    "2 recurring gifts and 1 live campaign still send money to Tithe — their payments will fail while it is inactive.",
-                    "fund in use — two kinds")
+                    "1 active pledge still sends money to Tithe — its payments will fail while it is inactive.", "fund in use — one")
+        expectEqual(FinanceARules.fundInUseSentence(fund: "Tithe", pledges: 0, schedules: 0, departments: 0, campaigns: 0, serverMessage: "In use."),
+                    "In use.", "fund in use — the server's sentence when no counts")
+        expectEqual(FinanceARules.negativeFundsSentence(["Youth ministry"], canApprove: true),
+                    "1 fund is below zero — more has left it than came in (Youth ministry). Usually an opening balance is missing — post one, or transfer money in.",
+                    "one fund below zero")
+        expectEqual(FinanceARules.negativeFundsSentence([], canApprove: true), nil, "no fund below zero")
 
-        // Reversal consequence.
-        expectEqual(FinanceARules.reversalConsequence(amountMinor: 150_000, currency: "KES", fundName: "Tithe", memberName: "Mary Wanjiku", pledged: true),
-                    "Posts KES 1,500.00 back out of Tithe; the gift leaves Mary Wanjiku's statement and re-opens their instalment.",
-                    "reversal consequence — member + pledge")
-        expectEqual(FinanceARules.reversalConsequence(amountMinor: 5_000, currency: "USD", fundName: "Missions", memberName: nil, pledged: false),
-                    "Posts USD 50.00 back out of Missions.", "reversal consequence — walk-in")
+        // Reversal consequences.
+        expectEqual(FinanceARules.reversalConsequence(amountMinor: 150_000, currency: "KES", fundName: "Tithe", memberName: "Mary Wanjiku",
+                                                      pledgeTitle: "Building 2026", receiptCode: "OR-2026-00040"),
+                    "Posts KES 1,500.00 back out of Tithe; the gift leaves Mary Wanjiku's statement and re-opens their instalment on “Building 2026”. The receipt number OR-2026-00040 stays on the reversed entry and is never reused. Nothing is deleted: the gift and its reversal both stay in the ledger.",
+                    "gift reversal — member + pledge")
+        expectEqual(FinanceARules.reversalConsequence(amountMinor: 5_000, currency: "USD", fundName: "Missions", memberName: nil, pledgeTitle: nil, receiptCode: nil),
+                    "Posts USD 50.00 back out of Missions. It was not on any member's statement. Nothing is deleted: the gift and its reversal both stay in the ledger.",
+                    "gift reversal — walk-in")
 
-        // Ledger + alert + exception words.
+        // Ledger, alert and exception words.
         expectEqual(FinanceARules.accountLabel("cash:onhand"), "Cash on hand", "cash:onhand")
+        expectEqual(FinanceARules.accountLabel("cash:cheque"), "Cheques", "cash:cheque")
         expectEqual(FinanceARules.accountLabel("fund:tithe", fundNames: ["tithe": "Tithe"]), "Tithe", "fund account → name")
-        expectEqual(FinanceARules.accountLabel("sales:media"), "Media sales", "sales:media")
-        expectEqual(FinanceARules.cashChannelLabel("stripe"), "Card", "stripe settles as card")
-        expectEqual(FinanceARules.alertTitle(kind: "expenses_awaiting_approval", count: 1), "1 expense to approve", "alert singular")
-        expectEqual(FinanceARules.alertTitle(kind: "pending_claims", count: 3), "3 claims waiting", "alert plural")
+        expectEqual(FinanceARules.accountLabel("fund:"), "All funds", "fund prefix")
+        expectEqual(FinanceARules.cashChannelLabel("stripe"), "Card (Stripe)", "stripe settles as card")
+        expectEqual(FinanceARules.alertCopy("expenses_awaiting_approval").title(1), "1 expense to approve", "alert singular")
+        expectEqual(FinanceARules.alertCopy("failing_schedules").title(2), "2 recurring gifts need attention", "alert plural verb")
+        expectEqual(FinanceARules.alertCopy("integrity_issues").title(3), "3 issues in the books", "integrity alert")
+        expectEqual(FinanceARules.alertLink(kind: "integrity_issues", link: "/finance/elsewhere"), "/finance/reconciliation?tab=exceptions", "integrity always opens exceptions")
+        expectEqual(FinanceARules.alertLink(kind: "pending_claims", link: "https://evil.example"), "/finance/claims", "off-app links fall back")
+        expectEqual(FinanceARules.alertLink(kind: "pending_claims", link: "//evil.example"), "/finance/claims", "protocol-relative links fall back")
+        expectEqual(FinanceARules.alertLink(kind: "partners_behind", link: "/finance/partners?status=behind"), "/finance/partners?status=behind", "in-app link followed")
         expectEqual(Set(FinanceARules.exceptionKinds).count, 7, "seven exception kinds, no repeats")
+        expectEqual(FinanceARules.exceptionKinds.first, "duplicate_receipt", "money counted twice comes first")
+        expectEqual(FinanceARules.exceptionCopy("duplicate_receipt").title, "Recorded twice", "duplicate title")
         for k in FinanceARules.exceptionKinds {
-            expect(FinanceARules.exceptionTitle(k) != k && !FinanceARules.exceptionAction(k).isEmpty, "exception \(k) has words")
+            let c = FinanceARules.exceptionCopy(k)
+            expect(!c.explain.isEmpty && !c.todo.isEmpty && c.title != k, "exception \(k) has words")
         }
+        expectEqual(FinanceARules.periodPreset(fromParam: "last_12_months"), .last12Months, "period param")
+        expectEqual(FinanceARules.period(fromParams: ["from": "2026-09-01", "to": "2026-09-10"])?.to, "2026-09-10", "from/to period")
+        expectEqual(FinanceARules.period(fromParams: ["from": "2026-02-30", "to": "2026-09-10"]), nil, "invalid from/to ignored")
 
         // Audit words.
-        expectEqual(FinanceARules.humanAction("finance.gift_recorded"), "Gift recorded", "known action")
-        expectEqual(FinanceARules.humanAction("webhook.stripe_received"), "Stripe received", "unknown action reads its verb")
-        expectEqual(FinanceARules.humanAction("department.need_approved"), "Department need approved", "department need action")
-        expectEqual(FinanceARules.humanAction("webhook.mpesa_callback"), "M-Pesa callback", "brand words in unknown actions")
-        expectEqual(FinanceARules.entityLabel("pledge_claims"), "Payment claim", "entity words")
-        expectEqual(FinanceARules.entityLabel("webhook_events"), "Webhook events", "unknown entity reads its words")
-        let meta: [String: FinJSON] = ["amount_minor": .number(150_050), "currency": .string("KES"), "receipt_code": .string("OR-2026-00012"),
-                                       "fund": .string("tithe"), "channel": .string("mpesa"), "reference": .string("QJK4ABC123")]
-        expectEqual(FinanceARules.auditDetails(meta), "KES 1,500.50 · OR-2026-00012 · tithe · M-Pesa QJK4ABC123", "audit details — gift")
+        expectEqual(FinanceARules.humanAction("finance.gift_recorded"), "Recorded a gift", "known action")
+        expectEqual(FinanceARules.humanAction("pledge.claim_confirmed"), "Pledge · claim confirmed", "unknown action: module · what")
+        expectEqual(FinanceARules.humanAction("webhook.mpesa_callback"), "Webhook · mpesa callback", "webhook action")
+        let gift: [String: FinJSON] = ["amount_minor": .number(150_050), "currency": .string("KES"), "receipt_code": .string("OR-2026-00012"),
+                                       "fund": .string("tithe"), "channel": .string("mpesa"), "reference": .string("QJK4ABC123"),
+                                       "user_id": .string("u1")]
+        expectEqual(FinanceARules.auditDetails(gift), ["KES 1,500.50", "Receipt OR-2026-00012", "Ref QJK4ABC123", "Fund tithe"], "audit details — gift (4 at most)")
         expectEqual(FinanceARules.auditDetails(["from": .string("building"), "to": .string("missions"), "amount_minor": .string("100000"), "currency": .string("KES")]),
-                    "KES 1,000.00 · building → missions", "audit details — transfer, BIGINT as text")
-        expectEqual(FinanceARules.auditDetails(nil), "", "no metadata")
-        expectEqual(FinanceARules.auditDetails(["amount_minor": .number(5_000)]), "KES 50.00", "details: currency falls back to KES")
+                    ["KES 1,000.00", "building → missions"], "audit details — transfer (from/to), BIGINT as text")
+        expectEqual(FinanceARules.auditDetails(["amount_minor": .number(5_000)]), ["KES 50.00"], "details: currency falls back to KES")
+        expectEqual(FinanceARules.auditDetails(["from_balance_after_minor": .number(-300_000), "currency": .string("USD")]),
+                    ["from balance after: -USD 3,000.00"], "details: other money keys as money, no suffix, no bare currency")
+        expectEqual(FinanceARules.auditDetails(["reason": .string(String(repeating: "r", count: 90))]).first?.count, 82, "reason clipped to 80 (+ quotes)")
+        expectEqual(FinanceARules.auditDetails(nil), [], "no metadata")
         func facts(_ m: [String: FinJSON]) -> [String] { FinanceARules.auditMetadataFacts(m).map { "\($0.label): \($0.value)" } }
         expectEqual(facts(["income_total_minor": .number(120_000_000), "currency": .string("KES")]),
                     ["income total: KES 1,200,000.00"], "money key: no suffix, no bare currency line")
@@ -710,8 +829,6 @@ enum FinanceASelfCheck {
                     ["currency: USD", "reason: Duplicate"], "currency kept when no money line carries it")
         expectEqual(facts(["currency": .string("USD"), "changes": .object(["amount_minor": .number(5_000), "payee": .string("KPLC")])]),
                     ["changes: amount: USD 50.00 · payee: KPLC", "currency: USD"], "nested money key in the row's currency")
-        expectEqual(facts(["from_balance_after_minor": .number(-300_000), "currency": .string("KES"), "to": .string("missions")]),
-                    ["from balance after: -KES 3,000.00", "to: missions"], "negative money key")
 
         // The fund patch override encodes `force` only when set.
         let enc = JSONEncoder()
@@ -721,14 +838,23 @@ enum FinanceASelfCheck {
         expectEqual(json(FinFundPatchForced(patch: FinFundPatch(isActive: false), force: true)), #"{"force":true,"is_active":false}"#, "forced deactivate body")
         expectEqual(json(FinFundPatchForced(patch: FinFundPatch(isActive: false), force: false)), #"{"is_active":false}"#, "plain deactivate body")
 
-        // The givers envelope decodes (BIGINT text, null pays_to).
-        let dec = JSONDecoder()
-        dec.keyDecodingStrategy = .convertFromSnakeCase
+        // Decoding: the givers envelope, a journal, the in-flight notice.
         let giverJSON = #"{"user_id":"u1","full_name":"Mary Wanjiku","phone":"+254712000001","email":null,"congregation_name":"Nuru Central","open_pledges":[{"pledge_id":"p1","title":"Building","currency":"KES","shape":"monthly","amount_minor":"500000","target_minor":null,"pays_to":{"code":"building","name":"Building fund"}},{"pledge_id":"p2","title":"Missions","currency":"USD","shape":"total","amount_minor":null,"target_minor":120000,"pays_to":null}]}"#
         if let g = try? dec.decode(FinGiver.self, from: Data(giverJSON.utf8)) {
-            expect(g.openPledges.count == 2 && g.openPledges[0].amountMinor == 500_000 && g.openPledges[1].paysTo == nil,
-                   "giver with open pledges decodes")
+            expect(g.openPledges.count == 2 && g.openPledges[0].amountMinor == 500_000 && g.openPledges[1].paysTo == nil, "giver with open pledges decodes")
         } else { expect(false, "decode FinGiver") }
+        let journalJSON = #"{"journal_id":"j1","kind":"transfer","memo":"Seed","occurred_on":"2026-09-20","created_at":"2026-09-21T06:00:00Z","created_by":null,"created_by_name":null,"ref_id":null,"reversal_of":null,"reversed_by_journal_id":null,"legs":[{"entry_id":"e1","account":"fund:general","side":"debit","amount_minor":"1000000","currency":"KES","created_at":"2026-09-20T09:00:00Z"},{"entry_id":"e2","account":"fund:building","side":"credit","amount_minor":1000000,"currency":"KES","created_at":"2026-09-20T09:00:00Z"}],"totals":[{"currency":"KES","amount_minor":1000000}]}"#
+        if let j = try? dec.decode(FinJournal.self, from: Data(journalJSON.utf8)) {
+            expectEqual(FinanceARules.journalReversalConsequence(j, fundNames: ["general": "General", "building": "Building fund"]),
+                        "Moves KES 10,000.00 back from Building fund to General, dated 20 Sep 2026 like the original. The transfer stays in the ledger, marked reversed; a reversal can't itself be undone.",
+                        "transfer reversal consequence")
+            expect(j.looksReversible, "an unreversed transfer looks reversible")
+        } else { expect(false, "decode FinJournal") }
+        let rowJSON = #"{"transaction_id":"t4","user_id":"u4","full_name":"David Mwangi","member_phone":null,"display_name":"David Mwangi","amount_minor":300000,"currency":"KES","status":"processing","fund":"tithe","fund_name":"Tithe","account_name":null,"method":"mpesa","channel":"mpesa","source":"app","provider":"mpesa","provider_ref":null,"receipt_code":null,"giver_name":null,"giver_phone":null,"pledge_id":null,"pledge_title":null,"need_id":null,"need_title":null,"office_channel":null,"office_reference":null,"recorded_by":null,"recorded_by_name":null,"reversed_at":null,"reversed_by":null,"reversed_by_name":null,"reversal_reason":null,"created_at":"2026-09-26T07:42:00Z","settled_at":null}"#
+        if let r = try? dec.decode(FinTransactionRow.self, from: Data(rowJSON.utf8)) {
+            expectEqual(FinanceARules.pendingNotice(r, now: now),
+                        "An M-Pesa payment of KES 3,000.00 from David is still processing since 10:42 — it may be this same payment.", "in-flight notice")
+        } else { expect(false, "decode FinTransactionRow") }
 
         // Large amounts (opening balances go to 1,000,000,000,000 minor).
         expectEqual(FinanceARules.parseMajor("12,000,000.50", maxMinor: 1_000_000_000_000), .success(1_200_000_050), "opening balance above the gift cap")
@@ -750,18 +876,31 @@ enum FinanceASelfCheck {
         expect(foot.count == 2 && foot[0].currency == "KES" && foot[0].balanced && !foot[1].balanced && foot[1].debit == 500,
                "legs foot per currency (KES balanced, USD not)")
 
-        // Journal reversal words (the reason sheet's consequence).
-        let journalJSON = #"{"journal_id":"j1","kind":"transfer","memo":"Seed","occurred_on":"2026-09-20","created_at":"2026-09-21T06:00:00Z","created_by":null,"created_by_name":null,"ref_id":null,"reversal_of":null,"reversed_by_journal_id":null,"legs":[{"entry_id":"e1","account":"fund:general","side":"debit","amount_minor":"1000000","currency":"KES","created_at":"2026-09-20T09:00:00Z"},{"entry_id":"e2","account":"fund:building","side":"credit","amount_minor":1000000,"currency":"KES","created_at":"2026-09-20T09:00:00Z"}],"totals":[{"currency":"KES","amount_minor":1000000}]}"#
-        if let j = try? dec.decode(FinJournal.self, from: Data(journalJSON.utf8)) {
-            expectEqual(FinanceARules.journalReversalConsequence(j, fundNames: ["general": "General", "building": "Building fund"]),
-                        "Posts the mirror of this transfer, dated 20 Sep 2026: KES 10,000.00 goes back from Building fund to General. The transfer stays on the record, marked reversed; a journal is reversed once.",
-                        "transfer reversal consequence")
-            expect(j.looksReversible, "an unreversed transfer looks reversible")
-        } else { expect(false, "decode FinJournal") }
-
         // Chart month labels.
         expectEqual(FinAIncomeExpenseChart.label("2026-09"), "Sep", "month label")
-        expectEqual(FinAIncomeExpenseChart.label("2027-01"), "Jan ’27", "January carries its year")
+        expectEqual(FinAIncomeExpenseChart.label("2027-01"), "Jan", "month label — short name only, as the web")
+        expectEqual(FinAIncomeExpenseChart.monthYear("2026-09"), "Sep 2026", "month and year (the tooltip)")
+        expectEqual(FinanceARules.fmtRange(from: "2026-09-01", to: "2026-09-26"), "1 Sep – 26 Sep 2026", "range, same year (web fmtRange)")
+        expectEqual(FinanceARules.fmtRange(from: "2026-09-26", to: "2026-09-26"), "26 Sep 2026", "range, one day")
+        expectEqual(FinanceARules.fmtRange(from: "2025-12-15", to: "2026-01-03"), "15 Dec 2025 – 3 Jan 2026", "range across years")
+        expectEqual(FinanceARules.postingSource(kind: "journal", receiptCode: nil, memberName: nil, journalKind: "transfer", memo: "Seed"), "Transfer — Seed", "posting source — journal")
+        expectEqual(FinanceARules.postingSource(kind: "transaction", receiptCode: "OR-2026-00012", memberName: "Grace", journalKind: nil, memo: nil), "OR-2026-00012 · Grace", "posting source — gift")
+        expectEqual(FinanceARules.postingSource(kind: "transaction", receiptCode: nil, memberName: nil, journalKind: nil, memo: nil), "Gift", "posting source — bare gift")
+        expectEqual(FinanceARules.auditShortId("5b0c1e2f-aaaa-bbbb"), "5b0c1e2f…", "audit short id")
+        expectEqual(FinanceARules.auditShortId("t-001"), "t-001", "audit short id — short ids whole")
+        expect(FinanceARules.auditLineIsMoney("KES 1,500.00") && FinanceARules.auditLineIsMoney("-USD 5.00") && !FinanceARules.auditLineIsMoney("Receipt OR-1"), "audit money lines set in mono")
+        expectEqual(FinanceARules.message(APIError.http(status: 403, message: HTTPURLResponse.localizedString(forStatusCode: 403))), "You don't have permission to do that.", "403 without a server sentence")
+        expectEqual(FinanceARules.message(APIError.http(status: 409, message: "That M-Pesa code is already in the books."), fallback: "x"), "That M-Pesa code is already in the books.", "the server's sentence wins")
+        expectEqual(FinanceARules.message(APIError.http(status: 502, message: ""), fallback: "x"), "The server had a problem (502) — try again in a minute.", "5xx")
+        expectEqual(FinanceARules.message(APIError.transport("The request timed out.")), "The server took too long to answer — try again.", "timeout")
+        expectEqual(FinanceARules.message(APIError.http(status: 422, message: ""), fallback: "The transfer was not posted."), "The transfer was not posted.", "fallback")
+        // The category move plan (the web's reorderPlan): renumber 10, 20, 30…, send only changes.
+        let plan = FinanceARules.reorderPlan([("a", 0), ("b", 0), ("c", 0)], index: 1, dir: -1)
+        expectEqual(plan.map(\.id), ["b", "a", "c"], "reorder — ties all renumbered")
+        expectEqual(plan.map(\.sort), [10, 20, 30], "reorder — 10, 20, 30")
+        let plan2 = FinanceARules.reorderPlan([("a", 10), ("b", 20), ("c", 30)], index: 2, dir: -1)
+        expectEqual(plan2.map(\.id), ["c", "b"], "reorder — only the two that change")
+        expect(FinanceARules.reorderPlan([("a", 10)], index: 0, dir: -1).isEmpty, "reorder — out of range is nothing")
         expectEqual(FinAIncomeExpenseChart.label("bad"), "bad", "unparseable month passes through")
 
         // Roles matrix (System → Roles): rendered from the catalog; a save keeps

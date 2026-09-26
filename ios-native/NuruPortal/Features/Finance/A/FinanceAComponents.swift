@@ -43,6 +43,17 @@ extension FinACard where Trailing == EmptyView {
     }
 }
 
+extension FinanceARules {
+    /// A tone's colours — the web kit's TONES (warn amber, error red, info navy).
+    static func colors(_ t: Tone) -> (fg: Color, bg: Color, border: Color) {
+        switch t {
+        case .warn: (Color(hex: 0xA87616), Color(hex: 0xFFF4DA), Color(hex: 0xF3DFA6))
+        case .error: (Color(hex: 0xB42318), Color(hex: 0xFDECEC), Color(hex: 0xF5C2C0))
+        case .info: (Color(hex: 0x1E4068), Color(hex: 0xE6EDF5), Color(hex: 0xC9D6E6))
+        }
+    }
+}
+
 /// A one-line explanation under a heading or table ("Amounts count succeeded gifts…").
 struct FinAExplain: View {
     let text: String
@@ -518,9 +529,32 @@ extension FinanceARules {
         return minor <= maxMinor ? .success(minor) : .failure(.tooLarge)
     }
 
-    /// The user-facing message of any error: the server's sentence, else the system's.
-    static func message(_ error: Error) -> String {
-        (error as? APIError)?.errorDescription ?? error.localizedDescription
+    /// A sentence the office can act on — the web's financeErrorMessage: the
+    /// server's own message wins (the books write it for people); then the
+    /// session / permission / transport / server cases; then `fallback`.
+    static func message(_ error: Error, fallback: String = "That didn't work — try again.") -> String {
+        let unreachable = "Could not reach the server — check the connection and try again."
+        let slow = "The server took too long to answer — try again."
+        if let e = error as? APIError {
+            switch e {
+            case .unauthorized:
+                return "Your session expired — please sign in again."
+            case .http(let status, let message, _):
+                if status == 401 { return "Your session expired — please sign in again." }
+                let m = message.trimmingCharacters(in: .whitespacesAndNewlines)
+                // APIClient falls back to the status's own name when the body had no message.
+                if !m.isEmpty && m != HTTPURLResponse.localizedString(forStatusCode: status) { return m }
+                if status == 403 { return "You don't have permission to do that." }
+                if status >= 500 { return "The server had a problem (\(status)) — try again in a minute." }
+                return fallback
+            case .transport(let m):
+                return m.localizedCaseInsensitiveContains("timed out") ? slow : unreachable
+            case .decoding, .passwordRequired:
+                return e.errorDescription ?? fallback
+            }
+        }
+        if let u = error as? URLError { return u.code == .timedOut ? slow : unreachable }
+        return fallback
     }
 }
 
