@@ -655,6 +655,40 @@ enum FinanceASelfCheck {
         expect(foot.count == 2 && foot[0].currency == "KES" && foot[0].balanced && !foot[1].balanced && foot[1].debit == 500,
                "legs foot per currency (KES balanced, USD not)")
 
+        // Journal reversal words (the reason sheet's consequence).
+        let journalJSON = #"{"journal_id":"j1","kind":"transfer","memo":"Seed","occurred_on":"2026-09-20","created_at":"2026-09-21T06:00:00Z","created_by":null,"created_by_name":null,"ref_id":null,"reversal_of":null,"reversed_by_journal_id":null,"legs":[{"entry_id":"e1","account":"fund:general","side":"debit","amount_minor":"1000000","currency":"KES","created_at":"2026-09-20T09:00:00Z"},{"entry_id":"e2","account":"fund:building","side":"credit","amount_minor":1000000,"currency":"KES","created_at":"2026-09-20T09:00:00Z"}],"totals":[{"currency":"KES","amount_minor":1000000}]}"#
+        if let j = try? dec.decode(FinJournal.self, from: Data(journalJSON.utf8)) {
+            expectEqual(FinanceARules.journalReversalConsequence(j, fundNames: ["general": "General", "building": "Building fund"]),
+                        "Posts the mirror of this transfer, dated 20 Sep 2026: KES 10,000.00 goes back from Building fund to General. The transfer stays on the record, marked reversed; a journal is reversed once.",
+                        "transfer reversal consequence")
+            expect(j.looksReversible, "an unreversed transfer looks reversible")
+        } else { expect(false, "decode FinJournal") }
+
+        // Chart month labels.
+        expectEqual(FinAIncomeExpenseChart.label("2026-09"), "Sep", "month label")
+        expectEqual(FinAIncomeExpenseChart.label("2027-01"), "Jan ’27", "January carries its year")
+        expectEqual(FinAIncomeExpenseChart.label("bad"), "bad", "unparseable month passes through")
+
+        // Roles matrix (System → Roles): rendered from the catalog; a save keeps
+        // every grant the matrix did not render.
+        let mods = ["finance", "members"].map(RolePerm.module)
+        let six = ["view", "create", "edit", "delete", "approve", "export"].map(RolePerm.capability)
+        let original = [LocalPerm(moduleId: "finance", capability: "manage"), LocalPerm(moduleId: "live", capability: "go"),
+                        LocalPerm(moduleId: "finance", capability: "view"), LocalPerm(moduleId: "members", capability: "edit")]
+        let kept = RolePerm.grantsToSave(working: ["finance|view", "members|view"], modules: mods, capabilities: six, original: original)
+            .map { "\($0.moduleId):\($0.capability)" }
+        expectEqual(Set(kept), ["finance:view", "members:view", "finance:manage", "live:go"], "roles save keeps unrendered grants, drops unchecked ones")
+        expectEqual(kept.count, 4, "roles save sends no duplicates")
+        let all = RolePerm.grantsToSave(working: ["finance|manage"], modules: mods, capabilities: six + [RolePerm.capability("manage")], original: original)
+            .map { "\($0.moduleId):\($0.capability)" }
+        expectEqual(Set(all), ["finance:manage", "live:go"], "a rendered capability follows the checkboxes")
+        expectEqual(RolePerm.module("brandNew").label, "brandNew", "unknown module: label = id")
+        expectEqual(RolePerm.module("brandNew").group, "Other", "unknown module: group Other")
+        expectEqual(RolePerm.module("finance").label, "Finance", "known module keeps its label")
+        expectEqual(RolePerm.capability("manage").label, "Manage", "manage capability label")
+        expectEqual(RolePerm.capability("zap").label, "zap", "unknown capability: label = key")
+        expectEqual(RolePerm.groups(of: ["users", "zzz", "finance"].map(RolePerm.module)), ["Operations", "System", "Other"], "group order, Other last")
+
         return (checks, failures)
     }
 }

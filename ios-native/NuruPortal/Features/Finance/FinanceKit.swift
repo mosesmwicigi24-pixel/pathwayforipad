@@ -2025,6 +2025,11 @@ enum FinanceSelfCheck {
                    "audit row: BIGINT id + metadata keys as sent")
         }
 
+        // The A pages' helpers (Finance/A/FinanceARules.swift).
+        let pagesA = FinanceASelfCheck.run()
+        checks += pagesA.checks
+        failures += pagesA.failures
+
         // The sidebar.
         for f in financeNavSelfCheckFailures() { expect(false, f) }
         return (checks, failures)
@@ -2033,6 +2038,7 @@ enum FinanceSelfCheck {
     /// Runs the checks; prints one line when they pass, the list and an
     /// assertion when they don't (Debug only).
     static func runAtLaunch() {
+        FinanceAFixtures.installIfRequested()   // no-op unless NURU_FINANCE_FIXTURES is set (A/FinanceAFixtures.swift)
         let result = run()
         if result.failures.isEmpty {
             print("FinanceSelfCheck: all \(result.checks) checks passed")

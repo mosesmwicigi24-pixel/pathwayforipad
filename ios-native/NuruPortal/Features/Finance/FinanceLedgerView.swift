@@ -135,6 +135,7 @@ struct FinanceLedgerView: View {
         }
         .task { await vm.loadFunds() }
         .onFinanceLink(.financeLedger) { vm.apply($0) }
+        .finADebugLaunchParams(.financeLedger) { vm.apply($0) }
         .sheet(item: $vm.sheet) { s in
             switch s {
             case .transaction(let id):

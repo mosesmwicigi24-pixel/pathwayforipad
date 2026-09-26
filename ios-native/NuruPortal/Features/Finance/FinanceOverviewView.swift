@@ -77,15 +77,16 @@ struct FinanceOverviewView: View {
         }
         .task(id: vm.period) { await vm.load() }
         .onFinanceLink(.financeOverview) { vm.apply($0) }
+        .finADebugLaunchParams(.financeOverview) { vm.apply($0) }
     }
 
     // MARK: Period
 
     private func periodLine(_ o: FinOverview) -> some View {
         let p = o.period
-        var text = "\(FinanceDates.displayRange(from: p.from, to: p.to)) · compared with \(FinanceDates.displayRange(from: p.lastYearFrom, to: p.lastYearTo))"
-        text += " · month to date from \(FinanceDates.display(p.mtdFrom)) · year to date from \(FinanceDates.display(p.ytdFrom))"
-        return FinAExplain(text + ". Income is succeeded gifts by the day they were given; expenses are approved expenses by the day they were spent (EAT).")
+        let text = "\(FinanceDates.displayRange(from: p.from, to: p.to)) against \(FinanceDates.displayRange(from: p.lastYearFrom, to: p.lastYearTo))"
+            + " · YTD from \(FinanceDates.display(p.ytdFrom)). Income = succeeded gifts by the day given; expenses = approved, by the day spent (EAT)."
+        return FinAExplain(text)
     }
 
     // MARK: Loaded
@@ -104,7 +105,7 @@ struct FinanceOverviewView: View {
     // MARK: Alerts
 
     private func alerts(_ list: [FinOverview.Alert]) -> some View {
-        FinanceFlowLayout(spacing: 10, rowSpacing: 10) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 236), spacing: 10, alignment: .top)], alignment: .leading, spacing: 10) {
             ForEach(list.filter { $0.count > 0 }) { a in
                 Button { open(alert: a) } label: {
                     HStack(spacing: 10) {
@@ -115,13 +116,18 @@ struct FinanceOverviewView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         VStack(alignment: .leading, spacing: 1) {
                             Text(FinanceARules.alertTitle(kind: a.kind, count: a.count))
-                                .font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                                .font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.85)
                             let hint = FinanceARules.alertHint(kind: a.kind)
-                            if !hint.isEmpty { Text(hint).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1) }
+                            if !hint.isEmpty {
+                                Text(hint).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
+                        Spacer(minLength: 4)
                         Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Nuru.ink300)
                     }
                     .padding(.leading, 8).padding(.trailing, 12).padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
                     .background(Nuru.white)
                     .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Color(hex: 0xF3DFA6), lineWidth: 1))
@@ -165,15 +171,15 @@ struct FinanceOverviewView: View {
             }
             FinanceKpiTile(label: "Net", icon: "plusminus.circle", tint: Nuru.brandTint(2),
                            values: FinanceMoney.lines(o.net.map { ($0.currency, $0.periodMinor) }),
-                           hint: "Year to date " + FinanceMoney.lines(o.net.map { ($0.currency, $0.ytdMinor) }).joined(separator: " · "))
+                           hint: "YTD " + FinanceMoney.lines(o.net.map { ($0.currency, $0.ytdMinor) }).joined(separator: " · "))
             FinanceKpiTile(label: "Pledges due", icon: "signature", tint: Nuru.brandTint(1),
                            values: FinanceMoney.lines(o.outstandingPledges.map { ($0.currency, $0.remainingYearMinor) }),
                            hint: "Still due this year · " + count(o.outstandingPledges.reduce(0) { $0 + $1.pledges }, "active pledge", "active pledges")) {
                 router.go(.financePledges)
             }
-            FinanceKpiTile(label: "Partners behind", icon: "person.2", tint: Nuru.brandTint(3),
-                           values: ["\(o.partners.behind)"],
-                           hint: "of \(count(o.partners.count, "partner", "partners")) — a pledge behind today") {
+            FinanceKpiTile(label: "Partners", icon: "person.2", tint: Nuru.brandTint(3),
+                           values: ["\(o.partners.behind) behind"],
+                           hint: "of \(count(o.partners.count, "partner", "partners")) · instalment overdue") {
                 if let a = o.alerts.first(where: { $0.kind == "partners_behind" }), let link = FinanceLink.fromWebRoute(a.link) {
                     router.openFinance(link.section, link.params)
                 } else {

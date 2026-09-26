@@ -89,6 +89,7 @@ struct FinanceFundsView: View {
             vm.openPending()
         }
         .onFinanceLink(.financeFunds) { vm.apply($0) }
+        .finADebugLaunchParams(.financeFunds) { vm.apply($0) }
         .sheet(item: $vm.sheet) { s in sheet(s, caps: caps) }
     }
 

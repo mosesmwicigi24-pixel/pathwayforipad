@@ -88,6 +88,7 @@ struct FinanceAuditView: View {
             await vm.pager.load { cursor in try await FinanceERPAPI.audit(filter, cursor: cursor) }
         }
         .onFinanceLink(.financeAudit) { vm.apply($0) }
+        .finADebugLaunchParams(.financeAudit) { vm.apply($0) }
         .sheet(item: $vm.open) { row in
             FinAAuditSheet(row: row) { section, params in
                 vm.open = nil

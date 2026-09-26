@@ -100,6 +100,7 @@ struct FinanceReconciliationView: View {
         }
         .task(id: vm.period) { await vm.load() }
         .onFinanceLink(.financeReconciliation) { vm.apply($0) }
+        .finADebugLaunchParams(.financeReconciliation) { vm.apply($0) }
     }
 
     // MARK: Settlement

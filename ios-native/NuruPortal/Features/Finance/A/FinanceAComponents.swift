@@ -60,13 +60,13 @@ struct FinATag: View {
     var body: some View {
         HStack(spacing: 4) {
             if let icon { Image(systemName: icon).font(.system(size: 8.5, weight: .bold)) }
-            Text(text).font(.inter(10.5, .semibold)).lineLimit(1)
+            Text(text).font(.inter(10.5, .semibold)).lineLimit(1).truncationMode(.tail)
         }
         .foregroundStyle(tone.fg)
         .padding(.horizontal, 7).padding(.vertical, 2.5)
         .background(tone.bg)
         .clipShape(Capsule())
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -130,11 +130,11 @@ struct FinALegsTable<Leg: FinLeg & Identifiable>: View {
             FinanceTable(rows: legs, columns: cols, emptyIcon: "book.closed", emptyMessage: "No postings.") { leg in
                 Text(FinanceATime.day(leg.createdAt)).font(.inter(12.5)).foregroundStyle(Nuru.ink600).financeCell(cols[0])
                 VStack(alignment: .leading, spacing: 2) {
+                    Text(leg.account).font(.nMono(12.5)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.8)
                     HStack(spacing: 6) {
-                        Text(leg.account).font(.nMono(12.5)).foregroundStyle(Nuru.navy).lineLimit(1)
+                        Text(FinanceARules.accountLabel(leg.account, fundNames: fundNames)).font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
                         if isReversal(leg) { FinATag(text: "Reversal", tone: FinanceStatus.violet) }
                     }
-                    Text(FinanceARules.accountLabel(leg.account, fundNames: fundNames)).font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
                 }
                 .financeCell(cols[1])
                 Text(leg.side == "debit" ? FinanceMoney.format(leg.amountMinor, leg.currency) : "")
@@ -496,5 +496,21 @@ extension FinanceARules {
     /// The user-facing message of any error: the server's sentence, else the system's.
     static func message(_ error: Error) -> String {
         (error as? APIError)?.errorDescription ?? error.localizedDescription
+    }
+}
+
+// MARK: - DEBUG launch params
+
+extension View {
+    /// DEBUG builds: apply NURU_FINANCE_PARAMS ("tx=t-003", "tab=journals") to
+    /// the NURU_START_SECTION page once, like a deep link — headless smoke
+    /// tests and screenshots (A/FinanceAFixtures.swift). Release: no-op.
+    @ViewBuilder
+    func finADebugLaunchParams(_ section: Section, perform: @escaping ([String: String]) -> Void) -> some View {
+        #if DEBUG
+        onAppear { if let p = FinanceAFixtures.launchParams(for: section) { perform(p) } }
+        #else
+        self
+        #endif
     }
 }

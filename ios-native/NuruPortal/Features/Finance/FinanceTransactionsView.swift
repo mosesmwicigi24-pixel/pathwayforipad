@@ -112,6 +112,7 @@ struct FinanceTransactionsView: View {
             await vm.pager.load { cursor in try await FinanceERPAPI.transactions(filter, cursor: cursor) }
         }
         .onFinanceLink(.financeTransactions) { vm.apply($0) }
+        .finADebugLaunchParams(.financeTransactions) { vm.apply($0) }
         .sheet(item: $vm.sheet) { s in
             switch s {
             case .detail(let id):
@@ -156,71 +157,100 @@ struct FinanceTransactionsView: View {
 
     // MARK: Table
 
-    /// Wide (landscape) shows channel and source as their own columns; compact
-    /// (portrait) folds them under the giver.
-    private var wide: Bool { width >= 980 }
+    /// Three layouts by the width the register gets: wide (landscape) gives
+    /// channel and source their own columns; medium (13" portrait) folds them
+    /// under the giver; narrow (11" portrait, split view) also stacks the
+    /// receipt under the date and the fund under the giver, so the amount and
+    /// status never scroll out of sight.
+    private enum Layout { case wide, medium, narrow }
+    private var layout: Layout { width >= 980 ? .wide : (width >= 700 ? .medium : .narrow) }
 
-    private var columns: [FinanceColumn] {
-        if wide {
+    private func columns(_ layout: Layout) -> [FinanceColumn] {
+        switch layout {
+        case .wide:
             return [
                 FinanceColumn("Date (EAT)", width: 92), FinanceColumn("Receipt", width: 120),
                 FinanceColumn("Giver", minWidth: 150), FinanceColumn("Fund", width: 110),
                 FinanceColumn("Channel", width: 96), FinanceColumn("Source", width: 70),
                 FinanceColumn("Amount", width: 120, align: .trailing), FinanceColumn("Status", width: 100),
             ]
+        case .medium:
+            return [
+                FinanceColumn("Date (EAT)", width: 78), FinanceColumn("Receipt", width: 104),
+                FinanceColumn("Giver", minWidth: 150), FinanceColumn("Fund", width: 92),
+                FinanceColumn("Amount", width: 108, align: .trailing), FinanceColumn("Status", width: 92),
+            ]
+        case .narrow:
+            return [
+                FinanceColumn("Date · receipt", width: 108), FinanceColumn("Giver · fund", minWidth: 140),
+                FinanceColumn("Amount", width: 104, align: .trailing), FinanceColumn("Status", width: 88),
+            ]
         }
-        return [
-            FinanceColumn("Date (EAT)", width: 78), FinanceColumn("Receipt", width: 104),
-            FinanceColumn("Giver", minWidth: 150), FinanceColumn("Fund", width: 92),
-            FinanceColumn("Amount", width: 108, align: .trailing), FinanceColumn("Status", width: 92),
-        ]
     }
 
     private var table: some View {
-        let cols = columns
-        let wide = self.wide
+        let layout = self.layout
+        let cols = columns(layout)
         return FinancePagedTable(pager: vm.pager, columns: cols,
                                  emptyIcon: "arrow.left.arrow.right",
                                  emptyMessage: vm.isFiltered ? "No transaction matches these filters." : "No transactions in this period.",
                                  totalCount: vm.pager.totals.isEmpty ? nil : vm.pager.totals.reduce(0) { $0 + $1.count },
                                  onSelect: { vm.sheet = .detail($0.transactionId) }) { t in
             let reversed = t.reversedAt != nil
+            let fund = t.fundName ?? t.fund ?? "—"
+            let via = "\(FinWords.channel(t.channel)) · \(FinWords.source(t.source))"
+            // Date (+ receipt when narrow).
             VStack(alignment: .leading, spacing: 1) {
                 Text(FinanceATime.day(t.createdAt)).font(.inter(12.5)).lineLimit(1).minimumScaleFactor(0.8)
-                Text(FinanceATime.time(t.createdAt)).font(.nMicro).foregroundStyle(Nuru.ink400)
+                if layout == .narrow {
+                    Text(t.receiptCode ?? FinanceATime.time(t.createdAt)).font(.nMono(10.5)).foregroundStyle(Nuru.ink600)
+                        .lineLimit(1).minimumScaleFactor(0.75)
+                } else {
+                    Text(FinanceATime.time(t.createdAt)).font(.nMicro).foregroundStyle(Nuru.ink400)
+                }
             }
             .financeCell(cols[0])
-            VStack(alignment: .leading, spacing: 1) {
-                Text(t.receiptCode ?? "—").font(.nMono(12)).foregroundStyle(t.receiptCode == nil ? Nuru.ink400 : Nuru.ink)
-                    .lineLimit(1).minimumScaleFactor(0.75)
-                if let ref = t.officeReference, !ref.isEmpty, ref != t.receiptCode {
-                    Text(ref).font(.nMono(10.5)).foregroundStyle(Nuru.ink400).lineLimit(1)
+            if layout != .narrow {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(t.receiptCode ?? "—").font(.nMono(12)).foregroundStyle(t.receiptCode == nil ? Nuru.ink400 : Nuru.ink)
+                        .lineLimit(1).minimumScaleFactor(0.75)
+                    if let ref = t.officeReference, !ref.isEmpty, ref != t.receiptCode {
+                        Text(ref).font(.nMono(10.5)).foregroundStyle(Nuru.ink400).lineLimit(1)
+                    }
                 }
+                .financeCell(cols[1])
             }
-            .financeCell(cols[1])
+            // Giver (+ how it came, the fund when narrow, and its pledge / need).
             VStack(alignment: .leading, spacing: 2) {
                 Text(t.giverLabel).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                HStack(spacing: 5) {
-                    if !wide {
-                        Text("\(FinWords.channel(t.channel)) · \(FinWords.source(t.source))")
-                            .font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                switch layout {
+                case .wide: EmptyView()
+                case .medium: Text(via).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                case .narrow: Text("\(fund) · \(via)").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                }
+                if t.pledgeTitle != nil || t.needTitle != nil {
+                    HStack(spacing: 5) {
+                        if let p = t.pledgeTitle { FinATag(text: "Pledge · \(p)", tone: FinanceStatus.navy) }
+                        if let n = t.needTitle { FinATag(text: "Need · \(n)", tone: FinanceStatus.amberStrong) }
                     }
-                    if let p = t.pledgeTitle { FinATag(text: "Pledge · \(p)", tone: FinanceStatus.navy) }
-                    if let n = t.needTitle { FinATag(text: "Need · \(n)", tone: FinanceStatus.amberStrong) }
                 }
             }
-            .financeCell(cols[2])
-            Text(t.fundName ?? t.fund ?? "—").font(.inter(12.5)).foregroundStyle(Nuru.ink).lineLimit(2).financeCell(cols[3])
-            if wide {
+            .financeCell(cols[layout == .narrow ? 1 : 2])
+            if layout != .narrow {
+                Text(fund).font(.inter(12.5)).foregroundStyle(Nuru.ink).lineLimit(2).financeCell(cols[3])
+            }
+            if layout == .wide {
                 Text(FinWords.channel(t.channel)).font(.inter(12.5)).lineLimit(1).financeCell(cols[4])
                 Text(FinWords.source(t.source)).font(.inter(12.5)).foregroundStyle(Nuru.ink600).lineLimit(1).financeCell(cols[5])
             }
+            let amountCol = cols.count - 2
+            let statusCol = cols.count - 1
             Text(FinanceMoney.format(t.amountMinor, t.currency))
                 .font(.nMono(13, .medium)).foregroundStyle(reversed || t.status == "failed" ? Nuru.ink400 : Nuru.navy)
                 .strikethrough(reversed, color: Nuru.ink400)
                 .lineLimit(1).minimumScaleFactor(0.7)
-                .financeCell(cols[wide ? 6 : 4])
-            FinanceStatusChip(status: reversed ? "reversed" : t.status).financeCell(cols[wide ? 7 : 5])
+                .financeCell(cols[amountCol])
+            FinanceStatusChip(status: reversed ? "reversed" : t.status).financeCell(cols[statusCol])
         }
         .measureWidth($width)
     }

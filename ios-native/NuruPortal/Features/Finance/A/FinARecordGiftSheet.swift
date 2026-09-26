@@ -336,7 +336,12 @@ struct FinARecordGiftSheet: View {
                 form
             }
         }
-        .task { await vm.loadChoices() }
+        .task {
+            await vm.loadChoices()
+            #if DEBUG
+            await debugPrefill()
+            #endif
+        }
         .task(id: vm.query) {
             try? await Task.sleep(nanoseconds: 300_000_000)
             if !Task.isCancelled { await vm.search() }
@@ -349,6 +354,35 @@ struct FinARecordGiftSheet: View {
             Text(inFlightMessage)
         }
     }
+
+    #if DEBUG
+    /// DEBUG: NURU_FINANCE_GIFT_PREFILL="q=Mary&amount=1500&channel=mpesa&reference=QJK4ABC123&fund=tithe&submit=1"
+    /// fills (and optionally submits) the form — headless checks of its paths.
+    private func debugPrefill() async {
+        guard let raw = ProcessInfo.processInfo.environment["NURU_FINANCE_GIFT_PREFILL"], !raw.isEmpty else { return }
+        var p: [String: String] = [:]
+        for pair in raw.split(separator: "&") {
+            let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
+            if kv.count == 2 { p[kv[0]] = kv[1].replacingOccurrences(of: "+", with: " ") }
+        }
+        if p["giver"] == "walkin" { vm.giver = .walkIn; vm.walkInName = p["name"] ?? "" }
+        if p["giver"] == "anonymous" { vm.giver = .anonymous }
+        if let q = p["q"] {
+            vm.query = q
+            await vm.search()
+            if let g = vm.results.first { vm.choose(g) }
+        }
+        if let c = p["currency"] { vm.currency = c }
+        if let a = p["amount"] { vm.amountText = a }
+        if let ch = p["channel"], let c = FinOfficeChannel(rawValue: ch) { vm.channel = c }
+        if let r = p["reference"] { vm.reference = r }
+        if let f = p["fund"] { vm.fund = f }
+        if let pl = p["pledge"] { vm.pledgeId = pl }
+        if let n = p["need"] { vm.needId = n }
+        if let n = p["note"] { vm.note = n }
+        if p["submit"] == "1" { await vm.submit() }
+    }
+    #endif
 
     private var inFlightMessage: String {
         let name = vm.member?.fullName ?? "This member"
@@ -413,6 +447,9 @@ struct FinARecordGiftSheet: View {
             if vm.showProblems, !vm.problems.isEmpty {
                 FinanceNoticeBar(notice: .warn("Check the highlighted fields — \(vm.problems.count == 1 ? "one thing is" : "\(vm.problems.count) things are") missing."))
             }
+            // The refusal again beside the button — the form is long, and the
+            // office is usually scrolled down here when it presses Record.
+            if let f = vm.failure { failureBar(f) }
             HStack {
                 Spacer()
                 FinanceButton(title: vm.busy ? "Recording…" : "Record gift", icon: "checkmark", style: .gold, busy: vm.busy) {
