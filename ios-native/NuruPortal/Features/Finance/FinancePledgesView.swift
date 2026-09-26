@@ -90,12 +90,11 @@ struct FinancePledgesView: View {
         let caps = auth.financeCaps
         FinancePageScaffold(title: Section.financePledges.title,
                             subtitle: "Every pledge, read from the same instalment ledger as the member's statement: what was promised \(yearWord), what has been paid, instalments kept of those due, and who is behind — with the date they fell behind.",
-                            stats: vm.totalCount.map { [HeroStat(label: "Pledges", value: String($0), hint: "in this selection")] } ?? [],
                             onRefresh: { await vm.pager.reload() }) {
             FinanceExportButton(caps: caps, path: FinanceERPAPI.pledgesCSV, query: vm.filter.query, placement: .hero)
         } content: {
             let first = vm.pager.isLoadingFirstPage
-            FinanceKpiGrid(minimum: 170) {
+            FinanceKpiGrid(minimum: 200) {
                 FinanceKpiTile(label: "Pledges", icon: "signature", tint: Nuru.brandTint(2),
                                values: first ? [] : [String(vm.totalCount ?? 0)], hint: "in this selection", loading: first)
                 FinanceKpiTile(label: "Pledged \(yearWord)", icon: "calendar", tint: Nuru.brandTint(1),
@@ -143,7 +142,7 @@ struct FinancePledgesView: View {
         .financeCell(cols[2])
         VStack(alignment: .leading, spacing: 2) {
             Text(Self.keptOfDue(p)).font(.nMono(12.5, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
-            Text("next \(FinanceDates.display(p.nextDue))").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+            Text(p.nextDue.map { "next \(FinanceDates.display($0))" } ?? "nothing due").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
         .financeCell(cols[3])

@@ -18,6 +18,9 @@ struct NuruPortalApp: App {
         // No unit-test target: the Finance kit asserts its money/date helpers
         // and the Finance sidebar once per Debug launch (FinanceKit.swift).
         FinanceSelfCheck.runAtLaunch()
+        // Screenshot harness for the Finance B pages — fixture data, no network;
+        // a no-op unless NURU_FINANCE_HARNESS is set (FinanceBHarness.swift).
+        FinanceBHarness.installIfRequested()
         #endif
     }
 

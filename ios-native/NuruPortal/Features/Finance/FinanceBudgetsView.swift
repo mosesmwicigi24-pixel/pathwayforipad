@@ -196,6 +196,11 @@ struct FinanceBudgetsView: View {
             }
         }
         .task(id: vm.year) { await vm.load() }
+        .onFinanceLink(.financeBudgets) { p in
+            if let y = p["year"].flatMap(Int.init), (2020...2100).contains(y) {
+                if vm.dirty { ask = .leave(y) } else { vm.choose(year: y) }
+            }
+        }
         .sheet(item: $ask) { a in sheet(a) }
     }
 
@@ -469,9 +474,12 @@ struct FinanceBudgetActualsView: View {
         let incA = inc.map { FinBMath.sumPrefix($0.actualMinor, ytd) } ?? 0, incB = inc.map { FinBMath.sumPrefix($0.budgetMinor, ytd) } ?? 0
         let expA = exp.map { FinBMath.sumPrefix($0.actualMinor, ytd) } ?? 0, expB = exp.map { FinBMath.sumPrefix($0.budgetMinor, ytd) } ?? 0
         let toDate = ytd == 12 ? "" : "to date "
+        let net = FinBMath.netActual(incomeActual: inc?.actualMinor ?? [], incomeUnbudgeted: inc?.unbudgetedMinor ?? [],
+                                     expenseActual: exp?.actualMinor ?? [], expenseUnbudgeted: exp?.unbudgetedMinor ?? [], months: ytd)
         return VStack(alignment: .leading, spacing: 8) {
             FinanceFlowLayout(spacing: 22, rowSpacing: 4) {
-                (Text("Net actual \(ytd == 12 ? "for the year" : "to date"): ") + Text(FinanceMoney.format(incA - expA, "KES")).bold())
+                (Text("Net actual \(ytd == 12 ? "for the year" : "to date"): ") + Text(FinanceMoney.format(net, "KES")).bold()
+                    + Text(" (all KES in − all KES out, budgeted or not)").foregroundColor(Nuru.ink600))
                     .font(.inter(12.5)).foregroundStyle(Nuru.navy)
                 if inc != nil {
                     Text("Income \(toDate)is \(FinanceMoney.format(abs(incA - incB), "KES")) \(incA >= incB ? "above" : "below") budget.")

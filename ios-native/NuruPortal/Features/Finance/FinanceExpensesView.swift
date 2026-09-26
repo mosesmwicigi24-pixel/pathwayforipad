@@ -174,7 +174,7 @@ struct FinanceExpensesView: View {
         } content: {
             if let n = vm.notice { FinanceNoticeBar(notice: n) { vm.notice = nil } }
             let loadingFirst = vm.pager.isLoadingFirstPage
-            FinanceKpiGrid(minimum: 190) {
+            FinanceKpiGrid(minimum: 200) {
                 FinanceKpiTile(label: "Approved", icon: "checkmark.circle", tint: Nuru.brandTint(0),
                                values: vm.statusAmounts("approved"),
                                hint: vm.filter.status.isEmpty || vm.filter.status.contains("approved") ? "spent · \(vm.periodText)" : "not in this selection",

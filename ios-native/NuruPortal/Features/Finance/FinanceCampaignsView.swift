@@ -160,6 +160,9 @@ struct FinanceCampaignsView: View {
             }
         }
         .task { await vm.load() }
+        .onFinanceLink(.financeCampaigns) { p in
+            if let s = p["status"], Self.statusOptions.contains(where: { $0.value == s }) { vm.status = s }
+        }
         .sheet(item: $action) { a in sheet(a) }
     }
 

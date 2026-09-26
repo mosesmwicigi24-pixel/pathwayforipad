@@ -138,6 +138,15 @@ extension FinanceSelfCheck {
         expectEqual(FinBMath.ytdMonths(year: 2027, now: sep26), 0, "a future year has not started")
         expectEqual(FinBMath.ytdMonths(year: 2027, now: at("2026-12-31T21:30:00Z")), 1, "EAT: 00:30 on 1 Jan 2027 is January of 2027")
         expectEqual(FinBMath.ytdMonths(year: 2026, now: at("2026-12-31T21:30:00Z")), 12, "…and 2026 is then a whole past year")
+        // Net actual = all KES in − all KES out, budgeted or not (web cycle 1).
+        let incA = [100, 100, 100] + Array(repeating: 0, count: 9), incU = [50, 0, 50] + Array(repeating: 0, count: 9)
+        let expA = [80, 80, 80] + Array(repeating: 0, count: 9), expU = [0, 20, 0] + Array(repeating: 0, count: 9)
+        expectEqual(FinBMath.netActual(incomeActual: incA, incomeUnbudgeted: incU, expenseActual: expA, expenseUnbudgeted: expU, months: 3),
+                    (300 + 100) - (240 + 20), "net actual counts the unbudgeted rows")
+        expectEqual(FinBMath.netActual(incomeActual: incA, incomeUnbudgeted: incU, expenseActual: expA, expenseUnbudgeted: expU, months: 2),
+                    (200 + 50) - (160 + 20), "net actual to date stops at the YTD month")
+        expect(FinBMath.netActual(incomeActual: incA, incomeUnbudgeted: incU, expenseActual: expA, expenseUnbudgeted: expU, months: 3)
+               != FinBMath.sumPrefix(incA, 3) - FinBMath.sumPrefix(expA, 3), "…which is not the budgeted-lines-only figure")
         expectEqual(FinBMath.sumPrefix([1, 2, 3, 4], 2), 3, "sumPrefix")
         expectEqual(FinBMath.sumPrefix([1, 2], 9), 3, "sumPrefix clamps")
         expectEqual(FinBMath.planningYears(now: sep26, extra: [2019]), [2027, 2026, 2025, 2024, 2023, 2022, 2019], "planning years")

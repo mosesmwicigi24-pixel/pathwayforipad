@@ -332,6 +332,15 @@ enum FinBMath {
         values.prefix(max(0, min(n, values.count))).reduce(0, +)
     }
 
+    /// Net actual over the first `months` months: ALL KES money in less ALL KES
+    /// money out — the budgeted lines' actuals PLUS the unbudgeted money of each
+    /// kind (web cycle 1: counting budgeted lines only understated the surplus).
+    static func netActual(incomeActual: [Int], incomeUnbudgeted: [Int],
+                          expenseActual: [Int], expenseUnbudgeted: [Int], months: Int) -> Int {
+        (sumPrefix(incomeActual, months) + sumPrefix(incomeUnbudgeted, months))
+            - (sumPrefix(expenseActual, months) + sumPrefix(expenseUnbudgeted, months))
+    }
+
     /// floor(part × 100 ÷ whole), 0 when there is no whole — may exceed 100.
     static func percent(_ part: Int, of whole: Int) -> Int {
         whole > 0 ? max(part, 0) * 100 / whole : 0
@@ -795,9 +804,18 @@ struct FinBCurrencyFigures: View {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(rows.sorted { FinanceMoney.currencyPrecedes($0.currency, $1.currency) }) { r in
                         FinanceFlowLayout(spacing: 18, rowSpacing: 4) {
-                            Text(r.currency).font(.inter(11, .bold)).foregroundStyle(Nuru.goldLo)
-                                .padding(.horizontal, 7).padding(.vertical, 2)
-                                .background(Nuru.goldChipBg).clipShape(Capsule())
+                            HStack(spacing: 7) {
+                                Text(r.currency).font(.inter(11, .bold)).foregroundStyle(Nuru.goldLo)
+                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                    .background(Nuru.goldChipBg).clipShape(Capsule())
+                                if let n = r.count {
+                                    Text("\(n) \(n == 1 ? noun.one : noun.many)").font(.nCaption).foregroundStyle(Nuru.ink600)
+                                }
+                                if let note = r.note {
+                                    Text(note).font(.nCaption).foregroundStyle(Nuru.ink400)
+                                }
+                            }
+                            .fixedSize()
                             ForEach(r.figures, id: \.self) { f in
                                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                                     Text(f.label).font(.nCaption).foregroundStyle(Nuru.ink600)
@@ -805,12 +823,6 @@ struct FinBCurrencyFigures: View {
                                         .foregroundStyle(f.tint ?? Nuru.navy).monospacedDigit()
                                 }
                                 .fixedSize()
-                            }
-                            if let n = r.count {
-                                Text("· \(n) \(n == 1 ? noun.one : noun.many)").font(.nCaption).foregroundStyle(Nuru.ink600).fixedSize()
-                            }
-                            if let note = r.note {
-                                Text(note).font(.nCaption).foregroundStyle(Nuru.ink400).fixedSize()
                             }
                         }
                     }
