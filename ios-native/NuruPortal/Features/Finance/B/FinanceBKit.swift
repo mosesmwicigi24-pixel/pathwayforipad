@@ -722,20 +722,35 @@ struct FinBExplain: View {
 
 // MARK: - Writes
 
-/// Confirm a money write: the consequence in plain words first, then the
-/// button. Stays open with the error inline on failure; dismisses on success.
-struct FinBConfirmSheet: View {
+/// Confirm a money write: the consequence in plain words first (plus any
+/// `extra` view — e.g. a fund's balance before → after), then the button.
+/// Stays open with the error inline on failure; dismisses on success.
+struct FinBConfirmSheet<Extra: View>: View {
     let title: String
     /// The first line is the headline ("Posts KES 12,000.00 out of Tithe via Bank on 3 Sep 2026.").
     let consequence: [String]
     let confirmLabel: String
-    var destructive = false
-    var onConfirm: () async throws -> Void
-    var errorText: (Error) -> String = { FinBError.message($0, fallback: "That did not go through — try again.") }
+    let destructive: Bool
+    let onConfirm: () async throws -> Void
+    let errorText: (Error) -> String
+    let extra: Extra
 
     @Environment(\.dismiss) private var dismiss
     @State private var busy = false
     @State private var error: String?
+
+    init(title: String, consequence: [String], confirmLabel: String, destructive: Bool = false,
+         onConfirm: @escaping () async throws -> Void,
+         errorText: @escaping (Error) -> String = { FinBError.message($0, fallback: "That did not go through — try again.") },
+         @ViewBuilder extra: () -> Extra) {
+        self.title = title
+        self.consequence = consequence
+        self.confirmLabel = confirmLabel
+        self.destructive = destructive
+        self.onConfirm = onConfirm
+        self.errorText = errorText
+        self.extra = extra()
+    }
 
     var body: some View {
         NavigationStack {
@@ -746,6 +761,7 @@ struct FinBConfirmSheet: View {
                         .foregroundStyle(i == 0 ? Nuru.navy : Nuru.ink600)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                extra
                 if let error { FinanceNoticeBar(notice: .error(error)) }
                 Spacer(minLength: 0)
                 HStack(spacing: 10) {
@@ -784,6 +800,15 @@ struct FinBConfirmSheet: View {
                 self.error = errorText(error)
             }
         }
+    }
+}
+
+extension FinBConfirmSheet where Extra == EmptyView {
+    init(title: String, consequence: [String], confirmLabel: String, destructive: Bool = false,
+         onConfirm: @escaping () async throws -> Void,
+         errorText: @escaping (Error) -> String = { FinBError.message($0, fallback: "That did not go through — try again.") }) {
+        self.init(title: title, consequence: consequence, confirmLabel: confirmLabel, destructive: destructive,
+                  onConfirm: onConfirm, errorText: errorText, extra: { EmptyView() })
     }
 }
 
