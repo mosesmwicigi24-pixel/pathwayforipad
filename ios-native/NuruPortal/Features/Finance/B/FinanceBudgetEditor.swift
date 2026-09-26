@@ -1,11 +1,11 @@
-// Finance → Budgets — the draft's lines editor and the "start a budget" sheet.
-// Each line is income (names a fund) or expense (names a category, and
-// optionally a fund — else it is church-wide), with a label and twelve KES
-// amounts typed in shillings (blank = 0). "Spread evenly" divides an annual
-// amount into equal whole-cent months with the integer remainder on December
-// (FinBMath.spreadEvenly). Save replaces ALL lines at once (PUT …/lines,
-// finance:manage); Approve (finance:approve) locks what was saved — so it is
-// offered only when nothing is unsaved. The server's rules are checked first
+// Finance → Budgets — the draft's lines editor. Each line is income (names a
+// fund) or expense (names a category, and optionally a fund — else it is
+// church-wide), with a label and twelve KES amounts typed in shillings
+// (blank = 0). "Spread evenly" divides an annual amount into equal whole-cent
+// months with the integer remainder on December (FinBMath.spreadEvenly). Save
+// replaces ALL lines at once (PUT …/lines, finance:manage); the page's Approve
+// (finance:approve) locks what was saved, so the editor reports unsaved
+// changes (onDirtyChange). The server's rules are checked first
 // so the office reads a sentence, not a 400: label 2–80, fund / category as
 // the kind needs, 12 amounts 0 … KES 1,000,000,000.00, no overlapping lines
 // (FinBMath.overlapProblem), at most 200 lines.
@@ -84,22 +84,22 @@ struct FinanceBudgetEditor: View {
     @ObservedObject var lookups: FinBLookups
     let caps: FinanceCaps
     let onSave: ([FinBudgetLineInput]) async throws -> Void
-    let onApprove: () async throws -> Void
+    /// Unsaved changes on / off — the page holds Approve and the year switch.
+    let onDirtyChange: (Bool) -> Void
 
     @State private var lines: [FinBBudgetEditLine]
     @State private var saving = false
     @State private var saveError: String?
     @State private var tried = false
-    @State private var approving = false
 
     init(detail: FinBudgetDetail, lookups: FinBLookups, caps: FinanceCaps,
          onSave: @escaping ([FinBudgetLineInput]) async throws -> Void,
-         onApprove: @escaping () async throws -> Void) {
+         onDirtyChange: @escaping (Bool) -> Void) {
         self.detail = detail
         self.lookups = lookups
         self.caps = caps
         self.onSave = onSave
-        self.onApprove = onApprove
+        self.onDirtyChange = onDirtyChange
         _lines = State(initialValue: detail.lines.map(FinBBudgetEditLine.init(saved:)))
     }
 
@@ -140,6 +140,7 @@ struct FinanceBudgetEditor: View {
             totals
             if tried, !problems.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
+                    Text("Some lines need fixing before they can be saved:").font(.inter(12.5, .bold)).foregroundStyle(Nuru.danger)
                     ForEach(problems, id: \.self) { p in
                         Text("• \(p)").font(.nCaption).foregroundStyle(Nuru.danger).fixedSize(horizontal: false, vertical: true)
                     }
@@ -152,22 +153,18 @@ struct FinanceBudgetEditor: View {
             if let saveError { FinanceNoticeBar(notice: .error(saveError)) { self.saveError = nil } }
             actionBar
         }
-        .sheet(isPresented: $approving) {
-            FinBConfirmSheet(title: "Approve the \(String(detail.year)) budget",
-                             consequence: ["Locks the lines — the \(String(detail.year)) budget becomes read-only.",
-                                           "Income \(FinanceMoney.format(detail.incomeTotalMinor, "KES")), expense \(FinanceMoney.format(detail.expenseTotalMinor, "KES")) across \(detail.lineCount) line\(detail.lineCount == 1 ? "" : "s"). Budget against actual starts from these; an approved budget cannot be edited."],
-                             confirmLabel: "Approve budget") { try await onApprove() }
-        }
+        .onAppear { onDirtyChange(dirty) }
+        .onChange(of: dirty) { _, d in onDirtyChange(d) }
     }
 
     private var header: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "pencil.and.list.clipboard").font(.system(size: 14, weight: .semibold)).foregroundStyle(FinanceStatus.amber.fg)
             VStack(alignment: .leading, spacing: 3) {
-                Text("\(detail.name) — draft").font(.inter(14.5, .bold)).foregroundStyle(Nuru.navy)
+                Text("Lines").font(.inter(14.5, .bold)).foregroundStyle(Nuru.navy)
                 Text(editable
-                     ? "Saving sends every line at once and replaces what was saved. Approval locks what is saved, so save first. Amounts are KES, typed in shillings; a blank month is 0."
-                     : "A draft — someone with finance:manage edits the lines; finance:approve approves it.")
+                     ? "Income per fund, spending per category (church-wide or per fund), twelve months each in KES — a blank month is 0. Save sends every line at once; approval locks what is saved."
+                     : "Income per fund, spending per category, twelve months each in KES.")
                     .font(.nCaption).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -259,6 +256,7 @@ struct FinanceBudgetEditor: View {
         let parsedAnnual = FinBMath.parseMonthCell(line.wrappedValue.annual)
         return HStack(spacing: 8) {
             Text("Spread an annual amount evenly").font(.nCaption).foregroundStyle(Nuru.ink600)
+                .help("Each month gets an equal share; December takes the remainder.")
             TextField("Annual KES", text: line.annual)
                 .keyboardType(.decimalPad).font(.nMono(12.5))
                 .multilineTextAlignment(.trailing)
@@ -277,6 +275,8 @@ struct FinanceBudgetEditor: View {
                 Text(months[0] == months[11] ? "12 × \(FinanceMoney.format(months[0], ""))"
                      : "11 × \(FinanceMoney.format(months[0], "")) + Dec \(FinanceMoney.format(months[11], ""))")
                     .font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
+            } else {
+                Text("Each month gets an equal share; December takes the remainder.").font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
             }
             Spacer(minLength: 0)
         }
@@ -335,23 +335,19 @@ struct FinanceBudgetEditor: View {
     }
 
     @ViewBuilder private var actionBar: some View {
-        if editable || caps.approve {
+        if editable {
             HStack(spacing: 10) {
-                if editable {
-                    FinanceButton(title: saving ? "Saving…" : "Save lines", icon: "tray.and.arrow.down", style: .gold, busy: saving) { save() }
-                        .disabled(!dirty)
-                        .opacity(dirty ? 1 : 0.5)
-                }
-                if caps.approve {
-                    FinanceButton(title: "Approve budget", icon: "lock", style: .primary) { approving = true }
-                        .disabled(dirty || detail.lines.isEmpty)
-                        .opacity(dirty || detail.lines.isEmpty ? 0.5 : 1)
+                FinanceButton(title: saving ? "Saving…" : "Save lines", icon: "tray.and.arrow.down", style: .gold, busy: saving) { save() }
+                    .disabled(!dirty)
+                    .opacity(dirty ? 1 : 0.5)
+                if dirty {
+                    FinanceButton(title: "Undo changes", icon: "arrow.uturn.backward") {
+                        lines = detail.lines.map(FinBBudgetEditLine.init(saved:))
+                        tried = false
+                        saveError = nil
+                    }
                 }
                 Spacer(minLength: 0)
-            }
-            if caps.approve, dirty || detail.lines.isEmpty {
-                Text(detail.lines.isEmpty ? "Approval needs at least one saved line." : "Save the lines first — approval locks what is saved.")
-                    .font(.nMicro).foregroundStyle(Nuru.ink600)
             }
         }
     }
@@ -360,7 +356,7 @@ struct FinanceBudgetEditor: View {
         tried = true
         saveError = nil
         guard case .ok(let inputs) = parsed else {
-            saveError = "Fix the problems listed above, then save."
+            saveError = "Some lines need fixing before they can be saved — see the highlighted cells and the notes above."
             return
         }
         saving = true
@@ -372,53 +368,6 @@ struct FinanceBudgetEditor: View {
             } catch {
                 saving = false
                 saveError = FinBError.message(error, fallback: "Could not save the lines.")
-            }
-        }
-    }
-}
-
-// MARK: - Start a year's budget
-
-struct FinanceBudgetStartSheet: View {
-    let year: Int
-    let onStart: (String) async throws -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var name: String
-    @State private var busy = false
-    @State private var error: String?
-
-    init(year: Int, onStart: @escaping (String) async throws -> Void) {
-        self.year = year
-        self.onStart = onStart
-        _name = State(initialValue: "\(year) budget")
-    }
-
-    private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var valid: Bool { (2...80).contains(trimmed.count) }
-
-    var body: some View {
-        FinBFormSheet(title: "Start the \(String(year)) budget", confirmLabel: "Start draft",
-                      canConfirm: valid, busy: busy, error: error, onConfirm: start) {
-            FinanceNoticeBar(notice: .warn("Starts a draft in KES — one budget per year. Nothing is locked until it is approved."))
-            FinBField(label: "Name", hint: "2–80 characters", error: valid ? nil : "2–80 characters.") {
-                TextField("\(String(year)) budget", text: $name).finbInput(invalid: !valid)
-            }
-        }
-        .presentationDetents([.medium])
-    }
-
-    private func start() {
-        guard valid else { return }
-        busy = true
-        error = nil
-        Task { @MainActor in
-            do {
-                try await onStart(trimmed)
-                busy = false
-                dismiss()
-            } catch {
-                busy = false
-                self.error = error.apiStatus == 409 ? "\(String(year)) already has a budget — reload the page." : FinBError.message(error, fallback: "Could not start the budget.")
             }
         }
     }

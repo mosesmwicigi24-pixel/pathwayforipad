@@ -46,19 +46,55 @@ final class FinanceCampaignsModel: ObservableObject {
 
     func goLive(_ c: FinCampaign) async throws {
         _ = try await FinanceERPAPI.goLive(c.campaignId)
-        notice = .ok("“\(c.title)” is live — the app can invite members to it now.")
+        notice = .ok("“\(c.title)” is live — members can be invited from now")
         await load()
     }
 
     func end(_ c: FinCampaign) async throws {
         _ = try await FinanceERPAPI.endCampaign(c.campaignId)
-        notice = .ok("“\(c.title)” has ended. It cannot be reopened.")
+        notice = .ok("“\(c.title)” has ended")
         await load()
     }
 
     func saved(_ title: String, created: Bool) async {
-        notice = .ok(created ? "“\(title)” saved as a draft — nobody is invited until you put it live." : "“\(title)” saved.")
+        notice = .ok(created ? "Created “\(title)” as a draft — nothing reaches members until you put it live" : "Saved “\(title)”")
         await load()
+    }
+
+    var live: [FinCampaign] { campaigns.filter { $0.status == "live" } }
+
+    /// Per currency over the LIVE campaigns: goal and raised (web parity).
+    var liveTotals: [FinBCurrencyFigures.Row] {
+        var goal: [String: Int] = [:], raised: [String: Int] = [:], n: [String: Int] = [:]
+        for c in live {
+            goal[c.currency, default: 0] += c.goalMinor
+            raised[c.currency, default: 0] += c.raisedMinor
+            n[c.currency, default: 0] += 1
+        }
+        return goal.keys.map { cur in
+            FinBCurrencyFigures.Row(currency: cur, figures: [
+                .init(label: "Goal", minor: goal[cur] ?? 0),
+                .init(label: "Raised", minor: raised[cur] ?? 0, tint: Nuru.success),
+            ], note: "\((n[cur] ?? 0)) live \((n[cur] ?? 0) == 1 ? "campaign" : "campaigns")")
+        }
+    }
+
+    /// Live campaigns that share a fund in one currency count the same gifts —
+    /// the live "raised" sum then counts them twice; say so.
+    var sharedFundWarning: String? {
+        let groups = Dictionary(grouping: live.filter { $0.fund != nil }) { "\($0.fund ?? "")|\($0.currency)" }
+        guard let shared = groups.values.first(where: { $0.count > 1 }), let fund = shared.first?.fund else { return nil }
+        return "\(shared.count) live campaigns share \(lookups.fundName(fund)) — the same gifts count toward each, so the live Raised above counts them more than once."
+    }
+
+    /// "12 days left" / "ends today" / "starts in 5 days" / "end date passed 3 days ago" / "ended".
+    static func timing(_ c: FinCampaign, today: String = FinanceDates.today()) -> String {
+        if c.status == "ended" { return "ended" }
+        if today < c.startsOn, let d = FinBTime.days(from: today, to: c.startsOn) { return "starts in \(d) \(d == 1 ? "day" : "days")" }
+        guard let left = FinBTime.days(from: today, to: c.endsOn) else { return "" }
+        if left > 0 { return "\(left) \(left == 1 ? "day" : "days") left" }
+        if left == 0 { return "ends today" }
+        return "end date passed \(-left) \(-left == 1 ? "day" : "days") ago"
     }
 }
 
@@ -86,7 +122,7 @@ struct FinanceCampaignsView: View {
     var body: some View {
         let caps = auth.financeCaps
         FinancePageScaffold(title: Section.financeCampaigns.title,
-                            subtitle: "Appeals — money raised against each goal, the match, and how far each invitation really reached.",
+                            subtitle: "Appeals members can be invited to: goal against raised, any match (always with who pledged it), and how far the invitation actually travelled.",
                             stats: stats,
                             onRefresh: { await vm.load() }) {
             if caps.manage {
@@ -98,7 +134,12 @@ struct FinanceCampaignsView: View {
                 FinBChoiceChips(options: Self.statusOptions, selection: $vm.status)
                 Spacer(minLength: 0)
             }
-            FinBExplain(text: "Raised counts every succeeded gift to the campaign's fund from its start date through its end date (East Africa Time) — gifts to that fund for any reason — so campaigns sharing a fund are never added together. A new campaign is always a draft; nobody is invited until it is put live, and an ended campaign is never reopened.")
+            if !vm.liveTotals.isEmpty {
+                FinBCurrencyFigures(title: "Live campaigns", rows: vm.liveTotals, noun: ("campaign", "campaigns"),
+                                    caption: "Each campaign counts gifts to its own fund inside its own dates.")
+                if let w = vm.sharedFundWarning { FinanceNoticeBar(notice: .warn(w)) }
+            }
+            FinBExplain(text: "Raised = succeeded gifts to the campaign's fund from its start date through its end date (East Africa Time). A new campaign is always a draft — it reaches nobody until it is put live — and ending is final: an ended campaign is never reopened.")
             switch vm.phase {
             case .loading:
                 SkeletonGrid(tiles: 4, columns: 2)
@@ -124,10 +165,12 @@ struct FinanceCampaignsView: View {
 
     private var stats: [HeroStat] {
         guard vm.phase == .loaded else { return [] }
+        let asked = vm.live.reduce(0) { $0 + $1.peopleAsked }
+        let gave = vm.live.reduce(0) { $0 + $1.gave }
         return [
-            HeroStat(label: "Live", value: String(vm.count("live")), hint: "inviting members now"),
-            HeroStat(label: "Drafts", value: String(vm.count("draft")), hint: "not yet live"),
-            HeroStat(label: "Ended", value: String(vm.count("ended")), hint: "closed for good"),
+            HeroStat(label: "Live", value: String(vm.count("live")), hint: "members can be invited"),
+            HeroStat(label: "Drafts", value: String(vm.count("draft")), hint: "reach nobody yet"),
+            HeroStat(label: "People asked — live", value: String(asked), hint: "\(gave) gave"),
         ]
     }
 
@@ -136,11 +179,14 @@ struct FinanceCampaignsView: View {
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(c.title).font(.inter(15.5, .bold)).foregroundStyle(Nuru.navy).lineLimit(2)
-                    Text("\(FinanceDates.displayRange(from: c.startsOn, to: c.endsOn)) · to \(vm.lookups.fundName(c.fund))")
+                    Text("\(vm.lookups.fundName(c.fund)) · \(FinanceDates.displayRange(from: c.startsOn, to: c.endsOn))")
                         .font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
                 }
                 Spacer(minLength: 6)
-                FinanceStatusChip(status: c.status)
+                VStack(alignment: .trailing, spacing: 3) {
+                    FinanceStatusChip(status: c.status)
+                    Text(FinanceCampaignsModel.timing(c)).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                }
             }
             if !c.blurb.isEmpty {
                 Text(c.blurb).font(.nCaption).foregroundStyle(Nuru.ink600).lineLimit(2)
@@ -149,14 +195,14 @@ struct FinanceCampaignsView: View {
             if let match = c.matchMinor, match > 0 {
                 HStack(spacing: 5) {
                     Image(systemName: "equal.circle").font(.system(size: 11, weight: .semibold)).foregroundStyle(Nuru.goldLo)
-                    Text("Matched up to \(FinanceMoney.format(match, c.currency)) by \(c.matchPledger ?? "a pledger")")
+                    Text("Match \(FinanceMoney.format(match, c.currency)), pledged by \(c.matchPledger ?? "—")")
                         .font(.nMicro).foregroundStyle(Nuru.goldChipText).lineLimit(2)
                 }
             }
             HStack(spacing: 10) {
                 reachFigure("Asked", c.peopleAsked)
                 reachFigure("Gave", c.gave, tint: Nuru.success)
-                reachFigure("Declined", c.declined, tint: c.declined > 0 ? FinanceStatus.rose.fg : nil)
+                reachFigure("Declined", c.declined, tint: c.declined > 0 ? FinanceStatus.amber.fg : nil)
                 Spacer(minLength: 0)
                 Button { action = .reach(c) } label: {
                     Label("Reach", systemImage: "chart.bar").font(.inter(12, .semibold)).foregroundStyle(Nuru.navy)
@@ -169,11 +215,9 @@ struct FinanceCampaignsView: View {
                 HStack(spacing: 8) {
                     FinanceButton(title: "Edit", icon: "pencil") { action = .edit(c) }
                     if c.status == "draft" {
-                        FinanceButton(title: "Go live", icon: "dot.radiowaves.left.and.right", style: .gold) { action = .goLive(c) }
+                        FinanceButton(title: "Go live", icon: "play.fill", style: .primary) { action = .goLive(c) }
                     }
-                    if c.status == "live" {
-                        FinanceButton(title: "End", icon: "stop.circle", style: .danger) { action = .end(c) }
-                    }
+                    FinanceButton(title: "End", icon: "stop.fill", style: .danger) { action = .end(c) }
                     Spacer(minLength: 0)
                 }
             }
@@ -200,15 +244,19 @@ struct FinanceCampaignsView: View {
         case .edit(let c):
             FinanceCampaignFormSheet(existing: c, lookups: vm.lookups) { title in Task { await vm.saved(title, created: false) } }
         case .goLive(let c):
-            FinBConfirmSheet(title: "Put this campaign live",
-                             consequence: ["Puts “\(c.title)” live — from now on the app may invite members to give to it.",
-                                           "The app keeps its restraint rules (never partners or minors, at most three showings, a fortnight between waves). Raised counts every gift to \(vm.lookups.fundName(c.fund)) from \(FinanceDates.display(c.startsOn)) through \(FinanceDates.display(c.endsOn))."],
-                             confirmLabel: "Go live") { try await vm.goLive(c) }
+            FinBConfirmSheet(title: "Put “\(c.title)” live?",
+                             consequence: ["From now on members can be invited to give toward it — within the invitation's own restraint (never a minor, at most three showings, a fortnight between waves, quiet hours).",
+                                           "Gifts to \(vm.lookups.fundName(c.fund)) from \(FinanceDates.display(c.startsOn)) to \(FinanceDates.display(c.endsOn)) count as raised."],
+                             confirmLabel: "Go live",
+                             onConfirm: { try await vm.goLive(c) },
+                             errorText: { FinBError.message($0, fallback: "Could not put the campaign live.") })
         case .end(let c):
-            FinBConfirmSheet(title: "End this campaign",
-                             consequence: ["Ends “\(c.title)” for good — members stop being invited, and it can never be reopened (start a new campaign instead).",
-                                           "Its raised figure still counts gifts to \(vm.lookups.fundName(c.fund)) through \(FinanceDates.display(c.endsOn)), its end date."],
-                             confirmLabel: "End campaign", destructive: true) { try await vm.end(c) }
+            FinBConfirmSheet(title: "End “\(c.title)”?",
+                             consequence: ["Members stop being invited. Ending is final — an ended campaign is never reopened; to appeal again, create a new one.",
+                                           "What it raised stays on record."],
+                             confirmLabel: "End campaign", destructive: true,
+                             onConfirm: { try await vm.end(c) },
+                             errorText: { FinBError.message($0, fallback: "Could not end the campaign.") })
         case .reach(let c):
             FinanceCampaignReachSheet(campaign: c)
         }
@@ -225,6 +273,7 @@ struct FinanceCampaignFormSheet: View {
 
     @State private var title = ""
     @State private var blurb = ""
+    @State private var imageUrl = ""
     @State private var fund = ""
     @State private var goal = ""
     @State private var currency = "KES"
@@ -244,6 +293,7 @@ struct FinanceCampaignFormSheet: View {
         if let c = existing {
             _title = State(initialValue: c.title)
             _blurb = State(initialValue: c.blurb)
+            _imageUrl = State(initialValue: c.imageUrl ?? "")
             _fund = State(initialValue: c.fund ?? "")
             _goal = State(initialValue: FinanceMoney.majorString(c.goalMinor))
             _currency = State(initialValue: c.currency.isEmpty ? "KES" : c.currency)
@@ -260,9 +310,15 @@ struct FinanceCampaignFormSheet: View {
         return n < 3 ? "At least 3 characters." : n > 120 ? "At most 120 characters." : nil
     }
     private var blurbProblem: String? {
-        blurb.trimmingCharacters(in: .whitespacesAndNewlines).count < 10 ? "At least 10 characters — what the money is for, in the church's words." : nil
+        blurb.trimmingCharacters(in: .whitespacesAndNewlines).count < 10 ? "Say what the campaign is for — at least 10 characters." : nil
     }
-    private var fundProblem: String? { fund.isEmpty ? "Choose the fund the gifts go to." : nil }
+    private var imageProblem: String? {
+        let s = imageUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return nil }
+        let ok = (s.lowercased().hasPrefix("https://") || s.lowercased().hasPrefix("http://")) && !s.contains(" ") && URL(string: s) != nil
+        return ok ? nil : "A full web address starting with https://"
+    }
+    private var fundProblem: String? { fund.isEmpty ? "Choose the fund gifts go to." : nil }
     private var goalMinor: Result<Int, FinanceMoneyError> { FinanceMoney.parseMajor(goal) }
     private var matchMinor: Result<Int, FinanceMoneyError> { FinanceMoney.parseMajor(match) }
     private var datesProblem: String? {
@@ -272,12 +328,12 @@ struct FinanceCampaignFormSheet: View {
     private var pledgerProblem: String? {
         guard hasMatch else { return nil }
         let n = pledger.trimmingCharacters(in: .whitespacesAndNewlines).count
-        return n < 2 ? "A match needs someone who pledged it — name the pledger (2–120 characters), or remove the match."
+        return n < 2 ? "Name who pledged the match — a match nobody offered is never claimed."
             : n > 120 ? "At most 120 characters." : nil
     }
     private var valid: Bool {
-        guard titleProblem == nil, blurbProblem == nil, fundProblem == nil, datesProblem == nil, pledgerProblem == nil,
-              case .success = goalMinor else { return false }
+        guard titleProblem == nil, blurbProblem == nil, imageProblem == nil, fundProblem == nil, datesProblem == nil,
+              pledgerProblem == nil, case .success = goalMinor else { return false }
         if hasMatch, case .failure = matchMinor { return false }
         return true
     }
@@ -295,26 +351,31 @@ struct FinanceCampaignFormSheet: View {
         FinBFormSheet(title: existing == nil ? "New campaign" : "Edit campaign",
                       confirmLabel: existing == nil ? "Save draft" : "Save",
                       canConfirm: true, busy: busy, error: error, onConfirm: save) {
-            FinanceNoticeBar(notice: existing == nil
-                             ? .warn("Saved as a draft — nobody is invited until you put it live.")
-                             : existing?.status == "live" ? .warn("This campaign is live — changes show to members straight away.")
-                             : .ok("Still a draft — nobody sees it until it is put live."))
+            FinanceNoticeBar(notice: existing?.status == "live"
+                             ? .warn("This campaign is live — members being invited see the changes at once.")
+                             : .ok("Starts as a draft — putting it live is a separate step."))
             FinBField(label: "Title", hint: "3–120 characters", error: tried ? titleProblem : nil) {
                 TextField("e.g. Sanctuary roof", text: $title).finbInput(invalid: tried && titleProblem != nil)
             }
-            FinBField(label: "What it is for", hint: "Shown to members in the invitation", error: tried ? blurbProblem : nil) {
+            FinBField(label: "What it is for", hint: "What members read when they are invited — a sentence or two.", error: tried ? blurbProblem : nil) {
                 TextField("A sentence or two, in the church's words", text: $blurb, axis: .vertical)
                     .lineLimit(3...6).finbInput(invalid: tried && blurbProblem != nil)
             }
+            FinBField(label: "Image", hint: "Optional — a picture for the invitation (https://…)", error: tried ? imageProblem : nil) {
+                TextField("https://", text: $imageUrl)
+                    .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .finbInput(invalid: tried && imageProblem != nil)
+            }
             HStack(alignment: .top, spacing: 14) {
-                FinBField(label: "Fund", hint: "Where its gifts are booked", error: tried ? (fundProblem ?? lookups.fundsError) : lookups.fundsError) {
+                FinBField(label: "Fund", hint: "Money raised = succeeded gifts to this fund between the start and end dates.",
+                          error: tried ? (fundProblem ?? lookups.fundsError) : lookups.fundsError) {
                     FinBPickerField(placeholder: "Choose a fund", selection: $fund, options: fundOptions, invalid: tried && fundProblem != nil)
                 }
                 FinanceMoneyField(label: "Goal", text: $goal, currency: $currency)
             }
             HStack(alignment: .top, spacing: 14) {
                 FinBField(label: "Starts on", error: nil) { FinBDayPicker(label: "Starts on", ymd: $startsOn) }
-                FinBField(label: "Ends on", hint: "Every campaign has an end", error: tried ? datesProblem : nil) {
+                FinBField(label: "Ends on", hint: "A campaign always ends — gifts after this day do not count toward it.", error: tried ? datesProblem : nil) {
                     FinBDayPicker(label: "Ends on", ymd: $endsOn, earliest: startsOn)
                 }
             }
@@ -348,7 +409,7 @@ struct FinanceCampaignFormSheet: View {
         let input = FinCampaignInput(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             blurb: blurb.trimmingCharacters(in: .whitespacesAndNewlines),
-            imageUrl: existing?.imageUrl,          // PUT replaces the whole campaign — keep its image
+            imageUrl: imageUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : imageUrl.trimmingCharacters(in: .whitespacesAndNewlines),
             fund: fund, goalMinor: goalValue, currency: currency,
             startsOn: startsOn, endsOn: endsOn,
             matchMinor: matchValue,
@@ -364,7 +425,7 @@ struct FinanceCampaignFormSheet: View {
                 dismiss()
             } catch {
                 busy = false
-                self.error = FinBError.message(error, fallback: "Could not save the campaign.")
+                self.error = FinBError.message(error, fallback: existing == nil ? "Could not create the campaign." : "Could not save the campaign.")
             }
         }
     }
@@ -387,14 +448,18 @@ struct FinanceCampaignReachSheet: View {
                         ErrorBanner(message: error) { Task { await load() } }
                     } else if let r = reach {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-                            tile("Asked", r.peopleAsked, "members the app chose to invite")
+                            tile("People asked", r.peopleAsked, "shown the invitation at least once")
                             tile("Times shown", r.timesShown, "invitations actually on screen")
                             tile("Opened", r.opened, "looked at the campaign")
                             tile("Gave", r.gave, "gave after being invited")
-                            tile("Dismissed", r.dismissed, "not now — may be asked again")
-                            tile("Declined", r.declined, "asked never to be asked again")
+                            tile("Dismissed", r.dismissed, "closed it for now — may be asked again")
+                            tile("Declined", r.declined, "asked not to be asked again — permanent")
                         }
-                        FinBExplain(text: "Reach tells a campaign nobody saw apart from one people saw and declined — they look the same in the money alone. Counts are people, except Times shown.")
+                        FinBExplain(text: r.peopleAsked == 0
+                                    ? (campaign.status == "live"
+                                       ? "Live, but nobody has been shown it yet — the invitation's restraint (quiet hours, spacing, the first week) decides when."
+                                       : "Nobody has been asked — a draft or ended campaign reaches no one.")
+                                    : "\(r.gave) of \(r.peopleAsked) people asked gave (\(FinBMath.percent(r.gave, of: r.peopleAsked))%). A campaign nobody saw and one people declined look the same in the totals — this tells them apart.")
                     } else {
                         SkeletonGrid(tiles: 6, columns: 3)
                     }
