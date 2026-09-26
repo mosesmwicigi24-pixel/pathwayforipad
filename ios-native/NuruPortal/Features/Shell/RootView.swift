@@ -391,6 +391,15 @@ struct RootView: View {
             // so the consent dialog appears without navigating to Radio Studio.
             MicBroadcaster.shared.prepareInputSensing()
             #endif
+            #if DEBUG
+            // Headless smoke-testing (Debug only, like AuthStore's
+            // NURU_ACCESS_TOKEN): SIMCTL_CHILD_NURU_START_SECTION=financeLedger
+            // opens that section at launch, so a page can be screenshotted
+            // without driving the simulator's UI.
+            if let raw = ProcessInfo.processInfo.environment["NURU_START_SECTION"], let start = Section(rawValue: raw) {
+                router.section = start
+            }
+            #endif
             visit(router.section, leaving: nil)
             if router.section?.isFinance == true { financeOpen = true }
         }

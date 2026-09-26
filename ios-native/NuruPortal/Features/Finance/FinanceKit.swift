@@ -1183,22 +1183,22 @@ struct FinancePagedTable<Page: FinPaged, RowContent: View>: View {
 
     var body: some View {
         FinanceTableFrame(columns: columns, busy: pager.refreshing) {
+            if pager.phase == .loaded, !pager.rows.isEmpty {
+                LazyVStack(spacing: 0) {
+                    ForEach(pager.rows) { r in
+                        FinanceTableRow(onTap: tap(r)) { row(r) }
+                    }
+                }
+                .opacity(pager.refreshing ? 0.55 : 1)
+            }
+        } status: {
             switch pager.phase {
             case .idle, .loading:
                 SkeletonTable(rows: 6).padding(12)
             case .failed(let message):
                 ErrorBanner(message: message) { Task { await pager.retry() } }
             case .loaded:
-                if pager.rows.isEmpty {
-                    EmptyState.compact(icon: emptyIcon, message: emptyMessage)
-                } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(pager.rows) { r in
-                            FinanceTableRow(onTap: tap(r)) { row(r) }
-                        }
-                    }
-                    .opacity(pager.refreshing ? 0.55 : 1)
-                }
+                if pager.rows.isEmpty { EmptyState.compact(icon: emptyIcon, message: emptyMessage) }
             }
         } footer: {
             if pager.phase == .loaded, !pager.rows.isEmpty { footer }
@@ -1241,15 +1241,13 @@ struct FinanceTable<Row: Identifiable, RowContent: View>: View {
 
     var body: some View {
         FinanceTableFrame(columns: columns, busy: false) {
-            if rows.isEmpty {
-                EmptyState.compact(icon: emptyIcon, message: emptyMessage)
-            } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(rows) { r in
-                        FinanceTableRow(onTap: tap(r)) { row(r) }
-                    }
+            LazyVStack(spacing: 0) {
+                ForEach(rows) { r in
+                    FinanceTableRow(onTap: tap(r)) { row(r) }
                 }
             }
+        } status: {
+            if rows.isEmpty { EmptyState.compact(icon: emptyIcon, message: emptyMessage) }
         } footer: {
             EmptyView()
         }
@@ -1261,18 +1259,23 @@ struct FinanceTable<Row: Identifiable, RowContent: View>: View {
     }
 }
 
-/// Card + header + horizontal-overflow handling shared by both tables.
-private struct FinanceTableFrame<Rows: View, Footer: View>: View {
+/// Card + header + horizontal-overflow handling shared by both tables. The
+/// header and rows scroll sideways together when narrower than the columns'
+/// floors; `status` (skeleton, error, empty) always spans the visible width.
+private struct FinanceTableFrame<Rows: View, Status: View, Footer: View>: View {
     let columns: [FinanceColumn]
     let busy: Bool
     let rows: Rows
+    let status: Status
     let footer: Footer
     @State private var width: CGFloat = 0
 
-    init(columns: [FinanceColumn], busy: Bool, @ViewBuilder rows: () -> Rows, @ViewBuilder footer: () -> Footer) {
+    init(columns: [FinanceColumn], busy: Bool, @ViewBuilder rows: () -> Rows,
+         @ViewBuilder status: () -> Status, @ViewBuilder footer: () -> Footer) {
         self.columns = columns
         self.busy = busy
         self.rows = rows()
+        self.status = status()
         self.footer = footer()
     }
 
@@ -1283,13 +1286,20 @@ private struct FinanceTableFrame<Rows: View, Footer: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             Group {
-                if width > 0 && width < minWidth {
-                    ScrollView(.horizontal, showsIndicators: true) { grid.frame(width: minWidth) }
+                // Until the available width is known (0) — and whenever it is
+                // narrower than the columns' floors — the grid scrolls sideways
+                // at its floor width, so it can never widen the page.
+                if width < minWidth {
+                    ScrollView(.horizontal, showsIndicators: true) { grid.frame(width: max(minWidth, width)) }
                 } else {
                     grid
                 }
             }
+            // Measure the width OFFERED to the table (the flexible frame takes
+            // the proposal), never the grid's own, possibly overflowing, width.
+            .frame(maxWidth: .infinity, alignment: .leading)
             .measureWidth($width)
+            status
             footer
         }
         .background(Nuru.white)
@@ -1527,7 +1537,9 @@ struct FinanceReasonSheet: View {
     }
 
     private var trimmed: String { reason.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var valid: Bool { trimmed.count >= minLength && trimmed.count <= maxLength }
+    /// What the server counts (zod `.length` = UTF-16 code units, after trim).
+    private var length: Int { trimmed.utf16.count }
+    private var valid: Bool { length >= minLength && length <= maxLength }
 
     var body: some View {
         NavigationStack {
@@ -1544,15 +1556,15 @@ struct FinanceReasonSheet: View {
                         .background(Nuru.white)
                         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous)
-                            .stroke(trimmed.count > maxLength ? Nuru.danger : Nuru.border, lineWidth: 1))
+                            .stroke(length > maxLength ? Nuru.danger : Nuru.border, lineWidth: 1))
                         .disabled(busy)
                     HStack {
-                        Text(trimmed.count < minLength ? "At least \(minLength) characters." : " ")
+                        Text(length < minLength ? "At least \(minLength) characters." : " ")
                             .font(.nCaption).foregroundStyle(Nuru.ink400)
                         Spacer()
-                        Text("\(trimmed.count)/\(maxLength)")
+                        Text("\(length)/\(maxLength)")
                             .font(.nMono(11.5))
-                            .foregroundStyle(trimmed.count > maxLength ? Nuru.danger : Nuru.ink400)
+                            .foregroundStyle(length > maxLength ? Nuru.danger : Nuru.ink400)
                     }
                 }
                 if let error { FinanceNoticeBar(notice: .error(error)) }
@@ -1771,7 +1783,9 @@ struct FinanceExportButton: View {
             defer { busy = false }
             do {
                 let url = try await FinanceERPAPI.download(path: path, query: query)
-                FinanceShare.present(url, from: anchor)
+                if !FinanceShare.present(url, from: anchor) {
+                    self.error = "Downloaded, but the share sheet could not open — try again."
+                }
             } catch {
                 self.error = (error as? APIError)?.errorDescription ?? "Could not download the file."
             }
@@ -1802,13 +1816,20 @@ struct FinanceShareAnchorView: UIViewRepresentable {
 /// and money — nothing lingers in tmp).
 @MainActor
 enum FinanceShare {
-    static func present(_ url: URL, from anchor: FinanceShareAnchor?) {
+    /// False when there is no window to present from (the caller says so);
+    /// the temporary copy is removed in that case too.
+    @discardableResult
+    static func present(_ url: URL, from anchor: FinanceShareAnchor?) -> Bool {
+        let folder = url.deletingLastPathComponent()
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         sheet.completionWithItemsHandler = { _, _, _, _ in
-            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: folder)
         }
         let window = anchor?.view?.window ?? keyWindow()
-        guard var top = window?.rootViewController else { return }
+        guard var top = window?.rootViewController else {
+            try? FileManager.default.removeItem(at: folder)
+            return false
+        }
         while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
         if let pop = sheet.popoverPresentationController {
             if let source = anchor?.view, source.window != nil {
@@ -1821,6 +1842,7 @@ enum FinanceShare {
             }
         }
         top.present(sheet, animated: true)
+        return true
     }
 
     private static func keyWindow() -> UIWindow? {
@@ -1957,6 +1979,51 @@ enum FinanceSelfCheck {
         expectEqual(FinanceERPAPI.filename(fromContentDisposition: nil), nil, "no header")
         expectEqual(FinanceERPAPI.safeFilename("../../etc/passwd", fallbackPath: "/x.csv"), "-..-etc-passwd", "no path traversal")
         expectEqual(FinanceERPAPI.safeFilename(nil, fallbackPath: "/admin/finance/statements/u/giving.pdf"), "giving.pdf", "fallback to the path")
+
+        // Request filters and search terms (the list and its CSV twin share `query`).
+        var tf = FinTransactionFilter(period: FinancePeriod.custom(from: "2026-09-01", to: "2026-09-26"))
+        tf.q = " +254712 "
+        expectEqual(tf.query, ["from": "2026-09-01", "to": "2026-09-26", "q": "254712"], "transactions filter query")
+        tf.pledged = "yes"; tf.status = "succeeded"
+        expect(tf.query["pledged"] == "yes" && tf.query["status"] == "succeeded", "filter carries set values")
+        expectEqual(FinanceERPAPI.searchTerm("   "), nil, "blank search term")
+
+        // Decoding the wire: nulls where nullable, BIGINT as text, composed
+        // results, audit metadata keys kept exactly as sent.
+        func decode<T: Decodable>(_ type: T.Type, _ json: String) -> T? {
+            do { return try decoder.decode(T.self, from: Data(json.utf8)) }
+            catch { expect(false, "decode \(T.self): \(error)"); return nil }
+        }
+        if let page = decode(FinTransactionsPage.self, #"""
+            {"data":[{"transaction_id":"t1","user_id":null,"full_name":null,"member_phone":null,"display_name":"Walk-in",
+            "amount_minor":"150050","currency":"KES","status":"succeeded","fund":"tithe","fund_name":"Tithe","account_name":null,
+            "method":"manual","channel":"onhand","source":"admin","provider":"manual","provider_ref":null,"receipt_code":"OR-2026-00001",
+            "giver_name":"Walk-in","giver_phone":null,"pledge_id":null,"pledge_title":null,"need_id":null,"need_title":null,
+            "office_channel":"onhand","office_reference":null,"recorded_by":"u1","recorded_by_name":"Clerk","reversed_at":null,
+            "reversed_by":null,"reversed_by_name":null,"reversal_reason":null,"created_at":"2026-09-26T09:00:00.000Z","settled_at":null}],
+            "next_cursor":null,"totals":[{"currency":"KES","amount_minor":150050,"count":1}]}
+            """#) {
+            expect(page.data.first?.amountMinor == 150_050 && page.data.first?.userId == nil, "transactions row: BIGINT text + null member")
+            expect(page.data.first?.looksReversible == true && page.data.first?.isOffice == true, "an office gift looks reversible")
+        }
+        if let gift = decode(FinGiftResult.self, #"""
+            {"transaction_id":"t1","status":"succeeded","provider":"manual","source":"admin","receipt_code":"OR-2026-00001",
+            "amount_minor":150050,"currency":"KES","fund":{"code":"tithe","name":"Tithe"},"channel":"mpesa","reference":"QWE123RTY9",
+            "received_on":"2026-09-26","created_at":"2026-09-26T09:00:00Z","settled_at":"2026-09-26T09:00:00Z","user_id":null,
+            "member_name":null,"giver_name":null,"giver_phone":null,"anonymous":true,"pledge":null,"need":null,"note":null,
+            "recorded_by":"u1","recorded_by_name":"Clerk","reversed_at":null,"reversed_by":null,"reversed_by_name":null,
+            "reversal_reason":null,"ledger":[],"idempotency_key":"k-12345678","reused":true}
+            """#) {
+            expect(gift.reused && gift.receiptCode == "OR-2026-00001" && gift.fund?.code == "tithe", "gift result (composed)")
+        }
+        if let audit = decode(FinAuditPage.self, #"""
+            {"data":[{"audit_id":"42","actor_id":null,"actor_name":null,"action":"finance.gift_recorded","entity":"transaction",
+            "entity_id":"t1","metadata":{"amount_minor":150050,"office_channel":"mpesa"},"occurred_at":"2026-09-26T09:00:00Z",
+            "actor_type":"System"}],"next_cursor":"41"}
+            """#) {
+            expect(audit.data.first?.auditId == 42 && audit.data.first?.metadata?["office_channel"] == .string("mpesa"),
+                   "audit row: BIGINT id + metadata keys as sent")
+        }
 
         // The sidebar.
         for f in financeNavSelfCheckFailures() { expect(false, f) }
