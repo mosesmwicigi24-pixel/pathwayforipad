@@ -154,7 +154,7 @@ final class VideoLibraryVM: ObservableObject {
             await load()
             notice = "Placed in “\(module.title)” (Level \(module.levelNumber))."; error = nil
         } catch {
-            if case APIError.http(let status, _) = error, status == 409 {
+            if case APIError.http(let status, _, _) = error, status == 409 {
                 self.error = "Already placed in “\(module.title)” — an asset can be placed in a module only once."
             } else { self.error = Self.message(error) }
         }

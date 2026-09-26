@@ -303,7 +303,7 @@ private final class RadioModel: ObservableObject {
                     target = try await PortalAPI.radioGoLive(t.id)
                     startedByUs = true
                 } catch {
-                    if case APIError.http(let status, _) = error, status == 409,
+                    if case APIError.http(let status, _, _) = error, status == 409,
                        let live = (try? await PortalAPI.radioPrograms())?.first(where: { $0.isLive }) {
                         target = live
                     } else { throw error }

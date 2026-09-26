@@ -401,7 +401,7 @@ private final class PartnersVM: ObservableObject {
             }
             return decision == "confirm" ? "Recorded as a manual gift" : "Rejected"
         } catch {
-            if case let APIError.http(status, message) = error, status == 422 || status == 404 {
+            if case let APIError.http(status, message, _) = error, status == 422 || status == 404 {
                 claimsError = "\(message) — this claim was decided elsewhere, so the queue was reloaded."
                 await loadClaims()
             } else {

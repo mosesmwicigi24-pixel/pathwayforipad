@@ -493,7 +493,7 @@ private final class DepartmentsVM: ObservableObject {
             await loadList()                      // member_count / pending_requests moved
             detailNonce += 1
         } catch {
-            if case let APIError.http(status, _) = error, status == 404 {
+            if case let APIError.http(status, _, _) = error, status == 404 {
                 requestsError = "That request was already decided elsewhere — the queue was reloaded."
                 await loadRequests()
             } else {
@@ -521,7 +521,7 @@ private final class DepartmentsVM: ObservableObject {
             toast = .success(decision == "approve" ? "Approved — giving is open" : decision == "reject" ? "Need rejected" : "Need closed")
             await reloadAll()
         } catch {
-            if case let APIError.http(status, message) = error, status == 422 || status == 404 {
+            if case let APIError.http(status, message, _) = error, status == 422 || status == 404 {
                 needsError = "\(message) — this need was decided elsewhere, so the queue was reloaded."
                 await loadNeeds()
                 detailNonce += 1
@@ -941,7 +941,7 @@ private struct DepartmentDetailPanel: View {
             pageError = nil
         } catch {
             page = nil
-            if case let APIError.http(status, _) = error, status == 404 {
+            if case let APIError.http(status, _, _) = error, status == 404 {
                 pageGone = true
                 pageError = nil
             } else {
