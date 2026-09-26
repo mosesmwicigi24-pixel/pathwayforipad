@@ -1,8 +1,9 @@
 // Finance → Overview (pathway docs/FINANCE_ERP.md §5): where the money stands
 // for a period — income against the same period last year, approved expenses,
-// net, pledges still due, partners behind, the 12-month picture, money in by
-// channel, the top fund balances and the work waiting — every figure PER
-// CURRENCY (KES first), never added across currencies.
+// net, pledges still due, partners behind; what needs attention; the 12-month
+// picture; money in by channel; the largest fund balances. Every figure PER
+// CURRENCY (KES first), never added across currencies. Same content and words
+// as the web's Finance → Overview.
 import SwiftUI
 import Charts
 
@@ -30,37 +31,28 @@ final class FinanceOverviewModel: ObservableObject {
             }
         } catch {
             guard gen == generation else { return }
-            if !Task.isCancelled { self.error = FinanceARules.message(error) }
+            if !Task.isCancelled { self.error = FinanceARules.message(error, fallback: "Could not load the overview.") }
         }
         if gen == generation { loading = false }
     }
 
-    /// A deep link's `from`/`to` (EAT days) set a custom period.
+    /// A deep link's from/to or period=<preset>.
     func apply(_ params: [String: String]) {
-        if let from = params["from"], let to = params["to"],
-           FinanceDates.date(fromYMD: from) != nil, FinanceDates.date(fromYMD: to) != nil {
-            period = .custom(from: from, to: to)
-        }
+        if let p = FinanceARules.period(fromParams: params) { period = p }
     }
 }
 
 struct FinanceOverviewView: View {
-    @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var router: NavRouter
     @StateObject private var vm = FinanceOverviewModel()
 
     var body: some View {
         FinancePageScaffold(title: Section.financeOverview.title,
-                            subtitle: "Where the money stands — per currency, never added together.",
+                            subtitle: "\(FinanceARules.fmtRange(from: vm.period.from, to: vm.period.to)), East Africa Time. Income is succeeded gifts dated in the period; expenses are approved expenses by the day they were spent. Each currency stands alone — KES and USD are never added.",
                             onRefresh: { await vm.load() }) {
-            if auth.financeCaps.manage {
-                HeroChip(label: "Record a gift", icon: "plus", style: .gold) {
-                    router.openFinance(.financeTransactions, ["record": "gift"])
-                }
-            }
+            EmptyView()
         } content: {
             FinanceFilterBar(period: $vm.period)
-            if let o = vm.overview { periodLine(o) }
             if let o = vm.overview {
                 loaded(o)
                     .opacity(vm.loading ? 0.55 : 1)
@@ -80,205 +72,261 @@ struct FinanceOverviewView: View {
         .finADebugLaunchParams(.financeOverview) { vm.apply($0) }
     }
 
-    // MARK: Period
-
-    private func periodLine(_ o: FinOverview) -> some View {
-        let p = o.period
-        let text = "\(FinanceDates.displayRange(from: p.from, to: p.to)) against \(FinanceDates.displayRange(from: p.lastYearFrom, to: p.lastYearTo))"
-            + " · YTD from \(FinanceDates.display(p.ytdFrom)). Income = succeeded gifts by the day given; expenses = approved, by the day spent (EAT)."
-        return FinAExplain(text)
-    }
-
-    // MARK: Loaded
-
     @ViewBuilder private func loaded(_ o: FinOverview) -> some View {
-        if !o.alerts.isEmpty { alerts(o.alerts) }
         kpis(o)
+        attention(o)
         chartCard(o)
-        channels(o)
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 16, alignment: .top)], alignment: .leading, spacing: 16) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 560), spacing: 16, alignment: .top)], alignment: .leading, spacing: 16) {
+            channels(o)
             fundsCard(o)
-            queueCard(o)
         }
     }
 
-    // MARK: Alerts
-
-    private func alerts(_ list: [FinOverview.Alert]) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 236), spacing: 10, alignment: .top)], alignment: .leading, spacing: 10) {
-            ForEach(list.filter { $0.count > 0 }) { a in
-                Button { open(alert: a) } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: FinanceARules.alertIcon(kind: a.kind))
-                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(FinanceStatus.amber.fg)
-                            .frame(width: 30, height: 30)
-                            .background(FinanceStatus.amberStrong.bg)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(FinanceARules.alertTitle(kind: a.kind, count: a.count))
-                                .font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1).minimumScaleFactor(0.85)
-                            let hint = FinanceARules.alertHint(kind: a.kind)
-                            if !hint.isEmpty {
-                                Text(hint).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        Spacer(minLength: 4)
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Nuru.ink300)
-                    }
-                    .padding(.leading, 8).padding(.trailing, 12).padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-                    .background(Nuru.white)
-                    .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Color(hex: 0xF3DFA6), lineWidth: 1))
-                }
-                .buttonStyle(PressableButtonStyle())
-                .hoverEffect(.lift)
-                .accessibilityHint("Opens the list")
-            }
-        }
-    }
-
-    private func open(alert a: FinOverview.Alert) {
-        if let link = FinanceLink.fromWebRoute(a.link) {
-            router.openFinance(link.section, link.params)
-        } else {
-            // A route the app does not know — fall back to the page the kind belongs to.
-            switch a.kind {
-            case "pending_claims": router.go(.financeClaims)
-            case "expenses_awaiting_approval": router.openFinance(.financeExpenses, ["status": "recorded"])
-            case "failing_schedules": router.go(.financeRecurring)
-            case "partners_behind": router.go(.partners)
-            default: router.openFinance(.financeReconciliation, ["tab": "exceptions"])
-            }
-        }
+    private func open(_ route: String) {
+        if let link = FinanceLink.fromWebRoute(route) { router.openFinance(link.section, link.params) }
     }
 
     // MARK: KPI tiles
 
     private func kpis(_ o: FinOverview) -> some View {
-        let periodQuery = ["from": o.period.from, "to": o.period.to]
-        return FinanceKpiGrid(minimum: 132) {
-            FinanceKpiTile(label: "Income", icon: "arrow.down.circle", tint: Nuru.brandTint(0),
-                           values: FinanceMoney.lines(o.income.map { ($0.currency, $0.periodMinor) }),
-                           hint: incomeHint(o)) {
-                router.openFinance(.financeTransactions, periodQuery.merging(["status": "succeeded"]) { a, _ in a })
+        let year = String(o.period.to.prefix(4))
+        let pledges = o.outstandingPledges.reduce(0) { $0 + $1.pledges }
+        let income = o.income.sorted { FinanceMoney.currencyPrecedes($0.currency, $1.currency) }
+        return FinanceKpiGrid(minimum: 190) {
+            FinAValueTile(label: "Income", icon: "arrow.up.right", tint: Nuru.brandTint(0),
+                          lines: income.map { i in
+                              let p = FinanceARules.pctChange(current: i.periodMinor, previous: i.samePeriodLastYearMinor)
+                              return FinAValueTile.Line(text: FinanceMoney.format(i.periodMinor, i.currency),
+                                                        sub: FinanceARules.incomeComparison(current: i.periodMinor, previous: i.samePeriodLastYearMinor, currency: i.currency),
+                                                        subColor: p == nil ? Nuru.ink400 : (p ?? 0) >= 0 ? FinanceStatus.green.fg : FinanceStatus.red.fg)
+                          },
+                          hint: "Succeeded gifts in the period")
+            FinAValueTile(label: "Expenses", icon: "arrow.down.right", tint: Nuru.brandTint(3),
+                          lines: o.expenses.sorted { FinanceMoney.currencyPrecedes($0.currency, $1.currency) }
+                            .map { FinAValueTile.Line(text: FinanceMoney.format($0.periodMinor, $0.currency)) },
+                          hint: "Approved expenses in the period") {
+                open("/finance/expenses")
             }
-            FinanceKpiTile(label: "Expenses", icon: "arrow.up.circle", tint: Nuru.brandTint(3),
-                           values: FinanceMoney.lines(o.expenses.map { ($0.currency, $0.periodMinor) }),
-                           hint: "Approved · " + count(o.expenses.reduce(0) { $0 + $1.periodCount }, "expense", "expenses")) {
-                router.openFinance(.financeExpenses, periodQuery.merging(["status": "approved"]) { a, _ in a })
+            FinAValueTile(label: "Net", icon: "plusminus", tint: Nuru.brandTint(2),
+                          lines: o.net.sorted { FinanceMoney.currencyPrecedes($0.currency, $1.currency) }
+                            .map { FinAValueTile.Line(text: FinanceMoney.format($0.periodMinor, $0.currency), color: $0.periodMinor < 0 ? FinanceStatus.red.fg : nil) },
+                          hint: "Income − expenses")
+            FinAValueTile(label: "Outstanding pledges", icon: "signature", tint: Nuru.brandTint(1),
+                          lines: o.outstandingPledges.sorted { FinanceMoney.currencyPrecedes($0.currency, $1.currency) }
+                            .map { FinAValueTile.Line(text: FinanceMoney.format($0.remainingYearMinor, $0.currency)) },
+                          hint: "Still to come in \(year) on \(FinanceARules.plural(pledges, "active pledge"))") {
+                open("/finance/pledges")
             }
-            FinanceKpiTile(label: "Net", icon: "plusminus.circle", tint: Nuru.brandTint(2),
-                           values: FinanceMoney.lines(o.net.map { ($0.currency, $0.periodMinor) }),
-                           hint: "YTD " + FinanceMoney.lines(o.net.map { ($0.currency, $0.ytdMinor) }).joined(separator: " · "))
-            FinanceKpiTile(label: "Pledges due", icon: "signature", tint: Nuru.brandTint(1),
-                           values: FinanceMoney.lines(o.outstandingPledges.map { ($0.currency, $0.remainingYearMinor) }),
-                           hint: "Still due this year · " + count(o.outstandingPledges.reduce(0) { $0 + $1.pledges }, "active pledge", "active pledges")) {
-                router.go(.financePledges)
+            FinAValueTile(label: "Partners behind", icon: "person.2", tint: Nuru.brandTint(3),
+                          lines: [FinAValueTile.Line(text: "\(o.partners.behind) of \(o.partners.count)",
+                                                     color: o.partners.behind > 0 ? FinanceStatus.amber.fg : nil)],
+                          hint: "A pledge instalment is overdue, as of today") {
+                open("/finance/partners?status=behind")
             }
-            FinanceKpiTile(label: "Partners", icon: "person.2", tint: Nuru.brandTint(3),
-                           values: ["\(o.partners.behind) behind"],
-                           hint: "of \(count(o.partners.count, "partner", "partners")) · instalment overdue") {
-                if let a = o.alerts.first(where: { $0.kind == "partners_behind" }), let link = FinanceLink.fromWebRoute(a.link) {
-                    router.openFinance(link.section, link.params)
-                } else {
-                    router.go(.partners)
+        }
+    }
+
+    // MARK: Needs attention
+
+    private func attention(_ o: FinOverview) -> some View {
+        let alerts = o.alerts.filter { $0.count > 0 }
+        let c = o.counts
+        let periodQuery = "from=\(o.period.from)&to=\(o.period.to)"
+        return FinACard(icon: "bell", title: "Needs attention", caption: "Each line opens the queue behind the number.") {
+            if alerts.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(FinanceStatus.green.fg)
+                    Text("Nothing waiting — no claims, expenses to approve, failing recurring gifts, stuck payments or books issues.")
+                        .font(.inter(13, .semibold)).foregroundStyle(FinanceStatus.green.fg).fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(alerts) { a in
+                        let copy = FinanceARules.alertCopy(a.kind)
+                        let t = FinanceARules.colors(copy.tone)
+                        Button { open(FinanceARules.alertLink(kind: a.kind, link: a.link)) } label: {
+                            HStack(spacing: 12) {
+                                Text("\(a.count)").font(.nMono(13, .medium)).foregroundStyle(t.fg)
+                                    .padding(.horizontal, 8).frame(minWidth: 30, minHeight: 26)
+                                    .background(Color.white.opacity(0.7)).clipShape(Capsule())
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(copy.title(a.count)).font(.inter(13, .bold)).foregroundStyle(t.fg)
+                                    Text(copy.hint).font(.nCaption).foregroundStyle(Nuru.navy.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+                                }
+                                Spacer(minLength: 6)
+                                Image(systemName: "arrow.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(t.fg)
+                            }
+                            .padding(.horizontal, 14).padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(t.bg)
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(t.border, lineWidth: 1))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PressableButtonStyle())
+                        .hoverEffect(.lift)
+                    }
                 }
             }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 8, alignment: .top)], alignment: .leading, spacing: 8) {
+                countLink(icon: "clock", label: "Processing now", count: c.processing, hint: "Payments started and not yet settled, any age.", tone: .warn) {
+                    open("/finance/transactions?status=processing&period=last_12_months")
+                }
+                countLink(icon: "xmark.circle", label: "Failed in the period", count: c.failedInPeriod, hint: "Cancelled or refused — nothing was posted.", tone: .info) {
+                    open("/finance/transactions?status=failed&\(periodQuery)")
+                }
+                countLink(icon: "exclamationmark.triangle", label: "Stuck processing", count: c.staleProcessing, hint: "M-Pesa over 30 minutes, card over a day.", tone: .warn) {
+                    open("/finance/reconciliation?tab=exceptions")
+                }
+            }
+            .padding(.top, 6)
         }
     }
 
-    /// "KES +12.4% · USD new vs the same period last year".
-    private func incomeHint(_ o: FinOverview) -> String {
-        let parts = o.income.sorted { FinanceMoney.currencyPrecedes($0.currency, $1.currency) }.map {
-            "\($0.currency) \(FinanceARules.percentChange(current: $0.periodMinor, previous: $0.samePeriodLastYearMinor))"
+    private func countLink(icon: String, label: String, count: Int, hint: String, tone: FinanceARules.Tone, action: @escaping () -> Void) -> some View {
+        let t = FinanceARules.colors(count > 0 ? tone : .info)
+        return Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(count > 0 ? t.fg : Nuru.ink400)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 5) {
+                        Text(label).font(.inter(12.5, .bold)).foregroundStyle(Nuru.navy)
+                        Text("\(count)").font(.nMono(12.5, .medium)).foregroundStyle(count > 0 ? t.fg : Nuru.ink400)
+                    }
+                    Text(hint).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(2)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Nuru.ink400)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(count > 0 ? t.bg : Nuru.white)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(count > 0 ? t.border : Nuru.border, lineWidth: 1))
+            .contentShape(Rectangle())
         }
-        let gifts = o.income.reduce(0) { $0 + $1.periodCount }
-        return count(gifts, "gift", "gifts") + " · " + (parts.isEmpty ? "—" : parts.joined(separator: " · ")) + " vs last year"
+        .buttonStyle(PressableButtonStyle())
+        .hoverEffect(.lift)
     }
-
-    private func count(_ n: Int, _ one: String, _ many: String) -> String { "\(n) \(n == 1 ? one : many)" }
 
     // MARK: 12 months
 
     private func chartCard(_ o: FinOverview) -> some View {
-        let series = o.series.first { $0.currency == vm.chartCurrency } ?? o.series.first
-        return FinACard(icon: "chart.bar.xaxis", title: "Income vs expenses", caption: "12 months to \(FinanceDates.display(o.period.to))") {
-            if o.series.count > 1 {
+        let ordered = o.series.sorted { FinanceMoney.currencyPrecedes($0.currency, $1.currency) }
+        let series = ordered.first { $0.currency == vm.chartCurrency } ?? ordered.first
+        let to = vm.period.to
+        return FinACard(icon: "chart.bar.xaxis", title: "Income and expenses, twelve months") {
+            if ordered.count > 1 {
                 Picker("Currency", selection: $vm.chartCurrency) {
-                    ForEach(o.series.map(\.currency).sorted(by: FinanceMoney.currencyPrecedes), id: \.self) { Text($0).tag($0) }
+                    ForEach(ordered.map(\.currency), id: \.self) { Text($0).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: CGFloat(70 * o.series.count))
+                .frame(width: CGFloat(70 * ordered.count))
             }
         } content: {
-            if let s = series, s.months.contains(where: { $0.incomeMinor != 0 || $0.expensesMinor != 0 }) {
+            FinAExplain("Twelve calendar months ending with \(FinAIncomeExpenseChart.monthYear(String(to.prefix(7)))) (its last day counted: \(FinanceDates.display(to))). Tap a month for the exact figures and the net.")
+            if let s = series {
                 FinAIncomeExpenseChart(series: s)
-                let income = s.months.reduce(0) { $0 + $1.incomeMinor }
-                let spent = s.months.reduce(0) { $0 + $1.expensesMinor }
-                FinAExplain("\(s.currency) over these 12 months: income \(FinanceMoney.format(income, s.currency)) · approved expenses \(FinanceMoney.format(spent, s.currency)) · net \(FinanceMoney.format(income - spent, s.currency)). The last month runs to \(FinanceDates.display(o.period.to)).")
             } else {
-                EmptyState.compact(icon: "chart.bar", message: "No income or expenses in the last 12 months.")
+                Text("No months to show.").font(.nCaption).foregroundStyle(Nuru.ink400).padding(.vertical, 24)
             }
         }
     }
 
     // MARK: Channels
 
+    @State private var channelsWidth: CGFloat = 0
+
     private func channels(_ o: FinOverview) -> some View {
         let rows = o.channels.sorted {
             $0.currency != $1.currency ? FinanceMoney.currencyPrecedes($0.currency, $1.currency) : $0.netMinor > $1.netMinor
         }
-        let cols = [
+        let currencies = Array(Set(rows.map(\.currency))).sorted(by: FinanceMoney.currencyPrecedes)
+        let totals = currencies.map { c -> FinChannelTotal in
+            let mine = rows.filter { $0.currency == c }
+            return FinChannelTotal(channel: "Total \(c)", account: "", currency: c, count: mine.reduce(0) { $0 + $1.count },
+                                   receivedMinor: mine.reduce(0) { $0 + $1.receivedMinor }, reversedMinor: mine.reduce(0) { $0 + $1.reversedMinor },
+                                   netMinor: mine.reduce(0) { $0 + $1.netMinor })
+        }
+        let narrow = channelsWidth > 0 && channelsWidth < 600
+        let cols = narrow ? [
+            FinanceColumn("Channel", minWidth: 130),
+            FinanceColumn("Received", width: 120, align: .trailing),
+            FinanceColumn("Net", width: 120, align: .trailing),
+        ] : [
             FinanceColumn("Channel", minWidth: 150),
-            FinanceColumn("Gifts", width: 56, align: .trailing),
-            FinanceColumn("Received", width: 118, align: .trailing),
-            FinanceColumn("Reversed", width: 108, align: .trailing),
-            FinanceColumn("Net", width: 118, align: .trailing),
+            FinanceColumn("Gifts", width: 52, align: .trailing),
+            FinanceColumn("Received", width: 116, align: .trailing),
+            FinanceColumn("Reversed", width: 106, align: .trailing),
+            FinanceColumn("Net", width: 116, align: .trailing),
         ]
         return VStack(alignment: .leading, spacing: 8) {
-            FinASectionTitle(icon: "arrow.down.to.line", title: "Money in by channel", caption: vm.period.label)
-            FinanceTable(rows: rows, columns: cols, emptyIcon: "tray", emptyMessage: "No money came in during this period.") { c in
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(FinanceARules.cashChannelLabel(c.channel)).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                    Text(c.account).font(.nMono(10.5)).foregroundStyle(Nuru.ink400).lineLimit(1)
+            FinASectionTitle(icon: "dollarsign.circle", title: "Money in by channel")
+            FinAExplain("Received into each cash account in the period, net of reversals (a reversal is dated at the gift it corrects).")
+            if rows.isEmpty {
+                EmptyState.compact(icon: "tray", message: "No money received in this period. Gifts show here per channel — M-Pesa, card, cash, bank — once they settle.")
+            } else {
+                FinanceTable(rows: rows + totals, columns: cols, emptyIcon: "tray", emptyMessage: "") { c in
+                    let total = c.account.isEmpty
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(total ? c.channel : FinanceARules.cashChannelLabel(c.channel))
+                            .font(.inter(13.5, total ? .bold : .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
+                        if !total { Text(c.account).font(.nMono(10.5)).foregroundStyle(Nuru.ink400).lineLimit(1) }
+                        if narrow && !total { Text(FinanceARules.plural(c.count, "gift")).font(.nMicro).foregroundStyle(Nuru.ink400) }
+                    }
+                    .financeCell(cols[0])
+                    if narrow {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(FinanceMoney.format(c.receivedMinor, c.currency)).font(.nMono(12.5, total ? .medium : .regular)).lineLimit(1).minimumScaleFactor(0.7)
+                            if c.reversedMinor > 0 {
+                                Text(FinanceMoney.format(-c.reversedMinor, c.currency)).font(.nMono(10.5)).foregroundStyle(FinanceStatus.red.fg).lineLimit(1).minimumScaleFactor(0.7)
+                            }
+                        }
+                        .financeCell(cols[1])
+                        Text(FinanceMoney.format(c.netMinor, c.currency)).font(.nMono(12.5, .medium)).foregroundStyle(Nuru.navy)
+                            .lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[2])
+                    } else {
+                        Text("\(c.count)").font(.nMono(12.5, total ? .medium : .regular)).financeCell(cols[1])
+                        Text(FinanceMoney.format(c.receivedMinor, c.currency)).font(.nMono(12.5, total ? .medium : .regular)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[2])
+                        Text(c.reversedMinor > 0 ? FinanceMoney.format(-c.reversedMinor, c.currency) : "—").font(.nMono(12.5))
+                            .foregroundStyle(c.reversedMinor > 0 ? FinanceStatus.red.fg : Nuru.ink400)
+                            .lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[3])
+                        Text(FinanceMoney.format(c.netMinor, c.currency)).font(.nMono(12.5, .medium)).foregroundStyle(Nuru.navy)
+                            .lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[4])
+                    }
                 }
-                .financeCell(cols[0])
-                Text("\(c.count)").font(.nMono(12.5)).financeCell(cols[1])
-                Text(FinanceMoney.format(c.receivedMinor, c.currency)).font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[2])
-                Text(c.reversedMinor == 0 ? "—" : FinanceMoney.format(-c.reversedMinor, c.currency))
-                    .font(.nMono(12.5)).foregroundStyle(c.reversedMinor == 0 ? Nuru.ink400 : FinanceStatus.violet.fg)
-                    .lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[3])
-                Text(FinanceMoney.format(c.netMinor, c.currency)).font(.nMono(12.5, .medium)).foregroundStyle(Nuru.navy)
-                    .lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[4])
+                .measureWidth($channelsWidth)
             }
-            FinAExplain("Money each cash account received in the period by the posting's date (EAT), less reversals — a reversal is dated on the gift it corrects, so net is what stayed. Daily detail: Reconciliation → Settlement.")
         }
     }
 
-    // MARK: Funds + work
+    // MARK: Fund balances
 
     private func fundsCard(_ o: FinOverview) -> some View {
-        FinACard(icon: "square.stack.3d.up", title: "Fund balances", caption: "top \(o.fundBalances.count), all time") {
+        FinACard(icon: "square.stack.3d.up", title: "Fund balances") {
             Button { router.go(.financeFunds) } label: {
-                Text("All funds").font(.inter(12, .semibold)).foregroundStyle(Nuru.goldLo)
+                HStack(spacing: 4) {
+                    Text("All funds").font(.inter(12, .semibold))
+                    Image(systemName: "arrow.right").font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(Nuru.goldLo)
             }
             .buttonStyle(.plain)
         } content: {
+            FinAExplain("All time: everything credited to the fund, less what left it (expenses, transfers out). The six largest by KES.")
             if o.fundBalances.isEmpty {
-                EmptyState.compact(icon: "square.stack.3d.up", message: "No fund holds money yet.")
+                EmptyState.compact(icon: "square.stack.3d.up", message: "No fund holds money yet. Balances appear as gifts settle, expenses are approved and transfers are posted.")
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(o.fundBalances.enumerated()), id: \.element.id) { i, f in
                         Button { router.openFinance(.financeFunds, ["fund": f.code]) } label: {
-                            HStack(alignment: .top, spacing: 10) {
+                            HStack(alignment: .center, spacing: 10) {
                                 VStack(alignment: .leading, spacing: 2) {
+                                    Text(f.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
                                     HStack(spacing: 6) {
-                                        Text(f.name).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                                        if !f.isActive { FinATag(text: "Inactive", tone: FinanceStatus.grey) }
+                                        Text("fund:\(f.code)").font(.nMono(10.5)).foregroundStyle(Nuru.ink400)
+                                        if !f.isActive { FinanceStatusChip(status: "inactive", label: "Inactive") }
                                     }
-                                    Text(f.code).font(.nMono(10.5)).foregroundStyle(Nuru.ink400)
                                 }
                                 Spacer(minLength: 8)
                                 VStack(alignment: .trailing, spacing: 2) {
@@ -290,6 +338,7 @@ struct FinanceOverviewView: View {
                                             .lineLimit(1).minimumScaleFactor(0.7)
                                     }
                                 }
+                                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Nuru.ink400)
                             }
                             .padding(.vertical, 9)
                             .contentShape(Rectangle())
@@ -298,84 +347,149 @@ struct FinanceOverviewView: View {
                         .overlay(alignment: .top) { if i > 0 { Rectangle().fill(Nuru.border).frame(height: 1) } }
                     }
                 }
-                FinAExplain("Credits minus debits on each fund's account — gifts in, approved expenses and transfers out. Negative means more left the fund than came in.")
-            }
-        }
-    }
-
-    private func queueCard(_ o: FinOverview) -> some View {
-        let c = o.counts
-        let periodQuery = ["from": o.period.from, "to": o.period.to]
-        let items: [(icon: String, label: String, value: Int, hint: String, open: () -> Void)] = [
-            ("clock", "Processing now", c.processing, "Payments in flight or awaiting action",
-             { router.openFinance(.financeTransactions, ["status": "processing"]) }),
-            ("hourglass", "Stuck processing", c.staleProcessing, "Older than the provider's window",
-             { router.openFinance(.financeReconciliation, ["tab": "exceptions"]) }),
-            ("xmark.octagon", "Failed in period", c.failedInPeriod, "No money moved",
-             { router.openFinance(.financeTransactions, periodQuery.merging(["status": "failed"]) { a, _ in a }) }),
-            ("list.clipboard", "Claims waiting", c.pendingClaims, "Paid another way — to confirm",
-             { router.go(.financeClaims) }),
-            ("banknote", "Expenses to approve", c.expensesAwaitingApproval, "Recorded, not yet posted",
-             { router.openFinance(.financeExpenses, ["status": "recorded"]) }),
-            ("repeat.circle", "Recurring gifts to check", c.failingSchedules, "Paused or failing",
-             { router.go(.financeRecurring) }),
-            ("exclamationmark.triangle", "Integrity issues", c.integrityIssues, "Postings that don't balance",
-             { router.openFinance(.financeReconciliation, ["tab": "exceptions"]) }),
-        ]
-        return FinACard(icon: "tray.full", title: "Work waiting", caption: "now") {
-            VStack(spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.offset) { i, it in
-                    Button(action: it.open) {
-                        HStack(spacing: 10) {
-                            Image(systemName: it.icon).font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(it.value > 0 ? FinanceStatus.amber.fg : Nuru.ink400)
-                                .frame(width: 26, height: 26)
-                                .background((it.value > 0 ? FinanceStatus.amberStrong.bg : Nuru.surface))
-                                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(it.label).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                                Text(it.hint).font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1)
-                            }
-                            Spacer(minLength: 6)
-                            Text("\(it.value)").font(.nMono(15, .medium))
-                                .foregroundStyle(it.value > 0 ? Nuru.navy : Nuru.ink400)
-                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Nuru.ink300)
-                        }
-                        .padding(.vertical, 7)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .overlay(alignment: .top) { if i > 0 { Rectangle().fill(Nuru.border).frame(height: 1) } }
-                }
             }
         }
     }
 }
 
-// MARK: - Chart
+// MARK: - A KPI tile with per-currency lines (and a sub-line each)
 
-/// Income (green) against approved expenses (gold), month by month, one currency.
-struct FinAIncomeExpenseChart: View {
-    let series: FinOverview.Series
+/// FinanceKpiTile's look, with a colour and an optional sub-line per currency
+/// line ("+12% vs KES 1,639,000.00 last year").
+struct FinAValueTile: View {
+    struct Line: Hashable {
+        let text: String
+        var color: Color? = nil
+        var sub: String? = nil
+        var subColor: Color = Nuru.ink400
+    }
+    let label: String
+    let icon: String
+    var tint: Nuru.Tint = Nuru.brandTint(2)
+    var lines: [Line] = []
+    var hint: String? = nil
+    var action: (() -> Void)? = nil
 
     var body: some View {
+        Group {
+            if let action {
+                Button(action: action) { tile }.buttonStyle(PressableButtonStyle()).hoverEffect(.lift)
+            } else {
+                tile
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var tile: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(tint.fg)
+                    .frame(width: 26, height: 26)
+                    .background(tint.fg.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text(label.uppercased())
+                    .font(.inter(10.5, .semibold)).tracking(0.8).foregroundStyle(Nuru.ink600)
+                    .lineLimit(1).minimumScaleFactor(0.75)
+                Spacer(minLength: 0)
+                if action != nil {
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Nuru.ink300)
+                }
+            }
+            if lines.isEmpty {
+                Text("—").font(.inter(17, .semibold)).foregroundStyle(Nuru.ink400)
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(lines, id: \.self) { l in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(l.text).font(.inter(16, .semibold)).foregroundStyle(l.color ?? Nuru.navy)
+                                .monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+                            if let sub = l.sub {
+                                Text(sub).font(.nMono(10.5)).foregroundStyle(l.subColor).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+            }
+            if let hint {
+                Text(hint).font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(2)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+    }
+}
+
+// MARK: - Chart
+
+/// Income (gold) against approved expenses (navy), month by month, one
+/// currency — never two currencies on one axis. Tap (or drag across) a month
+/// for its exact income, expenses and net (the web's tooltip).
+struct FinAIncomeExpenseChart: View {
+    let series: FinOverview.Series
+    @State private var selected: String?
+
+    static let incomeColor = Color(hex: 0xC89B3C)
+    static let expensesColor = Color(hex: 0x1E4068)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 14) {
+                legend(Self.incomeColor, "Income (succeeded gifts)")
+                legend(Self.expensesColor, "Expenses (approved)")
+            }
+            if series.months.allSatisfy({ $0.incomeMinor == 0 && $0.expensesMinor == 0 }) {
+                Text("No \(series.currency) income or expenses in these twelve months.")
+                    .font(.nCaption).foregroundStyle(Nuru.ink400)
+                    .frame(maxWidth: .infinity, minHeight: 200)
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Nuru.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+            } else {
+                chart
+            }
+        }
+    }
+
+    private func legend(_ color: Color, _ label: String) -> some View {
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous).fill(color).frame(width: 10, height: 10)
+            Text(label).font(.inter(12)).foregroundStyle(Nuru.ink400)
+        }
+    }
+
+    private var chart: some View {
         Chart {
             ForEach(series.months) { m in
                 BarMark(x: .value("Month", Self.label(m.month)), y: .value("Amount", Double(m.incomeMinor) / 100))
                     .foregroundStyle(by: .value("Kind", "Income"))
                     .position(by: .value("Kind", "Income"))
-                    .cornerRadius(3)
+                    .cornerRadius(4)
                 BarMark(x: .value("Month", Self.label(m.month)), y: .value("Amount", Double(m.expensesMinor) / 100))
                     .foregroundStyle(by: .value("Kind", "Expenses"))
                     .position(by: .value("Kind", "Expenses"))
-                    .cornerRadius(3)
+                    .cornerRadius(4)
+            }
+            if let sel = selected, let m = series.months.first(where: { Self.label($0.month) == sel }) {
+                RuleMark(x: .value("Month", sel))
+                    .foregroundStyle(Nuru.navy.opacity(0.05))
+                    .lineStyle(StrokeStyle(lineWidth: 34))
+                    .zIndex(-1)
+                    .annotation(position: .top, spacing: 4, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                        tip(m)
+                    }
             }
         }
-        .chartForegroundStyleScale(["Income": Nuru.lumGreen, "Expenses": Nuru.gold])
-        .chartLegend(position: .top, alignment: .leading, spacing: 10)
+        .chartForegroundStyleScale(["Income": Self.incomeColor, "Expenses": Self.expensesColor])
+        .chartLegend(.hidden)
+        .chartXSelection(value: $selected)
         .chartXAxis {
             AxisMarks { _ in
-                AxisValueLabel().font(.inter(10.5)).foregroundStyle(Nuru.ink600)
+                AxisValueLabel().font(.inter(11)).foregroundStyle(Nuru.ink600)
             }
         }
         .chartYAxis {
@@ -383,21 +497,56 @@ struct FinAIncomeExpenseChart: View {
                 AxisGridLine().foregroundStyle(Nuru.border)
                 AxisValueLabel {
                     if let v = value.as(Double.self) {
-                        Text(FinanceMoney.compact(Int((v * 100).rounded()))).font(.inter(10.5)).foregroundStyle(Nuru.ink600)
+                        Text(FinanceMoney.compact(Int((v * 100).rounded()))).font(.nMono(11)).foregroundStyle(Nuru.ink600)
                     }
                 }
             }
         }
-        .frame(height: 220)
+        .frame(height: 240)
         .accessibilityLabel("Income and expenses per month in \(series.currency)")
     }
 
-    /// "2026-09" → "Sep"; January carries its year ("Jan ’26").
+    private func tip(_ m: FinOverview.SeriesMonth) -> some View {
+        let net = m.incomeMinor - m.expensesMinor
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(Self.monthYear(m.month)).font(.inter(12, .bold)).foregroundStyle(Nuru.navy)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
+                GridRow {
+                    Text("Income").foregroundStyle(Self.incomeColor)
+                    Text(FinanceMoney.format(m.incomeMinor, series.currency)).gridColumnAlignment(.trailing).foregroundStyle(Nuru.navy)
+                }
+                GridRow {
+                    Text("Expenses").foregroundStyle(Self.expensesColor)
+                    Text(FinanceMoney.format(m.expensesMinor, series.currency)).foregroundStyle(Nuru.navy)
+                }
+                GridRow {
+                    Text("Net").foregroundStyle(Nuru.ink400)
+                    Text(FinanceMoney.format(net, series.currency)).foregroundStyle(net < 0 ? FinanceStatus.red.fg : Nuru.navy)
+                }
+            }
+            .font(.nMono(11.5))
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+        .shadow(color: Color(hex: 0x071629).opacity(0.12), radius: 9, y: 6)
+    }
+
+    private static let names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    /// "2026-09" → "Sep" (twelve consecutive months never repeat a name).
     static func label(_ ym: String) -> String {
-        let names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         let parts = ym.split(separator: "-")
-        guard parts.count == 2, let m = Int(parts[1]), (1...12).contains(m) else { return ym }
-        return m == 1 ? "Jan ’\(parts[0].suffix(2))" : names[m - 1]
+        guard parts.count >= 2, let m = Int(parts[1]), (1...12).contains(m) else { return ym }
+        return names[m - 1]
+    }
+
+    /// "2026-09" → "Sep 2026".
+    static func monthYear(_ ym: String) -> String {
+        let parts = ym.split(separator: "-")
+        guard parts.count >= 2, let m = Int(parts[1]), (1...12).contains(m) else { return ym }
+        return "\(names[m - 1]) \(parts[0])"
     }
 }
 

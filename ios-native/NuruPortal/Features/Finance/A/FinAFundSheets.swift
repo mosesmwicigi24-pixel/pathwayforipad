@@ -1,120 +1,181 @@
-// Finance → Funds: the fund sheets — detail (balances, activity, recent
-// postings on fund:<code>), New / Edit fund (finance:manage; the code is
-// permanent; deactivating a fund money still routes to asks twice — 409
-// FUND_IN_USE → force), Transfer between funds (finance:approve; 422
-// NEGATIVE_BALANCE → "Post anyway" → allow_negative) and Opening balance
-// (finance:approve; what was already in the bank / cash box).
+// Finance → Funds: the fund sheets, as the web's drawers (admin-web
+// components/finance/a/FundDetailDrawer, FundFormDrawer, TransferDrawer,
+// OpeningBalanceDrawer) — the same fields, rules and words:
+//  • detail — what the fund holds per currency, what moved through it, its
+//    latest postings (ledger account=fund:<code>); Edit / Transfer / Opening
+//    balance only with the capability;
+//  • New / Edit fund (finance:manage) — the code is permanent; deactivating a
+//    fund money still routes to answers 409 FUND_IN_USE with the counts, and
+//    "Deactivate anyway" asks once more and resends with force: true;
+//  • Transfer between funds (finance:approve) — 422 NEGATIVE_BALANCE shows the
+//    balance and offers "Post anyway", which asks once more and resends with
+//    allow_negative: true under the SAME idempotency key;
+//  • Opening balance (finance:approve) — what was already in the bank / cash box.
+// A successful write closes the sheet; the page reloads and says what happened.
 import SwiftUI
+
+extension FinanceARules {
+    /// A posting's owner in words: "Transfer — Board seed", "OR-2026-00012 · Grace Wanjiru", "Gift".
+    static func postingSource(kind: String, receiptCode: String?, memberName: String?, journalKind: String?, memo: String?) -> String {
+        if kind == "journal" {
+            let jk = journalKind ?? ""
+            let label = jk.isEmpty ? "Journal" : FinWords.journalKind(jk)
+            if let m = memo, !m.isEmpty { return "\(label) — \(m)" }
+            return label
+        }
+        let parts = [receiptCode, memberName].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? "Gift" : parts.joined(separator: " · ")
+    }
+
+    /// "1 Sep – 26 Sep 2026" / "26 Sep 2026" / "15 Dec 2025 – 3 Jan 2026" — the web's fmtRange.
+    static func fmtRange(from: String, to: String) -> String {
+        guard FinanceDates.date(fromYMD: from) != nil, FinanceDates.date(fromYMD: to) != nil else { return "—" }
+        if from == to { return FinanceDates.display(from) }
+        let full = FinanceDates.display(from)
+        let start = from.prefix(4) == to.prefix(4) ? full.split(separator: " ").prefix(2).joined(separator: " ") : full
+        return "\(start) – \(FinanceDates.display(to))"
+    }
+
+    /// Money per currency on one line each ("—" when none).
+    static func moneyText(_ amounts: [(currency: String, minor: Int)], separator: String = "\n") -> String {
+        let l = FinanceMoney.lines(amounts)
+        return l.isEmpty ? "—" : l.joined(separator: separator)
+    }
+}
 
 // MARK: - Detail
 
 struct FinAFundDetailSheet: View {
     let fund: FinFundRow
+    let period: FinancePeriod
     let caps: FinanceCaps
-    var fundNames: [String: String] = [:]
-    var onEdit: () -> Void = {}
-    var onTransfer: () -> Void = {}
-    var onOpening: () -> Void = {}
-    var onOpenLedger: () -> Void = {}
+    var onEdit: () -> Void
+    var onTransfer: () -> Void
+    var onOpening: () -> Void
+    var onOpenLedger: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var postings: [FinLedgerRow] = []
     @State private var loading = true
     @State private var error: String?
+    static let recent = 15
 
-    init(fund: FinFundRow, caps: FinanceCaps, fundNames: [String: String] = [:], onEdit: @escaping () -> Void = {},
+    init(fund: FinFundRow, period: FinancePeriod, caps: FinanceCaps, onEdit: @escaping () -> Void = {},
          onTransfer: @escaping () -> Void = {}, onOpening: @escaping () -> Void = {}, onOpenLedger: @escaping () -> Void = {}) {
         self.fund = fund
+        self.period = period
         self.caps = caps
-        self.fundNames = fundNames
         self.onEdit = onEdit
         self.onTransfer = onTransfer
         self.onOpening = onOpening
         self.onOpenLedger = onOpenLedger
     }
 
+    private var account: String { "fund:\(fund.code)" }
+
     private var cols: [FinanceColumn] { [
-        FinanceColumn("Posted", width: 80),
-        FinanceColumn("From / to", minWidth: 150),
-        FinanceColumn("Out (Dr)", width: 108, align: .trailing),
-        FinanceColumn("In (Cr)", width: 108, align: .trailing),
+        FinanceColumn("Posted on", width: 96),
+        FinanceColumn("Source", minWidth: 150),
+        FinanceColumn("Debit", width: 112, align: .trailing),
+        FinanceColumn("Credit", width: 112, align: .trailing),
     ] }
 
     var body: some View {
         FinAFormSheet(title: fund.name) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(fund.name).font(.inter(20, .bold)).foregroundStyle(Nuru.navy)
-                        FinanceStatusChip(status: fund.isActive ? "active" : "inactive", label: fund.isActive ? "Active" : "Inactive")
-                    }
-                    Text("fund:\(fund.code)").font(.nMono(13)).foregroundStyle(Nuru.ink600).textSelection(.enabled)
-                    if let d = fund.description, !d.isEmpty { Text(d).font(.nBody).foregroundStyle(Nuru.ink600) }
-                }
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 8) {
-                    if caps.manage { FinanceButton(title: "Edit", icon: "pencil") { onEdit() } }
-                    if caps.approve {
-                        FinanceButton(title: "Transfer out", icon: "arrow.left.arrow.right") { onTransfer() }
-                        FinanceButton(title: "Opening balance", icon: "tray.and.arrow.down") { onOpening() }
-                    }
+            HStack(spacing: 8) {
+                Text(account).font(.nMono(13)).foregroundStyle(Nuru.ink600).textSelection(.enabled)
+                FinanceStatusChip(status: fund.isActive ? "active" : "inactive", label: fund.isActive ? "Active" : "Inactive")
+            }
+            FinanceFlowLayout(spacing: 8, rowSpacing: 8) {
+                if caps.manage { FinanceButton(title: "Edit", icon: "pencil") { onEdit() } }
+                if caps.approve { FinanceButton(title: "Transfer from this fund", icon: "arrow.left.arrow.right") { onTransfer() } }
+                if caps.approve && fund.isActive { FinanceButton(title: "Opening balance", icon: "tray.and.arrow.down") { onOpening() } }
+                FinanceButton(title: "Open in Ledger", icon: "book", style: .primary) {
+                    dismiss()
+                    onOpenLedger()
                 }
             }
-            FinACard(icon: "banknote", title: "Where it stands") {
-                FinAFacts(facts: [
-                    FinAFact("Balance (all time)", FinanceMoney.lines(fund.balances.map { ($0.currency, $0.balanceMinor) }).joined(separator: "\n")),
-                    FinAFact("Income this period", FinanceMoney.lines(fund.income.map { ($0.currency, $0.periodMinor) }).joined(separator: "\n")),
-                    FinAFact("Income year to date", FinanceMoney.lines(fund.income.map { ($0.currency, $0.ytdMinor) }).joined(separator: "\n")),
-                    FinAFact("Expenses year to date", FinanceMoney.lines(fund.expensesYtd.map { ($0.currency, $0.amountMinor) }).joined(separator: "\n")),
-                    FinAFact("Transfers in (YTD)", FinanceMoney.lines(fund.transfersInYtd.map { ($0.currency, $0.amountMinor) }).joined(separator: "\n")),
-                    FinAFact("Transfers out (YTD)", FinanceMoney.lines(fund.transfersOutYtd.map { ($0.currency, $0.amountMinor) }).joined(separator: "\n")),
-                    FinAFact("Last activity", fund.lastActivityAt.map { FinanceATime.dayTime($0) }),
-                    FinAFact("Swahili name", fund.nameSw),
-                ], minimum: 180)
-                FinAExplain("Balance = credits − debits on fund:\(fund.code) over every posting: gifts in, approved expenses and transfers out. Income nets reversals on the gift's own date.")
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                FinASectionTitle(icon: "book.closed", title: "Recent postings", caption: "newest first") {
-                    Button {
-                        dismiss()
-                        onOpenLedger()
-                    } label: {
-                        Text("Open in Ledger").font(.inter(12, .semibold)).foregroundStyle(Nuru.goldLo)
-                    }
-                    .buttonStyle(.plain)
+            balanceBox
+            FinAFacts(facts: facts, minimum: 200)
+            postingsSection
+        }
+        .task { await load() }
+    }
+
+    private var balanceBox: some View {
+        let balances = fund.balances.sorted { FinanceMoney.currencyPrecedes($0.currency, $1.currency) }
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("BALANCE").font(.inter(10.5, .semibold)).tracking(0.8).foregroundStyle(Nuru.ink600)
+            if balances.isEmpty {
+                Text("Nothing yet").font(.inter(20, .semibold)).foregroundStyle(Nuru.ink400)
+            } else {
+                ForEach(balances, id: \.currency) { b in
+                    Text(FinanceMoney.format(b.balanceMinor, b.currency)).font(.inter(22, .semibold)).monospacedDigit()
+                        .foregroundStyle(b.balanceMinor < 0 ? FinanceStatus.red.fg : Nuru.navy)
+                        .lineLimit(1).minimumScaleFactor(0.6)
                 }
-                if loading && postings.isEmpty {
-                    SkeletonTable(rows: 4)
-                } else if let error {
-                    ErrorBanner(message: error) { Task { await load() } }
-                } else {
-                    let cols = self.cols
-                    FinanceTable(rows: postings, columns: cols, emptyIcon: "book.closed", emptyMessage: "Nothing has been posted to this fund yet.") { p in
-                        Text(FinanceDates.display(p.postedOn)).font(.inter(12.5)).foregroundStyle(Nuru.ink600).financeCell(cols[0])
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(p.kind == "journal" ? FinWords.journalKind(p.journalKind) : (p.receiptCode ?? "Gift"))
-                                .font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                            Text(p.kind == "journal" ? (p.memo ?? "") : (p.memberName ?? ""))
-                                .font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
-                        }
-                        .financeCell(cols[1])
-                        Text(p.side == "debit" ? FinanceMoney.format(p.amountMinor, p.currency) : "").font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[2])
-                        Text(p.side == "credit" ? FinanceMoney.format(p.amountMinor, p.currency) : "").font(.nMono(12.5)).lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[3])
-                    }
+            }
+            FinAExplain("Everything credited to the fund (gifts, transfers in, opening balances) less everything taken out (approved expenses, transfers out, reversals), all time.")
+        }
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+    }
+
+    private var facts: [FinAFact] {
+        let transfersIn = FinanceARules.moneyText(fund.transfersInYtd.map { ($0.currency, $0.amountMinor) }, separator: " · ")
+        let transfersOut = FinanceARules.moneyText(fund.transfersOutYtd.map { ($0.currency, -$0.amountMinor) }, separator: " · ")
+        var out = [
+            FinAFact("Income, \(FinanceARules.fmtRange(from: period.from, to: period.to))",
+                     FinanceARules.moneyText(fund.income.map { ($0.currency, $0.periodMinor) })),
+            FinAFact("Income this year", FinanceARules.moneyText(fund.income.map { ($0.currency, $0.ytdMinor) })),
+            FinAFact("Expenses this year", FinanceARules.moneyText(fund.expensesYtd.map { ($0.currency, $0.amountMinor) })),
+            FinAFact("Transfers in / out", "\(transfersIn) / \(transfersOut)"),
+            FinAFact("Last activity", fund.lastActivityAt.map { FinanceATime.dayTime($0) } ?? "No postings yet"),
+        ]
+        if let sw = fund.nameSw, !sw.isEmpty { out.append(FinAFact("Swahili name", sw)) }
+        out.append(FinAFact("Sort order", String(fund.sort), mono: true))
+        if let d = fund.description, !d.isEmpty { out.append(FinAFact("Description", d)) }
+        return out
+    }
+
+    private var postingsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Latest postings").font(.inter(15, .bold)).foregroundStyle(Nuru.navy)
+            FinAExplain("The \(Self.recent) most recent, by the date they count on. Credits are money in; debits money out.")
+            if let error {
+                ErrorBanner(message: error) { Task { await load() } }
+            } else if loading && postings.isEmpty {
+                SkeletonTable(rows: 3)
+            } else if postings.isEmpty {
+                Text("No postings on \(account) yet.").font(.nCaption).foregroundStyle(Nuru.ink400)
+            } else {
+                let cols = self.cols
+                FinanceTable(rows: postings, columns: cols, emptyIcon: "book.closed", emptyMessage: "") { p in
+                    Text(FinanceDates.display(p.postedOn)).font(.nMono(12)).foregroundStyle(Nuru.ink600)
+                        .lineLimit(1).minimumScaleFactor(0.8).financeCell(cols[0])
+                    Text(FinanceARules.postingSource(kind: p.kind, receiptCode: p.receiptCode, memberName: p.memberName,
+                                                      journalKind: p.journalKind, memo: p.memo))
+                        .font(.inter(13)).foregroundStyle(Nuru.ink).lineLimit(2).financeCell(cols[1])
+                    Text(p.side == "debit" ? FinanceMoney.format(p.amountMinor, p.currency) : "").font(.nMono(12.5))
+                        .lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[2])
+                    Text(p.side == "credit" ? FinanceMoney.format(p.amountMinor, p.currency) : "").font(.nMono(12.5))
+                        .lineLimit(1).minimumScaleFactor(0.7).financeCell(cols[3])
                 }
             }
         }
-        .task { await load() }
     }
 
     private func load() async {
         loading = true
         defer { loading = false }
         do {
-            postings = try await FinanceERPAPI.ledger(FinLedgerFilter(period: nil, account: "fund:\(fund.code)"), limit: 25).data
+            postings = try await FinanceERPAPI.ledger(FinLedgerFilter(period: nil, account: account), limit: Self.recent).data
             error = nil
         } catch {
-            if !Task.isCancelled { self.error = FinanceARules.message(error) }
+            if !Task.isCancelled { self.error = FinanceARules.message(error, fallback: "Could not load the fund's postings.") }
         }
     }
 }
@@ -124,23 +185,24 @@ struct FinAFundDetailSheet: View {
 struct FinAFundEditorSheet: View {
     /// nil = a new fund.
     let fund: FinFundRow?
-    var onSaved: () -> Void = {}
+    /// The saved fund and whether it was created (false = updated).
+    var onSaved: (FinFund, Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var code = ""
-    @State private var codeEdited = false
-    @State private var nameSw = ""
-    @State private var description = ""
-    @State private var sortText = "0"
-    @State private var active = true
+    @State private var name: String
+    @State private var code: String
+    @State private var codeTouched = false
+    @State private var nameSw: String
+    @State private var description: String
+    @State private var sortText: String
+    @State private var active: Bool
+    @State private var attempted = false
     @State private var busy = false
     @State private var error: String?
     @State private var inUse: String?
-    @State private var confirmForce = false
-    @State private var showProblems = false
+    @State private var forceAsk = false
 
-    init(fund: FinFundRow?, onSaved: @escaping () -> Void = {}) {
+    init(fund: FinFundRow?, onSaved: @escaping (FinFund, Bool) -> Void = { _, _ in }) {
         self.fund = fund
         self.onSaved = onSaved
         _name = State(initialValue: fund?.name ?? "")
@@ -151,148 +213,172 @@ struct FinAFundEditorSheet: View {
         _active = State(initialValue: fund?.isActive ?? true)
     }
 
-    private var isNew: Bool { fund == nil }
+    private var creating: Bool { fund == nil }
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var trimmedSw: String { nameSw.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var trimmedDescription: String { description.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// A whole number of at most six digits (the web's /^-?\d{1,6}$/).
+    private var sort: Int? {
+        let t = sortText.trimmingCharacters(in: .whitespaces)
+        let digits = t.hasPrefix("-") ? String(t.dropFirst()) : t
+        guard (1...6).contains(digits.count), digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        return Int(t)
+    }
+    private var fundLabel: String { trimmedName.isEmpty ? (fund?.name ?? "this fund") : trimmedName }
 
-    private var problems: [String: String] {
-        var p: [String: String] = [:]
-        if let e = FinanceARules.lengthProblem(name, min: 2, max: 150, what: "The name") { p["name"] = e }
-        if isNew, let e = FinanceARules.slugProblem(code) { p["code"] = e }
-        if !trimmedSw.isEmpty, let e = FinanceARules.lengthProblem(nameSw, min: 2, max: 150, what: "The Swahili name") { p["sw"] = e }
-        if trimmedDescription.utf16.count > 500 { p["description"] = "Keep the description to 500 characters." }
-        if Int(sortText.trimmingCharacters(in: .whitespaces)) == nil { p["sort"] = "The order is a whole number, e.g. 10." }
-        return p
+    private var errors: [String: String] {
+        var e: [String: String] = [:]
+        e["name"] = FinanceARules.lengthProblem(name, min: 2, max: 150, what: "a name")
+        if !trimmedSw.isEmpty { e["sw"] = FinanceARules.lengthProblem(nameSw, min: 2, max: 150, what: "the Swahili name") }
+        if creating { e["code"] = FinanceARules.slugProblem(code) }
+        e["description"] = FinanceARules.lengthProblem(description, min: 0, max: 500, what: "a description")
+        if sort == nil { e["sort"] = "A whole number — lower numbers list first." }
+        return e
+    }
+    /// Before the first save: the name waits, the code shows once typed in.
+    private func shown(_ key: String) -> String? {
+        if attempted { return errors[key] }
+        switch key {
+        case "name": return nil
+        case "code": return codeTouched ? errors["code"] : nil
+        default: return errors[key]
+        }
     }
 
+    /// The fields that changed, as a PATCH body (the web's fundPatch).
     private var patch: FinFundPatch {
         var p = FinFundPatch()
         guard let f = fund else { return p }
         if trimmedName != f.name { p.name = trimmedName }
-        if trimmedSw != (f.nameSw ?? "") { p.nameSw = trimmedSw.isEmpty ? .clear : .set(trimmedSw) }
-        if trimmedDescription != (f.description ?? "") { p.description = trimmedDescription.isEmpty ? .clear : .set(trimmedDescription) }
-        if let s = Int(sortText.trimmingCharacters(in: .whitespaces)), s != f.sort { p.sort = s }
+        let sw: String? = trimmedSw.isEmpty ? nil : trimmedSw
+        if sw != f.nameSw {
+            if let sw { p.nameSw = .set(sw) } else { p.nameSw = .clear }
+        }
+        let desc: String? = trimmedDescription.isEmpty ? nil : trimmedDescription
+        if desc != f.description {
+            if let desc { p.description = .set(desc) } else { p.description = .clear }
+        }
+        if let s = sort, s != f.sort { p.sort = s }
         if active != f.isActive { p.isActive = active }
         return p
     }
+    private var nothingChanged: Bool { !creating && patch.isEmpty }
 
     var body: some View {
-        FinAFormSheet(title: isNew ? "New fund" : "Edit \(fund?.name ?? "fund")",
-                      subtitle: isNew ? "A fund is where giving is booked and spending comes from — Tithe, Building, Missions. Funds are never deleted; deactivate one you no longer use." : nil,
-                      confirmTitle: isNew ? "Create" : "Save",
-                      confirmEnabled: isNew || !patch.isEmpty,
+        FinAFormSheet(title: creating ? "New fund" : "Edit \(fund?.name ?? "fund")",
+                      subtitle: creating ? "A place money is given to and spent from — e.g. Tithe, Building, Missions." : "fund:\(fund?.code ?? "")",
+                      confirmTitle: creating ? "Create fund" : (nothingChanged ? "Nothing to save" : "Save changes"),
+                      confirmEnabled: !nothingChanged && inUse == nil,
                       busy: busy,
                       onConfirm: { Task { await save(force: false) } }) {
-            if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil } }
             if let inUse {
                 VStack(alignment: .leading, spacing: 10) {
                     FinanceNoticeBar(notice: .warn(inUse))
                     HStack(spacing: 10) {
-                        FinanceButton(title: "Deactivate anyway", icon: "exclamationmark.triangle", style: .danger, busy: busy) { confirmForce = true }
-                        FinanceButton(title: "Keep it active") { active = true; self.inUse = nil }
+                        FinanceButton(title: "Cancel") { self.inUse = nil; active = true }
+                        FinanceButton(title: "Deactivate anyway", icon: "exclamationmark.triangle", style: .danger, busy: busy) { forceAsk = true }
                     }
                 }
             }
-            FinAFieldRow {
-                FinAFormField(label: "Name", error: showProblems ? problems["name"] : nil) {
-                    TextField("e.g. Building fund", text: $name).finAInput(error: showProblems && problems["name"] != nil)
-                        .onChange(of: name) { _, v in if isNew && !codeEdited { code = FinanceARules.suggestedSlug(from: v) } }
-                }
-                FinAFormField(label: "Code", hint: isNew ? "Permanent — it names the ledger account fund:\(code.isEmpty ? "<code>" : code) and every report. Lowercase letters, digits and hyphens; starts with a letter; 2–40 characters." : "The code never changes — it names the ledger account fund:\(code).",
-                              error: showProblems ? problems["code"] : nil) {
-                    if isNew {
-                        TextField("building", text: Binding(get: { code }, set: { code = $0.lowercased(); codeEdited = true }))
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .font(.nMono(15)).finAInput(error: showProblems && problems["code"] != nil)
-                    } else {
-                        Text(code).font(.nMono(15)).foregroundStyle(Nuru.ink600)
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .background(Nuru.inputBg)
-                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
-                    }
+            if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil } }
+            FinAFormField(label: "Name", error: shown("name")) {
+                TextField("e.g. Building Fund", text: Binding(get: { name }, set: { v in
+                    name = String(v.prefix(150))
+                    if creating && !codeTouched { code = FinanceARules.suggestedSlug(from: name) }
+                }))
+                .finAInput(error: shown("name") != nil)
+            }
+            FinAFormField(label: "Name in Swahili", hint: "Optional — shown to members who use the app in Swahili.", error: shown("sw")) {
+                TextField("e.g. Mfuko wa Ujenzi", text: Binding(get: { nameSw }, set: { nameSw = String($0.prefix(150)) }))
+                    .finAInput(error: shown("sw") != nil)
+            }
+            FinAFormField(label: "Code",
+                          hint: creating
+                            ? "Permanent: lowercase letters, digits and hyphens, starting with a letter (2–40). The ledger account becomes fund:<code>, so it can never change."
+                            : "Permanent — the ledger account fund:<code> carries every posting ever made to this fund, so the code never changes. Rename it instead.",
+                          error: shown("code")) {
+                if creating {
+                    TextField("", text: Binding(get: { code }, set: { codeTouched = true; code = String($0.lowercased().prefix(40)) }))
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .font(.nMono(15)).finAInput(error: shown("code") != nil)
+                } else {
+                    Text(code).font(.nMono(15)).foregroundStyle(Nuru.ink600)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .background(Nuru.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.badge, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .accessibilityLabel("Code \(code), read only")
                 }
             }
-            FinAFieldRow {
-                FinAFormField(label: "Swahili name (optional)", error: showProblems ? problems["sw"] : nil) {
-                    TextField("e.g. Mfuko wa Ujenzi", text: $nameSw).finAInput(error: showProblems && problems["sw"] != nil)
-                }
-                FinAFormField(label: "Order", hint: "Lower numbers list first.", error: showProblems ? problems["sort"] : nil) {
-                    TextField("0", text: $sortText).keyboardType(.numberPad).finAInput(error: showProblems && problems["sort"] != nil)
+            FinAFormField(label: "Description", hint: "Optional — what the fund is for. \(trimmedDescription.utf16.count) / 500", error: shown("description")) {
+                TextField("", text: Binding(get: { description }, set: { description = String($0.prefix(500)) }), axis: .vertical)
+                    .lineLimit(2...6).padding(.vertical, 10).finAInput(error: shown("description") != nil)
+            }
+            FinAFormField(label: "Sort order", hint: "Lower numbers list first in pickers and on the Funds page.", error: shown("sort")) {
+                TextField("0", text: $sortText).keyboardType(.numbersAndPunctuation).font(.nMono(15))
+                    .finAInput(error: shown("sort") != nil).frame(maxWidth: 140)
+            }
+            Toggle(isOn: Binding(get: { active }, set: { active = $0; inUse = nil })) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Active").font(.inter(15, .semibold)).foregroundStyle(Nuru.navy)
+                    FinAExplain("An inactive fund is hidden from new gifts and can't receive transfers; everything already in it — history and balance — stays. Money can still be moved out of it.")
                 }
             }
-            FinAFormField(label: "Description (optional)", hint: "\(trimmedDescription.utf16.count)/500 — what this fund is for.", error: showProblems ? problems["description"] : nil) {
-                TextField("What money in this fund is for", text: $description, axis: .vertical)
-                    .lineLimit(2...5).padding(.vertical, 10).finAInput(error: showProblems && problems["description"] != nil)
-            }
-            if !isNew {
-                Toggle(isOn: $active) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Active").font(.inter(15, .semibold)).foregroundStyle(Nuru.ink)
-                        Text(active ? "Gifts and pledges can be booked to it." : "No new gifts can be booked to it; its history and balance stay.")
-                            .font(.nCaption).foregroundStyle(Nuru.ink600)
-                    }
-                }
-                .tint(Nuru.gold)
-                .padding(14)
-                .background(Nuru.white)
-                .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
-            }
+            .tint(Nuru.gold)
+            .padding(14)
+            .background(Nuru.white)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
         }
         #if DEBUG
         .task {
             guard let p = FinanceAFixtures.formValues() else { return }
             if let v = p["name"] { name = v }
-            if let v = p["code"] { code = v; codeEdited = true }
+            if let v = p["code"] { code = v; codeTouched = true }
             if let v = p["active"] { active = v == "1" }
             if p["submit"] == "1" { await save(force: false) }
         }
         #endif
-        .alert("Deactivate \(fund?.name ?? "this fund") anyway?", isPresented: $confirmForce) {
-            Button("Deactivate", role: .destructive) { Task { await save(force: true) } }
+        .alert("Deactivate \(fundLabel) anyway?", isPresented: $forceAsk) {
+            Button("Deactivate anyway", role: .destructive) {
+                inUse = nil
+                Task { await save(force: true) }
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Payments that still route to it will fail until it is active again. You can reactivate it any time.")
+            Text("\(inUse ?? "") Nothing already given is touched; the fund can be made active again at any time.")
         }
     }
 
     private func save(force: Bool) async {
-        showProblems = true
-        guard problems.isEmpty else { return }
+        attempted = true
+        guard errors.isEmpty, !busy, !nothingChanged else { return }
         busy = true
         defer { busy = false }
         error = nil
         do {
             if let f = fund {
-                let p = patch
-                guard !p.isEmpty else { dismiss(); return }
-                if force {
-                    _ = try await FinanceERPAPI.updateFund(code: f.code, p, force: true)
-                } else {
-                    _ = try await FinanceERPAPI.updateFund(code: f.code, p)
-                }
+                let saved = try await FinanceERPAPI.updateFund(code: f.code, patch, force: force)
+                onSaved(saved, false)
             } else {
-                let sw = trimmedSw, d = trimmedDescription
-                _ = try await FinanceERPAPI.createFund(FinFundInput(code: code, name: trimmedName,
-                                                                    nameSw: sw.isEmpty ? nil : sw,
-                                                                    description: d.isEmpty ? nil : d,
-                                                                    sort: Int(sortText.trimmingCharacters(in: .whitespaces)) ?? 0,
-                                                                    isActive: true))
+                let created = try await FinanceERPAPI.createFund(FinFundInput(
+                    code: code, name: trimmedName,
+                    nameSw: trimmedSw.isEmpty ? nil : trimmedSw,
+                    description: trimmedDescription.isEmpty ? nil : trimmedDescription,
+                    sort: sort ?? 0, isActive: active))
+                onSaved(created, true)
             }
-            inUse = nil
-            onSaved()
             dismiss()
         } catch let e where e.apiCode == "FUND_IN_USE" {
-            func n(_ key: String) -> Int { Int(e.apiDetail(key) ?? "") ?? 0 }
-            inUse = FinanceARules.fundInUseSentence(fund: fund?.name ?? "this fund", pledges: n("active_pledges"),
-                                                    schedules: n("active_schedules"), departments: n("departments"),
-                                                    campaigns: n("live_campaigns"))
-        } catch let e where e.apiCode == "CONFLICT" {
-            error = "A fund with the code “\(code)” already exists — choose another code."
+            func n(_ key: String) -> Int { max(0, Int(e.apiDetail(key) ?? "") ?? Int(Double(e.apiDetail(key) ?? "") ?? 0)) }
+            inUse = FinanceARules.fundInUseSentence(fund: fundLabel, pledges: n("active_pledges"), schedules: n("active_schedules"),
+                                                    departments: n("departments"), campaigns: n("live_campaigns"),
+                                                    serverMessage: FinanceARules.message(e, fallback: ""))
+        } catch let e where e.apiCode == "CONFLICT" && creating {
+            error = "A fund with the code “\(code)” already exists — codes are permanent, so pick another."
         } catch {
-            self.error = FinanceARules.message(error)
+            self.error = FinanceARules.message(error, fallback: creating ? "The fund was not created." : "The fund was not saved.")
         }
     }
 }
@@ -300,8 +386,9 @@ struct FinAFundEditorSheet: View {
 // MARK: - Transfer between funds
 
 struct FinATransferSheet: View {
+    /// Every fund (a retired fund can still be emptied); "To" offers active ones only.
     let funds: [FinFundRow]
-    var onPosted: () -> Void = {}
+    var onPosted: (FinTransfer) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var from: String
@@ -310,16 +397,16 @@ struct FinATransferSheet: View {
     @State private var currency = FinanceMoney.homeCurrency
     @State private var occurredOn = FinanceDates.today()
     @State private var memo = ""
+    /// One key per opening of this sheet — a retry or "Post anyway" is the same transfer.
     @State private var key = UUID().uuidString
+    @State private var attempted = false
     @State private var busy = false
     @State private var error: String?
     @State private var negative: (balance: Int?, after: Int?)?
-    @State private var confirmNegative = false
-    @State private var result: FinTransfer?
-    @State private var showProblems = false
+    @State private var askAnyway = false
     private let today = FinanceDates.today()
 
-    init(funds: [FinFundRow], from: String? = nil, onPosted: @escaping () -> Void = {}) {
+    init(funds: [FinFundRow], from: String? = nil, onPosted: @escaping (FinTransfer) -> Void = { _ in }) {
         self.funds = funds
         self.onPosted = onPosted
         _from = State(initialValue: from ?? "")
@@ -328,32 +415,76 @@ struct FinATransferSheet: View {
     private var fromFund: FinFundRow? { funds.first { $0.code == from } }
     private var toFund: FinFundRow? { funds.first { $0.code == to } }
     private var amountMinor: Int? { if case .success(let m) = FinanceMoney.parseMajor(amountText) { return m }; return nil }
-    private var balance: Int { fromFund?.balances.first { $0.currency == currency }?.balanceMinor ?? 0 }
-
-    private var problems: [String: String] {
-        var p: [String: String] = [:]
-        if fromFund == nil { p["from"] = "Choose the fund the money leaves." }
-        if toFund == nil { p["to"] = "Choose the fund the money goes to." }
-        else if to == from { p["to"] = "Choose a different fund." }
-        else if toFund?.isActive == false { p["to"] = "That fund is inactive — money can't be moved into it." }
-        if case .failure(let e) = FinanceMoney.parseMajor(amountText) { p["amount"] = e.message }
-        if let e = FinanceARules.lengthProblem(memo, min: 3, max: 300, what: "The reason") { p["memo"] = e }
-        if let r = FinanceARules.allowedDays(today: today, daysBack: 366), !r.contains(occurredOn) {
-            p["date"] = FinanceARules.dateRangeSentence("The date", today: today, daysBack: 366)
-        }
-        return p
+    private var fromBalance: Int? { fromFund.map { f in f.balances.first { $0.currency == currency }?.balanceMinor ?? 0 } }
+    private var afterMinor: Int? {
+        guard let b = fromBalance, let a = amountMinor else { return nil }
+        return b - a
     }
+    private var fromName: String { fromFund?.name ?? "the from-fund" }
+
+    private var errors: [String: String] {
+        var e: [String: String] = [:]
+        if from.isEmpty { e["from"] = "Choose the fund the money leaves." }
+        if to.isEmpty { e["to"] = "Choose the fund the money goes to." } else if to == from { e["to"] = "Pick two different funds." }
+        if amountMinor == nil { e["amount"] = "Enter the amount to move." }
+        e["date"] = FinanceARules.dayProblem(occurredOn, today: today, daysBack: 366, what: "date of the transfer")
+        e["memo"] = FinanceARules.lengthProblem(memo, min: 3, max: 300, what: "a memo")
+        return e
+    }
+    private func shown(_ key: String) -> String? { attempted ? errors[key] : nil }
 
     var body: some View {
         FinAFormSheet(title: "Transfer between funds",
-                      subtitle: result == nil ? "Moves money from one fund to another — a journal that debits the fund it leaves and credits the fund it joins. Cash does not move." : nil,
-                      confirmTitle: result == nil ? "Post transfer" : nil,
+                      subtitle: "Moves money from one fund to another inside the books — no cash moves. Posted as a journal on the date you give.",
+                      confirmTitle: amountMinor.map { "Post \(FinanceMoney.format($0, currency))" } ?? "Post transfer",
+                      confirmEnabled: negative == nil,
                       busy: busy,
                       onConfirm: { Task { await post(allowNegative: false) } }) {
-            if let r = result {
-                done(r)
-            } else {
-                form
+            if negative != nil {
+                VStack(alignment: .leading, spacing: 10) {
+                    FinanceNoticeBar(notice: .warn(negativeText))
+                    HStack(spacing: 10) {
+                        FinanceButton(title: "Cancel") { negative = nil }
+                        FinanceButton(title: "Post anyway", icon: "exclamationmark.triangle", style: .danger, busy: busy) { askAnyway = true }
+                    }
+                }
+            }
+            if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil } }
+            FinAFieldRow {
+                FinAFormField(label: "From", error: shown("from")) {
+                    FinAMenuField(placeholder: "Choose…", selection: Binding(get: { from }, set: { from = $0; negative = nil }),
+                                  options: funds.map { FinanceFilterOption($0.code, $0.isActive ? $0.name : "\($0.name) (inactive)") },
+                                  error: shown("from") != nil)
+                }
+                FinAFormField(label: "To", error: shown("to")) {
+                    FinAMenuField(placeholder: "Choose…", selection: $to,
+                                  options: funds.filter { $0.isActive && $0.code != from }.map { FinanceFilterOption($0.code, $0.name) },
+                                  error: shown("to") != nil)
+                }
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                FinAMoneyInput(label: "Amount", text: $amountText, currency: $currency)
+                if let e = shown("amount"), amountText.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Text(e).font(.nCaption).foregroundStyle(Nuru.danger)
+                }
+            }
+            .onChange(of: amountText) { _, _ in negative = nil }
+            .onChange(of: currency) { _, _ in negative = nil }
+            if let f = fromFund {
+                fromBalanceLine(f)
+            }
+            FinAFormField(label: "Date", hint: "The day the move takes effect in the books (East Africa Time).", error: shown("date")) {
+                FinADayField(ymd: $occurredOn, range: FinanceARules.allowedDays(today: today, daysBack: 366) ?? today...today).finAInput()
+            }
+            FinAFormField(label: "Memo", hint: "Why the money moves — kept on the journal. \(memo.trimmingCharacters(in: .whitespacesAndNewlines).utf16.count) / 300",
+                          error: shown("memo")) {
+                TextField("e.g. Board resolution 14/2026 — seed the Missions fund",
+                          text: Binding(get: { memo }, set: { memo = String($0.prefix(300)) }), axis: .vertical)
+                    .lineLimit(2...5).padding(.vertical, 10).finAInput(error: shown("memo") != nil)
+            }
+            if let a = amountMinor, let f = fromFund, let t = toFund {
+                Divider()
+                FinAExplain("On Post: \(FinanceMoney.format(a, currency)) leaves \(f.name) and arrives in \(t.name), dated \(FinanceDates.display(occurredOn)) (debit fund:\(f.code), credit fund:\(t.code)). A wrong transfer is corrected by reversing it from the Ledger.")
             }
         }
         #if DEBUG
@@ -364,110 +495,64 @@ struct FinATransferSheet: View {
             if let v = p["currency"] { currency = v }
             if let v = p["amount"] { amountText = v }
             if let v = p["memo"] { memo = v }
-            if p["submit"] == "1" { await post(allowNegative: false) }
+            if p["submit"] == "1" {
+                try? await Task.sleep(for: .milliseconds(200))
+                await post(allowNegative: false)
+            }
         }
         #endif
-        .alert("Take \(fromFund?.name ?? "the fund") below zero?", isPresented: $confirmNegative) {
-            Button("Post anyway", role: .destructive) { Task { await post(allowNegative: true) } }
+        .alert("Post the transfer anyway?", isPresented: $askAnyway) {
+            Button("Post anyway", role: .destructive) {
+                negative = nil
+                Task { await post(allowNegative: true) }
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The transfer will be posted and \(fromFund?.name ?? "the fund") will show a negative \(currency) balance until money comes in.")
+            Text("\(fromName) will show a negative balance\(negAfter.map { " of \(FinanceMoney.format($0, currency))" } ?? "") until money comes in. The transfer is recorded exactly as entered and can be reversed later from the Ledger.")
         }
     }
 
-    @ViewBuilder private var form: some View {
-        if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil } }
-        if let n = negative {
-            VStack(alignment: .leading, spacing: 10) {
-                FinanceNoticeBar(notice: .warn(negativeText(n)))
-                FinanceButton(title: "Post anyway…", icon: "exclamationmark.triangle", style: .danger, busy: busy) { confirmNegative = true }
-            }
-        }
-        FinAFieldRow {
-            FinAFormField(label: "From fund", error: showProblems ? problems["from"] : nil) {
-                FinAMenuField(placeholder: "Choose a fund", selection: $from,
-                              options: funds.map { FinanceFilterOption($0.code, $0.isActive ? $0.name : "\($0.name) (inactive)") },
-                              error: showProblems && problems["from"] != nil)
-            }
-            FinAFormField(label: "To fund", error: showProblems ? problems["to"] : nil) {
-                FinAMenuField(placeholder: "Choose a fund", selection: $to,
-                              options: funds.filter { $0.isActive && $0.code != from }.map { FinanceFilterOption($0.code, $0.name) },
-                              error: showProblems && problems["to"] != nil)
-            }
-        }
-        FinAFieldRow {
-            FinanceMoneyField(label: "Amount", text: $amountText, currency: $currency)
-            FinAFormField(label: "Date", hint: "The day the transfer takes effect (EAT) — up to 366 days back.", error: showProblems ? problems["date"] : nil) {
-                FinADayField(ymd: $occurredOn, range: FinanceARules.allowedDays(today: today, daysBack: 366) ?? today...today).finAInput()
-            }
-        }
-        if let f = fromFund {
-            let after = balance - (amountMinor ?? 0)
-            HStack(spacing: 8) {
-                Image(systemName: after < 0 ? "exclamationmark.triangle.fill" : "info.circle")
-                    .foregroundStyle(after < 0 ? FinanceStatus.amber.fg : Nuru.ink400)
-                Text("\(f.name) holds \(FinanceMoney.format(balance, currency))." + (amountMinor != nil ? " After this transfer: \(FinanceMoney.format(after, currency))." : ""))
-                    .font(.nCaption).foregroundStyle(after < 0 ? FinanceStatus.amber.fg : Nuru.ink600)
-            }
-        }
-        FinAFormField(label: "Reason", hint: "3–300 characters — kept on the journal and in the audit trail.", error: showProblems ? problems["memo"] : nil) {
-            TextField("e.g. Board decision 14 Sep: seed the building fund", text: $memo, axis: .vertical)
-                .lineLimit(2...4).padding(.vertical, 10).finAInput(error: showProblems && problems["memo"] != nil)
-        }
-        if let f = fromFund, let t = toFund, let a = amountMinor {
-            FinAExplain("Posts a journal on \(FinanceDates.display(occurredOn)): debit fund:\(f.code) and credit fund:\(t.code), \(FinanceMoney.format(a, currency)) each. It can be reversed once from Ledger → Journals.")
-        }
+    private var negBefore: Int? { negative?.balance ?? fromBalance }
+    private var negAfter: Int? { negative?.after ?? afterMinor }
+
+    private var negativeText: String {
+        "\(fromName) has \(negBefore.map { FinanceMoney.format($0, currency) } ?? "too little") in \(currency); this transfer would leave it at \(negAfter.map { FinanceMoney.format($0, currency) } ?? "below zero")."
     }
 
-    private func negativeText(_ n: (balance: Int?, after: Int?)) -> String {
-        let name = fromFund?.name ?? "The fund"
-        let bal = n.balance.map { FinanceMoney.format($0, currency) } ?? "less than this"
-        let after = n.after.map { " — this transfer would leave it at \(FinanceMoney.format($0, currency))" } ?? ""
-        return "\(name) holds \(bal)\(after). Nothing was posted."
-    }
-
-    private func done(_ r: FinTransfer) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Image(systemName: "checkmark.circle.fill").font(.system(size: 30)).foregroundStyle(Nuru.lumGreen)
-                Text(r.reused ? "Already posted" : "Transfer posted").font(.inter(20, .bold)).foregroundStyle(Nuru.navy)
-            }
-            if r.reused { FinanceNoticeBar(notice: .warn("This form had already posted the transfer — nothing new was posted.")) }
-            Text("\(FinanceMoney.format(r.amountMinor, r.currency)) moved from \(r.fromFund.name) to \(r.toFund.name) on \(FinanceDates.display(r.occurredOn)). \(r.fromFund.name) now holds \(FinanceMoney.format(r.fromBalanceAfterMinor, r.currency)).")
-                .font(.nBody).foregroundStyle(Nuru.ink)
-            FinALegsTable(legs: r.ledger)
-            HStack {
-                FinanceButton(title: "Another transfer", icon: "plus") {
-                    key = UUID().uuidString
-                    result = nil; amountText = ""; memo = ""; negative = nil; showProblems = false
-                }
-                Spacer()
-                FinanceButton(title: "Done", style: .primary) { dismiss() }
-            }
-        }
+    private func fromBalanceLine(_ f: FinFundRow) -> some View {
+        let below = (afterMinor ?? 0) < 0 && negative == nil
+        var line = "\(f.name) holds \(FinanceMoney.format(fromBalance ?? 0, currency)) in \(currency)"
+        if let after = afterMinor { line += " — after this transfer: \(FinanceMoney.format(after, currency))" }
+        line += "."
+        return (Text(line).foregroundStyle(Nuru.navy)
+                + Text(below ? " That is below zero; the books will ask you to confirm." : "").foregroundStyle(FinanceStatus.amber.fg))
+            .font(.inter(12.5))
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Nuru.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
     private func post(allowNegative: Bool) async {
-        showProblems = true
-        guard problems.isEmpty, let minor = amountMinor else { return }
+        attempted = true
+        guard errors.isEmpty, !busy, let minor = amountMinor else { return }
         busy = true
         defer { busy = false }
         error = nil
         do {
-            let r = try await FinanceERPAPI.transfer(FinTransferInput(
+            let t = try await FinanceERPAPI.transfer(FinTransferInput(
                 fromFund: from, toFund: to, amountMinor: minor, currency: currency, occurredOn: occurredOn,
                 memo: memo.trimmingCharacters(in: .whitespacesAndNewlines), allowNegative: allowNegative, idempotencyKey: key))
-            negative = nil
-            result = r
-            onPosted()
+            onPosted(t)
+            dismiss()
         } catch let e where e.apiDetail("reason") == "NEGATIVE_BALANCE" {
             negative = (Int(e.apiDetail("balance_minor") ?? ""), Int(e.apiDetail("balance_after_minor") ?? ""))
         } catch let e where e.apiCode == "INVALID_DATE" {
-            error = FinanceARules.dateRangeSentence("The date", today: today, daysBack: 366) + " Nothing was posted."
-        } catch let e where e.apiStatus == 403 {
-            error = "Transfers need the finance:approve permission. Nothing was posted."
+            error = "The date must be today or within the last 366 days."
         } catch {
-            self.error = FinanceARules.message(error)
+            self.error = FinanceARules.message(error, fallback: "The transfer was not posted.")
         }
     }
 }
@@ -475,94 +560,83 @@ struct FinATransferSheet: View {
 // MARK: - Opening balance
 
 struct FinAOpeningBalanceSheet: View {
+    /// Active funds.
     let funds: [FinFundRow]
-    var onPosted: () -> Void = {}
+    var onPosted: (FinJournalResult) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var fund: String
     @State private var channel: FinOfficeChannel = .bank
+    @State private var fund: String
     @State private var amountText = ""
     @State private var currency = FinanceMoney.homeCurrency
     @State private var asOf = FinanceDates.today()
-    @State private var memo = "Opening balance"
+    @State private var memo = ""
+    /// One key per opening of this sheet.
     @State private var key = UUID().uuidString
+    @State private var attempted = false
     @State private var busy = false
     @State private var error: String?
-    @State private var result: FinJournalResult?
-    @State private var showProblems = false
     private let today = FinanceDates.today()
-    private static let maxMinor = 1_000_000_000_000
+    static let maxMinor = 1_000_000_000_000
 
-    init(funds: [FinFundRow], fund: String? = nil, onPosted: @escaping () -> Void = {}) {
+    init(funds: [FinFundRow], fund: String? = nil, onPosted: @escaping (FinJournalResult) -> Void = { _ in }) {
         self.funds = funds
         self.onPosted = onPosted
-        _fund = State(initialValue: fund ?? "")
+        let preset = fund.flatMap { code in funds.contains { $0.code == code } ? code : nil }
+        _fund = State(initialValue: preset ?? "")
     }
 
     private var amountMinor: Int? {
         if case .success(let m) = FinanceARules.parseMajor(amountText, maxMinor: Self.maxMinor) { return m }
         return nil
     }
-    private var chosen: FinFundRow? { funds.first { $0.code == fund && $0.isActive } }
+    private var fundName: String? { funds.first { $0.code == fund }?.name }
 
-    private var problems: [String: String] {
-        var p: [String: String] = [:]
-        if chosen == nil { p["fund"] = "Choose an active fund." }
-        if case .failure(let e) = FinanceARules.parseMajor(amountText, maxMinor: Self.maxMinor) { p["amount"] = e.message }
-        if let e = FinanceARules.lengthProblem(memo, min: 3, max: 300, what: "The memo") { p["memo"] = e }
-        if let r = FinanceARules.allowedDays(today: today, daysBack: 3660), !r.contains(asOf) {
-            p["date"] = FinanceARules.dateRangeSentence("The balance date", today: today, daysBack: 3660)
-        }
-        return p
+    private var errors: [String: String] {
+        var e: [String: String] = [:]
+        if fund.isEmpty { e["fund"] = "Choose the fund the money belongs to." }
+        if amountMinor == nil { e["amount"] = "Enter the balance." }
+        e["date"] = FinanceARules.dayProblem(asOf, today: today, daysBack: 3660, what: "balance date")
+        e["memo"] = FinanceARules.lengthProblem(memo, min: 3, max: 300, what: "a memo")
+        return e
     }
+    private func shown(_ key: String) -> String? { attempted ? errors[key] : nil }
 
     var body: some View {
         FinAFormSheet(title: "Opening balance",
-                      subtitle: result == nil ? "What was already in the bank or the cash box when you started using Pathway. Without it every fund starts at zero and the first expenses drive it negative." : nil,
-                      confirmTitle: result == nil ? "Post" : nil,
+                      subtitle: "What was already in the bank or cash box when you started using Pathway.",
+                      confirmTitle: amountMinor.map { "Post \(FinanceMoney.format($0, currency))" } ?? "Post opening balance",
                       busy: busy,
                       onConfirm: { Task { await post() } }) {
-            if let r = result {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "checkmark.circle.fill").font(.system(size: 30)).foregroundStyle(Nuru.lumGreen)
-                        Text(r.reused ? "Already posted" : "Opening balance posted").font(.inter(20, .bold)).foregroundStyle(Nuru.navy)
-                    }
-                    if r.reused { FinanceNoticeBar(notice: .warn("This form had already posted it — nothing new was posted.")) }
-                    FinALegsTable(legs: r.legs)
-                    HStack {
-                        FinanceButton(title: "Post another", icon: "plus") {
-                            key = UUID().uuidString
-                            result = nil; amountText = ""; showProblems = false
-                        }
-                        Spacer()
-                        FinanceButton(title: "Done", style: .primary) { dismiss() }
-                    }
+            if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil } }
+            FinAExplain("Without opening balances every fund starts at zero and the first expenses drive it negative. Post one entry per place the money sits, per fund and currency — e.g. the bank account's building money, then the cash box's tithe. A wrong opening balance is reversed from the Ledger (Journals) and posted again.")
+            FinAFormField(label: "Where the money sits") {
+                FinAMenuField(placeholder: "Choose…", selection: Binding(get: { channel.rawValue }, set: { channel = FinOfficeChannel(rawValue: $0) ?? .bank }),
+                              options: FinOfficeChannel.allCases.map { FinanceFilterOption($0.rawValue, FinanceARules.holdingChannelLabel($0)) })
+            }
+            FinAFormField(label: "Fund", hint: "Active funds only.", error: shown("fund")) {
+                FinAMenuField(placeholder: "Choose a fund…", selection: $fund,
+                              options: funds.map { FinanceFilterOption($0.code, $0.name) }, error: shown("fund") != nil)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                FinAMoneyInput(label: "Balance", text: $amountText, currency: $currency, maxMinor: Self.maxMinor)
+                if let e = shown("amount"), amountText.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Text(e).font(.nCaption).foregroundStyle(Nuru.danger)
                 }
-            } else {
-                if let error { FinanceNoticeBar(notice: .error(error)) { self.error = nil } }
-                FinAFieldRow {
-                    FinAFormField(label: "Fund", error: showProblems ? problems["fund"] : nil) {
-                        FinAMenuField(placeholder: "Choose a fund", selection: $fund,
-                                      options: funds.filter(\.isActive).map { FinanceFilterOption($0.code, $0.name) },
-                                      error: showProblems && problems["fund"] != nil)
-                    }
-                    FinAFormField(label: "As of", hint: "The day the balance was counted (EAT) — up to ten years back.", error: showProblems ? problems["date"] : nil) {
-                        FinADayField(ymd: $asOf, range: FinanceARules.allowedDays(today: today, daysBack: 3660) ?? today...today).finAInput()
-                    }
-                }
-                FinAFormField(label: "Where the money sits") {
-                    FinAChoiceChips(options: FinOfficeChannel.allCases, selection: $channel, label: { c in
-                        c == .mpesa ? "M-Pesa" : FinanceARules.giftChannelLabel(c)
-                    })
-                }
-                FinAMoneyInput(label: "Amount", text: $amountText, currency: $currency, maxMinor: Self.maxMinor)
-                FinAFormField(label: "Memo", hint: "3–300 characters.", error: showProblems ? problems["memo"] : nil) {
-                    TextField("Opening balance", text: $memo).finAInput(error: showProblems && problems["memo"] != nil)
-                }
-                if let f = chosen, let a = amountMinor {
-                    FinAExplain("Posts a journal on \(FinanceDates.display(asOf)): debit cash:\(channel == .other ? "manual" : channel.rawValue) and credit fund:\(f.code), \(FinanceMoney.format(a, currency)) each. Post one per fund, place and currency. A wrong one is corrected by reversing it in Ledger → Journals and posting the right one.")
-                }
+            }
+            FinAFormField(label: "As of", hint: "The day this balance was true (East Africa Time) — usually the day before your first entries.", error: shown("date")) {
+                FinADayField(ymd: $asOf, range: FinanceARules.allowedDays(today: today, daysBack: 3660) ?? today...today).finAInput()
+            }
+            FinAFormField(label: "Memo", hint: "Where the figure comes from. \(memo.trimmingCharacters(in: .whitespacesAndNewlines).utf16.count) / 300",
+                          error: shown("memo")) {
+                TextField("e.g. Bank statement balance at 31 Aug 2026",
+                          text: Binding(get: { memo }, set: { memo = String($0.prefix(300)) }), axis: .vertical)
+                    .lineLimit(2...5).padding(.vertical, 10).finAInput(error: shown("memo") != nil)
+            }
+            if let a = amountMinor, let name = fundName {
+                let cash = FinanceARules.cashAccount(for: channel)
+                Divider()
+                FinAExplain("On Post: \(FinanceMoney.format(a, currency)) is brought into \(name), held in \(FinanceARules.accountLabel(cash)), as of \(FinanceDates.display(asOf)) (debit \(cash), credit fund:\(fund)). It is not income — Reports leave opening balances out.")
             }
         }
         #if DEBUG
@@ -583,25 +657,21 @@ struct FinAOpeningBalanceSheet: View {
     #endif
 
     private func post() async {
-        showProblems = true
-        guard problems.isEmpty, let minor = amountMinor else { return }
+        attempted = true
+        guard errors.isEmpty, !busy, let minor = amountMinor else { return }
         busy = true
         defer { busy = false }
         error = nil
         do {
-            result = try await FinanceERPAPI.postOpeningBalance(FinOpeningBalanceInput(
+            let j = try await FinanceERPAPI.postOpeningBalance(FinOpeningBalanceInput(
                 idempotencyKey: key, channel: channel, fund: fund, amountMinor: minor, currency: currency,
                 asOf: asOf, memo: memo.trimmingCharacters(in: .whitespacesAndNewlines)))
-            onPosted()
+            onPosted(j)
+            dismiss()
         } catch let e where e.apiCode == "INVALID_DATE" {
-            error = FinanceARules.dateRangeSentence("The balance date", today: today, daysBack: 3660) + " Nothing was posted."
-        } catch let e where e.apiCode == "CONFLICT" {
-            key = UUID().uuidString
-            error = "This form's key belongs to another journal, so it was given a fresh one. Press Post again."
-        } catch let e where e.apiStatus == 403 {
-            error = "Opening balances need the finance:approve permission. Nothing was posted."
+            error = "The balance date must be today or within the last ten years."
         } catch {
-            self.error = FinanceARules.message(error)
+            self.error = FinanceARules.message(error, fallback: "The opening balance was not posted.")
         }
     }
 }
