@@ -319,6 +319,7 @@ enum FinanceBFixtureRouter {
             (q["status"].map { str(r["status"]) == $0 } ?? true)
                 && (q["standing"].map { str(r["standing"]) == $0 } ?? true)
                 && (q["shape"].map { str(r["shape"]) == $0 } ?? true)
+                && (q["user_id"].map { str(r["user_id"]) == $0 } ?? true)
                 && matches(r, q["q"], ["member_name", "member_phone", "title"])
         }
         var by: [String: [String: Any]] = [:]

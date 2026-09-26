@@ -654,6 +654,8 @@ struct FinPledgeFilter: Equatable {
     /// monthly · total ("" = any)
     var shape = ""
     var q = ""
+    /// One member's pledges exactly (GET /admin/finance/pledges?user_id=) — no namesakes.
+    var userId: String? = nil
 
     var query: [String: String] {
         var out: [String: String] = [:]
@@ -662,6 +664,7 @@ struct FinPledgeFilter: Equatable {
         if !standing.isEmpty { out["standing"] = standing }
         if !shape.isEmpty { out["shape"] = shape }
         if let term = FinanceERPAPI.searchTerm(q) { out["q"] = term }
+        if let userId, !userId.isEmpty { out["user_id"] = userId }
         return out
     }
 }

@@ -1137,20 +1137,19 @@ private struct PartnerFaithfulnessCard: View {
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
     }
 
-    /// Every register row for this member in `year`. The register has no
-    /// member filter, so it is searched by the member's name (≤ 80
-    /// characters) and rows are kept by user id — a namesake's pledges never
-    /// leak in. At most five pages of 200 (web memberPledgeRows).
+    /// Every register row for this member in `year`, by the register's exact
+    /// user_id filter (a name search could catch a namesake); rows are still
+    /// kept by user id as a belt-and-braces check. At most five pages of 200
+    /// (web memberPledgeRows).
     private func load() async {
         let wanted = year
         error = nil
         rows = nil
-        guard let term = FinanceERPAPI.searchTerm(fullName) else { rows = []; return }
         do {
             var out: [FinPledgeRow] = []
             var cursor: String? = nil
             for _ in 0..<5 {
-                let page = try await FinanceERPAPI.pledges(FinPledgeFilter(year: wanted, q: term), cursor: cursor, limit: 200)
+                let page = try await FinanceERPAPI.pledges(FinPledgeFilter(year: wanted, userId: userId), cursor: cursor, limit: 200)
                 out += page.data.filter { $0.userId == userId }
                 guard let next = page.nextCursor else { break }
                 cursor = next
