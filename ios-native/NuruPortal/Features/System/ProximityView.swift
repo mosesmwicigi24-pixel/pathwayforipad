@@ -157,7 +157,7 @@ struct ProximityView: View {
             error = nil; forbidden = false
         } catch {
             let apiError = error as? APIError
-            if case .http(let status, _)? = apiError, status == 403 {
+            if case .http(let status, _, _)? = apiError, status == 403 {
                 forbidden = true
             } else {
                 self.error = apiError?.errorDescription ?? "Could not load nearby groups."

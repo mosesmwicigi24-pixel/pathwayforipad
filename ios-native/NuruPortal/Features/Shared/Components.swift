@@ -651,7 +651,11 @@ struct PortalHero<Actions: View>: View {
             ForEach(Array(stats.enumerated()), id: \.element.id) { i, s in
                 VStack(alignment: .leading, spacing: 5) {
                     Text(s.label.uppercased()).font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)
+                    // One line per "\n"-separated figure (e.g. KES and USD), each scaled
+                    // down to fit rather than wrapping in the middle of a number.
                     Text(s.value).font(.fraunces(24, .medium)).foregroundStyle(s.tint ?? .white)
+                        .lineLimit(s.value.split(separator: "\n").count)
+                        .minimumScaleFactor(0.5)
                         .contentTransition(.numericText())
                         .animation(.default, value: s.value)
                     Text(s.hint).font(.nMicro).foregroundStyle(Nuru.onNavyFaint)

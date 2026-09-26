@@ -183,7 +183,7 @@ struct BroadcastConsoleView: View {
             await api.setAccessTokenOnly(res.accessToken)
             password = ""
             await load()
-        } catch let APIError.http(status, message) {
+        } catch let APIError.http(status, message, _) {
             gateError = status == 401 ? "That password isn't right." : message
         } catch {
             gateError = "Couldn't confirm. Please try again."

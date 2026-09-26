@@ -870,7 +870,7 @@ private struct WorkspaceMediaSection: View {
             notice = "Video placed in this module."
             onChanged()
         } catch {
-            if case APIError.http(let status, _) = error, status == 409 {
+            if case APIError.http(let status, _, _) = error, status == 409 {
                 self.error = "That asset is already placed in this module."
             } else {
                 self.error = (error as? APIError)?.errorDescription ?? "Could not place the video."

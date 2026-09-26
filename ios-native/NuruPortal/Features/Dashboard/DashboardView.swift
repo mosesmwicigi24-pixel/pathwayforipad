@@ -1033,7 +1033,7 @@ private struct WordPulseCard: View {
                              loading: vm.loading,
                              label: "Giving this month",
                              caption: vm.giving.map { "\($0.gifts) gifts across \($0.fundCount) funds" } ?? "generosity") {
-                        router.go(.finance)
+                        router.go(.financeOverview)
                     }
                 }
             }

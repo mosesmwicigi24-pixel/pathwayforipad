@@ -3,8 +3,28 @@
 // silently rotates the access token once on a 401 via the stored refresh token.
 import Foundation
 
+/// The machine-readable half of the backend error envelope — `error.code`
+/// (e.g. DUPLICATE_RECEIPT, SAME_PERSON, CURRENCY_MISMATCH, INVALID_DATE) and the
+/// scalar `error.details` flattened to strings. Detail keys arrive camelCased
+/// (the decoder converts snake_case); look them up with `detail("snake_key")`.
+struct APIErrorInfo: Sendable, Equatable {
+    let code: String?
+    let details: [String: String]
+
+    func detail(_ key: String) -> String? {
+        if let v = details[key] { return v }
+        let parts = key.split(separator: "_")
+        guard let first = parts.first else { return nil }
+        let camel = String(first) + parts.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined()
+        return details[camel]
+    }
+}
+
 enum APIError: LocalizedError {
-    case http(status: Int, message: String)
+    /// `info` carries the server's error code + details when the body had them
+    /// (additive, 2026-09-26 — the Finance pages tell DUPLICATE_RECEIPT,
+    /// SAME_PERSON and NEGATIVE_BALANCE apart by code, not by message text).
+    case http(status: Int, message: String, info: APIErrorInfo? = nil)
     case decoding(String)
     case transport(String)
     case unauthorized
@@ -15,7 +35,7 @@ enum APIError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .http(_, let m): return m
+        case .http(_, let m, _): return m
         case .decoding(let m): return "Couldn't read the server response. \(m)"
         case .transport(let m): return m
         case .unauthorized: return "Your session has expired. Please sign in again."
@@ -26,19 +46,59 @@ enum APIError: LocalizedError {
 
 /// Backend error envelope: { "error": { "code": "...", "message": "..." } } or { "message": "..." }.
 private struct ErrorEnvelope: Decodable {
-    struct Details: Decodable { let passwordRequired: Bool? }
-    struct Inner: Decodable { let code: String?; let message: String?; let details: Details? }
+    struct Inner: Decodable { let code: String?; let message: String?; let details: FlatDetails? }
     let error: Inner?
     let message: String?
     var text: String? { error?.message ?? message }
-    var passwordRequired: Bool { error?.details?.passwordRequired == true }
+    var passwordRequired: Bool { error?.details?.values["passwordRequired"] == "true" }
+    var info: APIErrorInfo? {
+        guard let e = error, e.code != nil || e.details != nil else { return nil }
+        return APIErrorInfo(code: e.code, details: e.details?.values ?? [:])
+    }
+}
+
+/// `details` of the error envelope with every scalar value kept as a string
+/// (numbers and booleans stringified); nested objects/arrays are skipped.
+private struct FlatDetails: Decodable {
+    let values: [String: String]
+    private struct Key: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Key.self)
+        var out: [String: String] = [:]
+        for k in c.allKeys {
+            if let v = try? c.decode(String.self, forKey: k) { out[k.stringValue] = v }
+            else if let v = try? c.decode(Int64.self, forKey: k) { out[k.stringValue] = String(v) }
+            else if let v = try? c.decode(Double.self, forKey: k) { out[k.stringValue] = String(v) }
+            else if let v = try? c.decode(Bool.self, forKey: k) { out[k.stringValue] = v ? "true" : "false" }
+        }
+        values = out
+    }
 }
 
 actor APIClient {
     static let shared = APIClient()
 
     /// Prod API surface (same base the Capacitor build bakes in via VITE_API_BASE).
-    private let baseURL = URL(string: "https://pathway.nuruplace.org/v1")!
+    /// Debug builds only: the NURU_API_URL launch variable may point the app at a
+    /// LOOPBACK backend (127.0.0.1 / localhost) for local verification runs on the
+    /// simulator. Any other host is ignored, and Release always talks to prod.
+    private let baseURL: URL = APIClient.resolveBaseURL()
+
+    private static func resolveBaseURL() -> URL {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["NURU_API_URL"]?.trimmingCharacters(in: .whitespaces),
+           let url = URL(string: raw), let host = url.host,
+           ["127.0.0.1", "localhost"].contains(host) {
+            return url
+        }
+        #endif
+        return URL(string: "https://pathway.nuruplace.org/v1")!
+    }
 
     private let atKey = "nuru.portal.at"
     private let rtKey = "nuru.portal.rt"
@@ -139,11 +199,58 @@ actor APIClient {
             }
         }
         guard (200..<300).contains(http.statusCode) else {
-            let msg = (try? decoder.decode(ErrorEnvelope.self, from: data))?.text
-                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-            throw APIError.http(status: http.statusCode, message: msg)
+            let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
+            let msg = envelope?.text ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw APIError.http(status: http.statusCode, message: msg, info: envelope?.info)
         }
         return data
+    }
+
+    /// Raw GET for a DOWNLOAD (the Finance CSV twins and statement PDFs): the
+    /// same Bearer header, one transparent 401 refresh-and-replay and error
+    /// mapping as the JSON path, plus a query string and the response's
+    /// Content-Disposition so the caller can keep the server's filename.
+    /// ADDITIVE — `getData` above is untouched. A literal "+" in a query value
+    /// is sent as %2B (URLComponents leaves it bare, and the server would read
+    /// it as a space — "+2547…" phone searches).
+    func getFile(_ path: String, query: [String: String] = [:], accept: String = "*/*",
+                 isRetry: Bool = false) async throws -> (data: Data, contentDisposition: String?, mimeType: String?) {
+        guard var comps = URLComponents(url: baseURL.appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path),
+                                        resolvingAgainstBaseURL: false) else {
+            throw APIError.transport("Bad download address.")
+        }
+        if !query.isEmpty {
+            comps.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+            comps.percentEncodedQuery = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        }
+        guard let url = comps.url else { throw APIError.transport("Bad download address.") }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 120                      // a whole-year CSV can take a while to build
+        req.setValue(accept, forHTTPHeaderField: "Accept")
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let data: Data, response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: req)
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.transport("No HTTP response.") }
+        if http.statusCode == 401, !isRetry, refreshToken != nil {
+            if try await refreshSession() {
+                return try await getFile(path, query: query, accept: accept, isRetry: true)
+            } else {
+                onSessionExpired?()
+                throw APIError.unauthorized
+            }
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
+            if http.statusCode == 403, envelope?.passwordRequired == true { throw APIError.passwordRequired }
+            let msg = envelope?.text ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw APIError.http(status: http.statusCode, message: msg, info: envelope?.info)
+        }
+        return (data, http.value(forHTTPHeaderField: "Content-Disposition"), http.mimeType)
     }
 
     /// Authenticated multipart/form-data upload to OUR API (unlike ImageUpload, which
@@ -199,9 +306,9 @@ actor APIClient {
         }
 
         guard (200..<300).contains(http.statusCode) else {
-            let msg = (try? decoder.decode(ErrorEnvelope.self, from: data))?.text
-                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-            throw APIError.http(status: http.statusCode, message: msg)
+            let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
+            let msg = envelope?.text ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw APIError.http(status: http.statusCode, message: msg, info: envelope?.info)
         }
 
         do {
@@ -270,9 +377,9 @@ actor APIClient {
         }
 
         guard (200..<300).contains(http.statusCode) else {
-            let msg = (try? decoder.decode(ErrorEnvelope.self, from: data))?.text
-                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-            throw APIError.http(status: http.statusCode, message: msg)
+            let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
+            let msg = envelope?.text ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw APIError.http(status: http.statusCode, message: msg, info: envelope?.info)
         }
 
         do {
@@ -290,6 +397,9 @@ actor APIClient {
         var comps = URLComponents(url: baseURL.appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty {
             comps.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+            // URLComponents leaves "+" bare and the server reads it as a space —
+            // a "+2547…" phone search arrived as " 2547…". Send it as %2B.
+            comps.percentEncodedQuery = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         }
         var req = URLRequest(url: comps.url!)
         req.httpMethod = method
@@ -327,7 +437,7 @@ actor APIClient {
             }
             let msg = envelope?.text
                 ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-            throw APIError.http(status: http.statusCode, message: msg)
+            throw APIError.http(status: http.statusCode, message: msg, info: envelope?.info)
         }
 
         // A 204 / empty body (DELETE /admin/departments/{id}/posts/{postId} ends
@@ -372,5 +482,23 @@ actor APIClient {
         }
         setSession(access: session.accessToken, refresh: session.refreshToken)
         return true
+    }
+}
+
+extension Error {
+    /// HTTP status of an APIError.http, else nil.
+    var apiStatus: Int? {
+        guard let e = self as? APIError, case let .http(status, _, _) = e else { return nil }
+        return status
+    }
+    /// The backend's error code (DUPLICATE_RECEIPT, SAME_PERSON, …), else nil.
+    var apiCode: String? {
+        guard let e = self as? APIError, case let .http(_, _, info) = e else { return nil }
+        return info?.code
+    }
+    /// One scalar from the error's details, looked up by its snake_case wire name.
+    func apiDetail(_ key: String) -> String? {
+        guard let e = self as? APIError, case let .http(_, _, info) = e else { return nil }
+        return info?.detail(key)
     }
 }

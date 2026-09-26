@@ -35,7 +35,10 @@ struct PartnerRow: Codable, Identifiable {
     let tier: PartnerTier?
     @DefaultZero var pledgesActive: Int
     @LooseInt var committedMonthlyMinor: Int
+    /// KES only — kept for older servers; prefer givenYear.
     @LooseInt var givenYearMinor: Int
+    /// Every succeeded gift this year, any fund, per currency (never added across currencies).
+    var givenYear: [PartnerGiven]? = nil
     let lastGiftAt: String?
     @DefaultFalse var behind: Bool
     let nextDueOn: String?                       // YYYY-MM-DD
@@ -47,7 +50,22 @@ struct PartnersSummary: Codable {
     @DefaultZero var activePledges: Int
     @LooseInt var committedMonthlyMinor: Int
     @DefaultZero var behind: Int
+    /// KES only — kept for older servers; prefer givenYear.
     @LooseInt var givenYearMinor: Int
+    var givenYear: [PartnerGiven]? = nil
+}
+
+/// One currency's "given this year" (GET /admin/partners given_year[]).
+struct PartnerGiven: Codable, Hashable {
+    @DefaultEmpty var currency: String
+    @LooseInt var amountMinor: Int
+}
+
+/// "KES 1,500.00 · USD 20.00" — one figure per currency, KES first; the
+/// KES-only number when the server predates given_year.
+func partnerGivenText(_ given: [PartnerGiven]?, kesMinor: Int, separator: String = " · ") -> String {
+    guard let given, !given.isEmpty else { return FinanceMoney.format(kesMinor, "KES") }
+    return given.map { FinanceMoney.format($0.amountMinor, $0.currency) }.joined(separator: separator)
 }
 
 /// `data` is required (the DataList idiom): a malformed list is an error to
@@ -89,6 +107,10 @@ struct PartnerPledge: Codable, Identifiable {
     let note: String?
     let createdAt: String?
     let title: String?
+    /// Where this pledge's money is booked (PledgePaysTo — FinancialService
+    /// .pledgeFundCode's one rule); null only when no fund is active at all.
+    /// Additive, 2026-09-26 (Finance → Claims states it before confirming).
+    let paysTo: FinFundRef?
     var id: String { pledgeId }
     var isMonthly: Bool { shape == "monthly" }
 }

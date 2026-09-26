@@ -449,7 +449,7 @@ private final class MixerModel: ObservableObject {
         Task {
             do { try await PortalAPI.mixerLiveJingle(j.id) }
             catch let e as APIError {
-                if case .http(let status, _) = e, status == 422 {
+                if case .http(let status, _, _) = e, status == 422 {
                     jingleNote = "Re-upload \"\(label)\" — its audio isn't stored on the server."
                 } else {
                     jingleNote = "Couldn't fire \"\(label)\" on the live engine."
