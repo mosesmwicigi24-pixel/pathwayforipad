@@ -121,15 +121,14 @@ final class FinARecordGiftModel: ObservableObject {
 
     /// Is one of this member's own payments still in flight? The office may be
     /// about to record the same M-Pesa payment by hand. The register has no
-    /// member filter, so it searches by their phone (else name) over the last
-    /// three EAT days and keeps their own processing / awaiting rows of 48 h.
+    /// member filter (user_id) over the last three EAT days and keeps their
+    /// processing / awaiting rows of 48 h.
     func checkPending(now: Date = Date()) async {
         guard giver == .member, let m = member else { pending = []; pendingCheck = .idle; return }
         pendingCheck = .checking
         let today = FinanceDates.today(now: now)
-        let phone = m.phone?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         var f = FinTransactionFilter(period: .custom(from: FinanceARules.day(today, minus: 2) ?? today, to: today))
-        f.q = phone.isEmpty ? m.fullName : phone
+        f.userId = m.userId   // exact (pathway 491a5fb) — a phone or name search could catch a namesake
         do {
             let rows = try await FinanceERPAPI.transactions(f, limit: 50).data
             guard member?.userId == m.userId else { return }

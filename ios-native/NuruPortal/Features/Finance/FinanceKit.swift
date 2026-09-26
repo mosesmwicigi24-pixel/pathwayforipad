@@ -202,13 +202,15 @@ enum FinanceDates {
         return dayFormatter.string(from: d)
     }
 
-    /// "1 – 26 Sep 2026", "30 Aug – 5 Sep 2026", "15 Dec 2025 – 3 Jan 2026".
+    /// "26 Sep 2026", "1 Sep – 26 Sep 2026", "30 Aug – 5 Sep 2026", "15 Dec 2025 – 3 Jan 2026" (web fmtRange).
     static func displayRange(from: String, to: String) -> String {
         guard let a = date(fromYMD: from), let b = date(fromYMD: to) else { return "\(from) – \(to)" }
         let ca = calendar.dateComponents([.year, .month, .day], from: a)
         let cb = calendar.dateComponents([.year, .month, .day], from: b)
         let right = dayFormatter.string(from: b)
-        if ca.year == cb.year && ca.month == cb.month { return "\(ca.day ?? 1) – \(right)" }
+        // Web fmtRange parity: one day reads "26 Sep 2026"; a range inside one
+        // year reads "1 Sep – 26 Sep 2026" (never "1 – 26 Sep 2026").
+        if from == to { return right }
         if ca.year == cb.year {
             let f = DateFormatter()
             f.calendar = calendar; f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = timeZone
@@ -1932,7 +1934,8 @@ enum FinanceSelfCheck {
         expectEqual(FinanceDates.display("2026-09-26"), "26 Sep 2026", "display day")
         expectEqual(FinanceDates.display("2026-09-26T10:00:00Z"), "26 Sep 2026", "display ISO prefix")
         expectEqual(FinanceDates.display(nil), "—", "display nil")
-        expectEqual(FinanceDates.displayRange(from: "2026-09-01", to: "2026-09-26"), "1 – 26 Sep 2026", "range same month")
+        expectEqual(FinanceDates.displayRange(from: "2026-09-01", to: "2026-09-26"), "1 Sep – 26 Sep 2026", "range same month (web fmtRange)")
+        expectEqual(FinanceDates.displayRange(from: "2026-09-26", to: "2026-09-26"), "26 Sep 2026", "one day reads as one day")
         expectEqual(FinanceDates.displayRange(from: "2026-08-30", to: "2026-09-05"), "30 Aug – 5 Sep 2026", "range same year")
         expectEqual(FinanceDates.displayRange(from: "2025-12-15", to: "2026-01-03"), "15 Dec 2025 – 3 Jan 2026", "range across years")
 

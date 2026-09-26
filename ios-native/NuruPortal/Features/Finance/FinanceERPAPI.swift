@@ -456,6 +456,8 @@ struct FinTransactionFilter: Equatable {
     var pledged = "any"
     /// any · yes · no
     var need = "any"
+    /// One member's transactions exactly (GET /admin/finance/transactions?user_id=).
+    var userId: String? = nil
 
     var query: [String: String] {
         var out = period?.query ?? [:]
@@ -466,6 +468,7 @@ struct FinTransactionFilter: Equatable {
         if let term = FinanceERPAPI.searchTerm(q) { out["q"] = term }
         if pledged != "any", !pledged.isEmpty { out["pledged"] = pledged }
         if need != "any", !need.isEmpty { out["need"] = need }
+        if let userId, !userId.isEmpty { out["user_id"] = userId }
         return out
     }
 }
