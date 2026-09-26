@@ -328,11 +328,15 @@ private let navGroups: [NavGroup] = [
     // the same level, while not changing any of your existing terminology").
     // Same order, keys and labels as nav.tsx; every row finance:view.
     .init(label: NavGroup.financeLabel, entries: [
+        // Claims are members saying they paid a pledge another way — money in,
+        // so Giving & Income, beside Partners (owner, 2026-09-26; first placed
+        // under Spending & Planning).
         .subgroup(.init(key: "giving", label: "Giving & Income", icon: "gift", items: [
-            .financeOverview, .financeTransactions, .financePledges, .partners, .financeRecurring, .financeCampaigns,
+            .financeOverview, .financeTransactions, .financePledges, .partners, .financeClaims,
+            .financeRecurring, .financeCampaigns,
         ])),
         .subgroup(.init(key: "spending", label: "Spending & Planning", icon: "wallet.bifold", items: [
-            .financeNeeds, .financeExpenses, .financeClaims, .financeBudgets, .financeFunds,
+            .financeNeeds, .financeExpenses, .financeBudgets, .financeFunds,
         ])),
         // "The books".
         .subgroup(.init(key: "accounting", label: "Accounting & Reporting", icon: "books.vertical", items: [
@@ -999,24 +1003,24 @@ func financeNavSelfCheckFailures() -> [String] {
         failures.append("nav: Finance sub-menu labels differ from the owner's")
     }
     let rows: [String: [Section]] = Dictionary(uniqueKeysWithValues: finance.subgroups.map { ($0.key, $0.items) })
-    if rows["giving"] != [.financeOverview, .financeTransactions, .financePledges, .partners, .financeRecurring, .financeCampaigns] {
+    if rows["giving"] != [.financeOverview, .financeTransactions, .financePledges, .partners, .financeClaims, .financeRecurring, .financeCampaigns] {
         failures.append("nav: Giving & Income rows are wrong")
     }
-    if rows["spending"] != [.financeNeeds, .financeExpenses, .financeClaims, .financeBudgets, .financeFunds] {
+    if rows["spending"] != [.financeNeeds, .financeExpenses, .financeBudgets, .financeFunds] {
         failures.append("nav: Spending & Planning rows are wrong")
     }
     if rows["accounting"] != [.financeLedger, .financeReconciliation, .financeReports, .financeStatements, .financeAudit] {
         failures.append("nav: Accounting & Reporting rows are wrong")
     }
     let expected: [Section] = [
-        .financeOverview, .financeTransactions, .financePledges, .partners, .financeRecurring, .financeCampaigns,
-        .financeNeeds, .financeExpenses, .financeClaims, .financeBudgets, .financeFunds,
+        .financeOverview, .financeTransactions, .financePledges, .partners, .financeClaims, .financeRecurring,
+        .financeCampaigns, .financeNeeds, .financeExpenses, .financeBudgets, .financeFunds,
         .financeLedger, .financeReconciliation, .financeReports, .financeStatements, .financeAudit,
         .financeSettings,
     ]
     if finance.items != expected { failures.append("nav: the flat Finance rows are not the 17 spec §1 sections in sidebar order") }
-    let titles = ["Overview", "Transactions", "Pledges", "Partners", "Recurring gifts", "Campaigns",
-                  "Department needs", "Expenses", "Claims", "Budgets", "Funds",
+    let titles = ["Overview", "Transactions", "Pledges", "Partners", "Claims", "Recurring gifts",
+                  "Campaigns", "Department needs", "Expenses", "Budgets", "Funds",
                   "Ledger", "Reconciliation", "Reports", "Statements", "Audit", "Settings"]
     if expected.map(\.title) != titles { failures.append("nav: Finance titles changed (the owner asked for none to)") }
     for s in expected where s.permission != "finance:view" { failures.append("nav: \(s.rawValue) is not gated on finance:view") }
