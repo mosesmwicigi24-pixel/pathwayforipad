@@ -1,18 +1,22 @@
-// Partners — the Partners programme console, a native port of the web
-// portal's Partners.tsx (pathway #482; docs/PARTNERS_PROGRAMME.md §1, §3,
-// §5–§6). Who has joined, what each partner committed, whether they are
-// behind, and — per partner — pledges with server-computed progress, the
-// schedules charging them, the payments attributed to each pledge and the
-// reminder log. The office's actions: "Send reminder" for one partner
-// (optionally one pledge, optional note), "Remind everyone behind", and the
-// Claims queue where "I paid another way" claims are confirmed (the server
-// records a manual gift and posts the ledger) or rejected.
+// Finance → Partners — the Partners programme console, a native port of the
+// web portal's Partners page (pathway #482; docs/PARTNERS_PROGRAMME.md §1, §3,
+// §5–§6; docs/FINANCE_ERP.md §5). Who has joined, what each partner committed,
+// whether they are behind, and — per partner — the faithfulness strip (kept of
+// due this year, standing, "overdue since"), pledges with server-computed
+// progress, the schedules charging them, the payments attributed to each
+// pledge, the reminder log, and the member's Partner / Giving statement PDFs
+// for a chosen year. The office's actions: "Send reminder" for one partner
+// (optionally one pledge, optional note) and "Remind everyone behind". The
+// "I paid another way" claims queue is its own page now (Finance → Claims);
+// the hero's Claims pill opens it.
 //
 // Layout follows DisciplesView (list rail + detail panel that stacks when
-// narrow) under FinanceView's hero + gold-underline tab bar. Every number on
-// this page comes from a real endpoint and every "behind" flag from the server
-// (§1.1); the 12-hour reminder spacing is enforced server-side — this page
-// only reports it. finance:manage gates the actions (server-enforced too).
+// narrow) under the Finance hero. Every number on this page comes from a real
+// endpoint and every "behind" flag from the server (§1.1); the 12-hour
+// reminder spacing is enforced server-side — this page only reports it.
+// finance:manage gates the actions (FinanceCaps — hidden while /me loads; the
+// server enforces it too). Deep links: member=<user_id> opens that partner;
+// status=<all|active|paused|behind|left> sets the list filter.
 import SwiftUI
 
 // MARK: - Visual language (web rowChip / progressChip / pledgeStatusChip)
@@ -78,10 +82,10 @@ private func titleCase(_ s: String) -> String {
 private func shortRef(_ id: String) -> String {
     id.count > 12 ? "\(id.prefix(8))…\(id.suffix(4))" : id
 }
-/// The programme's money format, as FinanceView does it: integer minor units →
-/// `Fmt.money`; the programme default currency is KES when a row carries none.
+/// Exact integer formatting, as on every Finance page ("KES 1,234.50"); the
+/// programme default currency is KES when a row carries none.
 private func money(_ minor: Int, _ currency: String?) -> String {
-    Fmt.money(minor: minor, currency: (currency?.isEmpty == false) ? currency : "KES")
+    FinanceMoney.format(minor, (currency?.isEmpty == false) ? (currency ?? "KES") : "KES")
 }
 
 private func pledgeTarget(_ p: PartnerPledge) -> String {
@@ -98,7 +102,7 @@ private func pledgeTerms(_ p: PartnerPledge) -> String {
     if p.isMonthly {
         return "\(money(p.amountMinor, p.currency)) every month" + (p.dueDay.map { " · due day \($0)" } ?? "")
     }
-    return "\(money(p.targetMinor, p.currency)) by \(PgDate.day(p.dueOn))"
+    return "\(money(p.targetMinor, p.currency)) by \(FinBTime.day(p.dueOn))"
 }
 
 /// An inline notice in one of three tones (web Notice / Result).
@@ -131,11 +135,6 @@ private let statusFilters: [FilterOption] = [
 private let sortOptions: [FilterOption] = [
     .init(label: "Recent", value: "recent"), .init(label: "Committed", value: "committed"), .init(label: "Behind first", value: "behind"),
 ]
-
-private enum PartnersTab: String, CaseIterable {
-    case partners, claims
-    var label: String { self == .partners ? "Partners" : "Claims" }
-}
 
 // MARK: - Small pieces (local copies — every page keeps its own)
 
@@ -211,19 +210,6 @@ private struct Th: View {
     }
 }
 
-/// Count badge for tabs / hero chips (web's mono pill).
-private struct CountBadge: View {
-    let count: Int
-    var lit = true
-    var body: some View {
-        Text("\(count)").font(.nMono(11))
-            .foregroundStyle(lit ? Color(hex: 0xA87616) : Nuru.ink600)
-            .padding(.horizontal, 6).frame(minWidth: 18, minHeight: 18)
-            .background(lit ? Color(hex: 0xFFF4DA) : Nuru.mutedBg)
-            .clipShape(Capsule())
-    }
-}
-
 private struct FilterChips: View {
     let options: [FilterOption]
     @Binding var selection: String
@@ -293,28 +279,29 @@ private final class PartnersVM: ObservableObject {
     @Published var status = "all"
     @Published var sort = "recent"
     @Published var selectedId: String?
-    // claims queue (§1 d) — loaded up front so the hero badge is right on any tab
-    @Published var claims: [PledgeClaimRow] = []
-    @Published var claimsLoading = true
-    @Published var claimsError: String?
-    /// The one claim decision in flight (its id) — the others wait.
-    @Published var deciding: String?
+    /// The partner a deep link opened (member=<user_id>): stays selected while
+    /// the list reloads, even before (or without) appearing in the rail.
+    @Published var pinnedId: String?
+    /// Pending "I paid another way" claims — the hero pill's number (the queue
+    /// itself is Finance → Claims). Nil until read, or when it could not be.
+    @Published var claimsCount: Int?
     @Published var remindingAll = false
     @Published var heroNotice: Notice?
-    /// Bumped after an action the open detail should re-read (a claim
-    /// confirmed is a payment now; "remind everyone" adds a reminders row).
+    /// Bumped after an action the open detail should re-read ("remind
+    /// everyone" adds a reminders row).
     @Published var detailNonce = 0
+    /// Bumped to bring the detail panel into view (a deep link, stacked layout).
+    @Published var revealDetail = 0
 
-    // Out-of-order guards: only the latest request of each kind may land.
+    // Out-of-order guard: only the latest list request may land.
     private var listSeq = 0
-    private var claimsSeq = 0
     private var reloadTask: Task<Void, Never>?
 
     var filtersActive: Bool { !search.trimmingCharacters(in: .whitespaces).isEmpty || status != "all" }
 
     func loadAll() async {
         async let a: Void = loadList()
-        async let b: Void = loadClaims()
+        async let b: Void = loadClaimsCount()
         _ = await (a, b)
     }
 
@@ -329,7 +316,7 @@ private final class PartnersVM: ObservableObject {
     }
 
     /// Load (or refresh) the list; keeps the current selection when it is
-    /// still listed, else picks the top row (DisciplesView behavior).
+    /// still listed (or is the deep-linked partner), else picks the top row.
     func loadList() async {
         listSeq += 1
         let seq = listSeq
@@ -340,9 +327,8 @@ private final class PartnersVM: ObservableObject {
             rows = page.data
             if let s = page.summary { summary = s }
             error = nil
-            if !(selectedId.map { cur in rows.contains { $0.userId == cur } } ?? false) {
-                selectedId = rows.first?.userId
-            }
+            let keep = selectedId.map { cur in cur == pinnedId || rows.contains { $0.userId == cur } } ?? false
+            if !keep { selectedId = rows.first?.userId }
         } catch {
             guard seq == listSeq else { return }
             self.error = (error as? APIError)?.errorDescription ?? "Could not load partners."
@@ -350,20 +336,20 @@ private final class PartnersVM: ObservableObject {
         if seq == listSeq { loading = false }
     }
 
-    func loadClaims() async {
-        claimsSeq += 1
-        let seq = claimsSeq
-        claimsLoading = true
-        do {
-            let data = try await PartnersAPI.claims()
-            guard seq == claimsSeq else { return }
-            claims = data
-            claimsError = nil
-        } catch {
-            guard seq == claimsSeq else { return }
-            claimsError = (error as? APIError)?.errorDescription ?? "Could not load claims."
-        }
-        if seq == claimsSeq { claimsLoading = false }
+    /// The pill's number. A failure leaves the pill reading "Claims" with no
+    /// count — the Claims page shows the real error when opened.
+    func loadClaimsCount() async {
+        do { claimsCount = try await PartnersAPI.claims().count } catch { claimsCount = nil }
+    }
+
+    /// Open one partner from a deep link: clear the filters that could hide
+    /// them, select and pin them, and bring the detail into view.
+    func open(member userId: String) {
+        pinnedId = userId
+        selectedId = userId
+        if !search.isEmpty { search = "" }
+        if status != "all" { status = "all" }
+        revealDetail += 1
     }
 
     // "Remind everyone behind" (§3): the server walks every partner with a
@@ -382,71 +368,43 @@ private final class PartnersVM: ObservableObject {
         }
         remindingAll = false
     }
-
-    // Confirm / reject a claim (§1 d). Confirming is a money write on the
-    // server (a succeeded manual transaction + ledger + receipt) with no undo
-    // endpoint, so the page asks first. A 422 (or 404) means the claim was
-    // decided elsewhere — the row is stale, so the queue is reloaded rather
-    // than retried. Returns the toast text on success.
-    func decideClaim(_ c: PledgeClaimRow, decision: String) async -> String? {
-        deciding = c.claimId
-        defer { deciding = nil }
-        do {
-            try await PartnersAPI.decideClaim(c.claimId, decision: decision)
-            claims.removeAll { $0.claimId == c.claimId }
-            claimsError = nil
-            if decision == "confirm" {
-                await loadList()                  // given-this-year / behind may have moved
-                if selectedId == c.userId { detailNonce += 1 }   // it is a payment now
-            }
-            return decision == "confirm" ? "Recorded as a manual gift" : "Rejected"
-        } catch {
-            if case let APIError.http(status, message, _) = error, status == 422 || status == 404 {
-                claimsError = "\(message) — this claim was decided elsewhere, so the queue was reloaded."
-                await loadClaims()
-            } else {
-                claimsError = (error as? APIError)?.errorDescription
-                    ?? (decision == "confirm" ? "Could not confirm the claim." : "Could not reject the claim.")
-            }
-            return nil
-        }
-    }
-}
-
-/// A claim decision waiting for the office's confirmation.
-private struct ClaimPrompt: Identifiable {
-    let claim: PledgeClaimRow
-    let decision: String                          // confirm | reject
-    var id: String { "\(claim.claimId):\(decision)" }
 }
 
 // MARK: - Page
 
 struct PartnersView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var router: NavRouter
     @StateObject private var vm = PartnersVM()
-    @State private var tab: PartnersTab = .partners
     @State private var toast: ToastData?
     @State private var confirmRemindAll = false
-    @State private var pendingClaim: ClaimPrompt?
 
-    /// finance:manage gates the actions. A profile still loading fails OPEN
-    /// (RootView's isSectionVisible doctrine) — the server enforces the
-    /// permission regardless, and its 403 surfaces inline.
-    private var canManage: Bool {
-        auth.profile.map { $0.permissions.contains("finance:manage") } ?? true
-    }
+    private static let detailAnchor = "partners.detail"
+
+    /// What this person may do (spec §6). finance:manage gates the actions and
+    /// is FALSE while /me loads — writes fail closed (web parity); the server
+    /// enforces the permission regardless.
+    private var caps: FinanceCaps { auth.financeCaps }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                hero
-                tabBar
-                content
-                    .padding(.horizontal, Nuru.S.lg)
-                    .padding(.top, Nuru.S.lg)
-                    .padding(.bottom, 48)
-                    .macContentColumn(MacDesign.workspaceMaxWidth)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    hero
+                    content
+                        .padding(.horizontal, Nuru.S.lg)
+                        .padding(.top, Nuru.S.lg)
+                        .padding(.bottom, 48)
+                        .macContentColumn(MacDesign.workspaceMaxWidth)
+                }
+            }
+            .onChange(of: vm.revealDetail) { _, _ in
+                // After the layout settles, scroll the detail to the top — in
+                // the stacked (narrow) layout it sits below the whole rail.
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(Self.detailAnchor, anchor: .top) }
+                }
             }
         }
         .background(Nuru.paper)
@@ -457,25 +415,15 @@ struct PartnersView: View {
         .onChange(of: vm.search) { _, _ in vm.scheduleReload() }
         .onChange(of: vm.status) { _, _ in Task { await vm.loadList() } }
         .onChange(of: vm.sort) { _, _ in Task { await vm.loadList() } }
-        // Reload the queue whenever it is opened — another admin may have decided meanwhile.
-        .onChange(of: tab) { _, new in if new == .claims { Task { await vm.loadClaims() } } }
+        .onFinanceLink(.partners) { params in
+            if let s = params["status"], statusFilters.contains(where: { $0.value == s }) { vm.status = s }
+            if let member = params["member"]?.trimmingCharacters(in: .whitespaces), !member.isEmpty { vm.open(member: member) }
+        }
         .alert("Remind everyone behind?", isPresented: $confirmRemindAll) {
             Button("Cancel", role: .cancel) {}
             Button("Send reminders") { Task { await vm.remindBehind() } }
         } message: {
             Text(remindAllQuestion)
-        }
-        .alert(pendingClaim?.decision == "confirm" ? "Record as a manual gift?" : "Reject this claim?",
-               isPresented: Binding(get: { pendingClaim != nil }, set: { if !$0 { pendingClaim = nil } }),
-               presenting: pendingClaim) { p in
-            Button("Cancel", role: .cancel) { pendingClaim = nil }
-            if p.decision == "confirm" {
-                Button("Confirm") { decide(p) }
-            } else {
-                Button("Reject", role: .destructive) { decide(p) }
-            }
-        } message: { p in
-            Text(claimQuestion(p))
         }
     }
 
@@ -483,18 +431,6 @@ struct PartnersView: View {
         let n = vm.summary?.behind ?? 0
         let who = n == 1 ? "the 1 partner who is behind" : "the \(n) partners who are behind"
         return "Remind \(who)?\n\nAnyone reminded in the last \(PartnersAPI.reminderSpacingHours) hours — automatically or by the office — is skipped, so nobody is nagged twice."
-    }
-
-    private func claimQuestion(_ p: ClaimPrompt) -> String {
-        let amount = money(p.claim.amountMinor, p.claim.currency)
-        return p.decision == "confirm"
-            ? "Record \(amount) from \(p.claim.fullName) as a manual gift toward “\(p.claim.pledgeTitle)”?\n\nThis posts to the ledger and sends them a receipt. It cannot be undone here."
-            : "Reject \(p.claim.fullName)'s claim of \(amount)?\n\nThey will be told."
-    }
-
-    private func decide(_ p: ClaimPrompt) {
-        pendingClaim = nil
-        Task { if let text = await vm.decideClaim(p.claim, decision: p.decision) { toast = .success(text) } }
     }
 
     // MARK: hero — shared PortalHero (breadcrumb · title · stat strip · trailing chips)
@@ -517,9 +453,11 @@ struct PartnersView: View {
             HStack(spacing: 8) {
                 HeroChip(label: s.map { plural($0.partners, "partner", "partners") } ?? "Partners programme",
                          icon: "heart.fill", style: .tag)
-                HeroChip(label: vm.claimsLoading && vm.claims.isEmpty ? "Claims · …" : "Claims · \(vm.claims.count)",
-                         icon: "list.clipboard", style: .ghost) { tab = .claims }
-                if canManage {
+                // The claims queue is its own page now (Finance → Claims).
+                HeroChip(label: vm.claimsCount.map { "Claims · \($0)" } ?? "Claims",
+                         icon: "list.clipboard", trailingIcon: "arrow.up.right", style: .ghost) { router.openFinance(.financeClaims) }
+                    .accessibilityHint("Opens Finance → Claims")
+                if caps.manage {
                     HeroChip(label: vm.remindingAll ? "Reminding…" : "Remind everyone behind",
                              icon: "paperplane", style: .gold) { confirmRemindAll = true }
                         .disabled(vm.remindingAll || s == nil || behind == 0)
@@ -530,60 +468,23 @@ struct PartnersView: View {
         }
     }
 
-    // MARK: tab bar (FinanceView idiom + count badge)
-
-    private var tabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(PartnersTab.allCases, id: \.self) { t in
-                    let active = tab == t
-                    let count = t == .claims ? vm.claims.count : 0
-                    Button { tab = t } label: {
-                        HStack(spacing: 7) {
-                            Text(t.label).font(.inter(14, active ? .bold : .medium))
-                            if count > 0 { CountBadge(count: count) }
-                        }
-                        .foregroundStyle(active ? Nuru.navy : Nuru.ink600)
-                        .padding(.horizontal, 16).padding(.vertical, 12)
-                        .overlay(alignment: .bottom) {
-                            Rectangle().fill(active ? Nuru.gold : .clear).frame(height: 2)
-                        }
-                    }
-                    .pressable()
-                    .hoverEffect(.highlight)
-                }
-            }
-            .padding(.horizontal, Nuru.S.lg)
-        }
-        .overlay(alignment: .bottom) { Rectangle().fill(Nuru.border).frame(height: 1) }
-        .background(Nuru.paper)
-    }
-
-    // MARK: content switch
+    // MARK: content
 
     @ViewBuilder private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             if let n = vm.heroNotice { NoticeBar(notice: n) { vm.heroNotice = nil } }
-            switch tab {
-            case .partners:
-                partnersTab
-            case .claims:
-                ClaimsPanel(claims: vm.claims, loading: vm.claimsLoading, error: vm.claimsError,
-                            canManage: canManage, deciding: vm.deciding) { c, d in
-                    pendingClaim = ClaimPrompt(claim: c, decision: d)
-                }
-            }
+            partnersBody
         }
     }
 
-    // MARK: Partners tab — filters + master–detail (rail | detail), stacking when narrow
+    // MARK: filters + master–detail (rail | detail), stacking when narrow
 
-    private var partnersTab: some View {
+    private var partnersBody: some View {
         VStack(alignment: .leading, spacing: 14) {
             toolbar
             if let error = vm.error { errorBanner(error) }
             let rail = railList
-            let detail = detailPanel
+            let detail = detailPanel.id(Self.detailAnchor)
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 16) {
                     rail.frame(width: 420)
@@ -683,7 +584,7 @@ struct PartnersView: View {
                     HStack(spacing: 6) {
                         Text(plural(r.pledgesActive, "pledge", "pledges"))
                         Text("·")
-                        Text("Next due \(PgDate.day(r.nextDueOn))")
+                        Text("Next due \(FinBTime.day(r.nextDueOn))")
                             .foregroundStyle(r.behind ? (active ? Color(hex: 0xF5C77E) : Color(hex: 0xA87616)) : dim)
                     }
                     .font(.nMicro).foregroundStyle(dim)
@@ -709,7 +610,7 @@ struct PartnersView: View {
 
     @ViewBuilder private var detailPanel: some View {
         if let sel = vm.selectedId {
-            PartnerDetailPanel(userId: sel, canManage: canManage, nonce: vm.detailNonce,
+            PartnerDetailPanel(userId: sel, caps: caps, nonce: vm.detailNonce,
                                onNotice: { toast = .success($0) })
                 .id(sel)
         } else {
@@ -721,11 +622,12 @@ struct PartnersView: View {
     }
 }
 
-// MARK: - Detail panel (the web drawer: member header · pledges · schedules · payments · reminders)
+// MARK: - Detail panel (the web drawer: member header · faithfulness · statements ·
+// pledges · schedules · payments · reminders)
 
 private struct PartnerDetailPanel: View {
     let userId: String
-    let canManage: Bool
+    let caps: FinanceCaps
     /// Bumped by the page after an action this panel should re-read.
     let nonce: Int
     let onNotice: (String) -> Void
@@ -735,6 +637,15 @@ private struct PartnerDetailPanel: View {
     @State private var error: String?
     @State private var remindOpen = false
     @State private var remindResult: Notice?
+    /// This partner's rows of this year's pledge register — kept / due per
+    /// pledge (the partner detail carries progress, not the counts). Nil until
+    /// read; `registerError` when it could not be read.
+    @State private var register: [FinPledgeRow]?
+    @State private var registerError: String?
+    /// The year the two statement PDFs are for.
+    @State private var statementYear = FinanceDates.currentYear()
+
+    private var canManage: Bool { caps.manage }
 
     var body: some View {
         Group {
@@ -786,13 +697,40 @@ private struct PartnerDetailPanel: View {
     private func load() async {
         if d == nil { loading = true }
         do {
-            d = try await PartnersAPI.detail(userId)
+            let detail = try await PartnersAPI.detail(userId)
+            d = detail
             error = nil
+            loading = false
+            await loadRegister(detail.member)
         } catch {
             self.error = (error as? APIError)?.errorDescription
                 ?? (d == nil ? "Could not load this partner." : "Could not refresh this partner.")
         }
         loading = false
+    }
+
+    /// Kept / due come from the pledge register (GET /admin/finance/pledges —
+    /// the same instalment ledger as the statement). It has no member filter,
+    /// so search by the member's phone (else name) and keep exactly this
+    /// member's rows by user id; at most five pages of 200.
+    private func loadRegister(_ m: PartnerRow) async {
+        let term = [m.phone, m.fullName].compactMap { $0.flatMap(FinanceERPAPI.searchTerm) }.first
+        guard let term else { register = []; return }
+        do {
+            var rows: [FinPledgeRow] = []
+            var cursor: String? = nil
+            for _ in 0..<5 {
+                let page = try await FinanceERPAPI.pledges(FinPledgeFilter(year: FinanceDates.currentYear(), q: term),
+                                                           cursor: cursor, limit: 200)
+                rows += page.data.filter { $0.userId == userId }
+                guard let next = page.nextCursor else { break }
+                cursor = next
+            }
+            register = rows
+            registerError = nil
+        } catch {
+            registerError = FinBError.message(error, fallback: "Could not read the instalment ledger.")
+        }
     }
 
     // Dominant currency for the row-level minor amounts (they carry none).
@@ -824,13 +762,15 @@ private struct PartnerDetailPanel: View {
                     Spacer(minLength: 0)
                 }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
-                    statCell("Partner since", PgDate.day(m.membership?.joinedAt))
+                    statCell("Partner since", FinBTime.day(m.membership?.joinedAt))
                     statCell("Committed / month", money(m.committedMonthlyMinor, cur), bold: true)
                     statCell("Given this year", money(m.givenYearMinor, cur), bold: true)
                     statCell("Active pledges", "\(m.pledgesActive)")
-                    statCell("Last gift", PgDate.day(m.lastGiftAt))
-                    statCell("Next due", PgDate.day(m.nextDueOn), tint: m.behind ? Color(hex: 0xA87616) : nil)
+                    statCell("Last gift", FinBTime.day(m.lastGiftAt))
+                    statCell("Next due", FinBTime.day(m.nextDueOn), tint: m.behind ? Color(hex: 0xA87616) : nil)
                 }
+                faithfulnessStrip(d)
+                statementsRow
                 if let error { NoticeBar(notice: Notice(kind: .error, text: error)) { self.error = nil } }
                 if canManage {
                     HStack(spacing: 10) {
@@ -859,6 +799,73 @@ private struct PartnerDetailPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Nuru.inputBg)
         .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+    }
+
+    /// The faithfulness strip: instalments kept of those due this year (Σ over
+    /// monthly pledges not cancelled, from the register), the standing (the
+    /// server's behind flag) and the earliest "overdue since" of any pledge.
+    private func faithfulnessStrip(_ d: PartnerDetail) -> some View {
+        let monthly = (register ?? []).filter { $0.shape == "monthly" && $0.status != "cancelled" }
+        let kept = monthly.reduce(0) { $0 + $1.kept }
+        let due = monthly.reduce(0) { $0 + $1.dueCount }
+        let overdue = d.pledges.filter { $0.status != "cancelled" }.compactMap { $0.progress?.overdueSince }.sorted().first
+        let standing: String = d.member.behind ? "behind"
+            : d.pledges.contains { $0.status == "active" } ? "on_track"
+            : d.pledges.contains { $0.status == "fulfilled" } ? "fulfilled"
+            : d.pledges.isEmpty ? "" : "paused"
+        let keptText: String = register == nil ? (registerError == nil ? "…" : "—")
+            : due > 0 ? "\(kept) of \(due)" : "Nothing due yet"
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 0) {
+                faithCell("Kept this year", hint: due > 0 ? "instalments paid in full, on time or late" : "monthly instalments") {
+                    Text(keptText).font(.inter(15, .semibold)).foregroundStyle(Nuru.navy).monospacedDigit()
+                }
+                Rectangle().fill(Nuru.border).frame(width: 1).padding(.vertical, 4)
+                faithCell("Standing", hint: d.member.behind ? "an instalment is past due" : "as the member's card reads") {
+                    FinanceStatusChip(status: standing, label: standing.isEmpty ? "No pledges" : nil)
+                }
+                Rectangle().fill(Nuru.border).frame(width: 1).padding(.vertical, 4)
+                faithCell("Overdue", hint: overdue == nil ? "every instalment due is paid" : "the earliest missed instalment") {
+                    if let overdue {
+                        Text("since \(FinanceDates.display(overdue))").font(.inter(14, .semibold)).foregroundStyle(FinanceStatus.amber.fg)
+                    } else {
+                        Text("Nothing overdue").font(.inter(14, .semibold)).foregroundStyle(Nuru.success)
+                    }
+                }
+            }
+            .background(Nuru.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            if let registerError {
+                Text("Kept of due is unavailable — \(registerError)").font(.nMicro).foregroundStyle(FinanceStatus.rose.fg)
+            }
+        }
+    }
+
+    private func faithCell<V: View>(_ label: String, hint: String, @ViewBuilder value: () -> V) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased()).font(.inter(10.5, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600).lineLimit(1)
+            value()
+            Text(hint).font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    /// The member's two PDFs for a chosen year (finance:view): the Partner
+    /// statement (404 if they were never a partner) and the complete Giving
+    /// statement (404 when nothing was given that year).
+    private var statementsRow: some View {
+        let y = String(statementYear)
+        return FinanceFlowLayout(spacing: 8, rowSpacing: 8) {
+            Text("STATEMENTS").font(.inter(10.5, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                .frame(height: 34)
+            FinanceYearMenu(year: $statementYear)
+            FinBDownloadButton(caps: caps, path: FinanceERPAPI.partnersStatementPath(userId), query: ["year": y],
+                               title: "Partner statement", icon: "doc.richtext", notFound: "No partner statement for \(y)")
+            FinBDownloadButton(caps: caps, path: FinanceERPAPI.givingStatementPath(userId), query: ["year": y],
+                               title: "Giving statement", icon: "doc.text", notFound: "No giving statement for \(y)")
+        }
     }
 
     private func sectionLabel(_ title: String, icon: String, caption: String? = nil) -> some View {
@@ -931,15 +938,27 @@ private struct PartnerDetailPanel: View {
                 }
                 ProgressBar(pct: ratio * 100, fill: bar, height: 8)
             }
-            HStack(spacing: 16) {
+            FinanceFlowLayout(spacing: 16, rowSpacing: 4) {
+                if let since = p.progress?.overdueSince {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.circle").font(.system(size: 11))
+                        Text("Overdue since \(FinanceDates.display(since))").font(.inter(11.5, .semibold))
+                    }
+                    .foregroundStyle(Color(hex: 0xA87616))
+                }
                 HStack(spacing: 4) {
                     Image(systemName: "calendar.badge.clock").font(.system(size: 11))
                     Text("Next due")
-                    Text(PgDate.day(nextDue)).font(.nMono(11.5)).foregroundStyle(prog.label == "Behind" ? Color(hex: 0xA87616) : Nuru.navy)
+                    Text(FinBTime.day(nextDue)).font(.nMono(11.5)).foregroundStyle(prog.label == "Behind" ? Color(hex: 0xA87616) : Nuru.navy)
+                }
+                if p.isMonthly, let reg = register?.first(where: { $0.pledgeId == p.pledgeId }) {
+                    HStack(spacing: 4) {
+                        Text("This year")
+                        Text(reg.dueCount > 0 ? "\(reg.kept) of \(reg.dueCount) kept" : "nothing due yet").font(.nMono(11.5)).foregroundStyle(Nuru.navy)
+                    }
                 }
                 HStack(spacing: 4) { Text("All time"); Text(money(p.progress?.paidMinor ?? 0, p.currency)).font(.nMono(11.5)).foregroundStyle(Nuru.navy) }
-                HStack(spacing: 4) { Text("Since"); Text(PgDate.day(p.createdAt)).font(.nMono(11.5)).foregroundStyle(Nuru.navy) }
-                Spacer(minLength: 0)
+                HStack(spacing: 4) { Text("Since"); Text(FinBTime.day(p.createdAt)).font(.nMono(11.5)).foregroundStyle(Nuru.navy) }
             }
             .font(.nMicro).foregroundStyle(Nuru.ink600)
         }
@@ -977,7 +996,7 @@ private struct PartnerDetailPanel: View {
                                 Text(titleCase(s.frequency)).font(.inter(12)).foregroundStyle(Nuru.navy).frame(width: 90, alignment: .leading)
                                 Text(s.method.map(titleCase) ?? "—").font(.inter(12)).foregroundStyle(Nuru.navy).frame(width: 80, alignment: .leading)
                                 ChipPill(chip: chip).frame(width: 90, alignment: .leading)
-                                Text(PgDate.stamp(s.nextRunAt)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 160, alignment: .leading).lineLimit(1)
+                                Text(FinBTime.stamp(s.nextRunAt)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 160, alignment: .leading).lineLimit(1)
                                 Text("\(s.consecutiveFailures)").font(.nMono(12))
                                     .foregroundStyle(s.consecutiveFailures > 0 ? Color(hex: 0xB42318) : Nuru.navy).frame(width: 64, alignment: .leading)
                             }
@@ -1011,7 +1030,7 @@ private struct PartnerDetailPanel: View {
                     } rows: {
                         ForEach(d.payments) { t in
                             HStack(spacing: 12) {
-                                Text(PgDate.day(t.at)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 110, alignment: .leading).lineLimit(1)
+                                Text(FinBTime.day(t.at)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 110, alignment: .leading).lineLimit(1)
                                 Text(t.fund ?? "—").font(.inter(12.5)).foregroundStyle(Nuru.navy).frame(width: 100, alignment: .leading).lineLimit(1)
                                 Text(money(t.amountMinor, t.currency)).font(.nMono(12.5, .medium)).foregroundStyle(Nuru.navy).frame(width: 120, alignment: .trailing).lineLimit(1)
                                 Text(t.pledgeId.map { label[$0] ?? shortRef($0) } ?? "Unattributed").font(.inter(12))
@@ -1049,11 +1068,11 @@ private struct PartnerDetailPanel: View {
                     } rows: {
                         ForEach(d.reminders) { r in
                             HStack(spacing: 12) {
-                                Text(PgDate.day(r.dueOn)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 110, alignment: .leading).lineLimit(1)
+                                Text(FinBTime.day(r.dueOn)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 110, alignment: .leading).lineLimit(1)
                                 Text(label[r.pledgeId] ?? shortRef(r.pledgeId)).font(.inter(12)).foregroundStyle(Nuru.navy).frame(width: 180, alignment: .leading).lineLimit(1)
                                 Text("\(r.sequence)").font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 30, alignment: .leading)
                                 Text(titleCase(r.channel)).font(.inter(12)).foregroundStyle(Nuru.navy).frame(width: 90, alignment: .leading).lineLimit(1)
-                                Text(PgDate.stamp(r.sentAt)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 160, alignment: .leading).lineLimit(1)
+                                Text(FinBTime.stamp(r.sentAt)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 160, alignment: .leading).lineLimit(1)
                                 ChipPill(chip: r.isManual ? Chip(label: "Office", tone: .navy) : Chip(label: "Automatic", tone: .grey)).frame(width: 90, alignment: .leading)
                                 // Who sent it: the resolved name, else the sender id, else just "Office".
                                 Text(r.isManual ? (r.sentByName ?? r.sentBy.map(shortRef) ?? "Office") : "—").font(.inter(12))
@@ -1186,85 +1205,5 @@ private struct RemindSheet: View {
             self.error = (error as? APIError)?.errorDescription ?? "Could not send the reminder."
         }
         sending = false
-    }
-}
-
-// MARK: - Claims (§1 d) — pending "I paid another way" claims, oldest first
-
-private struct ClaimsPanel: View {
-    let claims: [PledgeClaimRow]
-    let loading: Bool
-    let error: String?
-    let canManage: Bool
-    let deciding: String?
-    let onDecide: (PledgeClaimRow, String) -> Void
-
-    var body: some View {
-        Card(padding: 0) {
-            VStack(spacing: 0) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Claims to review").font(.inter(14, .semibold)).foregroundStyle(Nuru.navy)
-                        Text("“I paid another way” — confirming records a manual gift toward the pledge, posts the ledger and sends a receipt; rejecting tells the member.")
-                            .font(.nCaption).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 8)
-                    Text(loading && claims.isEmpty ? "…" : "\(claims.count) pending").font(.nMono(12)).foregroundStyle(Nuru.ink600)
-                }
-                .padding(.horizontal, 18).padding(.vertical, 16)
-                .overlay(alignment: .bottom) { Rectangle().fill(Nuru.border).frame(height: 1) }
-
-                if let error {
-                    Text(error).font(.inter(12.5, .semibold)).foregroundStyle(Color(hex: 0xA8281F))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 18).padding(.top, 12)
-                }
-
-                if loading && claims.isEmpty {
-                    SkeletonList(rows: 3).padding(16)
-                } else if claims.isEmpty {
-                    if error == nil {
-                        EmptyState.compact(icon: "checkmark.seal", message: "Nothing to review — every “I paid another way” claim has been decided.")
-                    }
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(claims.enumerated()), id: \.element.id) { i, c in
-                            claimRow(c, seed: i)
-                                .overlay(alignment: .top) { if i > 0 { Rectangle().fill(Nuru.border).frame(height: 1) } }
-                        }
-                    }
-                    .padding(.top, 4)
-                }
-            }
-        }
-    }
-
-    private func claimRow(_ c: PledgeClaimRow, seed: Int) -> some View {
-        let mine = deciding == c.claimId
-        let otherBusy = deciding != nil && !mine
-        return HStack(alignment: .top, spacing: 12) {
-            PersonAvatar(url: nil, name: c.fullName, seed: seed, size: 36)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(c.fullName).font(.inter(13.5, .bold)).foregroundStyle(Nuru.navy).lineLimit(1)
-                Text(c.pledgeTitle).font(.nCaption).foregroundStyle(Nuru.foreground).lineLimit(1)
-                if let note = c.note, !note.isEmpty {
-                    Text(note).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(3)
-                }
-                Text("Paid \(PgDate.day(c.paidOn)) · submitted \(PgDate.stamp(c.createdAt))").font(.nMicro).foregroundStyle(Nuru.ink600)
-            }
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 8) {
-                Text(money(c.amountMinor, c.currency)).font(.nMono(13, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
-                if canManage {
-                    HStack(spacing: 8) {
-                        ActionButton(title: "Confirm", icon: "checkmark", style: .primary, busy: mine) { onDecide(c, "confirm") }
-                        ActionButton(title: "Reject", icon: "nosign", style: .danger, busy: mine) { onDecide(c, "reject") }
-                    }
-                    .disabled(otherBusy)
-                }
-            }
-        }
-        .padding(.horizontal, 18).padding(.vertical, 12)
-        .opacity(otherBusy ? 0.6 : 1)
     }
 }
