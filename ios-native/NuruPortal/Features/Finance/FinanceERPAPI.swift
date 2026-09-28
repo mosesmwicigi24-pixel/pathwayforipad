@@ -335,11 +335,15 @@ struct FinOverview: Decodable {
     }
     struct Alert: Decodable, Hashable, Identifiable {
         /// pending_claims · expenses_awaiting_approval · failing_schedules ·
-        /// stale_processing · integrity_issues · partners_behind
+        /// stale_processing · integrity_issues · partners_behind ·
+        /// collection_outage (a kind this app does not know reads in plain words)
         @DefaultEmpty var kind: String
         @LooseInt var count: Int
         /// The web route the alert opens — `FinanceLink.fromWebRoute(link)`.
         @DefaultEmpty var link: String
+        /// The server's own words, when it has them (collection_outage) — shown
+        /// instead of the kind's hint (FinanceARules.alertText). Optional.
+        let message: String?
         var id: String { kind }
     }
     let period: Period

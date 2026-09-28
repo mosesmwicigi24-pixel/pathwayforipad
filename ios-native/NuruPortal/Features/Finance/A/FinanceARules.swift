@@ -391,7 +391,9 @@ enum FinanceARules {
             AlertCopy(title: { "\(plural($0, "expense")) to approve" }, hint: "Recorded but not posted — someone other than the recorder approves them.",
                       fallbackLink: "/finance/expenses?status=recorded", tone: .warn)
         case "failing_schedules":
-            AlertCopy(title: { "\(plural($0, "recurring gift")) \($0 == 1 ? "needs" : "need") attention" }, hint: "Paused, or the last collection failed.",
+            // The register's one rule (Giving Cycle 7): a member's own pause is not a failure.
+            AlertCopy(title: { "\(plural($0, "recurring gift")) \($0 == 1 ? "needs" : "need") attention" },
+                      hint: "Failing, stopped after failed prompts, or not sent by us — never a member's own pause.",
                       fallbackLink: "/finance/recurring?attention=true", tone: .warn)
         case "stale_processing":
             AlertCopy(title: { "\(plural($0, "payment")) stuck processing" }, hint: "An M-Pesa prompt older than 30 minutes, or a card payment older than a day.",
@@ -402,9 +404,22 @@ enum FinanceARules {
         case "partners_behind":
             AlertCopy(title: { "\(plural($0, "partner")) behind" }, hint: "A pledge instalment is overdue.",
                       fallbackLink: "/finance/partners?status=behind", tone: .info)
+        case "collection_outage":
+            // M-Pesa itself is unwell (the server says how, in `message`) — known
+            // ahead of the server raising it, like the web.
+            AlertCopy(title: { _ in "M-Pesa looks unwell right now" },
+                      hint: "Most prompts in the past hour never reached members' phones — gifts may fail until it recovers. Nothing to fix here.",
+                      fallbackLink: "/finance/recurring", tone: .error)
         default:
             AlertCopy(title: { "\($0) × " + kind.replacingOccurrences(of: "_", with: " ") }, hint: "", fallbackLink: "/finance", tone: .info)
         }
+    }
+
+    /// The line under an alert's title: the server's own words when it sends
+    /// them (`message`, e.g. collection_outage), else the kind's hint.
+    static func alertText(kind: String, message: String?) -> String {
+        if let m = message?.trimmingCharacters(in: .whitespacesAndNewlines), !m.isEmpty { return m }
+        return alertCopy(kind).hint
     }
 
     /// Only an in-app path is followed; anything else falls back to the kind's
