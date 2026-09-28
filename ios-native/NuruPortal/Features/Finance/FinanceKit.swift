@@ -1287,20 +1287,19 @@ private struct FinanceTableFrame<Rows: View, Status: View, Footer: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Group {
-                // Until the available width is known (0) — and whenever it is
-                // narrower than the columns' floors — the grid scrolls sideways
-                // at its floor width, so it can never widen the page.
-                if width < minWidth {
-                    ScrollView(.horizontal, showsIndicators: true) { grid.frame(width: max(minWidth, width)) }
-                } else {
-                    grid
-                }
-            }
-            // Measure the width OFFERED to the table (the flexible frame takes
-            // the proposal), never the grid's own, possibly overflowing, width.
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .measureWidth($width)
+            // The grid always sits in a sideways scroll view, at the columns'
+            // floors or the offered width, whichever is wider — so it can never
+            // widen the page. A ScrollView takes the width OFFERED to it, never
+            // its content's, so the measured width follows the window BOTH ways:
+            // rotating to portrait, Split View, a Mac window made narrower. (Shown
+            // bare once it fitted, the grid's own floors held the measurement up
+            // after the window narrowed: the table stayed wide and clipped the
+            // whole page on both sides.) It scrolls only when the grid is wider
+            // than the table; no bounce when it fits.
+            ScrollView(.horizontal, showsIndicators: true) { grid.frame(width: max(minWidth, width)) }
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .measureWidth($width)
             status
             footer
         }
