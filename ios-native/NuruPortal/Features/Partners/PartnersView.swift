@@ -210,6 +210,25 @@ private struct Th: View {
     }
 }
 
+/// A card table's column: its design width, grown with the reader's text size
+/// (never below it). The drawer's tables scroll sideways, so larger text
+/// widens them instead of cutting amounts to "KES 5,…" and headers mid-word.
+private struct ColumnWidth: ViewModifier {
+    let width: CGFloat
+    let alignment: Alignment
+    @ScaledMetric(relativeTo: .body) private var textScale: CGFloat = 1
+    func body(content: Content) -> some View {
+        content.frame(width: width * max(1, textScale), alignment: alignment)
+    }
+}
+
+private extension View {
+    /// `.frame(width:alignment:)` for a card table's column (ColumnWidth).
+    func col(_ width: CGFloat, _ alignment: Alignment) -> some View {
+        modifier(ColumnWidth(width: width, alignment: alignment))
+    }
+}
+
 private struct FilterChips: View {
     let options: [FilterOption]
     @Binding var selection: String
@@ -869,23 +888,23 @@ private struct PartnerDetailPanel: View {
                 } else {
                     table {
                         HStack(spacing: 12) {
-                            Th(text: "Fund").frame(width: 110, alignment: .leading)
-                            Th(text: "Amount").frame(width: 120, alignment: .leading)
-                            Th(text: "Frequency").frame(width: 90, alignment: .leading)
-                            Th(text: "Method").frame(width: 80, alignment: .leading)
-                            Th(text: "Status").frame(width: 150, alignment: .leading)
-                            Th(text: "Next run").frame(width: 160, alignment: .leading)
-                            Th(text: "Failures").frame(width: 180, alignment: .leading)
+                            Th(text: "Fund").col(110, .leading)
+                            Th(text: "Amount").col(120, .leading)
+                            Th(text: "Frequency").col(90, .leading)
+                            Th(text: "Method").col(80, .leading)
+                            Th(text: "Status").col(150, .leading)
+                            Th(text: "Next run").col(160, .leading)
+                            Th(text: "Failures").col(180, .leading)
                         }
                     } rows: {
                         ForEach(d.schedules) { s in
                             let chip = scheduleStatusChip(s.status)
                             let failing = s.consecutiveFailures > 0 ? Color(hex: 0xB42318) : Nuru.navy
                             HStack(spacing: 12) {
-                                Text(s.fund ?? "—").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy).frame(width: 110, alignment: .leading).lineLimit(1)
-                                Text(money(s.amountMinor, s.currency)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 120, alignment: .leading).lineLimit(1)
-                                Text(titleCase(s.frequency)).font(.inter(12)).foregroundStyle(Nuru.navy).frame(width: 90, alignment: .leading)
-                                Text(s.method.map(titleCase) ?? "—").font(.inter(12)).foregroundStyle(Nuru.navy).frame(width: 80, alignment: .leading)
+                                Text(s.fund ?? "—").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy).col(110, .leading).lineLimit(1)
+                                Text(money(s.amountMinor, s.currency)).font(.nMono(12)).foregroundStyle(Nuru.navy).col(120, .leading).lineLimit(1)
+                                Text(titleCase(s.frequency)).font(.inter(12)).foregroundStyle(Nuru.navy).col(90, .leading)
+                                Text(s.method.map(titleCase) ?? "—").font(.inter(12)).foregroundStyle(Nuru.navy).col(80, .leading)
                                 // Why it is paused — the member, its pledge, or failures (Giving Cycle 7).
                                 VStack(alignment: .leading, spacing: 3) {
                                     ChipPill(chip: chip)
@@ -894,8 +913,8 @@ private struct PartnerDetailPanel: View {
                                             .lineLimit(3).fixedSize(horizontal: false, vertical: true)
                                     }
                                 }
-                                .frame(width: 150, alignment: .leading)
-                                Text(FinBTime.stamp(s.nextRunAt)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 160, alignment: .leading).lineLimit(1)
+                                .col(150, .leading)
+                                Text(FinBTime.stamp(s.nextRunAt)).font(.nMono(12)).foregroundStyle(Nuru.navy).col(160, .leading).lineLimit(1)
                                 // The count, then why — in the words the member was told.
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("\(s.consecutiveFailures)").font(.nMono(12)).foregroundStyle(failing)
@@ -904,7 +923,7 @@ private struct PartnerDetailPanel: View {
                                             .lineLimit(3).fixedSize(horizontal: false, vertical: true)
                                     }
                                 }
-                                .frame(width: 180, alignment: .leading)
+                                .col(180, .leading)
                             }
                             .padding(.horizontal, 12).padding(.vertical, 9)
                             .background(s.consecutiveFailures > 0 ? Color(hex: 0xFFF4DA).opacity(0.45) : .clear)
@@ -927,21 +946,21 @@ private struct PartnerDetailPanel: View {
                 } else {
                     table {
                         HStack(spacing: 12) {
-                            Th(text: "Date").frame(width: 110, alignment: .leading)
-                            Th(text: "Fund").frame(width: 100, alignment: .leading)
-                            Th(text: "Amount").frame(width: 120, alignment: .trailing)
-                            Th(text: "Pledge").frame(width: 200, alignment: .leading)
-                            Th(text: "Receipt").frame(width: 120, alignment: .leading)
+                            Th(text: "Date").col(110, .leading)
+                            Th(text: "Fund").col(100, .leading)
+                            Th(text: "Amount").col(120, .trailing)
+                            Th(text: "Pledge").col(200, .leading)
+                            Th(text: "Receipt").col(120, .leading)
                         }
                     } rows: {
                         ForEach(d.payments) { t in
                             HStack(spacing: 12) {
-                                Text(FinBTime.day(t.at)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 110, alignment: .leading).lineLimit(1)
-                                Text(t.fund ?? "—").font(.inter(12.5)).foregroundStyle(Nuru.navy).frame(width: 100, alignment: .leading).lineLimit(1)
-                                Text(money(t.amountMinor, t.currency)).font(.nMono(12.5, .medium)).foregroundStyle(Nuru.navy).frame(width: 120, alignment: .trailing).lineLimit(1)
+                                Text(FinBTime.day(t.at)).font(.nMono(12)).foregroundStyle(Nuru.navy).col(110, .leading).lineLimit(1)
+                                Text(t.fund ?? "—").font(.inter(12.5)).foregroundStyle(Nuru.navy).col(100, .leading).lineLimit(1)
+                                Text(money(t.amountMinor, t.currency)).font(.nMono(12.5, .medium)).foregroundStyle(Nuru.navy).col(120, .trailing).lineLimit(1)
                                 Text(t.pledgeId.map { label[$0] ?? shortRef($0) } ?? "Unattributed").font(.inter(12))
-                                    .foregroundStyle(t.pledgeId == nil ? Nuru.ink600 : Nuru.navy).frame(width: 200, alignment: .leading).lineLimit(1)
-                                Text(t.receiptCode ?? "—").font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 120, alignment: .leading).lineLimit(1)
+                                    .foregroundStyle(t.pledgeId == nil ? Nuru.ink600 : Nuru.navy).col(200, .leading).lineLimit(1)
+                                Text(t.receiptCode ?? "—").font(.nMono(12)).foregroundStyle(Nuru.navy).col(120, .leading).lineLimit(1)
                             }
                             .padding(.horizontal, 12).padding(.vertical, 9)
                             .overlay(alignment: .top) { Rectangle().fill(Nuru.border).frame(height: 1) }
@@ -963,26 +982,26 @@ private struct PartnerDetailPanel: View {
                 } else {
                     table {
                         HStack(spacing: 12) {
-                            Th(text: "Due").frame(width: 110, alignment: .leading)
-                            Th(text: "Pledge").frame(width: 180, alignment: .leading)
-                            Th(text: "#").frame(width: 30, alignment: .leading)
-                            Th(text: "Channel").frame(width: 90, alignment: .leading)
-                            Th(text: "Sent").frame(width: 160, alignment: .leading)
-                            Th(text: "Kind").frame(width: 90, alignment: .leading)
-                            Th(text: "By").frame(width: 140, alignment: .leading)
+                            Th(text: "Due").col(110, .leading)
+                            Th(text: "Pledge").col(180, .leading)
+                            Th(text: "#").col(30, .leading)
+                            Th(text: "Channel").col(90, .leading)
+                            Th(text: "Sent").col(160, .leading)
+                            Th(text: "Kind").col(90, .leading)
+                            Th(text: "By").col(140, .leading)
                         }
                     } rows: {
                         ForEach(d.reminders) { r in
                             HStack(spacing: 12) {
-                                Text(FinBTime.day(r.dueOn)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 110, alignment: .leading).lineLimit(1)
-                                Text(label[r.pledgeId] ?? shortRef(r.pledgeId)).font(.inter(12)).foregroundStyle(Nuru.navy).frame(width: 180, alignment: .leading).lineLimit(1)
-                                Text("\(r.sequence)").font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 30, alignment: .leading)
-                                Text(titleCase(r.channel)).font(.inter(12)).foregroundStyle(Nuru.navy).frame(width: 90, alignment: .leading).lineLimit(1)
-                                Text(FinBTime.stamp(r.sentAt)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 160, alignment: .leading).lineLimit(1)
-                                ChipPill(chip: r.isManual ? Chip(label: "Office", tone: .navy) : Chip(label: "Automatic", tone: .grey)).frame(width: 90, alignment: .leading)
+                                Text(FinBTime.day(r.dueOn)).font(.nMono(12)).foregroundStyle(Nuru.navy).col(110, .leading).lineLimit(1)
+                                Text(label[r.pledgeId] ?? shortRef(r.pledgeId)).font(.inter(12)).foregroundStyle(Nuru.navy).col(180, .leading).lineLimit(1)
+                                Text("\(r.sequence)").font(.nMono(12)).foregroundStyle(Nuru.navy).col(30, .leading)
+                                Text(titleCase(r.channel)).font(.inter(12)).foregroundStyle(Nuru.navy).col(90, .leading).lineLimit(1)
+                                Text(FinBTime.stamp(r.sentAt)).font(.nMono(12)).foregroundStyle(Nuru.navy).col(160, .leading).lineLimit(1)
+                                ChipPill(chip: r.isManual ? Chip(label: "Office", tone: .navy) : Chip(label: "Automatic", tone: .grey)).col(90, .leading)
                                 // Who sent it: the resolved name, else the sender id, else just "Office".
                                 Text(r.isManual ? (r.sentByName ?? r.sentBy.map(shortRef) ?? "Office") : "—").font(.inter(12))
-                                    .foregroundStyle(r.isManual ? Nuru.navy : Nuru.ink600).frame(width: 140, alignment: .leading).lineLimit(1)
+                                    .foregroundStyle(r.isManual ? Nuru.navy : Nuru.ink600).col(140, .leading).lineLimit(1)
                             }
                             .padding(.horizontal, 12).padding(.vertical, 9)
                             .overlay(alignment: .top) { Rectangle().fill(Nuru.border).frame(height: 1) }
@@ -1115,11 +1134,11 @@ private struct PartnerFaithfulnessCard: View {
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
-                    Th(text: "Pledge").frame(width: 200, alignment: .leading)
-                    Th(text: "Standing").frame(width: 150, alignment: .leading)
-                    Th(text: "Kept / due").frame(width: 76, alignment: .center)
-                    Th(text: "Next due").frame(width: 100, alignment: .leading)
-                    Th(text: "Paid \(inYear)").frame(width: 120, alignment: .trailing)
+                    Th(text: "Pledge").col(200, .leading)
+                    Th(text: "Standing").col(150, .leading)
+                    Th(text: "Kept / due").col(76, .center)
+                    Th(text: "Next due").col(100, .leading)
+                    Th(text: "Paid \(inYear)").col(120, .trailing)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 .background(Nuru.mutedBg)
@@ -1130,7 +1149,7 @@ private struct PartnerFaithfulnessCard: View {
                             Text(r.paysTo.map { "Pays to \($0.name)" } ?? (r.shape == "monthly" ? "Monthly" : "Total"))
                                 .font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
                         }
-                        .frame(width: 200, alignment: .leading)
+                        .col(200, .leading)
                         VStack(alignment: .leading, spacing: 3) {
                             FinanceStatusChip(status: r.status == "cancelled" ? "cancelled" : r.standing)
                             if let since = r.overdueSince, r.status != "cancelled" {
@@ -1138,13 +1157,13 @@ private struct PartnerFaithfulnessCard: View {
                                     .lineLimit(1)
                             }
                         }
-                        .frame(width: 150, alignment: .leading)
+                        .col(150, .leading)
                         Text(r.shape == "monthly" ? "\(r.kept) of \(r.dueCount)" : "—").font(.nMono(12)).foregroundStyle(Nuru.navy)
-                            .frame(width: 76, alignment: .center)
+                            .col(76, .center)
                         Text(FinanceDates.display(r.nextDue)).font(.nMono(12)).foregroundStyle(Nuru.navy)
-                            .frame(width: 100, alignment: .leading)
+                            .col(100, .leading)
                         Text(FinanceMoney.format(r.paidYearMinor, r.currency)).font(.nMono(12)).foregroundStyle(Nuru.navy)
-                            .frame(width: 120, alignment: .trailing)
+                            .col(120, .trailing)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .overlay(alignment: .top) { Rectangle().fill(Nuru.border).frame(height: 1) }

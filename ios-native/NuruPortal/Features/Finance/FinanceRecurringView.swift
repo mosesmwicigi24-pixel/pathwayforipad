@@ -132,22 +132,29 @@ struct FinanceRecurringView: View {
     @StateObject private var vm = FinanceRecurringModel()
     /// The office action waiting for its reason (finance:manage).
     @State private var request: FinScheduleOfficeRequest?
+    /// How much larger than the default the reader's text is (1 at the
+    /// default size) — the columns grow with it (FinanceRecurringView.columns).
+    @ScaledMetric(relativeTo: .body) private var textScale: CGFloat = 1
 
     static let statusOptions: [FinanceFilterOption] = [
         .all("Active & paused"), .init("active", "Active"), .init("paused", "Paused"), .init("cancelled", "Cancelled"),
     ]
 
     /// The register's columns; the office's actions only with finance:manage
-    /// (hidden while /me loads — FinanceCaps fails closed; web parity).
-    static func columns(manage: Bool) -> [FinanceColumn] {
+    /// (hidden while /me loads — FinanceCaps fails closed; web parity). The
+    /// widths grow with the reader's text size (`scale`, never below 1), so
+    /// large text widens the table — which then scrolls sideways — instead of
+    /// cutting amounts and the office's buttons short.
+    static func columns(manage: Bool, scale: CGFloat = 1) -> [FinanceColumn] {
+        let s = max(1, scale)
         var cols = [
-            FinanceColumn("Member", minWidth: 130),
-            FinanceColumn("Gift · fund · method", width: 180),
-            FinanceColumn("Next · last run", width: 124),
-            FinanceColumn("Failures", minWidth: 140),
-            FinanceColumn("Status", minWidth: 160),
+            FinanceColumn("Member", minWidth: 130 * s),
+            FinanceColumn("Gift · fund · method", width: 180 * s),
+            FinanceColumn("Next · last run", width: 124 * s),
+            FinanceColumn("Failures", minWidth: 140 * s),
+            FinanceColumn("Status", minWidth: 160 * s),
         ]
-        if manage { cols.append(FinanceColumn("Office", width: 104, align: .trailing)) }
+        if manage { cols.append(FinanceColumn("Office", width: 104 * s, align: .trailing)) }
         return cols
     }
 
@@ -199,7 +206,7 @@ struct FinanceRecurringView: View {
             ErrorBanner(message: message) { Task { await vm.load() } }
         case .loaded:
             let manage = auth.financeCaps.manage
-            let cols = Self.columns(manage: manage)
+            let cols = Self.columns(manage: manage, scale: textScale)
             FinanceTable(rows: vm.rows, columns: cols, emptyIcon: "repeat.circle",
                          emptyMessage: vm.filter.attention ? "Nothing needs attention — every schedule is collecting."
                              : !vm.filter.status.isEmpty ? "No \(vm.filter.status) schedules."
@@ -215,9 +222,17 @@ struct FinanceRecurringView: View {
         FinBPersonCell(title: s.fullName.isEmpty ? "—" : s.fullName, subtitle: s.promptOrProfileNumber)
             .financeCell(cols[0])
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                FinBAmount(minor: s.amountMinor, currency: s.currency)
-                Text(Self.every(s.frequency)).font(.nMicro).foregroundStyle(Nuru.ink600)
+            // Side by side when both fit; otherwise the cadence goes under the
+            // amount, whole — never "Weekl/y" broken across lines.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 4) {
+                    FinBAmount(minor: s.amountMinor, currency: s.currency).fixedSize()
+                    Text(Self.every(s.frequency)).font(.nMicro).foregroundStyle(Nuru.ink600).fixedSize()
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    FinBAmount(minor: s.amountMinor, currency: s.currency)
+                    Text(Self.every(s.frequency)).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                }
             }
             if let next = s.nextAskLabel {
                 Text(next).font(.nMicro).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)

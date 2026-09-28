@@ -175,7 +175,8 @@ struct FinanceCollectionHealthCard: View {
     private func outageBanner(_ o: (lead: String, rest: String)) -> some View {
         let t = FinanceARules.colors(.error)
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle").font(.system(size: 12, weight: .bold))
+            // Sized by the text's own (Dynamic Type) style, so it grows with it.
+            Image(systemName: "exclamationmark.triangle").font(.inter(12, .bold))
             (Text(o.lead).font(.inter(12.5, .bold)) + Text(" " + o.rest).font(.inter(12.5, .medium)))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
