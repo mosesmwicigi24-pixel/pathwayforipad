@@ -64,11 +64,12 @@ enum FinBCollectionHealthWords {
     }
 
     /// One currency's forecast: "KES 6,000.00", " of KES 7,000.00 scheduled",
-    /// " · 3 prompts, 2 gifts" — the web's own words (it does not singularise).
+    /// " · 3 prompts, 2 gifts" — the web's own words ("1 prompt, 1 gift" in
+    /// the singular, as the web says since Giving Cycle 10).
     static func forecastParts(_ f: FinCollectionHealth.Forecast) -> (expected: String, scheduled: String, detail: String) {
         (FinanceMoney.format(f.expectedMinor, f.currency),
          " of \(FinanceMoney.format(f.scheduledMinor, f.currency)) scheduled",
-         " · \(count(f.prompts)) prompts, \(count(f.gifts)) gifts")
+         " · \(count(f.prompts)) \(f.prompts == 1 ? "prompt" : "prompts"), \(count(f.gifts)) \(f.gifts == 1 ? "gift" : "gifts")")
     }
 
     /// The forecast lines, one per currency, KES first then A–Z — never added.

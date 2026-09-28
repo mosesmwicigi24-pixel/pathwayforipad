@@ -110,7 +110,7 @@ final class GivingCycle9HealthTests: XCTestCase {
         }
         XCTAssertEqual(lines, [
             "KES 6,000.00 of KES 7,000.00 scheduled · 3 prompts, 2 gifts",
-            "USD 50.00 of USD 100.00 scheduled · 2 prompts, 1 gifts",
+            "USD 50.00 of USD 100.00 scheduled · 2 prompts, 1 gift",
         ])
     }
 
