@@ -191,6 +191,11 @@ struct PledgeClaimRow: Codable, Identifiable {
     @DefaultEmpty var status: String
     let createdAt: String?
     @DefaultEmpty var pledgeTitle: String
+    /// Giving Cycle 7: the pledge's own currency, and whether this claim is in
+    /// another one — such a claim can only be rejected (the server refuses to
+    /// confirm it, 422 CURRENCY_MISMATCH). Absent from an older server.
+    let pledgeCurrency: String?
+    @DefaultFalse var currencyMismatch: Bool
     var id: String { claimId }
 }
 
