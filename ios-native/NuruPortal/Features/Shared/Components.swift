@@ -647,7 +647,9 @@ struct PortalHero<Actions: View>: View {
     }
 
     private var statStrip: some View {
-        HStack(spacing: 0) {
+        // Top-aligned: a tile whose hint wraps to a second line must not lift
+        // its label and figure above its neighbours'.
+        HStack(alignment: .top, spacing: 0) {
             ForEach(Array(stats.enumerated()), id: \.element.id) { i, s in
                 VStack(alignment: .leading, spacing: 5) {
                     Text(s.label.uppercased()).font(.nOverline).tracking(1.4).foregroundStyle(Nuru.onNavyDim)

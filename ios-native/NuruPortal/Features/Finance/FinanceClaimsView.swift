@@ -8,6 +8,11 @@
 //
 // Contract note: a claim carries amount, currency, paid_on and the member's
 // own note — no method or reference field — so "how they paid" is their note.
+// Giving Cycle 7: a claim in another currency than its pledge
+// (currency_mismatch, pledge_currency) can only be rejected — Confirm is
+// disabled and "Pledge is in KES" shows under the amount; a CURRENCY_MISMATCH
+// on confirm stays in the sheet in the server's words, never read as
+// "already decided".
 import SwiftUI
 
 @MainActor
@@ -70,14 +75,21 @@ final class FinanceClaimsModel: ObservableObject {
                 : .ok("Rejected \(c.fullName)'s claim of \(amount)")
             await load()
         } catch {
-            // 422: someone decided it first — nothing to retry; the queue catches up.
-            if error.apiStatus == 422 {
+            // Someone decided it first — nothing to retry; the queue catches up.
+            if Self.isAlreadyDecided(error) {
                 notice = .warn(FinBError.message(error, fallback: "That claim was already decided."))
                 await load()
                 return
             }
             throw error
         }
+    }
+
+    /// "Already decided" is the server's UNPROCESSABLE 422. A CURRENCY_MISMATCH
+    /// is a 422 too, but it is not: the claim is still pending and its own
+    /// words stay in the sheet (Giving Cycle 7; web Claims.tsx isAlreadyDecided).
+    nonisolated static func isAlreadyDecided(_ error: Error) -> Bool {
+        error.apiStatus == 422 && error.apiCode != "CURRENCY_MISMATCH"
     }
 
     /// Pending money per currency — a sum of the rows on screen (the whole
@@ -95,6 +107,20 @@ final class FinanceClaimsModel: ObservableObject {
 
     /// The longest-waiting claim's submission time.
     var oldest: String? { claims.compactMap(\.createdAt).min() }
+}
+
+extension PledgeClaimRow {
+    /// Giving Cycle 7: a claim in another currency than its pledge cannot be
+    /// confirmed — the pledge is counted in its own currency (the server
+    /// refuses, 422 CURRENCY_MISMATCH). Reject stays.
+    var canConfirm: Bool { !currencyMismatch }
+    /// "Pledge is in KES" under such a claim's amount; nil when they agree.
+    var currencyMismatchNote: String? {
+        guard currencyMismatch else { return nil }
+        let pledge = pledgeCurrency?.trimmingCharacters(in: .whitespaces) ?? ""
+        return pledge.isEmpty ? "Pledge is in another currency" : "Pledge is in \(pledge)"
+    }
+    static let currencyMismatchWhy = "The pledge is counted in its own currency; this claim can only be rejected."
 }
 
 /// A decision waiting for its confirmation sheet.
@@ -204,11 +230,21 @@ struct FinanceClaimsView: View {
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 10) {
-                FinBAmount(minor: c.amountMinor, currency: c.currency, size: 15)
+                VStack(alignment: .trailing, spacing: 2) {
+                    FinBAmount(minor: c.amountMinor, currency: c.currency, size: 15)
+                    // Another currency than its pledge: it can only be rejected.
+                    if let note = c.currencyMismatchNote {
+                        Text(note).font(.nMicro).foregroundStyle(FinanceStatus.rose.fg).lineLimit(1)
+                            .accessibilityHint(PledgeClaimRow.currencyMismatchWhy)
+                    }
+                }
                 if caps.manage {
                     HStack(spacing: 8) {
                         FinanceButton(title: "Reject", icon: "nosign", style: .danger) { deciding = FinanceClaimDecision(claim: c, confirm: false) }
                         FinanceButton(title: "Confirm", icon: "checkmark", style: .primary) { deciding = FinanceClaimDecision(claim: c, confirm: true) }
+                            .disabled(!c.canConfirm)
+                            .opacity(c.canConfirm ? 1 : 0.5)
+                            .accessibilityHint(c.canConfirm ? "" : PledgeClaimRow.currencyMismatchWhy)
                     }
                 }
             }

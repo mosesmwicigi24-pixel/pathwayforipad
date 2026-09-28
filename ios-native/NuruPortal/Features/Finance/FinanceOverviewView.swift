@@ -151,7 +151,8 @@ struct FinanceOverviewView: View {
                                     .background(Color.white.opacity(0.7)).clipShape(Capsule())
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(copy.title(a.count)).font(.inter(13, .bold)).foregroundStyle(t.fg)
-                                    Text(copy.hint).font(.nCaption).foregroundStyle(Nuru.navy.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+                                    Text(FinanceARules.alertText(kind: a.kind, message: a.message))
+                                        .font(.nCaption).foregroundStyle(Nuru.navy.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
                                 }
                                 Spacer(minLength: 6)
                                 Image(systemName: "arrow.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(t.fg)
