@@ -11,7 +11,8 @@
 // approximate (FinBMath.runRates). A row opens the member's partner record.
 // With finance:manage the office can pause, resume or cancel a gift when the
 // member asks — a reason is required and the member is told
-// (FinanceScheduleOffice.swift).
+// (FinanceScheduleOffice.swift). The page opens with "How collection is going"
+// (Giving Cycle 9, FinanceCollectionHealth.swift), read beside the schedules.
 import SwiftUI
 import Combine
 
@@ -33,6 +34,11 @@ final class FinanceRecurringModel: ObservableObject {
     @Published private(set) var refreshing = false
     @Published private(set) var refreshError: String?
     @Published var toast: ToastData?
+    /// How collection is going (Giving Cycle 9); nil shows no card — an older
+    /// server, or the read failed. Read on the first load, on pull-to-refresh
+    /// and after an office action; a filter change does not touch it.
+    @Published private(set) var health: FinCollectionHealth?
+    private var healthRead = false
     let lookups = FinBLookups()
     private var relay: AnyCancellable?
     private var seq = 0
@@ -41,13 +47,17 @@ final class FinanceRecurringModel: ObservableObject {
 
     var isFiltered: Bool { filter != Filter() }
 
-    func load() async {
+    func load(refreshHealth: Bool = false) async {
         seq += 1
         let mine = seq
         let f = filter
         if rows.isEmpty { phase = .loading } else { refreshing = true }
         refreshError = nil
+        let readHealth = refreshHealth || !healthRead
+        let shown = health
         async let funds: Void = lookups.loadFunds()
+        // Alongside the schedules, never ahead of them: the rows land first.
+        async let fetched = Self.health(read: readHealth, else: shown)
         do {
             var list = try await FinanceERPAPI.schedules(status: f.status.isEmpty ? nil : f.status,
                                                         attention: f.attention, limit: Self.cap)
@@ -64,8 +74,21 @@ final class FinanceRecurringModel: ObservableObject {
                 if rows.isEmpty || phase != .loaded { rows = []; phase = .failed(message) } else { refreshError = "Couldn't refresh — \(message)" }
             }
         }
+        let h = await fetched
+        if mine == seq {
+            health = h
+            if readHealth { healthRead = true }
+        }
         _ = await funds
         if mine == seq { refreshing = false }
+    }
+
+    /// GET /collection-health?days=30 when `read`, else what is shown now. A
+    /// failed read or an unusable answer is nil — the page goes on without it.
+    nonisolated static func health(read: Bool, else kept: FinCollectionHealth?) async -> FinCollectionHealth? {
+        guard read else { return kept }
+        guard let h = try? await FinanceERPAPI.collectionHealth(days: 30), h.isUsable else { return nil }
+        return h
     }
 
     func apply(link params: [String: String]) {
@@ -82,7 +105,7 @@ final class FinanceRecurringModel: ObservableObject {
     func act(_ request: FinScheduleOfficeRequest, _ body: FinScheduleActionBody) async throws {
         _ = try await FinanceERPAPI.scheduleAction(request.row.scheduleId, request.action, body)
         toast = .success(request.action.done(name: request.row.fullName))
-        Task { await load() }
+        Task { await load(refreshHealth: true) }
     }
 
     var runRates: [FinBMath.RunRate] {
@@ -132,7 +155,8 @@ struct FinanceRecurringView: View {
         FinancePageScaffold(title: Section.financeRecurring.title,
                             subtitle: "Every giving schedule and whether it is collecting — failing and paused ones first. The run-rate is what the active schedules bring in a month, approximately.",
                             stats: stats,
-                            onRefresh: { await vm.load() }) {
+                            onRefresh: { await vm.load(refreshHealth: true) }) {
+            if let h = vm.health { FinanceCollectionHealthCard(health: h) }
             FinanceFilterBar(isFiltered: vm.isFiltered, onClear: { vm.filter = .init() }) {
                 FinanceFilterMenu(title: "Status", selection: $vm.filter.status, options: Self.statusOptions)
                 FinanceFilterMenu(title: "Show", selection: Binding(get: { vm.filter.attention ? "true" : "" },

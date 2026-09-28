@@ -36,6 +36,8 @@ final class StubHTTP: URLProtocol {
         let method: String
         let path: String
         let body: Data?
+        /// The query string as sent ("days=30"), or nil.
+        var query: String? = nil
     }
     struct Reply {
         var status = 200
@@ -66,7 +68,8 @@ final class StubHTTP: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        let seen = Seen(method: request.httpMethod ?? "GET", path: request.url?.path ?? "", body: Self.body(of: request))
+        let seen = Seen(method: request.httpMethod ?? "GET", path: request.url?.path ?? "", body: Self.body(of: request),
+                        query: request.url?.query)
         Self.lock.lock()
         Self._seen.append(seen)
         let route = Self._route

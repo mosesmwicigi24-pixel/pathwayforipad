@@ -1715,6 +1715,57 @@ struct FinScheduleActionBody: Encodable, Equatable {
     }
 }
 
+/// GET /admin/finance/collection-health?days (Giving Cycle 9, finance:view) —
+/// how collection is going over the window: M-Pesa prompts, paid, failed by
+/// reason in the words members were told (whose answer it was), the success
+/// rate, the gifts only the office can fix, the live outage check, and what
+/// the rest of this Nairobi month should bring in — each gift weighted by its
+/// own record, per currency. Decoded leniently: the page's first card must
+/// never break the page (an unusable answer hides the card).
+struct FinCollectionHealth: Decodable {
+    struct Reason: Codable, Hashable {
+        @DefaultEmpty var code: String
+        @LooseInt var count: Int
+        /// The words the member was told (giftFailure.ts).
+        @DefaultEmpty var reason: String
+        /// Their own answer (cancelled, no money, wrong PIN…) — else it never reached them.
+        @DefaultFalse var memberAnswered: Bool
+    }
+    struct Outage: Decodable, Hashable {
+        @DefaultFalse var suspected: Bool
+        /// The server's words for what it saw ("8 of the last 10 M-Pesa prompts…").
+        let evidence: String?
+        @LooseInt var resolved: Int
+        @LooseInt var unreached: Int
+        @LooseInt var unsent: Int
+    }
+    struct Forecast: Codable, Hashable {
+        @DefaultEmpty var currency: String
+        @LooseInt var gifts: Int
+        @LooseInt var prompts: Int
+        @LooseInt var scheduledMinor: Int
+        @LooseInt var expectedMinor: Int
+    }
+    @LooseInt var windowDays: Int
+    @LooseInt var prompts: Int
+    @LooseInt var paid: Int
+    @LooseInt var failed: Int
+    @LooseInt var waiting: Int
+    /// paid ÷ (paid + failed), 3 decimals; nil with nothing answered.
+    let successRate: Double?
+    @DefaultEmptyList var byReason: [Reason]
+    @LooseInt var notSentByUs: Int
+    let outage: Outage?
+    /// YYYY-MM-DD — the last day of the month the forecast covers.
+    @DefaultEmpty var monthEnd: String
+    /// Per currency (never added together); KES first.
+    @DefaultEmptyList var forecast: [Forecast]
+
+    /// A real answer covers a window of at least one day (the route takes
+    /// 1–90); anything else — `{}`, another shape — is not shown.
+    var isUsable: Bool { windowDays > 0 }
+}
+
 /// A row of GET /admin/campaigns — typed from financial/campaigns.ts. Raised
 /// = succeeded gifts to the fund in the campaign's currency from starts_on
 /// through ends_on (EAT days).
@@ -1955,6 +2006,13 @@ enum FinanceERPAPI {
         if let status, !status.isEmpty { q["status"] = status }
         if attention { q["attention"] = "true" }
         return try await api.get("\(base)/schedules", query: q, as: DataEnvelope<[FinSchedule]>.self).data
+    }
+
+    /// GET /collection-health?days (1–90) — how collection is going (Giving
+    /// Cycle 9). A 404 from an older server throws; the page then shows no card.
+    static func collectionHealth(days: Int = 30) async throws -> FinCollectionHealth {
+        try await api.get("\(base)/collection-health", query: ["days": String(min(max(days, 1), 90))],
+                          as: FinCollectionHealth.self)
     }
 
     /// POST /schedules/{id}/{pause|resume|cancel} (finance:manage) — the office
