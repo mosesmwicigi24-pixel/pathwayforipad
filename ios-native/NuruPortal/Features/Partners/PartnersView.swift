@@ -857,7 +857,9 @@ private struct PartnerDetailPanel: View {
         .overlay(RoundedRectangle(cornerRadius: Nuru.R.panel, style: .continuous).stroke(Nuru.border, lineWidth: 1))
     }
 
-    // Schedules — the giving_schedules charging this partner.
+    // Schedules — the giving_schedules charging this partner, with why a gift
+    // is paused (under its status) and why it is failing, in the words the
+    // member was told (under the count) — web Partners.tsx ScheduleRow, Giving Cycle 7.
     private func schedulesCard(_ d: PartnerDetail) -> some View {
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 12) {
@@ -871,22 +873,38 @@ private struct PartnerDetailPanel: View {
                             Th(text: "Amount").frame(width: 120, alignment: .leading)
                             Th(text: "Frequency").frame(width: 90, alignment: .leading)
                             Th(text: "Method").frame(width: 80, alignment: .leading)
-                            Th(text: "Status").frame(width: 90, alignment: .leading)
+                            Th(text: "Status").frame(width: 150, alignment: .leading)
                             Th(text: "Next run").frame(width: 160, alignment: .leading)
-                            Th(text: "Failures").frame(width: 64, alignment: .leading)
+                            Th(text: "Failures").frame(width: 180, alignment: .leading)
                         }
                     } rows: {
                         ForEach(d.schedules) { s in
                             let chip = scheduleStatusChip(s.status)
+                            let failing = s.consecutiveFailures > 0 ? Color(hex: 0xB42318) : Nuru.navy
                             HStack(spacing: 12) {
                                 Text(s.fund ?? "—").font(.inter(12.5, .semibold)).foregroundStyle(Nuru.navy).frame(width: 110, alignment: .leading).lineLimit(1)
                                 Text(money(s.amountMinor, s.currency)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 120, alignment: .leading).lineLimit(1)
                                 Text(titleCase(s.frequency)).font(.inter(12)).foregroundStyle(Nuru.navy).frame(width: 90, alignment: .leading)
                                 Text(s.method.map(titleCase) ?? "—").font(.inter(12)).foregroundStyle(Nuru.navy).frame(width: 80, alignment: .leading)
-                                ChipPill(chip: chip).frame(width: 90, alignment: .leading)
+                                // Why it is paused — the member, its pledge, or failures (Giving Cycle 7).
+                                VStack(alignment: .leading, spacing: 3) {
+                                    ChipPill(chip: chip)
+                                    if let why = s.pauseReasonLabel {
+                                        Text(why).font(.inter(11)).foregroundStyle(Nuru.ink600)
+                                            .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                                .frame(width: 150, alignment: .leading)
                                 Text(FinBTime.stamp(s.nextRunAt)).font(.nMono(12)).foregroundStyle(Nuru.navy).frame(width: 160, alignment: .leading).lineLimit(1)
-                                Text("\(s.consecutiveFailures)").font(.nMono(12))
-                                    .foregroundStyle(s.consecutiveFailures > 0 ? Color(hex: 0xB42318) : Nuru.navy).frame(width: 64, alignment: .leading)
+                                // The count, then why — in the words the member was told.
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(s.consecutiveFailures)").font(.nMono(12)).foregroundStyle(failing)
+                                    if let reason = s.failureReason {
+                                        Text(reason).font(.inter(11)).foregroundStyle(failing)
+                                            .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                                .frame(width: 180, alignment: .leading)
                             }
                             .padding(.horizontal, 12).padding(.vertical, 9)
                             .background(s.consecutiveFailures > 0 ? Color(hex: 0xFFF4DA).opacity(0.45) : .clear)

@@ -128,7 +128,23 @@ struct PartnerSchedule: Codable, Identifiable {
     @DefaultZero var consecutiveFailures: Int
     let pledgeId: String?
     let fund: String?
+    /// Giving Cycle 7 (optional — an older server omits them): why it is
+    /// paused (failures · member · pledge), the day a member's pause ends,
+    /// and — while failing — why, in the words the member was told.
+    let pauseReason: String?
+    let resumeOn: String?
+    let lastFailure: FinGiftFailure?
     var id: String { scheduleId }
+
+    /// "The member paused it until 20 Oct 2026" … under the status; nil when not paused.
+    var pauseReasonLabel: String? {
+        FinBScheduleWords.pauseReason(status: status, pauseReason: pauseReason, resumeOn: resumeOn)
+    }
+    /// The failure in the member's words, under the failure count; nil when not failing.
+    var failureReason: String? {
+        guard consecutiveFailures > 0, let reason = lastFailure?.reason, !reason.isEmpty else { return nil }
+        return reason
+    }
 }
 
 struct PartnerPayment: Codable, Identifiable {

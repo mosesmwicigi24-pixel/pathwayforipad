@@ -1660,8 +1660,9 @@ struct FinSchedule: Decodable, Hashable, Identifiable {
 }
 
 /// GiftFailure — a failed prompt in the words the member was told
-/// (financial/giftFailure.ts: what happened, and what to do next).
-struct FinGiftFailure: Decodable, Hashable {
+/// (financial/giftFailure.ts: what happened, and what to do next). Also on
+/// the partner detail's schedules (PartnerSchedule).
+struct FinGiftFailure: Codable, Hashable {
     let code: String?
     @DefaultEmpty var reason: String
     @DefaultEmpty var hint: String
