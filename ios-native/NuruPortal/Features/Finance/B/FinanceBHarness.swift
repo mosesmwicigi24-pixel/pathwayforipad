@@ -240,6 +240,7 @@ enum FinanceBFixtureRouter {
         case "/admin/partners": return partners(q)
         case "/admin/partners/claims": return fixture("claims")
         case "/admin/finance/schedules": return schedules(q)
+        case "/admin/finance/collection-health": return fixture("collection_health")
         case "/admin/campaigns": return fixture("campaigns")
         case "/admin/finance/config": return fixture("config")
         case "/admin/finance/needs": return needs(q)

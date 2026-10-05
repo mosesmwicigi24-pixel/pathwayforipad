@@ -1,12 +1,18 @@
-// Finance → Recurring gifts (pathway docs/FINANCE_ERP.md §5) — every recurring
-// giving schedule with its collection health (GET /admin/finance/schedules,
-// finance:view): who, how much, how often, by which method, next and last
-// run, consecutive failures with the last error, and status — paused first,
-// then most failures, then soonest due. "Needs attention" (paused, or failing;
-// never cancelled) is the Overview's failing-schedules alert (attention=true).
-// Totals per currency: how many, and the "≈ per month" the ACTIVE ones bring
-// in — (Σ weekly × 52 + Σ monthly × 12) ÷ 12, integer math, labelled
+// Finance → Recurring gifts (pathway docs/FINANCE_ERP.md §5, docs/GIVING.md
+// §10) — every recurring giving schedule with its collection health (GET
+// /admin/finance/schedules, finance:view): who, how much, how often, by which
+// method, next and last run, consecutive failures with the reason in the words
+// the member was told, and status with WHY it is paused — the ones needing
+// attention first. "Needs attention" is the server's one rule (Giving Cycle
+// 7), also the Overview's failing-schedules alert (attention=true): failing,
+// stopped after failed prompts, or our own outage — never a member's own
+// pause. Totals per currency: how many, and the "≈ per month" the ACTIVE ones
+// bring in — (Σ weekly × 52 + Σ monthly × 12) ÷ 12, integer math, labelled
 // approximate (FinBMath.runRates). A row opens the member's partner record.
+// With finance:manage the office can pause, resume or cancel a gift when the
+// member asks — a reason is required and the member is told
+// (FinanceScheduleOffice.swift). The page opens with "How collection is going"
+// (Giving Cycle 9, FinanceCollectionHealth.swift), read beside the schedules.
 import SwiftUI
 import Combine
 
@@ -27,6 +33,12 @@ final class FinanceRecurringModel: ObservableObject {
     @Published private(set) var phase: Phase = .loading
     @Published private(set) var refreshing = false
     @Published private(set) var refreshError: String?
+    @Published var toast: ToastData?
+    /// How collection is going (Giving Cycle 9); nil shows no card — an older
+    /// server, or the read failed. Read on the first load, on pull-to-refresh
+    /// and after an office action; a filter change does not touch it.
+    @Published private(set) var health: FinCollectionHealth?
+    private var healthRead = false
     let lookups = FinBLookups()
     private var relay: AnyCancellable?
     private var seq = 0
@@ -35,13 +47,17 @@ final class FinanceRecurringModel: ObservableObject {
 
     var isFiltered: Bool { filter != Filter() }
 
-    func load() async {
+    func load(refreshHealth: Bool = false) async {
         seq += 1
         let mine = seq
         let f = filter
         if rows.isEmpty { phase = .loading } else { refreshing = true }
         refreshError = nil
+        let readHealth = refreshHealth || !healthRead
+        let shown = health
         async let funds: Void = lookups.loadFunds()
+        // Alongside the schedules, never ahead of them: the rows land first.
+        async let fetched = Self.health(read: readHealth, else: shown)
         do {
             var list = try await FinanceERPAPI.schedules(status: f.status.isEmpty ? nil : f.status,
                                                         attention: f.attention, limit: Self.cap)
@@ -58,8 +74,21 @@ final class FinanceRecurringModel: ObservableObject {
                 if rows.isEmpty || phase != .loaded { rows = []; phase = .failed(message) } else { refreshError = "Couldn't refresh — \(message)" }
             }
         }
+        let h = await fetched
+        if mine == seq {
+            health = h
+            if readHealth { healthRead = true }
+        }
         _ = await funds
         if mine == seq { refreshing = false }
+    }
+
+    /// GET /collection-health?days=30 when `read`, else what is shown now. A
+    /// failed read or an unusable answer is nil — the page goes on without it.
+    nonisolated static func health(read: Bool, else kept: FinCollectionHealth?) async -> FinCollectionHealth? {
+        guard read else { return kept }
+        guard let h = try? await FinanceERPAPI.collectionHealth(days: 30), h.isUsable else { return nil }
+        return h
     }
 
     func apply(link params: [String: String]) {
@@ -67,6 +96,16 @@ final class FinanceRecurringModel: ObservableObject {
         if let a = params["attention"] { f.attention = a == "true" || a == "1" }
         if let s = params["status"], ["active", "paused", "cancelled"].contains(s) { f.status = s }
         filter = f
+    }
+
+    /// The office pauses, resumes or cancels a gift at the member's request
+    /// (finance:manage). Throws for the sheet to show the server's own words
+    /// (400 / 422); on success a toast, and the list reloads behind the closing
+    /// sheet — the row may leave the current filter.
+    func act(_ request: FinScheduleOfficeRequest, _ body: FinScheduleActionBody) async throws {
+        _ = try await FinanceERPAPI.scheduleAction(request.row.scheduleId, request.action, body)
+        toast = .success(request.action.done(name: request.row.fullName))
+        Task { await load(refreshHealth: true) }
     }
 
     var runRates: [FinBMath.RunRate] {
@@ -88,26 +127,43 @@ final class FinanceRecurringModel: ObservableObject {
 }
 
 struct FinanceRecurringView: View {
+    @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var router: NavRouter
     @StateObject private var vm = FinanceRecurringModel()
+    /// The office action waiting for its reason (finance:manage).
+    @State private var request: FinScheduleOfficeRequest?
+    /// How much larger than the default the reader's text is (1 at the
+    /// default size) — the columns grow with it (FinanceRecurringView.columns).
+    @ScaledMetric(relativeTo: .body) private var textScale: CGFloat = 1
 
     static let statusOptions: [FinanceFilterOption] = [
         .all("Active & paused"), .init("active", "Active"), .init("paused", "Paused"), .init("cancelled", "Cancelled"),
     ]
 
-    private static let columns: [FinanceColumn] = [
-        FinanceColumn("Member", minWidth: 130),
-        FinanceColumn("Gift · fund · method", width: 160),
-        FinanceColumn("Next · last run", width: 124),
-        FinanceColumn("Failures", minWidth: 130),
-        FinanceColumn("Status", width: 116),
-    ]
+    /// The register's columns; the office's actions only with finance:manage
+    /// (hidden while /me loads — FinanceCaps fails closed; web parity). The
+    /// widths grow with the reader's text size (`scale`, never below 1), so
+    /// large text widens the table — which then scrolls sideways — instead of
+    /// cutting amounts and the office's buttons short.
+    static func columns(manage: Bool, scale: CGFloat = 1) -> [FinanceColumn] {
+        let s = max(1, scale)
+        var cols = [
+            FinanceColumn("Member", minWidth: 130 * s),
+            FinanceColumn("Gift · fund · method", width: 180 * s),
+            FinanceColumn("Next · last run", width: 124 * s),
+            FinanceColumn("Failures", minWidth: 140 * s),
+            FinanceColumn("Status", minWidth: 160 * s),
+        ]
+        if manage { cols.append(FinanceColumn("Office", width: 104 * s, align: .trailing)) }
+        return cols
+    }
 
     var body: some View {
         FinancePageScaffold(title: Section.financeRecurring.title,
                             subtitle: "Every giving schedule and whether it is collecting — failing and paused ones first. The run-rate is what the active schedules bring in a month, approximately.",
                             stats: stats,
-                            onRefresh: { await vm.load() }) {
+                            onRefresh: { await vm.load(refreshHealth: true) }) {
+            if let h = vm.health { FinanceCollectionHealthCard(health: h) }
             FinanceFilterBar(isFiltered: vm.isFiltered, onClear: { vm.filter = .init() }) {
                 FinanceFilterMenu(title: "Status", selection: $vm.filter.status, options: Self.statusOptions)
                 FinanceFilterMenu(title: "Show", selection: Binding(get: { vm.filter.attention ? "true" : "" },
@@ -125,13 +181,17 @@ struct FinanceRecurringView: View {
         }
         .task(id: vm.filter) { await vm.load() }
         .onFinanceLink(.financeRecurring) { vm.apply(link: $0) }
+        .sheet(item: $request) { r in
+            FinanceScheduleActionSheet(request: r) { body in try await vm.act(r, body) }
+        }
+        .toast($vm.toast)
     }
 
     private var stats: [HeroStat] {
         guard vm.phase == .loaded else { return [] }
         return [
             HeroStat(label: "Schedules", value: String(vm.rows.count), hint: vm.filter.status.isEmpty ? "active and paused" : "status \(vm.filter.status)"),
-            HeroStat(label: "Needs attention", value: String(vm.attentionCount), hint: "paused, or failing",
+            HeroStat(label: "Needs attention", value: String(vm.attentionCount), hint: "failing, stopped after failures, or not sent by us",
                      tint: vm.attentionCount > 0 ? Color(hex: 0xF5C77E) : nil),
             HeroStat(label: "Failing", value: String(vm.failingCount), hint: "a collection failed last time",
                      tint: vm.failingCount > 0 ? Color(hex: 0xF5A3A3) : nil),
@@ -145,27 +205,43 @@ struct FinanceRecurringView: View {
         case .failed(let message):
             ErrorBanner(message: message) { Task { await vm.load() } }
         case .loaded:
-            FinanceTable(rows: vm.rows, columns: Self.columns, emptyIcon: "repeat.circle",
+            let manage = auth.financeCaps.manage
+            let cols = Self.columns(manage: manage, scale: textScale)
+            FinanceTable(rows: vm.rows, columns: cols, emptyIcon: "repeat.circle",
                          emptyMessage: vm.filter.attention ? "Nothing needs attention — every schedule is collecting."
                              : !vm.filter.status.isEmpty ? "No \(vm.filter.status) schedules."
                              : "No recurring gifts yet — members set them up from Give in the app.",
                          onSelect: { router.openFinance(.partners, ["member": $0.userId]) }) { s in
-                row(s)
+                row(s, cols: cols, manage: manage)
             }
             .opacity(vm.refreshing ? 0.6 : 1)
         }
     }
 
-    @ViewBuilder private func row(_ s: FinSchedule) -> some View {
-        let cols = Self.columns
-        FinBPersonCell(title: s.fullName.isEmpty ? "—" : s.fullName, subtitle: s.phoneNumber)
+    @ViewBuilder private func row(_ s: FinSchedule, cols: [FinanceColumn], manage: Bool) -> some View {
+        FinBPersonCell(title: s.fullName.isEmpty ? "—" : s.fullName, subtitle: s.promptOrProfileNumber)
             .financeCell(cols[0])
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                FinBAmount(minor: s.amountMinor, currency: s.currency)
-                Text(Self.every(s.frequency)).font(.nMicro).foregroundStyle(Nuru.ink600)
+            // Side by side when both fit; otherwise the cadence goes under the
+            // amount, whole — never "Weekl/y" broken across lines.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 4) {
+                    FinBAmount(minor: s.amountMinor, currency: s.currency).fixedSize()
+                    Text(Self.every(s.frequency)).font(.nMicro).foregroundStyle(Nuru.ink600).fixedSize()
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    FinBAmount(minor: s.amountMinor, currency: s.currency)
+                    Text(Self.every(s.frequency)).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+                }
             }
-            Text("\(vm.lookups.fundName(s.fund)) · \(FinWords.channel(s.method))").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+            if let next = s.nextAskLabel {
+                Text(next).font(.nMicro).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
+            }
+            Text("\(fundName(s)) · \(FinWords.channel(s.method))").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
+            if let p = s.pledge {
+                Text(p.title.isEmpty ? "Collects a pledge" : "Collects “\(p.title)”")
+                    .font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(2)
+            }
         }
         .financeCell(cols[1])
         VStack(alignment: .leading, spacing: 2) {
@@ -177,8 +253,11 @@ struct FinanceRecurringView: View {
         VStack(alignment: .leading, spacing: 2) {
             if s.consecutiveFailures > 0 {
                 Text("\(s.consecutiveFailures) in a row").font(.nMono(12.5, .semibold)).foregroundStyle(FinanceStatus.red.fg)
-                if let err = s.lastError, !err.isEmpty {
-                    Text(err).font(.nMicro).foregroundStyle(FinanceStatus.red.fg).lineLimit(2)
+                // Why, in the words the member was told; the provider's raw
+                // error stays as detail (help / accessibility), not on the row.
+                if let why = s.failureWords {
+                    let line = Text(why).font(.nMicro).foregroundStyle(FinanceStatus.red.fg).lineLimit(3)
+                    if let raw = s.failureDetail { line.help(raw) } else { line }
                 }
                 if let at = s.lastFailedAt { Text("last failed \(FinBTime.stamp(at))").font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1) }
             } else {
@@ -189,11 +268,39 @@ struct FinanceRecurringView: View {
         VStack(alignment: .leading, spacing: 3) {
             FinanceStatusChip(status: s.status)
             if s.needsAttention && s.status != "paused" { FinanceStatusChip(status: "behind", label: "Needs attention") }
+            // Whose choice the pause was — only "stopped after failed prompts"
+            // is the office's to chase.
+            if let why = s.pauseReasonLabel {
+                Text(why).font(.nMicro).foregroundStyle(s.pauseIsFailure ? FinanceStatus.red.fg : Nuru.ink600)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if s.status == "paused", let at = s.pausedAt {
                 Text("since \(FinBTime.stamp(at))").font(.nMicro).foregroundStyle(Nuru.ink400).lineLimit(1).minimumScaleFactor(0.8)
             }
+            // Our own outage: the giver was NOT told — only the office can know.
+            if let alert = s.officeAlert, !alert.isEmpty {
+                Text(alert).font(.nMicro).foregroundStyle(FinanceStatus.red.fg).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .financeCell(cols[4])
+        if manage {
+            VStack(alignment: .trailing, spacing: 6) {
+                ForEach(s.officeActions) { a in
+                    FinanceButton(title: a.buttonTitle, icon: a.icon, style: a == .cancel ? .danger : .plain) {
+                        request = FinScheduleOfficeRequest(row: s, action: a)
+                    }
+                    .accessibilityLabel("\(a.buttonTitle) \(s.fullName.isEmpty ? "this" : s.fullName + "'s") gift")
+                    .accessibilityHint("At the member's request — a reason is required and they are told.")
+                }
+            }
+            .financeCell(cols[5])
+        }
+    }
+
+    /// The register's own fund name, else /config's, else the code.
+    private func fundName(_ s: FinSchedule) -> String {
+        if let name = s.fundName, !name.isEmpty { return name }
+        return vm.lookups.fundName(s.fund)
     }
 
     /// "Weekly" / "Monthly" as the amount's cadence.

@@ -335,11 +335,15 @@ struct FinOverview: Decodable {
     }
     struct Alert: Decodable, Hashable, Identifiable {
         /// pending_claims · expenses_awaiting_approval · failing_schedules ·
-        /// stale_processing · integrity_issues · partners_behind
+        /// stale_processing · integrity_issues · partners_behind ·
+        /// collection_outage (a kind this app does not know reads in plain words)
         @DefaultEmpty var kind: String
         @LooseInt var count: Int
         /// The web route the alert opens — `FinanceLink.fromWebRoute(link)`.
         @DefaultEmpty var link: String
+        /// The server's own words, when it has them (collection_outage) — shown
+        /// instead of the kind's hint (FinanceARules.alertText). Optional.
+        let message: String?
         var id: String { kind }
     }
     let period: Period
@@ -1621,13 +1625,145 @@ struct FinSchedule: Decodable, Hashable, Identifiable {
     let nextRunAt: String?
     let lastRunAt: String?
     @LooseInt var consecutiveFailures: Int
+    /// The provider's raw words — detail only; `lastFailure` is what the member was told.
     let lastError: String?
     let lastFailedAt: String?
     let pausedAt: String?
     let createdAt: String?
-    /// paused, or with a consecutive failure.
+    /// The server's ONE rule (Giving Cycle 7, constants.ts SCHEDULE_ATTENTION_SQL):
+    /// failing, stopped after failed prompts, or our own last prompt could not
+    /// be sent — never a member's own pause or one that follows a paused pledge.
     @DefaultFalse var needsAttention: Bool
+
+    // Giving Cycle 7 — every one optional, so an older server still decodes.
+    /// The fund's name, from the register itself.
+    let fundName: String?
+    /// Why it is failing, in the words the member was told; nil when it is not.
+    let lastFailure: FinGiftFailure?
+    /// Our side, not theirs: the last prompt could not be SENT (M-Pesa down or
+    /// unconfigured). The giver was not told — only the office can know.
+    let officeAlert: String?
+    /// failures · member · pledge — why a paused gift is paused (nil on an
+    /// older row reads as failures).
+    let pauseReason: String?
+    /// A member's pause ends on this Nairobi day (YYYY-MM-DD).
+    let resumeOn: String?
+    /// The member's heads-up before each prompt.
+    let headsUp: Bool?
+    /// The schedule's own number to prompt; nil = the member's profile number.
+    let promptNumber: String?
+    let retryAt: String?
+    /// The pledge this gift collects, when it collects one.
+    let pledge: FinSchedulePledge?
+    /// What the next prompt will ask: below amount_minor when its pledge is
+    /// part paid, 0 when it is already paid (the prompt is skipped), nil when
+    /// nothing is coming.
+    @LooseOptInt var nextAmountMinor: Int?
+
     var id: String { scheduleId }
+}
+
+/// GiftFailure — a failed prompt in the words the member was told
+/// (financial/giftFailure.ts: what happened, and what to do next). Also on
+/// the partner detail's schedules (PartnerSchedule).
+struct FinGiftFailure: Codable, Hashable {
+    let code: String?
+    @DefaultEmpty var reason: String
+    @DefaultEmpty var hint: String
+    let retryable: Bool?
+}
+
+/// The pledge a recurring gift collects: `{pledge_id, title}`.
+struct FinSchedulePledge: Decodable, Hashable {
+    @DefaultEmpty var pledgeId: String
+    @DefaultEmpty var title: String
+}
+
+/// What the office may do to a member's recurring gift AT THE MEMBER'S
+/// REQUEST (Giving Cycle 7) — POST /admin/finance/schedules/{id}/{action}.
+enum FinScheduleOfficeAction: String, CaseIterable, Identifiable {
+    case pause, resume, cancel
+    var id: String { rawValue }
+}
+
+/// OfficeScheduleAction — `{note, resume_on?}`. The note is the member's
+/// request in a line (3–300 after trimming, audited); `resume_on` only ever
+/// goes with a pause (a Nairobi day, tomorrow to a year ahead). A nil
+/// `resumeOn` is left out of the JSON, which the route's `.nullish()` accepts.
+struct FinScheduleActionBody: Encodable, Equatable {
+    let note: String
+    let resumeOn: String?
+
+    static let noteMin = 3
+    static let noteMax = 300
+
+    /// The body for `action`: the note trimmed; `until` kept for a pause only.
+    static func make(_ action: FinScheduleOfficeAction, note: String, until: String?) -> FinScheduleActionBody {
+        let day = until?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return FinScheduleActionBody(note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+                                     resumeOn: action == .pause && !day.isEmpty ? day : nil)
+    }
+
+    /// The note's length as the route counts it (zod `.length` = UTF-16 code
+    /// units, after trimming).
+    static func noteLength(_ raw: String) -> Int {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).utf16.count
+    }
+
+    static func noteIsValid(_ raw: String) -> Bool {
+        (noteMin...noteMax).contains(noteLength(raw))
+    }
+}
+
+/// GET /admin/finance/collection-health?days (Giving Cycle 9, finance:view) —
+/// how collection is going over the window: M-Pesa prompts, paid, failed by
+/// reason in the words members were told (whose answer it was), the success
+/// rate, the gifts only the office can fix, the live outage check, and what
+/// the rest of this Nairobi month should bring in — each gift weighted by its
+/// own record, per currency. Decoded leniently: the page's first card must
+/// never break the page (an unusable answer hides the card).
+struct FinCollectionHealth: Decodable {
+    struct Reason: Codable, Hashable {
+        @DefaultEmpty var code: String
+        @LooseInt var count: Int
+        /// The words the member was told (giftFailure.ts).
+        @DefaultEmpty var reason: String
+        /// Their own answer (cancelled, no money, wrong PIN…) — else it never reached them.
+        @DefaultFalse var memberAnswered: Bool
+    }
+    struct Outage: Decodable, Hashable {
+        @DefaultFalse var suspected: Bool
+        /// The server's words for what it saw ("8 of the last 10 M-Pesa prompts…").
+        let evidence: String?
+        @LooseInt var resolved: Int
+        @LooseInt var unreached: Int
+        @LooseInt var unsent: Int
+    }
+    struct Forecast: Codable, Hashable {
+        @DefaultEmpty var currency: String
+        @LooseInt var gifts: Int
+        @LooseInt var prompts: Int
+        @LooseInt var scheduledMinor: Int
+        @LooseInt var expectedMinor: Int
+    }
+    @LooseInt var windowDays: Int
+    @LooseInt var prompts: Int
+    @LooseInt var paid: Int
+    @LooseInt var failed: Int
+    @LooseInt var waiting: Int
+    /// paid ÷ (paid + failed), 3 decimals; nil with nothing answered.
+    let successRate: Double?
+    @DefaultEmptyList var byReason: [Reason]
+    @LooseInt var notSentByUs: Int
+    let outage: Outage?
+    /// YYYY-MM-DD — the last day of the month the forecast covers.
+    @DefaultEmpty var monthEnd: String
+    /// Per currency (never added together); KES first.
+    @DefaultEmptyList var forecast: [Forecast]
+
+    /// A real answer covers a window of at least one day (the route takes
+    /// 1–90); anything else — `{}`, another shape — is not shown.
+    var isUsable: Bool { windowDays > 0 }
 }
 
 /// A row of GET /admin/campaigns — typed from financial/campaigns.ts. Raised
@@ -1861,13 +1997,33 @@ enum FinanceERPAPI {
         try await api.get("\(base)/config", as: FinConfig.self)
     }
 
-    /// GET /schedules?status&attention&limit — recurring gifts, paused first.
-    /// `attention` = only paused or failing ones (never cancelled).
+    /// GET /schedules?status&attention&limit — recurring gifts, the ones
+    /// needing attention first. `attention` = only those (the server's one
+    /// rule — failing, stopped after failed prompts, or not sent by us; never
+    /// a member's own pause, never cancelled).
     static func schedules(status: String? = nil, attention: Bool = false, limit: Int = 200) async throws -> [FinSchedule] {
         var q: [String: String] = ["limit": String(min(max(limit, 1), 200))]
         if let status, !status.isEmpty { q["status"] = status }
         if attention { q["attention"] = "true" }
         return try await api.get("\(base)/schedules", query: q, as: DataEnvelope<[FinSchedule]>.self).data
+    }
+
+    /// GET /collection-health?days (1–90) — how collection is going (Giving
+    /// Cycle 9). A 404 from an older server throws; the page then shows no card.
+    static func collectionHealth(days: Int = 30) async throws -> FinCollectionHealth {
+        try await api.get("\(base)/collection-health", query: ["days": String(min(max(days, 1), 90))],
+                          as: FinCollectionHealth.self)
+    }
+
+    /// POST /schedules/{id}/{pause|resume|cancel} (finance:manage) — the office
+    /// changes a member's recurring gift AT THEIR REQUEST (Giving Cycle 7): a
+    /// reason is required, the audit names who, and the member is told. Answers
+    /// the register row. 400 VALIDATION_FAILED (reason, or resume_on out of
+    /// range) · 422 not active / not paused / paused with its pledge / already
+    /// cancelled — the server's own words.
+    static func scheduleAction(_ scheduleId: String, _ action: FinScheduleOfficeAction,
+                               _ body: FinScheduleActionBody) async throws -> FinSchedule {
+        try await api.post("\(base)/schedules/\(scheduleId)/\(action.rawValue)", body: body, as: FinSchedule.self)
     }
 
     // MARK: Partners & claims (the existing Partners routes — PartnersAPI's models)
