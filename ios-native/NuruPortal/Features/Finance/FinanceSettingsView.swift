@@ -13,6 +13,9 @@ import SwiftUI
 final class FinanceSettingsModel: ObservableObject {
     @Published private(set) var settings: FinSettings?
     @Published private(set) var settingsError: String?
+    /// GET /admin/finance/config — the paybill (C2B) status rides on it.
+    @Published private(set) var config: FinConfig?
+    @Published private(set) var registering = false
     /// In the server's order (sort, then name) — the order the pickers show.
     @Published private(set) var categories: [FinExpenseCategory] = []
     @Published private(set) var categoriesError: String?
@@ -28,7 +31,25 @@ final class FinanceSettingsModel: ObservableObject {
         _ = await (s, c)
     }
 
+    func loadConfig() async {
+        config = try? await FinanceERPAPI.config()
+    }
+
+    /// Tell Safaricom where paybill confirmations go (finance:manage).
+    func registerPaybill() async {
+        registering = true
+        defer { registering = false }
+        do {
+            let r = try await FinanceERPAPI.registerPaybillUrls()
+            toast = .success("Registered with Safaricom for paybill \(r.shortcode) — confirmations now come to \(r.confirmationUrl).")
+            await loadConfig()
+        } catch {
+            toast = .error(FinBError.message(error, fallback: "Safaricom did not accept the registration."))
+        }
+    }
+
     func loadSettings() async {
+        await loadConfig()
         do { settings = try await FinanceERPAPI.settings(); settingsError = nil }
         catch { if !Task.isCancelled { settingsError = FinanceARules.message(error, fallback: "Could not load the Finance settings.") } }
     }
@@ -119,6 +140,7 @@ struct FinanceSettingsView: View {
             categoriesSection(caps)
             if let s = vm.settings {
                 providersCard(s)
+                paybillCard(caps)
                 numberingCard(s)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 420), spacing: 16, alignment: .top)], alignment: .leading, spacing: 16) {
                     tiersCard(s)
@@ -282,6 +304,57 @@ struct FinanceSettingsView: View {
                     .overlay(alignment: .top) { if i > 0 { Rectangle().fill(Nuru.border).frame(height: 1) } }
                 }
             }
+        }
+    }
+
+    /// Payments made straight to the paybill number (Daraja C2B): are they
+    /// being taken, when were the URLs last registered with Safaricom, and the
+    /// button that registers them (finance:manage).
+    private func paybillCard(_ caps: FinanceCaps) -> some View {
+        let p = vm.config?.paybill
+        let last = p?.last30Days ?? [:]
+        return FinACard(icon: "number.square", title: "Paybill payments") {
+            FinAExplain("A member who pays the paybill number from their own M-Pesa menu, with no prompt from the app, is recorded the moment Safaricom confirms it — on the Overview, in Transactions, in every report and on their statement.")
+            if let p {
+                FinanceFlowLayout(spacing: 12, rowSpacing: 6) {
+                    FinanceStatusChip(status: p.enabled ? "active" : "inactive", label: p.enabled ? "Taking paybill confirmations" : "Off")
+                    if let code = p.shortcode, !code.isEmpty {
+                        (Text("Paybill ") + Text(code).font(.nMono(12.5)).foregroundStyle(Nuru.navy))
+                            .font(.inter(12.5)).foregroundStyle(Nuru.ink400)
+                    }
+                    Text(p.lastRegisteredAt.map { "URLs last registered with Safaricom on \(FinanceDates.display($0))." }
+                         ?? "URLs not yet registered with Safaricom — until they are, direct paybill payments do not reach the system.")
+                        .font(.inter(12.5)).foregroundStyle(Nuru.ink400)
+                }
+                FinanceFlowLayout(spacing: 16, rowSpacing: 8) {
+                    stat("Recorded", last["recorded"] ?? 0)
+                    stat("Matched a prompt", last["matched_prompt"] ?? 0)
+                    stat("Duplicates", last["duplicate"] ?? 0)
+                    stat("Rejected", last["rejected"] ?? 0)
+                    Text("confirmations in the last 30 days").font(.nMicro).foregroundStyle(Nuru.ink400)
+                }
+                Text(p.enabled
+                     ? "The server reads MPESA_C2B_SECRET and MPESA_SHORTCODE (values never shown here). Register again after a domain change. A payment the app prompted for arrives through both doors and is kept once; a payment nobody prompted is recorded against the member whose number paid, or as memberless when Safaricom masks the number, to the fund typed as the account number — else the general fund."
+                     : "Set MPESA_C2B_SECRET (a long random token) and MPESA_SHORTCODE on the server, deploy, then register the URLs here.")
+                    .font(.nMicro).foregroundStyle(Nuru.ink400)
+                if caps.manage {
+                    FinanceButton(title: p.lastRegisteredAt == nil ? "Register the URLs with Safaricom" : "Register the URLs with Safaricom again",
+                                  icon: "antenna.radiowaves.left.and.right", busy: vm.registering) {
+                        guard p.enabled, !vm.registering else { return }
+                        Task { await vm.registerPaybill() }
+                    }
+                    .opacity(p.enabled ? 1 : 0.5)
+                }
+            } else {
+                Skeleton(height: 44)
+            }
+        }
+    }
+
+    private func stat(_ label: String, _ value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased()).font(.inter(10.5, .semibold)).tracking(0.8).foregroundStyle(Nuru.ink600)
+            Text(String(value)).font(.nMono(18, .semibold)).foregroundStyle(Nuru.navy)
         }
     }
 

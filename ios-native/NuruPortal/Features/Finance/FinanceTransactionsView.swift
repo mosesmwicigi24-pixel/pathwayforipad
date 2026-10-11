@@ -80,7 +80,8 @@ struct FinanceTransactionsView: View {
     ]
     private static let sourceOptions = [
         FinanceFilterOption.all("Any"), FinanceFilterOption("app", "Member app"),
-        FinanceFilterOption("website", "Website"), FinanceFilterOption("admin", "Office"),
+        FinanceFilterOption("website", "Website"), FinanceFilterOption("paybill", "Paybill (direct)"),
+        FinanceFilterOption("admin", "Office"),
     ]
 
     var body: some View {

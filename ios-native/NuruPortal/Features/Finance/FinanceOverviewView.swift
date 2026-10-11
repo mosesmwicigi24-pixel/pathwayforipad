@@ -101,6 +101,11 @@ struct FinanceOverviewView: View {
                                                         subColor: p == nil ? Nuru.ink400 : (p ?? 0) >= 0 ? FinanceStatus.green.fg : FinanceStatus.red.fg)
                           },
                           hint: "Succeeded gifts in the period")
+            FinAValueTile(label: "Given today", icon: "sun.max", tint: Nuru.brandTint(0),
+                          lines: todayLines(o),
+                          hint: todayHint(o)) {
+                open("/finance/transactions?status=succeeded&from=\(o.today?.day ?? "")&to=\(o.today?.day ?? "")")
+            }
             FinAValueTile(label: "Expenses", icon: "arrow.down.right", tint: Nuru.brandTint(3),
                           lines: o.expenses.sorted { FinanceMoney.currencyPrecedes($0.currency, $1.currency) }
                             .map { FinAValueTile.Line(text: FinanceMoney.format($0.periodMinor, $0.currency)) },
@@ -124,6 +129,26 @@ struct FinanceOverviewView: View {
                 open("/finance/partners?status=behind")
             }
         }
+    }
+
+    /// Today's money per currency — "KSh 0" when nothing has come yet.
+    private func todayLines(_ o: FinOverview) -> [FinAValueTile.Line] {
+        let rows = (o.today?.byCurrency ?? []).sorted { FinanceMoney.currencyPrecedes($0.currency, $1.currency) }
+        if rows.isEmpty { return [FinAValueTile.Line(text: FinanceMoney.format(0, "KES"), color: Nuru.ink400)] }
+        return rows.map { FinAValueTile.Line(text: FinanceMoney.format($0.totalMinor, $0.currency)) }
+    }
+
+    /// "3 gifts so far today · 2 straight to the paybill, 1 M-Pesa prompt".
+    private func todayHint(_ o: FinOverview) -> String {
+        guard let t = o.today else { return "Succeeded gifts so far today, M-Pesa paybill included" }
+        let count = t.byCurrency.reduce(0) { $0 + $1.count }
+        if count == 0 { return "Nothing has come in yet today (East Africa Time)" }
+        let paybill = t.byCurrency.reduce(0) { $0 + $1.paybillCount }
+        let prompt = t.byCurrency.reduce(0) { $0 + $1.promptCount }
+        var parts: [String] = []
+        if paybill > 0 { parts.append("\(paybill) straight to the paybill") }
+        if prompt > 0 { parts.append(FinanceARules.plural(prompt, "M-Pesa prompt")) }
+        return FinanceARules.plural(count, "gift") + " so far today" + (parts.isEmpty ? "" : " · " + parts.joined(separator: ", "))
     }
 
     // MARK: Needs attention

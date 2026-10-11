@@ -155,6 +155,8 @@ enum FinanceAFixtures {
             }
             return (201, FinAFixtureData.transferOK)
         case ("POST", "/admin/finance/opening-balances"): return (201, FinAFixtureData.openingOK)
+        case ("POST", "/admin/finance/mpesa/c2b/register"):
+            return (200, #"{"registration_id":"reg-1","registered_at":"2026-10-11T06:40:00.000Z","shortcode":"4043755","response":{"ResponseCode":"0","ResponseDescription":"Success"},"confirmation_url":"https://pathway.nuruplace.org/v1/webhooks/mpesa/c2b/<secret>/confirmation"}"#)
         case ("POST", "/admin/finance/funds"): return (201, FinAFixtureData.fundOK)
         case ("POST", "/admin/finance/expense-categories"):
             return (201, #"{"category_id":"c-new","code":"youth-ministry","name":"Youth ministry","is_active":true,"sort":110}"#)
