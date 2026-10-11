@@ -397,6 +397,7 @@ struct PartnersView: View {
     @StateObject private var vm = PartnersVM()
     @State private var toast: ToastData?
     @State private var confirmRemindAll = false
+    @State private var enrolOpen = false
 
     private static let detailAnchor = "partners.detail"
 
@@ -438,6 +439,12 @@ struct PartnersView: View {
             if let s = params["status"], statusFilters.contains(where: { $0.value == s }) { vm.status = s }
             if let member = params["member"]?.trimmingCharacters(in: .whitespaces), !member.isEmpty { vm.open(member: member) }
         }
+        .sheet(isPresented: $enrolOpen) {
+            EnrolRegisterSheet { result in
+                toast = .success(result.summary)
+                Task { await vm.loadAll() }
+            }
+        }
         .alert("Remind everyone behind?", isPresented: $confirmRemindAll) {
             Button("Cancel", role: .cancel) {}
             Button("Send reminders") { Task { await vm.remindBehind() } }
@@ -476,6 +483,10 @@ struct PartnersView: View {
                 HeroChip(label: vm.claimsCount.map { "Claims · \($0)" } ?? "Claims",
                          icon: "list.clipboard", trailingIcon: "arrow.up.right", style: .ghost) { router.openFinance(.financeClaims) }
                     .accessibilityHint("Opens Finance → Claims")
+                if caps.manage {
+                    HeroChip(label: "Add partners", icon: "person.badge.plus", style: .ghost) { enrolOpen = true }
+                        .help("Enrol a register of names and numbers")
+                }
                 if caps.manage {
                     HeroChip(label: vm.remindingAll ? "Reminding…" : "Remind everyone behind",
                              icon: "paperplane", style: .gold) { confirmRemindAll = true }
@@ -1202,6 +1213,125 @@ private struct PartnerFaithfulnessCard: View {
 // "" = all open pledges (the server reminds each one, applying the 12 h
 // spacing per pledge). The server's own refusal — 404 "No open pledge to
 // remind about", or any 4xx message — is shown plainly inside the sheet.
+
+/// Add partners from a register (web EnrolPartnersDrawer): paste names and
+/// numbers, check the list (a dry run), pick a cell for numbers nobody has,
+/// enrol. Nothing is written until "Enrol".
+private struct EnrolRegisterSheet: View {
+    let onDone: (EnrolResult) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var cells: [EngagementCellRow] = []
+    @State private var cellId = ""
+    @State private var preview: EnrolResult?
+    @State private var busy: String?
+    @State private var error: String?
+
+    private var rows: [EnrolRow] { parsePartnerRegister(text) }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("One person per line, name then phone — exactly as a register reads: Maureen Mutile - 0705000423. Each line is matched to a member by the number. Check first; nothing is written until you enrol.")
+                        .font(.inter(12.5)).foregroundStyle(Nuru.ink600)
+                    if let error {
+                        Text(error).font(.inter(13, .semibold)).foregroundStyle(Nuru.danger)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12).background(Nuru.danger.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("REGISTER").font(.inter(10.5, .semibold)).tracking(0.8).foregroundStyle(Nuru.ink600)
+                        TextEditor(text: $text)
+                            .font(.nMono(13))
+                            .frame(minHeight: 200)
+                            .padding(6)
+                            .background(Nuru.white)
+                            .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                            .onChange(of: text) { _, _ in preview = nil }
+                        Text("\(rows.count) line\(rows.count == 1 ? "" : "s")").font(.nMicro).foregroundStyle(Nuru.ink400)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("A NUMBER NOBODY HAS YET").font(.inter(10.5, .semibold)).tracking(0.8).foregroundStyle(Nuru.ink600)
+                        Picker("Cell for new members", selection: $cellId) {
+                            Text("Leave them out (report as unknown)").tag("")
+                            ForEach(cells) { c in Text("Create a member in \(c.name)").tag(c.cellGroupId) }
+                        }
+                        .pickerStyle(.menu).tint(Nuru.navy)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 8).frame(height: 44)
+                        .background(Nuru.white)
+                        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+                        .onChange(of: cellId) { _, _ in preview = nil }
+                    }
+                    if let p = preview {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(p.summary).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
+                            ForEach(p.data) { line in
+                                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(line.fullName).font(.inter(13, .semibold)).foregroundStyle(Nuru.navy)
+                                        if let m = line.memberName, m != line.fullName {
+                                            Text("on file as \(m)").font(.nMicro).foregroundStyle(Nuru.ink400)
+                                        }
+                                    }
+                                    Spacer(minLength: 8)
+                                    Text(line.phone).font(.nMono(12)).foregroundStyle(Nuru.ink600)
+                                    Text(EnrolResult.outcomeLabel(line.outcome) + (line.note.map { " · \($0)" } ?? ""))
+                                        .font(.inter(12)).foregroundStyle(outcomeColor(line.outcome))
+                                        .frame(width: 220, alignment: .trailing)
+                                }
+                                .padding(.vertical, 6)
+                                .overlay(alignment: .top) { Rectangle().fill(Nuru.border).frame(height: 1) }
+                            }
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .background(Nuru.paper)
+            .navigationTitle("Add partners from a register")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.tint(Nuru.ink600).disabled(busy != nil) }
+                ToolbarItem(placement: .primaryAction) {
+                    HStack(spacing: 10) {
+                        Button(busy == "preview" ? "Checking…" : "Check the list") { Task { await run(dry: true) } }
+                            .disabled(rows.isEmpty || busy != nil)
+                        Button(busy == "enrol" ? "Enrolling…" : (preview.map { "Enrol \($0.toEnrol)" } ?? "Enrol")) { Task { await run(dry: false) } }
+                            .buttonStyle(.borderedProminent).tint(Nuru.navy)
+                            .disabled(preview == nil || (preview?.toEnrol ?? 0) == 0 || busy != nil)
+                    }
+                }
+            }
+        }
+        .task { cells = (try? await PortalAPI.engagement().cells) ?? [] }
+    }
+
+    private func outcomeColor(_ o: String) -> Color {
+        switch o {
+        case "enrolled", "created": Nuru.success
+        case "already": Nuru.ink600
+        case "invalid": Nuru.danger
+        default: FinanceStatus.amber.fg
+        }
+    }
+
+    private func run(dry: Bool) async {
+        busy = dry ? "preview" : "enrol"
+        error = nil
+        defer { busy = nil }
+        do {
+            let r = try await PartnersAPI.enrol(rows: rows, cellGroupId: cellId.isEmpty ? nil : cellId, dryRun: dry)
+            if dry { preview = r } else { onDone(r); dismiss() }
+        } catch {
+            self.error = FinBError.message(error, fallback: dry ? "Could not check the list." : "Could not enrol the list.")
+        }
+    }
+}
 
 private struct RemindSheet: View {
     let userId: String

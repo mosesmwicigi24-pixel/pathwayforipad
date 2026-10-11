@@ -215,6 +215,79 @@ struct PledgeClaimRow: Codable, Identifiable {
     var id: String { claimId }
 }
 
+/// One line of a register: a name and the phone as written.
+struct EnrolRow: Codable, Hashable {
+    let fullName: String
+    let phone: String
+}
+
+/// POST /admin/partners/enrol — one line per row, plus counts.
+struct EnrolResult: Decodable {
+    struct Line: Decodable, Identifiable, Hashable {
+        @DefaultEmpty var fullName: String
+        @DefaultEmpty var phone: String
+        @DefaultEmpty var outcome: String      // enrolled · already · created · unknown · ambiguous · invalid
+        let userId: String?
+        let memberName: String?
+        let note: String?
+        var id: String { "\(fullName)|\(phone)" }
+    }
+    @DefaultFalse var dryRun: Bool
+    var counts: [String: Int] = [:]
+    var data: [Line] = []
+    func count(_ k: String) -> Int { counts[k] ?? 0 }
+    var toEnrol: Int { count("enrolled") + count("created") }
+    /// "4 enrolled · 2 new members enrolled · 1 already a partner".
+    var summary: String {
+        let parts: [String?] = [
+            count("enrolled") > 0 ? "\(count("enrolled")) enrolled" : nil,
+            count("created") > 0 ? "\(count("created")) new member\(count("created") == 1 ? "" : "s") enrolled" : nil,
+            count("already") > 0 ? "\(count("already")) already a partner" : nil,
+            count("unknown") > 0 ? "\(count("unknown")) unknown number\(count("unknown") == 1 ? "" : "s")" : nil,
+            count("ambiguous") > 0 ? "\(count("ambiguous")) ambiguous" : nil,
+            count("invalid") > 0 ? "\(count("invalid")) not a number" : nil,
+        ]
+        let words = parts.compactMap { $0 }
+        return words.isEmpty ? "Nothing to do" : words.joined(separator: " · ")
+    }
+    static func outcomeLabel(_ o: String) -> String {
+        switch o {
+        case "enrolled": "Enrolled"
+        case "created": "New member, enrolled"
+        case "already": "Already a partner"
+        case "unknown": "No member has this number"
+        case "ambiguous": "Two members share this number"
+        case "invalid": "Not a phone number"
+        default: o.capitalized
+        }
+    }
+}
+
+/// "1. Maureen Mutile - 0705000423" / "Joe Blessing, 0115 688 290" → rows.
+/// A line with no number keeps its name and an empty phone (reported invalid).
+func parsePartnerRegister(_ text: String) -> [EnrolRow] {
+    var rows: [EnrolRow] = []
+    let lineRe = try! NSRegularExpression(pattern: #"^(.*?)[\s,;:\-–—\t]+(\+?[0-9][0-9 \-]{5,}[0-9])\s*\.?$"#)
+    let numberPrefix = try! NSRegularExpression(pattern: #"^\s*\d+[.)]?\s*"#)
+    for raw in text.components(separatedBy: .newlines) {
+        var line = raw
+        if let m = numberPrefix.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)), let r = Range(m.range, in: line) {
+            line.removeSubrange(r)
+        }
+        line = line.trimmingCharacters(in: .whitespaces)
+        if line.isEmpty { continue }
+        if let m = lineRe.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+           let nameR = Range(m.range(at: 1), in: line), let phoneR = Range(m.range(at: 2), in: line) {
+            let name = String(line[nameR]).trimmingCharacters(in: CharacterSet(charactersIn: " ,;:-–—\t"))
+            let phone = String(line[phoneR]).replacingOccurrences(of: "[ \\-]", with: "", options: .regularExpression)
+            rows.append(EnrolRow(fullName: name, phone: phone))
+        } else {
+            rows.append(EnrolRow(fullName: line, phone: ""))
+        }
+    }
+    return rows
+}
+
 // MARK: - API
 
 enum PartnersAPI {
@@ -254,6 +327,14 @@ enum PartnersAPI {
     /// applies the 12 h spacing per pledge. POSTs `{}` — the body the web sends.
     static func remindBehind() async throws -> RemindResult {
         try await api.post("/admin/partners/remind-behind", body: [String: String](), as: RemindResult.self)
+    }
+
+    /// finance:manage. Enrol a register of names and phone numbers as partners
+    /// (POST /admin/partners/enrol): matched by number; a number nobody has
+    /// becomes a new member in `cellGroupId`. `dryRun` reports without writing.
+    static func enrol(rows: [EnrolRow], cellGroupId: String?, dryRun: Bool) async throws -> EnrolResult {
+        struct Body: Encodable { let rows: [EnrolRow]; let cellGroupId: String?; let dryRun: Bool }
+        return try await api.post("/admin/partners/enrol", body: Body(rows: rows, cellGroupId: cellGroupId, dryRun: dryRun), as: EnrolResult.self)
     }
 
     /// finance:view. Pending claims, oldest first.
