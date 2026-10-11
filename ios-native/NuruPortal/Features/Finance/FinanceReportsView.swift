@@ -1,6 +1,7 @@
 // Finance → Reports (pathway docs/FINANCE_ERP.md §4, §5) — the year in figures
 // and the two financial statements, each per currency (KES and USD are never
 // added) and each with its CSV twin (finance:export):
+//   Daily giving           GET /reports/daily?from&to — total given per day, every day listed, by rail
 //   Income                 GET /reports/income?year&by=fund|channel|source — succeeded gifts by month
 //   Expenses               GET /reports/expenses?year&by=category|fund — APPROVED expenses by spent_on month
 //   Pledges                GET /reports/pledges?year — pledged / paid / kept / missed / behind by month
@@ -9,7 +10,7 @@
 // Before a server table is shown it is checked to foot (rows → totals, months
 // → year, lines → subtotals, assets = funds + other); a table that does not
 // add up says so instead of being trusted silently. Tables: B/FinanceReportTables.swift.
-// Deep link: tab=income|expenses|pledges|ie|position (+ year, by, from, to, as_of).
+// Deep link: tab=daily|income|expenses|pledges|ie|position (+ year, by, from, to, as_of).
 import SwiftUI
 
 /// A read's state, per report tab.
@@ -28,9 +29,10 @@ enum FinBLoad<T>: Equatable {
 @MainActor
 final class FinanceReportsModel: ObservableObject {
     enum Tab: String, CaseIterable, Hashable {
-        case income, expenses, pledges, ie, position
+        case daily, income, expenses, pledges, ie, position
         var title: String {
             switch self {
+            case .daily: "Daily giving"
             case .income: "Income"
             case .expenses: "Expenses"
             case .pledges: "Pledges"
@@ -40,13 +42,15 @@ final class FinanceReportsModel: ObservableObject {
         }
     }
 
-    @Published var tab: Tab = .income
+    @Published var tab: Tab = .daily
     @Published var year = FinanceDates.currentYear()
     @Published var incomeBy = "fund"
     @Published var expensesBy = "category"
     @Published var period: FinancePeriod = .thisMonth
+    @Published var dailyPeriod: FinancePeriod = .thisMonth
     @Published var asOf = FinanceDates.today()
 
+    @Published private(set) var daily: FinBLoad<FinDailyReport> = .idle
     @Published private(set) var income: FinBLoad<FinReportMatrix> = .idle
     @Published private(set) var expenses: FinBLoad<FinReportMatrix> = .idle
     @Published private(set) var pledges: FinBLoad<FinPledgesReport> = .idle
@@ -57,6 +61,7 @@ final class FinanceReportsModel: ObservableObject {
     /// What the current tab reads — `.task(id:)` reloads when it changes.
     var key: String {
         switch tab {
+        case .daily: "daily|\(dailyPeriod.from)|\(dailyPeriod.to)"
         case .income: "income|\(year)|\(incomeBy)"
         case .expenses: "expenses|\(year)|\(expensesBy)"
         case .pledges: "pledges|\(year)"
@@ -70,6 +75,10 @@ final class FinanceReportsModel: ObservableObject {
         let mine = seq
         do {
             switch tab {
+            case .daily:
+                if daily.value == nil { daily = .loading }
+                let r = try await FinanceERPAPI.dailyReport(period: dailyPeriod)
+                if mine == seq { daily = .loaded(r) }
             case .income:
                 if income.value == nil { income = .loading }
                 let r = try await FinanceERPAPI.incomeReport(year: year, by: incomeBy)
@@ -95,6 +104,7 @@ final class FinanceReportsModel: ObservableObject {
             guard mine == seq, !Task.isCancelled else { return }
             let message = FinBError.message(error, fallback: "Could not load the report.")
             switch tab {
+            case .daily: daily = .failed(message)
             case .income: income = .failed(message)
             case .expenses: expenses = .failed(message)
             case .pledges: pledges = .failed(message)
@@ -112,7 +122,7 @@ final class FinanceReportsModel: ObservableObject {
             if tab == .expenses, ["category", "fund"].contains(by) { expensesBy = by }
         }
         if let f = p["from"], let t = p["to"], FinanceDates.date(fromYMD: f) != nil, FinanceDates.date(fromYMD: t) != nil {
-            period = .custom(from: f, to: t)
+            if tab == .daily { dailyPeriod = .custom(from: f, to: t) } else { period = .custom(from: f, to: t) }
         }
         if let a = p["as_of"], FinanceDates.date(fromYMD: a) != nil { asOf = a }
     }
@@ -120,6 +130,7 @@ final class FinanceReportsModel: ObservableObject {
     /// The current tab's CSV twin and its query (the same filters).
     var csv: (path: String, query: [String: String]) {
         switch tab {
+        case .daily: (FinanceERPAPI.dailyReportCSV, dailyPeriod.query)
         case .income: (FinanceERPAPI.incomeReportCSV, FinanceERPAPI.yearQuery(year, by: incomeBy))
         case .expenses: (FinanceERPAPI.expensesReportCSV, FinanceERPAPI.yearQuery(year, by: expensesBy))
         case .pledges: (FinanceERPAPI.pledgesReportCSV, FinanceERPAPI.yearQuery(year, by: nil))
@@ -139,7 +150,7 @@ struct FinanceReportsView: View {
     var body: some View {
         let caps = auth.financeCaps
         FinancePageScaffold(title: Section.financeReports.title,
-                            subtitle: "The year's income, spending and pledges month by month, and the two financial statements — each per currency, each checked to add up.",
+                            subtitle: "Giving day by day, the year's income, spending and pledges month by month, and the two financial statements — each per currency, each checked to add up.",
                             onRefresh: { await vm.load() }) {
             FinanceExportButton(caps: caps, path: vm.csv.path, query: vm.csv.query, placement: .hero)
         } subheader: {
@@ -147,6 +158,7 @@ struct FinanceReportsView: View {
         } content: {
             controls
             switch vm.tab {
+            case .daily: dailyGiving
             case .income: matrix(vm.income, kind: "income")
             case .expenses: matrix(vm.expenses, kind: "expenses")
             case .pledges: pledges
@@ -162,6 +174,9 @@ struct FinanceReportsView: View {
 
     @ViewBuilder private var controls: some View {
         switch vm.tab {
+        case .daily:
+            FinanceFilterBar(period: $vm.dailyPeriod)
+            FinBExplain(text: "Total given each day — succeeded gifts only, by the East Africa day they were given; a payment made straight to the paybill number counts the moment Safaricom confirms it. Failed and still-processing prompts are not money and are not here; a reversed gift drops out of its day. Each shilling is placed on the rail it came in on. KES and USD are reported side by side, never added.")
         case .income:
             FinanceFilterBar {
                 FinanceYearMenu(year: $vm.year)
@@ -197,6 +212,24 @@ struct FinanceReportsView: View {
     private var yearNote: String {
         let current = vm.year == FinanceDates.currentYear()
         return "Showing \(String(vm.year))\(current ? " (to \(FinanceDates.display(FinanceDates.today())))" : ""). KES and USD are reported side by side, never added."
+    }
+
+    // MARK: Daily giving
+
+    @ViewBuilder private var dailyGiving: some View {
+        switch vm.daily {
+        case .idle, .loading:
+            SkeletonTable(rows: 8)
+        case .failed(let message):
+            ErrorBanner(message: message) { Task { await vm.load() } }
+        case .loaded(let r):
+            if r.currencies.isEmpty {
+                EmptyState(icon: "calendar", title: "Nothing given \(FinanceDates.displayRange(from: r.period.from, to: r.period.to))",
+                           message: "Every day of the period is listed here the moment a gift succeeds — an M-Pesa prompt, a payment straight to the paybill, a card, or a gift the office records.")
+            } else {
+                ForEach(r.currencies) { c in FinanceDailyGivingCard(block: c, railKeys: r.railKeys) }
+            }
+        }
     }
 
     // MARK: Income / Expenses

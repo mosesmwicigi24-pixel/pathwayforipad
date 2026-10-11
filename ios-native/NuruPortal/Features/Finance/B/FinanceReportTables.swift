@@ -276,6 +276,74 @@ struct FinancePledgesReportCard: View {
     }
 }
 
+// MARK: - Daily giving
+
+/// Total given per day for one currency — every day of the period, the rail
+/// of each shilling (M-Pesa prompt · M-Pesa paybill · Card · PayPal · Airtel ·
+/// Office), and the period's totals. Succeeded gifts only.
+struct FinanceDailyGivingCard: View {
+    let block: FinDailyReport.Currency
+    let railKeys: [String]
+
+    private var titles: [String] { ["Day", "Total given", "Gifts"] + railKeys.map(FinDailyReport.railLabel) }
+    private var widths: [CGFloat] { [96, 120, 56] + railKeys.map { _ in 118 } }
+
+    var body: some View {
+        let t = block.totals
+        let paybill = t.cell("paybill")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                FinBCurrencyBadge(currency: block.currency)
+                Text("Daily giving").font(.inter(14.5, .bold)).foregroundStyle(Nuru.navy)
+                Spacer(minLength: 8)
+                Text("\(FinanceMoney.format(t.totalMinor, block.currency)) over \(block.daysWithGifts) of \(block.days.count) days")
+                    .font(.inter(13, .semibold)).foregroundStyle(Nuru.navy).monospacedDigit()
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    row(titles.map { $0.uppercased() }, header: true)
+                    ForEach(block.days) { d in
+                        row([FinanceDates.display(d.day), money(d.totalMinor), d.count == 0 ? "—" : String(d.count)]
+                            + railKeys.map { cell(d.cell($0)) }, quiet: d.count == 0)
+                    }
+                    row(["Period", money(t.totalMinor), String(t.count)] + railKeys.map { cell(t.cell($0)) }, strong: true)
+                }
+            }
+            .background(Nuru.white)
+            .clipShape(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+            Text("Amounts in \(block.currency); a rail shows its amount and, in brackets, its gifts."
+                 + (block.bestDay.map { " Best day \(FinanceDates.display($0))." } ?? "")
+                 + (paybill.count > 0 ? " \(FinanceMoney.format(paybill.amountMinor, block.currency)) came straight to the paybill (\(paybill.count))." : ""))
+                .font(.nMicro).foregroundStyle(Nuru.ink400)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Nuru.white)
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Nuru.border, lineWidth: 1))
+    }
+
+    private func money(_ minor: Int) -> String { minor == 0 ? "—" : FinanceMoney.format(minor, "") }
+    private func cell(_ c: FinDailyReport.Cell) -> String { c.count == 0 ? "—" : "\(FinanceMoney.format(c.amountMinor, "")) (\(c.count))" }
+
+    private func row(_ cells: [String], header: Bool = false, strong: Bool = false, quiet: Bool = false) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(cells.enumerated()), id: \.offset) { i, v in
+                Text(v).lineLimit(1).minimumScaleFactor(0.8)
+                    .foregroundStyle(header ? Nuru.ink600 : (quiet && i > 0 ? Nuru.ink400 : Nuru.navy))
+                    .frame(width: widths[min(i, widths.count - 1)], alignment: i == 0 ? .leading : .trailing)
+            }
+        }
+        .font(header ? .inter(10.5, .bold) : .inter(12.5, strong ? .bold : .regular))
+        .tracking(header ? 0.6 : 0)
+        .monospacedDigit()
+        .padding(.horizontal, 12).padding(.vertical, header ? 9 : 7)
+        .background(header || strong ? Nuru.surface : Nuru.white)
+        .overlay(alignment: .top) { if !header { Rectangle().fill(Nuru.border).frame(height: 1) } }
+    }
+}
+
 // MARK: - Income & expenditure
 
 struct FinanceIncomeExpenditureCard: View {

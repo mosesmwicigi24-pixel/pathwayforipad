@@ -252,6 +252,10 @@ enum FinanceBFixtureRouter {
         case "/admin/finance/reports/income": return fixture("income/\(q["by"] ?? "fund")")
         case "/admin/finance/reports/expenses": return fixture("expenses_report/\(q["by"] ?? "category")")
         case "/admin/finance/reports/pledges": return fixture("pledges_report")
+        case "/admin/finance/reports/daily":
+            return patched("daily") { obj in
+                if let f = q["from"], let t = q["to"] { obj["period"] = ["from": f, "to": t] }
+            }
         case "/admin/finance/reports/income-expenditure":
             return patched("ie") { obj in
                 if let f = q["from"], let t = q["to"] { obj["period"] = ["from": f, "to": t] }

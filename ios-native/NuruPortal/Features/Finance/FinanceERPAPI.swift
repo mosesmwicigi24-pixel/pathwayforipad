@@ -227,6 +227,7 @@ enum FinWords {
         case "app": "App"
         case "website": "Website"
         case "admin": "Office"
+        case "paybill": "Paybill (direct)"
         case "": "—"
         default: (raw ?? "").capitalized
         }
@@ -305,6 +306,22 @@ struct FinOverview: Decodable {
         @LooseInt var count: Int
         @LooseInt var behind: Int
     }
+    /// Today (EAT) at a glance: succeeded gifts so far, and how many came
+    /// straight through the paybill number or an M-Pesa prompt.
+    struct TodayCurrency: Decodable, Hashable, Identifiable {
+        @DefaultEmpty var currency: String
+        @LooseInt var totalMinor: Int
+        @LooseInt var count: Int
+        @LooseInt var paybillMinor: Int
+        @LooseInt var paybillCount: Int
+        @LooseInt var promptMinor: Int
+        @LooseInt var promptCount: Int
+        var id: String { currency }
+    }
+    struct Today: Decodable, Hashable {
+        @DefaultEmpty var day: String
+        @DefaultEmptyList var byCurrency: [TodayCurrency]
+    }
     struct Counts: Decodable, Hashable {
         @LooseInt var processing: Int
         @LooseInt var failedInPeriod: Int
@@ -359,6 +376,8 @@ struct FinOverview: Decodable {
     let fundBalances: [FundBalance]
     /// Money received per cash account in the period, net of reversals.
     let channels: [FinChannelTotal]
+    /// Absent from servers before 2026-10-11.
+    var today: Today?
     let series: [Series]
     /// Only kinds with count > 0.
     let alerts: [Alert]
@@ -1603,9 +1622,92 @@ struct FinConfig: Decodable {
         @DefaultFalse var enabled: Bool
         var id: String { key }
     }
+    /// Payments made straight to the paybill number (Daraja C2B): whether the
+    /// server takes them, and the last URL registration with Safaricom.
+    struct Paybill: Decodable, Hashable {
+        @DefaultFalse var enabled: Bool
+        var shortcode: String?
+        var lastRegisteredAt: String?
+        var registeredShortcode: String?
+        /// The secret segment is masked by the server.
+        var confirmationUrl: String?
+        /// recorded · matched_prompt · duplicate · rejected → count.
+        var last30Days: [String: Int]?
+    }
     @DefaultEmptyList var funds: [FundOption]
     @DefaultEmptyList var providers: [Provider]
+    /// Absent from servers before 2026-10-11.
+    var paybill: Paybill?
     @DefaultFalse var stepUpRequired: Bool
+}
+
+/// GET /admin/finance/reports/daily — total given per day (succeeded gifts
+/// only, by the EAT day they were given), per currency, with the rail each
+/// shilling came in on.
+struct FinDailyReport: Decodable {
+    struct Period: Decodable, Hashable {
+        @DefaultEmpty var from: String
+        @DefaultEmpty var to: String
+    }
+    struct Rail: Decodable, Hashable, Identifiable {
+        @DefaultEmpty var key: String
+        @DefaultEmpty var label: String
+        var id: String { key }
+    }
+    struct Cell: Decodable, Hashable {
+        @LooseInt var amountMinor: Int
+        @LooseInt var count: Int
+        init() { _amountMinor = LooseInt(wrappedValue: 0); _count = LooseInt(wrappedValue: 0) }
+    }
+    struct Day: Decodable, Hashable, Identifiable {
+        @DefaultEmpty var day: String
+        @LooseInt var totalMinor: Int
+        @LooseInt var count: Int
+        var rails: [String: Cell] = [:]
+        var id: String { day }
+        func cell(_ rail: String) -> Cell { rails[rail] ?? Cell() }
+    }
+    struct Totals: Decodable, Hashable {
+        @LooseInt var totalMinor: Int
+        @LooseInt var count: Int
+        var rails: [String: Cell] = [:]
+        func cell(_ rail: String) -> Cell { rails[rail] ?? Cell() }
+    }
+    struct Currency: Decodable, Hashable, Identifiable {
+        @DefaultEmpty var currency: String
+        var days: [Day] = []
+        let totals: Totals
+        @LooseInt var daysWithGifts: Int
+        var bestDay: String?
+        var id: String { currency }
+    }
+    let period: Period
+    var rails: [Rail] = []
+    var currencies: [Currency] = []
+    /// The rails in the server's order, with a fallback when it sent none.
+    var railKeys: [String] {
+        rails.isEmpty ? ["mpesa", "paybill", "card", "paypal", "airtel", "office"] : rails.map(\.key)
+    }
+    static func railLabel(_ key: String) -> String {
+        switch key {
+        case "mpesa": "M-Pesa prompt"
+        case "paybill": "M-Pesa paybill"
+        case "card": "Card"
+        case "paypal": "PayPal"
+        case "airtel": "Airtel Money"
+        case "office": "Office"
+        default: key.capitalized
+        }
+    }
+}
+
+/// POST /admin/finance/mpesa/c2b/register — Safaricom's answer, kept.
+struct FinPaybillRegistration: Decodable {
+    @DefaultEmpty var registrationId: String
+    @DefaultEmpty var registeredAt: String
+    @DefaultEmpty var shortcode: String
+    /// The secret segment is masked.
+    @DefaultEmpty var confirmationUrl: String
 }
 
 /// A row of GET /admin/finance/schedules — typed from service.ts
@@ -1873,6 +1975,7 @@ enum FinanceERPAPI {
     static let pledgesReportCSV = "\(base)/reports/pledges.csv"
     static let financialPositionCSV = "\(base)/reports/financial-position.csv"
     static let incomeExpenditureCSV = "\(base)/reports/income-expenditure.csv"
+    static let dailyReportCSV = "\(base)/reports/daily.csv"
 
     /// A member's giving statement PDF (finance:view; 404 when nothing that
     /// year) — `FinanceExportButton(… path:, query: ["year": "2026"], gate: \.view)`.
@@ -1947,6 +2050,18 @@ enum FinanceERPAPI {
     /// GET /reports/income-expenditure?from&to — nil = this month.
     static func incomeExpenditure(period: FinancePeriod?) async throws -> FinIncomeExpenditure {
         try await api.get("\(base)/reports/income-expenditure", query: period?.query ?? [:], as: FinIncomeExpenditure.self)
+    }
+
+    /// GET /reports/daily?from&to — total given per day; nil = this month.
+    static func dailyReport(period: FinancePeriod?) async throws -> FinDailyReport {
+        try await api.get("\(base)/reports/daily", query: period?.query ?? [:], as: FinDailyReport.self)
+    }
+
+    private struct EmptyBody: Encodable {}
+    /// POST /mpesa/c2b/register (finance:manage) — tell Safaricom where
+    /// paybill confirmations go. 422 until the server has its settings.
+    static func registerPaybillUrls() async throws -> FinPaybillRegistration {
+        try await api.post("\(base)/mpesa/c2b/register", body: EmptyBody(), as: FinPaybillRegistration.self)
     }
 
     /// `["year": …, "by": …]` for the report reads and their CSV twins.
