@@ -5,6 +5,10 @@
 // a detail sheet per transaction (Reverse for office gifts) and Record a gift.
 // Deep links: tx=<id> opens a transaction; record=gift opens the form; the
 // filter keys (from, to, fund, status, channel, source, q, pledged, need) apply.
+// Two reports (owner ask, 2026-10-13), the web's tabs: Succeeded (money
+// received), Failed (what did not arrive, why, who gave again within 7 days)
+// and All transactions (the status filter). report= picks one; a bare
+// status= link lands on the matching report.
 import SwiftUI
 import Combine
 
@@ -20,6 +24,7 @@ enum FinATxSheet: Identifiable, Equatable {
 @MainActor
 final class FinanceTransactionsModel: ObservableObject {
     @Published var filter = FinTransactionFilter()
+    @Published var report: FinTransactionsReport = .succeeded
     let pager = FinancePager<FinTransactionsPage>()
     @Published private(set) var funds: [FundOption] = []
     @Published var sheet: FinATxSheet?
@@ -35,10 +40,21 @@ final class FinanceTransactionsModel: ObservableObject {
     }
 
     var fundNames: [String: String] { Dictionary(funds.map { ($0.code, $0.name) }, uniquingKeysWith: { a, _ in a }) }
-    var isFiltered: Bool { filter != FinTransactionFilter() }
+    /// What is asked for: on Succeeded / Failed the report is the status.
+    var effectiveFilter: FinTransactionFilter {
+        var f = filter
+        if report != .all { f.status = report.rawValue }
+        return f
+    }
+    var isFiltered: Bool {
+        var f = filter
+        if report != .all { f.status = "" }
+        return f != FinTransactionFilter()
+    }
+    /// Clear resets the filters, never the report.
     func clearFilters() { filter = FinTransactionFilter() }
 
-    private static let filterKeys: Set<String> = ["from", "to", "period", "fund", "status", "channel", "source", "q", "pledged", "need"]
+    private static let filterKeys: Set<String> = ["from", "to", "period", "fund", "status", "channel", "source", "q", "pledged", "need", "report"]
 
     /// A deep link: filter keys replace the filters; tx=<id> opens that
     /// transaction; record=gift opens the form (only with finance:manage).
@@ -53,6 +69,8 @@ final class FinanceTransactionsModel: ObservableObject {
             f.q = p["q"] ?? ""
             f.pledged = p["pledged"] ?? "any"
             f.need = p["need"] ?? "any"
+            report = FinTransactionsReport.from(report: p["report"], status: p["status"])
+            if report != .all { f.status = "" }
             filter = f
         }
         if let tx = p["tx"], !tx.isEmpty { sheet = .detail(tx) }
@@ -90,23 +108,28 @@ struct FinanceTransactionsView: View {
                             subtitle: "Every gift and payment — online and recorded by the office. Dates are East Africa Time; an office gift is dated the day the money was received. Tap a row for its ledger postings.",
                             onRefresh: { await vm.pager.reload() }) {
             HStack(spacing: 8) {
-                FinanceExportButton(caps: caps, path: FinanceERPAPI.transactionsCSV, query: vm.filter.query, placement: .hero)
+                FinanceExportButton(caps: caps, path: FinanceERPAPI.transactionsCSV, query: vm.effectiveFilter.query, placement: .hero)
                 if caps.manage {
                     HeroChip(label: "Record a gift", icon: "plus", style: .gold) { vm.sheet = .gift }
                 }
             }
         } content: {
+            Picker("Report", selection: $vm.report) {
+                ForEach(FinTransactionsReport.allCases) { r in Text(r.label).tag(r) }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 460)
+            .accessibilityLabel("Transaction reports")
             filters
-            VStack(alignment: .leading, spacing: 6) {
-                FinanceTotalsStrip(totals: vm.pager.totals, title: "Total", noun: ("transaction", "transactions"),
-                                   loading: vm.pager.isLoadingFirstPage)
-                FinAExplain("Amount = succeeded gifts only · count = every row in this filter, any status")
+            totalsBlock
+            if vm.report == .failed, let reasons = vm.pager.envelope?.failureReasons, !reasons.isEmpty {
+                FailureReasonsCard(reasons: reasons)
             }
             table
         }
         .task { await vm.loadFunds() }
-        .task(id: vm.filter) {
-            let filter = vm.filter
+        .task(id: vm.effectiveFilter) {
+            let filter = vm.effectiveFilter
             await vm.pager.load { cursor in try await FinanceERPAPI.transactions(filter, cursor: cursor) }
         }
         .onFinanceLink(.financeTransactions) { vm.apply($0, caps: auth.financeCaps) }
@@ -143,13 +166,38 @@ struct FinanceTransactionsView: View {
             FinanceFilterMenu(title: "Fund", selection: $vm.filter.fund,
                               options: [.all("Any")] + vm.funds.map { FinanceFilterOption($0.code, $0.isActive ? $0.name : "\($0.name) (inactive)") },
                               icon: "square.stack.3d.up")
-            FinanceFilterMenu(title: "Status", selection: $vm.filter.status, options: Self.statusOptions)
+            if vm.report == .all {
+                FinanceFilterMenu(title: "Status", selection: $vm.filter.status, options: Self.statusOptions)
+            }
             FinanceFilterMenu(title: "Channel", selection: $vm.filter.channel, options: Self.channelOptions)
             FinanceFilterMenu(title: "Source", selection: $vm.filter.source, options: Self.sourceOptions)
             FinanceFilterMenu(title: "Pledge", selection: anyBinding(\.pledged),
                               options: [.all("Any"), FinanceFilterOption("yes", "Yes"), FinanceFilterOption("no", "No")])
             FinanceFilterMenu(title: "Need", selection: anyBinding(\.need),
                               options: [.all("Any"), FinanceFilterOption("yes", "Yes"), FinanceFilterOption("no", "No")])
+        }
+    }
+
+    // MARK: Totals
+
+    @ViewBuilder private var totalsBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            switch vm.report {
+            case .succeeded:
+                FinanceTotalsStrip(totals: vm.pager.totals, title: "Received", noun: ("gift", "gifts"),
+                                   loading: vm.pager.isLoadingFirstPage)
+                FinAExplain("Succeeded gifts only: money that reached the church")
+            case .failed:
+                // What the givers tried to give — nothing was received (amount_minor is 0 here).
+                FinanceTotalsStrip(totals: vm.pager.totals.map { FinCurrencyTotal(currency: $0.currency, amountMinor: $0.attemptedMinor ?? $0.amountMinor, count: $0.count) },
+                                   title: "Did not arrive", noun: ("failed gift", "failed gifts"),
+                                   loading: vm.pager.isLoadingFirstPage)
+                FinAExplain("What these givers tried to give. Nothing was taken from them.")
+            case .all:
+                FinanceTotalsStrip(totals: vm.pager.totals, title: "Total", noun: ("transaction", "transactions"),
+                                   loading: vm.pager.isLoadingFirstPage)
+                FinAExplain("Amount = succeeded gifts only · count = every row in this filter, any status")
+            }
         }
     }
 
@@ -194,10 +242,16 @@ struct FinanceTransactionsView: View {
 
     private var table: some View {
         let layout = self.layout
-        let cols = columns(layout)
+        let report = vm.report
+        let cols = columns(layout).enumerated().map { i, c in
+            i == columns(layout).count - 1 && report == .failed
+                ? FinanceColumn("Gave again?", width: c.width, minWidth: c.minWidth, align: c.align) : c
+        }
         return FinancePagedTable(pager: vm.pager, columns: cols,
                                  emptyIcon: "arrow.left.arrow.right",
-                                 emptyMessage: vm.isFiltered ? "No transactions match these filters." : "No transactions in this period yet.",
+                                 emptyMessage: vm.isFiltered ? "No transactions match these filters."
+                                     : report == .failed ? "No failed gifts in this period."
+                                     : report == .succeeded ? "No gifts received in this period yet." : "No transactions in this period yet.",
                                  totalCount: vm.pager.totals.isEmpty ? nil : vm.pager.totals.reduce(0) { $0 + $1.count },
                                  onSelect: { vm.sheet = .detail($0.transactionId) }) { t in
             let reversed = t.reversedAt != nil
@@ -234,6 +288,9 @@ struct FinanceTransactionsView: View {
                 case .medium: Text(via).font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
                 case .narrow: Text("\(fund) · \(via)").font(.nMicro).foregroundStyle(Nuru.ink600).lineLimit(1)
                 }
+                if t.status == "failed", let why = t.failure?.reason, !why.isEmpty {
+                    Text(why).font(.nMicro).foregroundStyle(FinanceStatus.amberStrong.fg).lineLimit(2)
+                }
                 if t.pledgeTitle != nil || t.needTitle != nil {
                     HStack(spacing: 5) {
                         if let p = t.pledgeTitle { FinATag(text: "Pledge · \(p)", tone: FinanceStatus.navy) }
@@ -256,8 +313,61 @@ struct FinanceTransactionsView: View {
                 .strikethrough(reversed, color: Nuru.ink400)
                 .lineLimit(1).minimumScaleFactor(0.7)
                 .financeCell(cols[amountCol])
-            FinanceStatusChip(status: reversed ? "reversed" : t.status).financeCell(cols[statusCol])
+            if report == .failed {
+                GaveAgainLabel(value: t.gaveAfter).financeCell(cols[statusCol])
+            } else {
+                FinanceStatusChip(status: reversed ? "reversed" : t.status).financeCell(cols[statusCol])
+            }
         }
         .measureWidth($width)
+    }
+}
+
+/// "Gave again?" on a failed row: yes (sorted out) or not yet (worth a call).
+private struct GaveAgainLabel: View {
+    let value: Bool?
+    var body: some View {
+        switch value {
+        case .some(true):
+            Label("Gave again", systemImage: "checkmark.circle.fill")
+                .font(.inter(12, .semibold)).foregroundStyle(FinanceStatus.green.fg).lineLimit(1)
+        case .some(false):
+            Label("Not yet", systemImage: "phone.fill")
+                .font(.inter(12, .semibold)).foregroundStyle(FinanceStatus.amberStrong.fg).lineLimit(1)
+        case .none:
+            Text("—").foregroundStyle(Nuru.ink400)
+        }
+    }
+}
+
+/// The Failed report's "why": one line per reason, most frequent first.
+private struct FailureReasonsCard: View {
+    let reasons: [FinFailureReason]
+    var body: some View {
+        let total = reasons.reduce(0) { $0 + $1.count }
+        let gave = reasons.reduce(0) { $0 + $1.gaveAfter }
+        FinACard(icon: "exclamationmark.triangle", title: "Why they failed",
+                 caption: "\(gave) of \(total) gave again within 7 days") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(reasons) { r in
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(r.reason).font(.inter(13.5, .semibold)).foregroundStyle(Nuru.navy)
+                            Text(r.hint).font(.nMicro).foregroundStyle(Nuru.ink600)
+                        }
+                        Spacer(minLength: 8)
+                        Text("\(r.count) \(r.count == 1 ? "gift" : "gifts")").font(.nMono(12))
+                        VStack(alignment: .trailing, spacing: 1) {
+                            ForEach(r.byCurrency, id: \.currency) { c in
+                                Text(FinanceMoney.format(c.amountMinor, c.currency)).font(.nMono(12)).foregroundStyle(Nuru.ink600)
+                            }
+                        }
+                        Text("\(r.gaveAfter) gave again").font(.nMicro)
+                            .foregroundStyle(r.gaveAfter > 0 ? FinanceStatus.green.fg : Nuru.ink400)
+                    }
+                    if r.id != reasons.last?.id { Divider() }
+                }
+            }
+        }
     }
 }
