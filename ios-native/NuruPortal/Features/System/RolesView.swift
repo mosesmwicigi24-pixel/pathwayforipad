@@ -254,6 +254,14 @@ extension KeyedDecodingContainer {
         (try? decodeIfPresent(type, forKey: key)) ?? DefaultEmptyList<E>()
     }
 }
+// Like DefaultCodable: a Hashable model may hold a list of Hashable rows
+// (FinOverview.Today, FinFailureReason).
+extension DefaultEmptyList: Equatable where E: Equatable {
+    static func == (l: Self, r: Self) -> Bool { l.wrappedValue == r.wrappedValue }
+}
+extension DefaultEmptyList: Hashable where E: Hashable {
+    func hash(into hasher: inout Hasher) { hasher.combine(wrappedValue) }
+}
 
 // MARK: - Matrix definition (mirrors web PERM_MODULES / CAPABILITIES)
 

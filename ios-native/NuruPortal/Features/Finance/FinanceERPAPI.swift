@@ -37,6 +37,9 @@ struct FinCurrencyTotal: Codable, Hashable, FinCurrencyTotaled {
     @DefaultEmpty var currency: String
     @LooseInt var amountMinor: Int
     @LooseInt var count: Int
+    /// Transactions only: Σ every matching row's amount, any status — the
+    /// value of the Failed report (amountMinor stays Σ succeeded). Nil elsewhere.
+    @LooseOptInt var attemptedMinor: Int? = nil
 }
 
 /// An integer that may be null, a JSON number, or a numeric string (BIGINT as
@@ -441,6 +444,13 @@ struct FinTransactionRow: Decodable, Hashable, Identifiable {
     let reversalReason: String?
     @DefaultEmpty var createdAt: String
     let settledAt: String?
+    /// Failed rows: why, in the member's words.
+    let failure: FinGiftFailure?
+    /// The provider's own words for a failure.
+    let failureDetail: String?
+    /// Failed rows only: the same giver gave successfully (same currency)
+    /// within 7 days after. Nil for any other status.
+    let gaveAfter: Bool?
     var id: String { transactionId }
 
     /// Who gave, as the page shows it (the server's display_name, with the
@@ -460,8 +470,51 @@ struct FinTransactionRow: Decodable, Hashable, Identifiable {
 struct FinTransactionsPage: FinPaged {
     let data: [FinTransactionRow]
     let nextCursor: String?
-    /// amount_minor = Σ succeeded amounts; count = every matching row (any status).
+    /// amount_minor = Σ succeeded amounts; attempted_minor = Σ every matching
+    /// row; count = every matching row (any status).
     let totals: [FinCurrencyTotal]
+    /// Only with status=failed: why they failed, most frequent first.
+    let failureReasons: [FinFailureReason]?
+}
+
+/// A failed gift's reason, as the member is told.
+struct FinGiftFailure: Decodable, Hashable {
+    @DefaultEmpty var code: String
+    @DefaultEmpty var reason: String
+    @DefaultEmpty var hint: String
+}
+
+/// FinanceFailureReason — one reason in the Failed report.
+struct FinFailureReason: Decodable, Hashable, Identifiable {
+    @DefaultEmpty var code: String
+    @DefaultEmpty var reason: String
+    @DefaultEmpty var hint: String
+    @LooseInt var count: Int
+    /// How many of these givers gave successfully within 7 days after.
+    @LooseInt var gaveAfter: Int
+    @DefaultEmptyList var byCurrency: [FinCurrencyTotal]
+    var id: String { code }
+}
+
+/// Finance → Transactions reports (owner ask, 2026-10-13): Succeeded and
+/// Failed are the register at that status; All keeps the status filter.
+enum FinTransactionsReport: String, CaseIterable, Identifiable {
+    case succeeded, failed, all
+    var id: String { rawValue }
+    var label: String {
+        switch self { case .succeeded: "Succeeded"; case .failed: "Failed"; case .all: "All transactions" }
+    }
+    /// The tab a deep link means: report= when set, else the tab its bare
+    /// status= means, else Succeeded — the web's reportFor.
+    static func from(report: String?, status: String?) -> FinTransactionsReport {
+        if let r = report, let v = FinTransactionsReport(rawValue: r) { return v }
+        switch status ?? "" {
+        case "succeeded": return .succeeded
+        case "failed": return .failed
+        case "": return .succeeded
+        default: return .all
+        }
+    }
 }
 
 /// The register's filters (spec §4) — `query` feeds the list AND its CSV twin.
