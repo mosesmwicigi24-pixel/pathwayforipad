@@ -218,12 +218,28 @@ struct FinanceExpensesView: View {
         }
     }
 
+    /// "Worship & media · Camera kit · Worship & media · Offering · Camera stands".
+    private static func subtitle(_ e: FinExpense) -> String {
+        var parts: [String] = []
+        if let d = e.department?.name { parts.append(d) }
+        if let n = e.need?.title { parts.append(n) }
+        parts.append(e.category.name)
+        parts.append(e.fund.name)
+        if let d = e.description, !d.isEmpty { parts.append(d) }
+        return parts.joined(separator: " · ")
+    }
+
     @ViewBuilder private func row(_ e: FinExpense, caps: FinanceCaps) -> some View {
         let cols = Self.columns
-        Text(FinanceDates.display(e.spentOn)).font(.inter(12.5, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
-            .minimumScaleFactor(0.85)
-            .financeCell(cols[0])
-        FinBPersonCell(title: e.payee, subtitle: "\(e.category.name) · \(e.fund.name)" + (e.description.map { " · \($0)" } ?? ""))
+        VStack(alignment: .leading, spacing: 2) {
+            Text(FinanceDates.display(e.spentOn)).font(.inter(12.5, .medium)).foregroundStyle(Nuru.navy).lineLimit(1)
+                .minimumScaleFactor(0.85)
+            if let pv = e.voucherNo {
+                Text(pv).font(.nMono(10.5)).foregroundStyle(Nuru.ink400).lineLimit(1).minimumScaleFactor(0.8)
+            }
+        }
+        .financeCell(cols[0])
+        FinBPersonCell(title: e.payee, subtitle: Self.subtitle(e))
             .financeCell(cols[1])
         VStack(alignment: .trailing, spacing: 2) {
             FinBAmount(minor: e.amountMinor, currency: e.currency,

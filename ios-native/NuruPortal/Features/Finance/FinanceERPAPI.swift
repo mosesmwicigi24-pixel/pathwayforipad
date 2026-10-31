@@ -1227,6 +1227,11 @@ struct FinNeedRow: Decodable, Hashable, Identifiable {
     @DefaultEmpty var status: String
     @DefaultEmpty var createdAt: String
     let decidedAt: String?
+    /// Approved expenses spent against the need (absent before 2026-10-31).
+    @LooseOptInt var spentMinor: Int? = nil
+    /// Recorded expenses against it awaiting approval.
+    @LooseOptInt var awaitingMinor: Int? = nil
+    @LooseOptInt var expensesCount: Int? = nil
     var id: String { needId }
 }
 
@@ -1301,7 +1306,37 @@ struct FinExpense: Decodable, Hashable, Identifiable {
     let journalId: String?
     /// The expense_void journal posted when an APPROVED expense is voided.
     let voidJournalId: String?
+    /// PV-YYYY-NNNNN — gapless per year, kept when voided (absent before 2026-10-31).
+    let voucherNo: String?
+    /// The department the money was spent for; nil when none.
+    let department: FinExpenseDepartment?
+    /// The approved department need it was spent against.
+    let need: FinExpenseNeed?
     var id: String { expenseId }
+
+    /// The M-Pesa code at the start of a pasted confirmation message
+    /// ("UJVJ205LTV Confirmed. Ksh21,000.00 sent to …"); nil otherwise.
+    var mpesaCode: String? {
+        guard channel == "mpesa", let ref = reference?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        let head = String(ref.prefix(10))
+        guard head.count == 10, head.allSatisfy({ ($0.isUppercase && $0.isASCII) || ($0.isNumber && $0.isASCII) }) else { return nil }
+        let rest = ref.dropFirst(10)
+        return rest.isEmpty || rest.first?.isWhitespace == true || rest.first?.isPunctuation == true ? head : nil
+    }
+}
+
+struct FinExpenseDepartment: Decodable, Hashable {
+    @DefaultEmpty var departmentId: String
+    @DefaultEmpty var name: String
+}
+
+struct FinExpenseNeed: Decodable, Hashable {
+    @DefaultEmpty var needId: String
+    @DefaultEmpty var title: String
+    /// pending · approved · rejected · closed
+    @DefaultEmpty var status: String
+    @LooseInt var targetMinor: Int
+    @DefaultEmpty var currency: String
 }
 
 /// BooksExpenseInput (finance:manage) — recorded only; nothing posts until a
@@ -1319,7 +1354,12 @@ struct FinExpenseInput: Encodable {
     /// YYYY-MM-DD (EAT), within [today − 366 days, today].
     var spentOn: String
     var channel: FinOfficeChannel
+    /// Up to 300 characters — a whole M-Pesa message fits.
     var reference: String? = nil
+    /// The department it was spent for (optional).
+    var departmentId: String? = nil
+    /// An approved need of that department (optional; implies its department).
+    var needId: String? = nil
 }
 
 /// BooksExpensePatch — while recorded only; the editor becomes one of its makers.
@@ -1333,14 +1373,19 @@ struct FinExpensePatch: Encodable {
     var spentOn: String? = nil
     var channel: FinOfficeChannel? = nil
     var reference: FinNullable<String> = .keep
+    /// .clear unties it; another department drops the old department's need.
+    var departmentId: FinNullable<String> = .keep
+    /// .clear unties it; a need sets its department.
+    var needId: FinNullable<String> = .keep
 
     var isEmpty: Bool {
         fund == nil && category == nil && payee == nil && description.isKeep && amountMinor == nil
             && currency == nil && spentOn == nil && channel == nil && reference.isKeep
+            && departmentId.isKeep && needId.isKeep
     }
 
     private enum CodingKeys: String, CodingKey {
-        case fund, category, payee, description, amountMinor, currency, spentOn, channel, reference
+        case fund, category, payee, description, amountMinor, currency, spentOn, channel, reference, departmentId, needId
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -1353,6 +1398,8 @@ struct FinExpensePatch: Encodable {
         try c.encodeIfPresent(spentOn, forKey: .spentOn)
         try c.encodeIfPresent(channel, forKey: .channel)
         try c.encode(reference, forKey: .reference)
+        try c.encode(departmentId, forKey: .departmentId)
+        try c.encode(needId, forKey: .needId)
     }
 }
 
@@ -1634,10 +1681,19 @@ struct FinConfig: Decodable {
         /// recorded · matched_prompt · duplicate · rejected → count.
         var last30Days: [String: Int]?
     }
+    /// An active department an expense can be booked to.
+    struct Department: Decodable, Hashable, Identifiable {
+        @DefaultEmpty var departmentId: String
+        @DefaultEmpty var name: String
+        var fundCode: String?
+        var id: String { departmentId }
+    }
     @DefaultEmptyList var funds: [FundOption]
     @DefaultEmptyList var providers: [Provider]
     /// Absent from servers before 2026-10-11.
     var paybill: Paybill?
+    /// Absent from servers before 2026-10-31.
+    var departments: [Department]?
     @DefaultFalse var stepUpRequired: Bool
 }
 
@@ -1979,6 +2035,8 @@ enum FinanceERPAPI {
 
     /// A member's giving statement PDF (finance:view; 404 when nothing that
     /// year) — `FinanceExportButton(… path:, query: ["year": "2026"], gate: \.view)`.
+    /// GET …/expenses/{id}/voucher.pdf — the payment voucher (finance:view, any status).
+    static func expenseVoucherPath(_ expenseId: String) -> String { "\(base)/expenses/\(expenseId)/voucher.pdf" }
     static func givingStatementPath(_ userId: String) -> String { "\(base)/statements/\(userId)/giving.pdf" }
     /// A member's Partners statement PDF (finance:view; 404 if never a partner).
     static func partnersStatementPath(_ userId: String) -> String { "\(base)/statements/\(userId)/partners.pdf" }
@@ -2091,9 +2149,10 @@ enum FinanceERPAPI {
 
     /// GET /needs?status&q — department needs for Finance (finance:view).
     /// status: approved (default) · pending · rejected · closed · all.
-    static func needs(status: String = "approved", q: String = "", cursor: String? = nil, limit: Int = 50) async throws -> FinNeedsPage {
+    static func needs(status: String = "approved", q: String = "", departmentId: String? = nil, cursor: String? = nil, limit: Int = 50) async throws -> FinNeedsPage {
         var query: [String: String] = ["status": status]
         if let term = searchTerm(q) { query["q"] = term }
+        if let departmentId, !departmentId.isEmpty { query["department_id"] = departmentId }
         return try await api.get("\(base)/needs", query: paged(query, cursor: cursor, limit: limit), as: FinNeedsPage.self)
     }
 

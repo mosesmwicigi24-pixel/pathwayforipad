@@ -109,29 +109,73 @@ struct FinanceExpenseDetailSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(e.payee).font(.inter(18, .bold)).foregroundStyle(Nuru.navy)
-                            Text("\(FinanceMoney.format(e.amountMinor, e.currency)) · \(e.category.name) · spent \(FinanceDates.display(e.spentOn))")
-                                .font(.nCaption).foregroundStyle(Nuru.ink600)
+                    voucherCard(e)
+                    if e.voucherNo != nil {
+                        HStack(alignment: .center, spacing: 12) {
+                            FinBDownloadButton(caps: caps, path: FinanceERPAPI.expenseVoucherPath(e.expenseId), title: "Voucher PDF",
+                                               icon: "doc.richtext", notFound: "This expense has no voucher yet.")
+                            Text("A one-page PDF to print, save or send from the share sheet: the amount in words, who prepared and approved it, and a line for the person paid to sign.")
+                                .font(.nMicro).foregroundStyle(Nuru.ink400).fixedSize(horizontal: false, vertical: true)
                         }
-                        Spacer()
-                        FinanceStatusChip(status: e.status, label: e.status == "recorded" ? "Awaiting approval" : nil)
                     }
-                    FinBAmount(minor: e.amountMinor, currency: e.currency, size: 22, color: e.status == "void" ? Nuru.ink400 : Nuru.navy)
-                        .strikethrough(e.status == "void", color: Nuru.ink400)
                     if let blocked { FinanceNoticeBar(notice: .warn(blocked)) }
-                    if let loadError { FinanceNoticeBar(notice: .error(loadError)) }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-                        FinBKeyValue("Paid from", e.fund.name)
-                        FinBKeyValue("Category", e.category.name)
-                        FinBKeyValue("Paid by", FinWords.channel(e.channel))
-                        FinBKeyValue("Reference", e.reference ?? "—", mono: true)
-                        FinBKeyValue("Spent on", FinanceDates.display(e.spentOn))
-                        FinBKeyValue("Amount", FinanceMoney.format(e.amountMinor, e.currency))
+                    if blocked == nil, e.status == "recorded" {
+                        FinanceNoticeBar(notice: .warn("Awaiting approval: nothing is posted until a second person approves it. Its voucher prints “Awaiting approval” until then."))
                     }
-                    if let d = e.description, !d.isEmpty {
-                        Text(d).font(.nBody).foregroundStyle(Nuru.navy).fixedSize(horizontal: false, vertical: true)
+                    if e.status == "void" {
+                        FinanceNoticeBar(notice: .error(voidSentence(e)))
+                    }
+                    if let loadError { FinanceNoticeBar(notice: .error(loadError)) }
+                    FinBCard(title: "Where the money went", icon: "building.2") {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 10)], spacing: 10) {
+                            FinBKeyValue("Department", e.department?.name ?? "Not tied to a department")
+                            FinBKeyValue(label: "Department need") {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(e.need?.title ?? "—").font(.inter(13, .medium)).foregroundColor(Nuru.navy)
+                                    if let n = e.need {
+                                        Text("Target \(FinanceMoney.format(n.targetMinor, n.currency))").font(.nMicro).foregroundStyle(Nuru.ink600)
+                                    }
+                                }
+                            }
+                            FinBKeyValue("Paid from fund", e.fund.name)
+                            FinBKeyValue("Category", e.category.name)
+                        }
+                    }
+                    FinBCard(title: "Payment", icon: "creditcard") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 10)], spacing: 10) {
+                                FinBKeyValue("Paid by", FinWords.channel(e.channel))
+                                if let code = e.mpesaCode {
+                                    FinBKeyValue("M-Pesa code", code, mono: true)
+                                } else {
+                                    FinBKeyValue("Reference", e.reference ?? "—", mono: true)
+                                }
+                                FinBKeyValue("Spent on", FinanceDates.display(e.spentOn))
+                            }
+                            if let code = e.mpesaCode, let ref = e.reference {
+                                let rest = String(ref.trimmingCharacters(in: .whitespacesAndNewlines).dropFirst(code.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !rest.isEmpty {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("M-PESA MESSAGE").font(.inter(10.5, .semibold)).tracking(0.6).foregroundStyle(Nuru.ink600)
+                                        Text(rest).font(.nCaption).foregroundStyle(Nuru.ink600).fixedSize(horizontal: false, vertical: true)
+                                            .textSelection(.enabled)
+                                    }
+                                    .padding(11)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .overlay(RoundedRectangle(cornerRadius: Nuru.R.chip, style: .continuous)
+                                        .strokeBorder(Nuru.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                                }
+                            }
+                        }
+                    }
+                    FinBCard(title: "Purpose", icon: "text.quote") {
+                        if let d = e.description, !d.isEmpty {
+                            Text(d).font(.nBody).foregroundStyle(Nuru.navy).fixedSize(horizontal: false, vertical: true)
+                                .padding(.leading, 12)
+                                .overlay(alignment: .leading) { Rectangle().fill(Nuru.gold).frame(width: 3) }
+                        } else {
+                            Text("No description was given.").font(.nCaption).foregroundStyle(Nuru.ink400)
+                        }
                     }
                     trail(e)
                     actions(e, caps: caps, state: state)
@@ -146,7 +190,7 @@ struct FinanceExpenseDetailSheet: View {
                 .frame(maxWidth: .infinity)
             }
             .background(Nuru.paper)
-            .navigationTitle("Expense")
+            .navigationTitle(expense.voucherNo ?? "Expense")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
@@ -194,9 +238,47 @@ struct FinanceExpenseDetailSheet: View {
         }
     }
 
+    private func voidSentence(_ e: FinExpense) -> String {
+        let who = e.voidedByName.map { " — " + $0 } ?? ""
+        let why = e.voidReason ?? ""
+        return "Void" + who + ": “" + why + "”. The voucher keeps its number and prints VOID."
+    }
+
+    /// The voucher as it prints: status and PV number, the amount in figures
+    /// and in words, who was paid, when and how.
+    private func voucherCard(_ e: FinExpense) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                FinanceStatusChip(status: e.status, label: e.status == "recorded" ? "Awaiting approval" : nil)
+                Spacer()
+                if let pv = e.voucherNo {
+                    Text(pv).font(.nMono(13, .semibold)).foregroundStyle(Nuru.navy).textSelection(.enabled)
+                        .accessibilityLabel("Payment voucher \(pv)")
+                }
+            }
+            Text("AMOUNT PAID").font(.inter(10.5, .semibold)).tracking(0.8).foregroundStyle(Nuru.goldLo)
+            FinBAmount(minor: e.amountMinor, currency: e.currency, size: 28, color: e.status == "void" ? Nuru.ink400 : Nuru.navy)
+                .strikethrough(e.status == "void", color: Nuru.ink400)
+            Text(FinBWords.amountInWords(e.amountMinor, e.currency)).font(.nCaption).italic().foregroundStyle(Nuru.navy.opacity(0.8))
+            HStack(spacing: 14) {
+                (Text("Paid to ").foregroundColor(Nuru.ink600) + Text(e.payee).bold().foregroundColor(Nuru.navy))
+                (Text("on ").foregroundColor(Nuru.ink600) + Text(FinanceDates.display(e.spentOn)).foregroundColor(Nuru.navy))
+                (Text("by ").foregroundColor(Nuru.ink600) + Text(FinWords.channel(e.channel)).foregroundColor(Nuru.navy))
+            }
+            .font(.inter(13))
+            .lineLimit(2)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(hex: 0xFBF7EC))
+        .overlay(alignment: .leading) { Rectangle().fill(Nuru.gold).frame(width: 4) }
+        .clipShape(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Nuru.R.tile, style: .continuous).stroke(Color(hex: 0xEFE3C4), lineWidth: 1))
+    }
+
     private func trail(_ e: FinExpense) -> some View {
         let amount = FinanceMoney.format(e.amountMinor, e.currency)
-        return FinBCard(title: "Trail",
+        return FinBCard(title: "Accountability trail",
                         caption: editsMore ? "Older edits may not be listed — see Audit" : editsError ? "Edits could not be read" : nil,
                         icon: "clock.arrow.circlepath") {
             VStack(alignment: .leading, spacing: 12) {
@@ -315,6 +397,12 @@ struct FinanceExpenseFormSheet: View {
     @State private var channel = ""
     @State private var reference = ""
     @State private var details = ""
+    /// "" = not tied to a department / not a specific need.
+    @State private var departmentId = ""
+    @State private var needId = ""
+    /// The chosen department's needs (approved, plus this expense's own).
+    @State private var needs: [FinNeedRow] = []
+    @State private var needsError: String?
     @State private var busy = false
     @State private var error: String?
     @State private var tried = false
@@ -343,6 +431,8 @@ struct FinanceExpenseFormSheet: View {
             _channel = State(initialValue: e.channel)
             _reference = State(initialValue: e.reference ?? "")
             _details = State(initialValue: e.description ?? "")
+            _departmentId = State(initialValue: e.department?.departmentId ?? "")
+            _needId = State(initialValue: e.need?.needId ?? "")
         }
     }
 
@@ -358,7 +448,7 @@ struct FinanceExpenseFormSheet: View {
         if spentOn < earliest { return "That is more than 366 days ago — the books only accept the last 366 days." }
         return nil
     }
-    private var referenceProblem: String? { trimmed(reference).count > 80 ? "At most 80 characters." : nil }
+    private var referenceProblem: String? { trimmed(reference).count > 300 ? "At most 300 characters." : nil }
     private var detailsProblem: String? { trimmed(details).count > 500 ? "At most 500 characters." : nil }
     private var fundProblem: String? { fund.isEmpty ? "Choose the fund it is paid from." : nil }
     private var categoryProblem: String? { category.isEmpty ? "Choose a category." : nil }
@@ -374,6 +464,43 @@ struct FinanceExpenseFormSheet: View {
         if !fund.isEmpty, !list.contains(where: { $0.value == fund }) { list.insert(.init(fund, "\(lookups.fundName(fund)) (inactive)"), at: 0) }
         return list
     }
+    private var departmentOptions: [FinanceFilterOption] {
+        var list: [FinanceFilterOption] = [.all("Not tied to a department")]
+        list += lookups.departments.map { FinanceFilterOption($0.departmentId, $0.name) }
+        if let d = existing?.department, !d.departmentId.isEmpty, !list.contains(where: { $0.value == d.departmentId }) {
+            list.append(.init(d.departmentId, "\(d.name) (archived)"))
+        }
+        return list
+    }
+    private var needOptions: [FinanceFilterOption] {
+        var list: [FinanceFilterOption] = [.all("Not a specific need")]
+        for n in needs where n.status == "approved" || n.needId == needId || n.needId == existing?.need?.needId {
+            let target = FinanceMoney.format(n.targetMinor, n.currency)
+            let suffix = n.status == "approved" ? "" : " (\(n.status))"
+            list.append(FinanceFilterOption(n.needId, "\(n.title) · target \(target)\(suffix)"))
+        }
+        return list
+    }
+    /// A department suggests its fund when none is chosen yet.
+    private func chooseDepartment(_ id: String) {
+        departmentId = id
+        needId = ""
+        if fund.isEmpty, let code = lookups.departments.first(where: { $0.departmentId == id })?.fundCode,
+           lookups.activeFunds.contains(where: { $0.code == code }) {
+            fund = code
+        }
+    }
+    private func loadNeeds() async {
+        needs = []
+        needsError = nil
+        guard !departmentId.isEmpty else { return }
+        do {
+            needs = try await FinanceERPAPI.needs(status: "all", departmentId: departmentId, limit: 100).data
+        } catch {
+            needsError = FinBError.message(error, fallback: "Could not load this department's needs.")
+        }
+    }
+
     private var categoryOptions: [FinanceFilterOption] {
         var list = lookups.activeCategories.map { FinanceFilterOption($0.code, $0.name) }
         if !category.isEmpty, !list.contains(where: { $0.value == category }) {
@@ -396,6 +523,20 @@ struct FinanceExpenseFormSheet: View {
                 FinanceMoneyField(label: "Amount", text: $amount, currency: $currency)
             }
             HStack(alignment: .top, spacing: 14) {
+                FinBField(label: "Department", hint: "Who the money was spent for. Leave it for rent, utilities and the like.", error: nil) {
+                    FinBPickerField(placeholder: "Not tied to a department",
+                                    selection: Binding(get: { departmentId }, set: { chooseDepartment($0) }),
+                                    options: departmentOptions)
+                }
+                FinBField(label: "Spent against a need",
+                          hint: departmentId.isEmpty ? "Choose a department to see its approved needs."
+                              : needOptions.count <= 1 ? "This department has no approved needs." : "The need then shows what was spent on it.",
+                          error: needsError) {
+                    FinBPickerField(placeholder: "Not a specific need", selection: $needId, options: needOptions)
+                        .disabled(departmentId.isEmpty)
+                }
+            }
+            HStack(alignment: .top, spacing: 14) {
                 FinBField(label: "Paid from fund", error: tried ? fundProblem : lookups.fundsError) {
                     FinBPickerField(placeholder: "Choose a fund", selection: $fund, options: fundOptions, invalid: tried && fundProblem != nil)
                 }
@@ -413,9 +554,12 @@ struct FinanceExpenseFormSheet: View {
                     FinBPickerField(placeholder: "How was it paid?", selection: $channel, options: Self.channels, invalid: tried && channelProblem != nil)
                 }
             }
-            FinBField(label: "Reference", hint: "Cheque number, bank reference, M-Pesa code or receipt number.", error: tried ? referenceProblem : nil) {
-                TextField("Optional", text: $reference)
-                    .textInputAutocapitalization(.characters).autocorrectionDisabled()
+            FinBField(label: "Reference",
+                      hint: "Cheque number, bank reference or receipt number — or paste the whole M-Pesa message; the voucher shows its code.",
+                      error: tried ? referenceProblem : nil) {
+                TextField("Optional", text: $reference, axis: .vertical)
+                    .lineLimit(1...4)
+                    .autocorrectionDisabled()
                     .finbInput(invalid: tried && referenceProblem != nil)
             }
             FinBField(label: "Description", hint: "Optional · at most 500 characters", error: tried ? detailsProblem : nil) {
@@ -428,6 +572,7 @@ struct FinanceExpenseFormSheet: View {
             async let b: Void = lookups.loadCategories()
             _ = await (a, b)
         }
+        .task(id: departmentId) { await loadNeeds() }
     }
 
     private func save() {
@@ -451,6 +596,8 @@ struct FinanceExpenseFormSheet: View {
             if spentOn != e.spentOn { p.spentOn = spentOn }
             if channel != e.channel { p.channel = office }
             if ref != (e.reference ?? "") { p.reference = ref.isEmpty ? .clear : .set(ref) }
+            if departmentId != (e.department?.departmentId ?? "") { p.departmentId = departmentId.isEmpty ? .clear : .set(departmentId) }
+            if needId != (e.need?.needId ?? "") { p.needId = needId.isEmpty ? .clear : .set(needId) }
             guard !p.isEmpty else {
                 error = "Nothing has changed."
                 return
@@ -459,7 +606,8 @@ struct FinanceExpenseFormSheet: View {
         } else {
             input = FinExpenseInput(fund: fund, category: category, payee: trimmed(payee),
                                     description: desc.isEmpty ? nil : desc, amountMinor: minor, currency: currency,
-                                    spentOn: spentOn, channel: office, reference: ref.isEmpty ? nil : ref)
+                                    spentOn: spentOn, channel: office, reference: ref.isEmpty ? nil : ref,
+                                    departmentId: departmentId.isEmpty ? nil : departmentId, needId: needId.isEmpty ? nil : needId)
         }
         busy = true
         error = nil
@@ -473,5 +621,49 @@ struct FinanceExpenseFormSheet: View {
                 self.error = FinBError.message(error, fallback: existing == nil ? "Could not record the expense." : "Could not save the expense.")
             }
         }
+    }
+}
+
+/// The voucher's words for an amount — the server's voucherPdf.amountInWords.
+enum FinBWords {
+    private static let ones = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                               "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+    private static let tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+
+    private static func below1000(_ n: Int) -> String {
+        var parts: [String] = []
+        let h = n / 100, r = n % 100
+        if h > 0 { parts.append("\(ones[h]) hundred") }
+        if r > 0 { parts.append(r < 20 ? ones[r] : tens[r / 10] + (r % 10 > 0 ? "-\(ones[r % 10])" : "")) }
+        return parts.joined(separator: " ")
+    }
+
+    /// 21600 → "twenty-one thousand six hundred".
+    static func number(_ value: Int) -> String {
+        var n = abs(value)
+        if n == 0 { return "zero" }
+        let scales = ["", " thousand", " million", " billion", " trillion"]
+        var out: [String] = []
+        var i = 0
+        while n > 0 && i < scales.count {
+            let chunk = n % 1000
+            if chunk > 0 { out.insert(below1000(chunk) + scales[i], at: 0) }
+            n /= 1000
+            i += 1
+        }
+        return out.joined(separator: " ")
+    }
+
+    /// 2160000, "KES" → "Twenty-one thousand six hundred Kenya shillings only".
+    static func amountInWords(_ minor: Int, _ currency: String) -> String {
+        let unit: String
+        switch currency.uppercased() {
+        case "KES": unit = "Kenya shillings"
+        case "USD": unit = "US dollars"
+        default: unit = currency.uppercased()
+        }
+        let cents = abs(minor) % 100
+        let s = "\(number(abs(minor) / 100)) \(unit)" + (cents > 0 ? " and \(number(cents)) cents" : "") + " only"
+        return s.prefix(1).uppercased() + String(s.dropFirst())
     }
 }
