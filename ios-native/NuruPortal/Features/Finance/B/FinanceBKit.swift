@@ -419,6 +419,8 @@ extension ObservableObject where ObjectWillChangePublisher == ObservableObjectPu
 final class FinBLookups: ObservableObject {
     @Published private(set) var funds: [FundOption] = []
     @Published private(set) var categories: [FinExpenseCategory] = []
+    /// Active departments an expense can be booked to (from the same config read as the funds).
+    @Published private(set) var departments: [FinConfig.Department] = []
     @Published private(set) var fundsError: String?
     @Published private(set) var categoriesError: String?
     private var fundsLoaded = false
@@ -428,7 +430,9 @@ final class FinBLookups: ObservableObject {
     func loadFunds(force: Bool = false) async {
         guard force || !fundsLoaded else { return }
         do {
-            funds = try await FinanceERPAPI.config().funds
+            let config = try await FinanceERPAPI.config()
+            funds = config.funds
+            departments = config.departments ?? []
             fundsLoaded = true
             fundsError = nil
         } catch {
